@@ -1,11 +1,11 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Response, Cookie, HTTPException
+from fastapi import APIRouter, Depends, Response, Cookie, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependencies import get_tenant
-from app.api.v1.schemas import LoginRequest, TokenResponse
+from app.core.dependencies import get_tenant, get_current_user
+from app.api.v1.schemas import LoginRequest, TokenResponse, MeResponse
 from app.api.v1.auth import service
 
 router = APIRouter()
@@ -30,7 +30,6 @@ def login(
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
-    # Store refresh token in httpOnly cookie
     response.set_cookie(
         key=REFRESH_COOKIE,
         value=refresh,
@@ -94,3 +93,32 @@ def logout(
     )
 
     return {"ok": True}
+
+
+@router.get("/me", response_model=MeResponse)
+def me(
+    request: Request,
+    tenant=Depends(get_tenant),
+    _db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    # get_current_user already attached these to request.state
+    roles = getattr(request.state, "roles", []) or []
+    perms = getattr(request.state, "permissions", []) or []
+
+    return MeResponse(
+        user={
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": user.full_name,
+            "phone": user.phone,
+            "is_active": bool(user.is_active),
+        },
+        tenant={
+            "id": str(tenant.id),
+            "slug": tenant.slug,
+            "name": tenant.name,
+        },
+        roles=roles,
+        permissions=perms,
+    )

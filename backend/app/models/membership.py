@@ -1,7 +1,7 @@
-from sqlalchemy import Column, Boolean, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Boolean, DateTime, ForeignKey, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
-from app.models.base import Base
+from app.core.database import Base
 
 
 class UserTenant(Base):
@@ -12,7 +12,7 @@ class UserTenant(Base):
         {"schema": "core"},
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     tenant_id = Column(UUID(as_uuid=True), ForeignKey(
         "core.tenants.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey(
