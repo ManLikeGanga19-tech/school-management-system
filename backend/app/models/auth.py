@@ -10,7 +10,7 @@ class AuthSession(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     tenant_id = Column(UUID(as_uuid=True), ForeignKey(
-        "core.tenants.id", ondelete="CASCADE"), nullable=False)
+        "core.tenants.id", ondelete="CASCADE"), nullable=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey(
         "core.users.id", ondelete="CASCADE"), nullable=False)
 
