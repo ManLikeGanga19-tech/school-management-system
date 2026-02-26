@@ -7,11 +7,11 @@ from app.core.middleware_audit import AuditMiddleware
 
 app = FastAPI(title="School Management System API")
 
-# Your middlewares (inner)
+# Inner middlewares
 app.add_middleware(TenantMiddleware)
 app.add_middleware(AuditMiddleware)
 
-# ✅ CORS MUST BE LAST so it runs FIRST (outermost)
+# CORS outermost
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

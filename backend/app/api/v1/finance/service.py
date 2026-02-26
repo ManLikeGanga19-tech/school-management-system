@@ -57,7 +57,15 @@ def upsert_policy(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID]
 # -------------------------
 # Fee Catalog CRUD
 # -------------------------
-def create_fee_category(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID], code: str, name: str, is_active: bool) -> FeeCategory:
+def create_fee_category(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    code: str,
+    name: str,
+    is_active: bool
+) -> FeeCategory:
     norm_code = code.lower().strip()
     # prevent duplicate codes per tenant
     existing = db.execute(
@@ -69,15 +77,35 @@ def create_fee_category(db: Session, *, tenant_id: UUID, actor_user_id: Optional
     row = FeeCategory(tenant_id=tenant_id, code=norm_code, name=name.strip(), is_active=is_active)
     db.add(row)
     db.flush()
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="fees.category.create", resource="fee_category", resource_id=row.id, payload={"code": row.code}, meta=None)
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="fees.category.create",
+        resource="fee_category",
+        resource_id=row.id,
+        payload={"code": row.code},
+        meta=None,
+    )
     return row
 
 
 def list_fee_categories(db: Session, *, tenant_id: UUID) -> list[FeeCategory]:
-    return db.execute(select(FeeCategory).where(FeeCategory.tenant_id == tenant_id).order_by(FeeCategory.created_at.desc())).scalars().all()
+    return db.execute(
+        select(FeeCategory).where(FeeCategory.tenant_id == tenant_id).order_by(FeeCategory.created_at.desc())
+    ).scalars().all()
 
 
-def list_fee_categories_filtered(db: Session, *, tenant_id: UUID, search: str | None = None, is_active: bool | None = None, page: int = 1, page_size: int = 50, sort: str = "-created_at") -> list[FeeCategory]:
+def list_fee_categories_filtered(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    search: str | None = None,
+    is_active: bool | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    sort: str = "-created_at"
+) -> list[FeeCategory]:
     q = select(FeeCategory).where(FeeCategory.tenant_id == tenant_id)
     if search:
         term = f"%{search.strip()}%"
@@ -108,7 +136,16 @@ def list_fee_categories_filtered(db: Session, *, tenant_id: UUID, search: str | 
     return db.execute(q).scalars().all()
 
 
-def create_fee_item(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID], category_id: UUID, code: str, name: str, is_active: bool) -> FeeItem:
+def create_fee_item(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    category_id: UUID,
+    code: str,
+    name: str,
+    is_active: bool
+) -> FeeItem:
     category = db.execute(
         select(FeeCategory).where(
             FeeCategory.id == category_id,
@@ -135,15 +172,36 @@ def create_fee_item(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUI
     )
     db.add(row)
     db.flush()
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="fees.item.create", resource="fee_item", resource_id=row.id, payload={"code": row.code}, meta=None)
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="fees.item.create",
+        resource="fee_item",
+        resource_id=row.id,
+        payload={"code": row.code},
+        meta=None,
+    )
     return row
 
 
 def list_fee_items(db: Session, *, tenant_id: UUID) -> list[FeeItem]:
-    return db.execute(select(FeeItem).where(FeeItem.tenant_id == tenant_id).order_by(FeeItem.created_at.desc())).scalars().all()
+    return db.execute(
+        select(FeeItem).where(FeeItem.tenant_id == tenant_id).order_by(FeeItem.created_at.desc())
+    ).scalars().all()
 
 
-def list_fee_items_filtered(db: Session, *, tenant_id: UUID, search: str | None = None, category_id: UUID | None = None, is_active: bool | None = None, page: int = 1, page_size: int = 50, sort: str = "-created_at") -> list[FeeItem]:
+def list_fee_items_filtered(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    search: str | None = None,
+    category_id: UUID | None = None,
+    is_active: bool | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    sort: str = "-created_at"
+) -> list[FeeItem]:
     q = select(FeeItem).where(FeeItem.tenant_id == tenant_id)
     if category_id:
         q = q.where(FeeItem.category_id == category_id)
@@ -178,11 +236,28 @@ def list_fee_items_filtered(db: Session, *, tenant_id: UUID, search: str | None 
 # -------------------------
 # Fee Structure CRUD
 # -------------------------
-def create_fee_structure(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID], class_code: str, name: str, is_active: bool) -> FeeStructure:
+def create_fee_structure(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    class_code: str,
+    name: str,
+    is_active: bool
+) -> FeeStructure:
     row = FeeStructure(tenant_id=tenant_id, class_code=class_code.strip(), name=name.strip(), is_active=is_active)
     db.add(row)
     db.flush()
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="fees.structure.create", resource="fee_structure", resource_id=row.id, payload={"class_code": row.class_code}, meta=None)
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="fees.structure.create",
+        resource="fee_structure",
+        resource_id=row.id,
+        payload={"class_code": row.class_code},
+        meta=None,
+    )
     return row
 
 
@@ -194,7 +269,14 @@ def list_fee_structures(db: Session, *, tenant_id: UUID) -> list[FeeStructure]:
     ).scalars().all()
 
 
-def update_fee_structure(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID], structure_id: UUID, updates: dict) -> FeeStructure:
+def update_fee_structure(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    structure_id: UUID,
+    updates: dict
+) -> FeeStructure:
     structure = _get_structure_or_error(db, tenant_id=tenant_id, structure_id=structure_id)
 
     if "class_code" in updates and updates["class_code"] is not None:
@@ -314,7 +396,16 @@ def upsert_fee_structure_items(db: Session, *, tenant_id: UUID, actor_user_id: O
         db.add(FeeStructureItem(structure_id=structure_id, fee_item_id=it["fee_item_id"], amount=it["amount"]))
     db.flush()
 
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="fees.structure.items.upsert", resource="fee_structure", resource_id=structure_id, payload={"count": len(items)}, meta=None)
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="fees.structure.items.upsert",
+        resource="fee_structure",
+        resource_id=structure_id,
+        payload={"count": len(items)},
+        meta=None,
+    )
 
 
 def add_or_update_structure_item(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID], structure_id: UUID, item: dict) -> dict:
@@ -465,7 +556,16 @@ def find_structure_by_class(db: Session, *, tenant_id: UUID, class_code: str) ->
     ).scalar_one_or_none()
 
 
-def assign_fee_structure_to_enrollment(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID], enrollment_id: UUID, fee_structure_id: UUID, generate_invoice: bool = False, meta: dict | None = None):
+def assign_fee_structure_to_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    enrollment_id: UUID,
+    fee_structure_id: UUID,
+    generate_invoice: bool = False,
+    meta: dict | None = None
+):
     # validate structure
     structure = db.execute(
         select(FeeStructure).where(FeeStructure.id == fee_structure_id, FeeStructure.tenant_id == tenant_id)
@@ -499,10 +599,17 @@ def assign_fee_structure_to_enrollment(db: Session, *, tenant_id: UUID, actor_us
     # optionally generate invoice now
     if generate_invoice:
         try:
-            generate_school_fees_invoice_from_structure(db, tenant_id=tenant_id, actor_user_id=actor_user_id, enrollment_id=enrollment_id, class_code=structure.class_code, scholarship_id=None)
+            generate_school_fees_invoice_from_structure(
+                db,
+                tenant_id=tenant_id,
+                actor_user_id=actor_user_id,
+                enrollment_id=enrollment_id,
+                class_code=structure.class_code,
+                scholarship_id=None
+            )
             db.flush()
         except Exception:
-            # don't block assignment if invoice generation fails; surface to caller if desired
+            # don't block assignment if invoice generation fails
             pass
 
     return assignment
@@ -511,7 +618,16 @@ def assign_fee_structure_to_enrollment(db: Session, *, tenant_id: UUID, actor_us
 # -------------------------
 # Scholarships CRUD
 # -------------------------
-def create_scholarship(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID], name: str, type_: str, value: Decimal, is_active: bool) -> Scholarship:
+def create_scholarship(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    name: str,
+    type_: str,
+    value: Decimal,
+    is_active: bool
+) -> Scholarship:
     t = type_.upper().strip()
     if t not in ("PERCENT", "FIXED"):
         raise ValueError("Scholarship type must be PERCENT or FIXED")
@@ -520,22 +636,37 @@ def create_scholarship(db: Session, *, tenant_id: UUID, actor_user_id: Optional[
     db.add(row)
     db.flush()
 
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="scholarship.create", resource="scholarship", resource_id=row.id, payload={"type": row.type, "value": str(row.value)}, meta=None)
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="scholarship.create",
+        resource="scholarship",
+        resource_id=row.id,
+        payload={"type": row.type, "value": str(row.value)},
+        meta=None,
+    )
     return row
 
 
 def list_scholarships(db: Session, *, tenant_id: UUID) -> list[Scholarship]:
-    return db.execute(select(Scholarship).where(Scholarship.tenant_id == tenant_id).order_by(Scholarship.created_at.desc())).scalars().all()
+    return db.execute(
+        select(Scholarship).where(Scholarship.tenant_id == tenant_id).order_by(Scholarship.created_at.desc())
+    ).scalars().all()
 
 
 # -------------------------
 # Invoices
 # -------------------------
 def _recalc_invoice_amounts(db: Session, invoice: Invoice) -> None:
-    total = db.execute(select(sa_func.coalesce(sa_func.sum(InvoiceLine.amount), 0)).where(InvoiceLine.invoice_id == invoice.id)).scalar_one()
+    total = db.execute(
+        select(sa_func.coalesce(sa_func.sum(InvoiceLine.amount), 0)).where(InvoiceLine.invoice_id == invoice.id)
+    ).scalar_one()
     invoice.total_amount = total
     # paid_amount is derived from allocations
-    paid = db.execute(select(sa_func.coalesce(sa_func.sum(PaymentAllocation.amount), 0)).where(PaymentAllocation.invoice_id == invoice.id)).scalar_one()
+    paid = db.execute(
+        select(sa_func.coalesce(sa_func.sum(PaymentAllocation.amount), 0)).where(PaymentAllocation.invoice_id == invoice.id)
+    ).scalar_one()
     invoice.paid_amount = paid
     invoice.balance_amount = (Decimal(total) - Decimal(paid))
 
@@ -550,7 +681,15 @@ def _recalc_invoice_amounts(db: Session, invoice: Invoice) -> None:
         invoice.status = "ISSUED"
 
 
-def create_invoice(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID], invoice_type: str, enrollment_id: UUID, lines: list[dict]) -> Invoice:
+def create_invoice(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    invoice_type: str,
+    enrollment_id: UUID,
+    lines: list[dict]
+) -> Invoice:
     t = invoice_type.upper().strip()
     if t not in ("INTERVIEW", "SCHOOL_FEES"):
         raise ValueError("Invalid invoice_type")
@@ -560,13 +699,29 @@ def create_invoice(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID
     db.flush()
 
     for ln in lines:
-        db.add(InvoiceLine(invoice_id=inv.id, description=ln["description"], amount=ln["amount"], meta=ln.get("meta")))
+        db.add(
+            InvoiceLine(
+                invoice_id=inv.id,
+                description=ln["description"],
+                amount=ln["amount"],
+                meta=ln.get("meta"),
+            )
+        )
 
     db.flush()
     _recalc_invoice_amounts(db, inv)
     db.flush()
 
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="invoice.create", resource="invoice", resource_id=inv.id, payload={"type": inv.invoice_type, "status": inv.status}, meta=None)
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="invoice.create",
+        resource="invoice",
+        resource_id=inv.id,
+        payload={"type": inv.invoice_type, "status": inv.status},
+        meta=None,
+    )
     return inv
 
 
@@ -625,11 +780,24 @@ def generate_school_fees_invoice_from_structure(
             }
         )
 
-    inv = create_invoice(db, tenant_id=tenant_id, actor_user_id=actor_user_id, invoice_type="SCHOOL_FEES", enrollment_id=enrollment_id, lines=lines)
+    inv = create_invoice(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        invoice_type="SCHOOL_FEES",
+        enrollment_id=enrollment_id,
+        lines=lines,
+    )
 
     # apply scholarship as a negative line (discount)
     if scholarship_id:
-        sch = db.execute(select(Scholarship).where(Scholarship.tenant_id == tenant_id, Scholarship.id == scholarship_id, Scholarship.is_active == True)).scalar_one_or_none()
+        sch = db.execute(
+            select(Scholarship).where(
+                Scholarship.tenant_id == tenant_id,
+                Scholarship.id == scholarship_id,
+                Scholarship.is_active == True
+            )
+        ).scalar_one_or_none()
         if not sch:
             raise ValueError("Scholarship not found")
 
@@ -642,12 +810,28 @@ def generate_school_fees_invoice_from_structure(
             discount = Decimal(sch.value)
 
         if discount > 0:
-            db.add(InvoiceLine(invoice_id=inv.id, description=f"Scholarship: {sch.name}", amount=(discount * Decimal("-1")), meta={"scholarship_id": str(sch.id)}))
+            db.add(
+                InvoiceLine(
+                    invoice_id=inv.id,
+                    description=f"Scholarship: {sch.name}",
+                    amount=(discount * Decimal("-1")),
+                    meta={"scholarship_id": str(sch.id)},
+                )
+            )
             db.flush()
             _recalc_invoice_amounts(db, inv)
             db.flush()
 
-        log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="invoice.scholarship.apply", resource="invoice", resource_id=inv.id, payload={"scholarship_id": str(sch.id), "discount": str(discount)}, meta=None)
+        log_event(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            action="invoice.scholarship.apply",
+            resource="invoice",
+            resource_id=inv.id,
+            payload={"scholarship_id": str(sch.id), "discount": str(discount)},
+            meta=None,
+        )
 
     return inv
 
@@ -655,7 +839,16 @@ def generate_school_fees_invoice_from_structure(
 # -------------------------
 # Payments
 # -------------------------
-def create_payment(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID], provider: str, reference: Optional[str], amount: Decimal, allocations: list[dict]) -> Payment:
+def create_payment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    provider: str,
+    reference: Optional[str],
+    amount: Decimal,
+    allocations: list[dict]
+) -> Payment:
     provider_code = provider.upper().strip()
     if provider_code not in ("CASH", "MPESA", "BANK", "CHEQUE"):
         raise ValueError("Invalid payment provider")
@@ -705,7 +898,16 @@ def create_payment(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID
         _recalc_invoice_amounts(db, inv)
     db.flush()
 
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="payment.create", resource="payment", resource_id=pay.id, payload={"provider": pay.provider, "amount": str(pay.amount)}, meta=None)
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="payment.create",
+        resource="payment",
+        resource_id=pay.id,
+        payload={"provider": pay.provider, "amount": str(pay.amount)},
+        meta=None,
+    )
     return pay
 
 
@@ -801,3 +1003,234 @@ def get_enrollment_finance_status(db: Session, *, tenant_id: UUID, enrollment_id
             "partial_ok": partial_ok(fees),
         },
     }
+
+
+# =============================================================================
+# Subscription (Tenant/Director) - production safe
+# =============================================================================
+
+def _load_subscription_models():
+    """
+    Tries to load subscription-related models if they exist in this codebase.
+    This keeps the module production-safe even if subscription tables aren't added yet.
+    """
+    Subscription = None
+    SubscriptionPayment = None
+
+    # Common patterns: app.models.subscription, app.models.subscriptions, etc.
+    candidates = [
+        ("app.models.subscription", "Subscription", "SubscriptionPayment"),
+        ("app.models.subscriptions", "Subscription", "SubscriptionPayment"),
+        ("app.models.billing_subscription", "Subscription", "SubscriptionPayment"),
+    ]
+
+    for mod, sub_cls, pay_cls in candidates:
+        try:
+            m = __import__(mod, fromlist=[sub_cls, pay_cls])
+            Subscription = getattr(m, sub_cls, None)
+            SubscriptionPayment = getattr(m, pay_cls, None)
+            if Subscription is not None:
+                # SubscriptionPayment is optional; history can be derived or empty
+                return Subscription, SubscriptionPayment
+        except Exception:
+            continue
+
+    return None, None
+
+
+def get_tenant_subscription(db: Session, *, tenant_id: UUID) -> dict | None:
+    """
+    Returns the current tenant subscription for director UI.
+    Expected shape aligns with DirectorSubscription type in frontend.
+    """
+    Subscription, _SubscriptionPayment = _load_subscription_models()
+    if Subscription is None:
+        # Subscription module not implemented in DB/models yet
+        # Return None (frontend will show "No active subscription") OR raise.
+        # Returning None is nicer for UI.
+        return None
+
+    # Try common fields; we don’t assume exact schema, but we do best effort.
+    sub = db.execute(
+        select(Subscription).where(
+            getattr(Subscription, "tenant_id") == tenant_id
+        ).order_by(
+            getattr(Subscription, "created_at").desc() if hasattr(Subscription, "created_at") else getattr(Subscription, "id").desc()
+        )
+    ).scalars().first()
+
+    if not sub:
+        return None
+
+    def _get(name: str, default=None):
+        return getattr(sub, name, default)
+
+    # Normalize likely fields to frontend shape
+    return {
+        "id": str(_get("id")),
+        "plan": _get("plan", _get("plan_name", "Standard")),
+        "billing_cycle": _get("billing_cycle", _get("cycle", "per_term")),
+        "status": _get("status", "active"),
+        "amount_kes": int(_get("amount_kes", _get("amount", 0)) or 0),
+        "discount_percent": _get("discount_percent", None),
+        "period_start": (_get("period_start").isoformat() if _get("period_start") else None),
+        "period_end": (_get("period_end").isoformat() if _get("period_end") else None),
+        "next_payment_date": (_get("next_payment_date").isoformat() if _get("next_payment_date") else None),
+        "next_payment_amount": (
+            int(_get("next_payment_amount") or 0) if _get("next_payment_amount") is not None else None
+        ),
+        "created_at": (_get("created_at").isoformat() if _get("created_at") else None),
+        "notes": _get("notes", None),
+        "tenant_name": _get("tenant_name", None),
+        "tenant_slug": _get("tenant_slug", None),
+    }
+
+
+def list_tenant_subscription_payments(db: Session, *, tenant_id: UUID) -> list[dict]:
+    """
+    Returns subscription payment history rows for the tenant.
+    If SubscriptionPayment model isn't present, returns [] safely.
+    """
+    _Subscription, SubscriptionPayment = _load_subscription_models()
+    if SubscriptionPayment is None:
+        return []
+
+    rows = db.execute(
+        select(SubscriptionPayment).where(
+            getattr(SubscriptionPayment, "tenant_id") == tenant_id
+        ).order_by(
+            getattr(SubscriptionPayment, "paid_at").desc() if hasattr(SubscriptionPayment, "paid_at") else getattr(SubscriptionPayment, "created_at").desc()
+        )
+    ).scalars().all()
+
+    out: list[dict] = []
+    for p in rows:
+        def _get(name: str, default=None):
+            return getattr(p, name, default)
+
+        out.append(
+            {
+                "id": str(_get("id")),
+                "amount_kes": int(_get("amount_kes", _get("amount", 0)) or 0),
+                "paid_at": (_get("paid_at").isoformat() if _get("paid_at") else (_get("created_at").isoformat() if _get("created_at") else None)),
+                "mpesa_receipt": _get("mpesa_receipt", _get("receipt", None)),
+                "phone": _get("phone", _get("phone_number", None)),
+                "period_label": _get("period_label", None),
+                "status": _get("status", "completed"),
+            }
+        )
+    return out
+
+
+def initiate_tenant_subscription_payment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    phone_number: str,
+    amount,
+    subscription_id: Optional[str] = None,
+) -> dict:
+    """
+    Initiates an STK push for subscription payment.
+
+    Production-safe behavior:
+    - If you have an mpesa integration service in codebase, we call it.
+    - If not, we raise a clear ValueError that backend integration is missing.
+    """
+    # Validate amount
+    try:
+        amt = Decimal(str(amount))
+    except Exception:
+        raise ValueError("Invalid amount")
+    if amt <= 0:
+        raise ValueError("Amount must be > 0")
+
+    # Try to locate an mpesa integration function if exists
+    mpesa_candidates = [
+        ("app.integrations.mpesa.service", "initiate_stk_push"),
+        ("app.services.mpesa", "initiate_stk_push"),
+        ("app.mpesa.service", "initiate_stk_push"),
+    ]
+
+    mpesa_fn = None
+    for mod, fn_name in mpesa_candidates:
+        try:
+            m = __import__(mod, fromlist=[fn_name])
+            mpesa_fn = getattr(m, fn_name, None)
+            if mpesa_fn:
+                break
+        except Exception:
+            continue
+
+    if not mpesa_fn:
+        # No integration found. Fail clearly (frontend shows error toast).
+        raise ValueError("M-Pesa integration not configured on backend (initiate_stk_push not found)")
+
+    # Call the integration
+    res = mpesa_fn(
+        db=db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        phone_number=phone_number,
+        amount=amt,
+        subscription_id=subscription_id,
+    )
+
+    # Expecting res to be dict-like, but keep safe
+    if not isinstance(res, dict):
+        raise ValueError("M-Pesa initiate_stk_push returned invalid response")
+
+    # Optional audit
+    try:
+        log_event(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            action="subscription.payment.initiate",
+            resource="subscription",
+            resource_id=(UUID(subscription_id) if subscription_id else None),
+            payload={"phone_number": phone_number, "amount": str(amt)},
+            meta=None,
+        )
+    except Exception:
+        # don't break payment initiation due to audit
+        pass
+
+    return res
+
+
+def get_tenant_subscription_payment_status(db: Session, *, tenant_id: UUID, checkout_request_id: str) -> dict:
+    """
+    Polls payment status for STK push.
+
+    Production-safe behavior:
+    - Uses backend mpesa query if it exists.
+    - Otherwise returns a clean error.
+    """
+    if not checkout_request_id or not str(checkout_request_id).strip():
+        raise ValueError("checkout_request_id is required")
+
+    mpesa_candidates = [
+        ("app.integrations.mpesa.service", "query_stk_status"),
+        ("app.services.mpesa", "query_stk_status"),
+        ("app.mpesa.service", "query_stk_status"),
+    ]
+
+    query_fn = None
+    for mod, fn_name in mpesa_candidates:
+        try:
+            m = __import__(mod, fromlist=[fn_name])
+            query_fn = getattr(m, fn_name, None)
+            if query_fn:
+                break
+        except Exception:
+            continue
+
+    if not query_fn:
+        raise ValueError("M-Pesa integration not configured on backend (query_stk_status not found)")
+
+    res = query_fn(db=db, tenant_id=tenant_id, checkout_request_id=checkout_request_id)
+    if not isinstance(res, dict):
+        raise ValueError("M-Pesa query_stk_status returned invalid response")
+    return res

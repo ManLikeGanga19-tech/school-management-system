@@ -1,7 +1,13 @@
 import { cookies } from "next/headers";
 
 const BACKEND_BASE_URL =
-  process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
+  (process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000/api/v1").replace(/\/+$/g, "");
+
+function joinUrl(base: string, path: string) {
+  if (/^https?:\/\//i.test(path)) return path;
+  const p = path.replace(/^\/+/, "").replace(/^api\/v1\/?/i, "");
+  return `${base}/${p}`;
+}
 
 const DEFAULT_TIMEOUT_MS = 12000;
 
@@ -35,7 +41,7 @@ function withTimeoutSignal(init?: RequestInit, timeoutMs: number = DEFAULT_TIMEO
 }
 
 export async function backendFetch(path: string, init?: RequestInit) {
-  const url = `${BACKEND_BASE_URL}${path}`;
+  const url = joinUrl(BACKEND_BASE_URL, path);
   const headers = new Headers(init?.headers || {});
 
   const tenantHeaders = await getTenantHeaders();
@@ -50,7 +56,9 @@ export async function backendFetch(path: string, init?: RequestInit) {
     if (!headers.has(k)) headers.set(k, v);
   });
 
-  if (path.startsWith("/api/v1/auth/refresh")) {
+  // If this call targets the refresh endpoint, forward the refresh cookie
+  const normalizedPath = path.replace(/^\/+/, "").replace(/^api\/v1\/?/i, "");
+  if (normalizedPath.startsWith("auth/refresh")) {
     const refreshHdr = await getRefreshCookieHeader();
     Object.entries(refreshHdr).forEach(([k, v]) => {
       if (!headers.has(k)) headers.set(k, v);

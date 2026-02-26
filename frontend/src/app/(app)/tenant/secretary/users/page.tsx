@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { api } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -139,16 +140,15 @@ export default function SecretaryUsersPage() {
   const [roleCode, setRoleCode] = useState("");
 
   async function load() {
-    const res = await fetch("/api/tenant/secretary/users", { method: "GET" });
-    const data = (await res.json().catch(() => ({}))) as UsersResponse;
-    if (!res.ok) {
+    try {
+      const data = await api.get<UsersResponse>("/tenants/secretary/users", { tenantRequired: true });
+      setUsers(Array.isArray(data?.users) ? data.users : []);
+      setMe(data?.me || null);
+      setError(null);
+    } catch (err: any) {
       setUsers([]);
-      setError("Failed to load users");
-      return;
+      setError(typeof err?.message === "string" ? err.message : "Failed to load users");
     }
-    setUsers(Array.isArray(data?.users) ? data.users : []);
-    setMe(data?.me || null);
-    setError(null);
   }
 
   useEffect(() => {
@@ -165,21 +165,16 @@ export default function SecretaryUsersPage() {
     setError(null);
     setNotice(null);
 
-    const res = await fetch("/api/tenant/secretary/users/roles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    try {
+      await api.post<{ ok: true }>("/tenants/secretary/users/roles", {
         mode,
         user_id: userId.trim(),
         role_code: roleCode.trim(),
-      }),
-    });
-
-    const body = await res.json().catch(() => ({}));
-    setBusy(false);
-
-    if (!res.ok) {
-      setError(typeof body?.detail === "string" ? body.detail : "Role operation failed");
+      }, { tenantRequired: true });
+      setBusy(false);
+    } catch (err: any) {
+      setBusy(false);
+      setError(typeof err?.message === "string" ? err.message : "Role operation failed");
       return;
     }
 

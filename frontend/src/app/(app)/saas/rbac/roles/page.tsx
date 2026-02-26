@@ -2,11 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,7 +16,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -26,6 +24,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { RoleRow, PermissionRow } from "@/lib/admin/rbac";
 import {
   createRole,
@@ -37,214 +59,245 @@ import {
   addRolePermissions,
   removeRolePermissions,
 } from "@/lib/admin/rbac";
+import { apiFetch } from "@/lib/api";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+  ShieldCheck,
+  ShieldOff,
+  Globe,
+  Building2,
+  Plus,
+  Search,
+  RefreshCw,
+  Pencil,
+  Trash2,
+  Eye,
+  Lock,
+  XCircle,
+  CheckCircle,
+  Layers,
+} from "lucide-react";
 
-// ✅ You need tenants in this page for enterprise UX (scope=tenant/all needs tenant_id)
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type TenantRow = {
   id: string;
   slug: string;
   name: string;
-  primary_domain?: string | null;
   is_active: boolean;
-  created_at?: string | null;
-  updated_at?: string | null;
 };
 
-// local helper (keeps this file self-contained; uses your existing apiFetch)
-import { apiFetch } from "@/lib/api";
-
-async function listTenants(): Promise<TenantRow[]> {
-  return apiFetch<TenantRow[]>("/api/v1/admin/tenants", {
-    method: "GET",
-    tenantRequired: false,
-  });
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function uniq(arr: string[]) {
-  return Array.from(new Set((arr || []).filter(Boolean)));
+  return Array.from(new Set((arr ?? []).filter(Boolean)));
 }
 
 function toSet(arr: string[]) {
-  return new Set((arr || []).filter(Boolean));
+  return new Set((arr ?? []).filter(Boolean));
 }
 
 function setToArray(s: Set<string>) {
   return Array.from(s);
 }
 
-export default function SaaSRolesPage() {
-  const nav = useMemo(
-    () => [
-      { href: "/saas/dashboard", label: "SaaS Summary" },
-      { href: "/saas/tenants", label: "Tenants" },
-      { href: "/saas/rbac", label: "RBAC" },
-      { href: "/saas/audit", label: "Audit Logs" },
-    ],
-    []
+function avatarColor(id: string) {
+  const palette = [
+    "bg-blue-100 text-blue-700",
+    "bg-emerald-100 text-emerald-700",
+    "bg-amber-100 text-amber-700",
+    "bg-purple-100 text-purple-700",
+    "bg-rose-100 text-rose-700",
+  ];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  return palette[Math.abs(hash) % palette.length];
+}
+
+// ─── Nav ──────────────────────────────────────────────────────────────────────
+
+const nav = [
+  { href: "/saas/dashboard",        label: "SaaS Summary"  },
+  { href: "/saas/tenants",          label: "Tenants"       },
+  { href: "/saas/subscriptions",    label: "Subscriptions" },
+  { href: "/saas/rbac/permissions", label: "Permissions"   },
+  { href: "/saas/rbac/roles",       label: "Roles"         },
+  { href: "/saas/audit",            label: "Audit Logs"    },
+];
+
+// ─── Scope badge ──────────────────────────────────────────────────────────────
+
+function ScopeBadge({ isSystem, tenantId }: { isSystem?: boolean; tenantId?: string | null }) {
+  if (isSystem) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+        <Lock className="h-3 w-3" />
+        system
+      </span>
+    );
+  }
+  if (tenantId) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+        <Building2 className="h-3 w-3" />
+        tenant
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-200">
+      <Globe className="h-3 w-3" />
+      global
+    </span>
   );
+}
 
-  const [rows, setRows] = useState<RoleRow[]>([]);
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function SaaSRolesPage() {
+  const [rows, setRows]       = useState<RoleRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr]         = useState<string | null>(null);
 
-  // ✅ enterprise: tenant selector inside roles page
-  const [tenants, setTenants] = useState<TenantRow[]>([]);
+  // Tenants
+  const [tenants, setTenants]             = useState<TenantRow[]>([]);
   const [tenantsLoading, setTenantsLoading] = useState(true);
-  const [tenantId, setTenantId] = useState<string>(""); // empty => none selected
+  const [tenantId, setTenantId]           = useState<string>("");
 
-  // ✅ default to global so we don't require tenant context
-  const [scope, setScope] = useState<"tenant" | "global" | "all">("global");
-  const [q, setQ] = useState("");
+  // Filters
+  const [scope, setScope] = useState<"global" | "tenant" | "all">("global");
+  const [q, setQ]         = useState("");
 
-  // create dialog
+  // Delete confirm
+  const [deleteTarget, setDeleteTarget] = useState<RoleRow | null>(null);
+
+  // ── Create dialog ─────────────────────────────────────────────────────────
   const [openCreate, setOpenCreate] = useState(false);
-  const [cScope, setCScope] = useState<"tenant" | "global">("global");
-  const [cCode, setCCode] = useState("");
-  const [cName, setCName] = useState("");
-  const [cDesc, setCDesc] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [cScope, setCScope]         = useState<"global" | "tenant">("global");
+  const [cCode, setCCode]           = useState("");
+  const [cName, setCName]           = useState("");
+  const [cDesc, setCDesc]           = useState("");
+  const [creating, setCreating]     = useState(false);
 
-  // inspect dialog
-  const [inspectOpen, setInspectOpen] = useState(false);
-  const [inspectRole, setInspectRole] = useState<RoleRow | null>(null);
+  // ── Inspect dialog ────────────────────────────────────────────────────────
+  const [inspectOpen, setInspectOpen]   = useState(false);
+  const [inspectRole, setInspectRole]   = useState<RoleRow | null>(null);
   const [inspectPerms, setInspectPerms] = useState<string[]>([]);
   const [inspectLoading, setInspectLoading] = useState(false);
 
-  // edit dialog
+  // ── Edit dialog ───────────────────────────────────────────────────────────
   const [editOpen, setEditOpen] = useState(false);
   const [editRole, setEditRole] = useState<RoleRow | null>(null);
-  const [eName, setEName] = useState("");
-  const [eDesc, setEDesc] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [eName, setEName]       = useState("");
+  const [eDesc, setEDesc]       = useState("");
+  const [saving, setSaving]     = useState(false);
 
-  // ✅ manage permissions dialog (ENTERPRISE FIX)
-  const [permOpen, setPermOpen] = useState(false);
-  const [permRole, setPermRole] = useState<RoleRow | null>(null);
-  const [permLoading, setPermLoading] = useState(false);
-  const [permSaving, setPermSaving] = useState(false);
-  const [permCatalog, setPermCatalog] = useState<PermissionRow[]>([]);
-  const [permSearch, setPermSearch] = useState("");
-
-  // baseAssigned = snapshot from backend at open time
+  // ── Manage permissions dialog ─────────────────────────────────────────────
+  const [permOpen, setPermOpen]         = useState(false);
+  const [permRole, setPermRole]         = useState<RoleRow | null>(null);
+  const [permLoading, setPermLoading]   = useState(false);
+  const [permSaving, setPermSaving]     = useState(false);
+  const [permCatalog, setPermCatalog]   = useState<PermissionRow[]>([]);
+  const [permSearch, setPermSearch]     = useState("");
   const [baseAssigned, setBaseAssigned] = useState<string[]>([]);
-  // desiredAssigned = what user wants now
   const [desiredAssigned, setDesiredAssigned] = useState<string[]>([]);
 
-  // ✅ load tenants once
-  async function loadTenantsData() {
+  // ── Load tenants ──────────────────────────────────────────────────────────
+
+  async function loadTenants() {
     setTenantsLoading(true);
     try {
-      const data = await listTenants();
-      setTenants(data || []);
+      const data = await apiFetch<TenantRow[]>("/admin/tenants", {
+        method: "GET",
+        tenantRequired: false,
+      });
+      setTenants(data ?? []);
       if (!tenantId) {
-        const firstActive = (data || []).find((t) => t.is_active);
-        if (firstActive) setTenantId(firstActive.id);
+        const first = (data ?? []).find((t) => t.is_active);
+        if (first) setTenantId(first.id);
       }
     } catch (e: any) {
-      toast.error(e?.message || "Failed to load tenants");
+      toast.error(e?.message ?? "Failed to load tenants");
     } finally {
       setTenantsLoading(false);
     }
   }
 
-  // ✅ roles loader (scope-aware)
-  async function loadRoles(next?: { scope?: "tenant" | "global" | "all"; tenantId?: string }) {
+  // ── Load roles ────────────────────────────────────────────────────────────
+
+  async function loadRoles(overrides?: { scope?: typeof scope; tenantId?: string }) {
+    const effectiveScope    = overrides?.scope    ?? scope;
+    const effectiveTenantId = overrides?.tenantId ?? tenantId;
+
+    if ((effectiveScope === "tenant" || effectiveScope === "all") && !effectiveTenantId) {
+      setRows([]);
+      setErr("Select a tenant to view tenant or all-scope roles.");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setErr(null);
-
-    const effectiveScope = next?.scope ?? scope;
-    const effectiveTenantId = next?.tenantId ?? tenantId;
-
     try {
-      if ((effectiveScope === "tenant" || effectiveScope === "all") && !effectiveTenantId) {
-        setRows([]);
-        setErr("Select a tenant to view tenant/all roles.");
-        return;
-      }
-
-      const data = await listRoles(
-        effectiveScope,
-        { tenantId: effectiveTenantId || undefined } as any
-      );
-
-      setRows(data || []);
+      const data = await listRoles(effectiveScope, {
+        tenantId: effectiveTenantId || undefined,
+      } as any);
+      setRows(data ?? []);
     } catch (e: any) {
-      setErr(e?.message || "Couldn’t load roles");
+      setErr(e?.message ?? "Couldn't load roles");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    loadTenantsData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { void loadTenants(); }, []);
+  useEffect(() => { void loadRoles();   }, [scope, tenantId]);
 
-  // reload roles whenever scope OR tenant changes
-  useEffect(() => {
-    loadRoles();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, tenantId]);
+  // ── Derived ───────────────────────────────────────────────────────────────
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return rows;
-
-    return rows.filter((r) => {
-      const hay = `${r.code} ${r.name || ""} ${r.description || ""} ${r.tenant_id || ""}`.toLowerCase();
-      return hay.includes(needle);
-    });
+    return rows.filter((r) =>
+      `${r.code} ${r.name ?? ""} ${r.description ?? ""} ${r.tenant_id ?? ""}`.toLowerCase().includes(needle)
+    );
   }, [rows, q]);
+
+  const globalCount = rows.filter((r) => !r.tenant_id && !r.is_system).length;
+  const tenantCount = rows.filter((r) => !!r.tenant_id).length;
+  const systemCount = rows.filter((r) => r.is_system).length;
+
+  const selectedTenant = tenants.find((t) => t.id === tenantId) ?? null;
+
+  // ── Create ────────────────────────────────────────────────────────────────
 
   async function onCreate() {
     const code = cCode.trim();
     const name = cName.trim();
-    const description = cDesc.trim();
-
     if (!code) return toast.error("Role code is required");
     if (!name) return toast.error("Role name is required");
-
-    if (cScope === "tenant" && !tenantId) {
-      return toast.error("Select a tenant before creating a tenant-scoped role");
-    }
+    if (cScope === "tenant" && !tenantId) return toast.error("Select a tenant first");
 
     setCreating(true);
     try {
       await createRole({
         code,
         name,
-        description: description || undefined,
+        description: cDesc.trim() || undefined,
         scope: cScope,
         tenantId: cScope === "tenant" ? tenantId : undefined,
       } as any);
-
       toast.success("Role created");
       setOpenCreate(false);
-      setCCode("");
-      setCName("");
-      setCDesc("");
-
-      if (cScope === "tenant" && scope === "global") {
-        setScope("tenant");
-      } else {
-        await loadRoles();
-      }
+      setCCode(""); setCName(""); setCDesc("");
+      await loadRoles();
     } catch (e: any) {
-      toast.error(e?.message || "Failed to create role");
+      toast.error(e?.message ?? "Failed to create role");
     } finally {
       setCreating(false);
     }
   }
+
+  // ── Inspect ───────────────────────────────────────────────────────────────
 
   async function openInspect(role: RoleRow) {
     setInspectRole(role);
@@ -253,61 +306,56 @@ export default function SaaSRolesPage() {
     setInspectLoading(true);
     try {
       const res = await getRolePermissions(role.id);
-      setInspectPerms(res.permissions || []);
+      setInspectPerms(res.permissions ?? []);
     } catch (e: any) {
-      toast.error(e?.message || "Failed to load role permissions");
+      toast.error(e?.message ?? "Failed to load permissions");
     } finally {
       setInspectLoading(false);
     }
   }
 
+  // ── Edit ──────────────────────────────────────────────────────────────────
+
   function openEdit(role: RoleRow) {
     setEditRole(role);
-    setEName(role.name || "");
-    setEDesc(role.description || "");
+    setEName(role.name ?? "");
+    setEDesc(role.description ?? "");
     setEditOpen(true);
   }
 
   async function onSaveEdit() {
     if (!editRole) return;
-
     const name = eName.trim();
-    const description = eDesc.trim();
     if (!name) return toast.error("Role name is required");
-
     setSaving(true);
     try {
-      await updateRole(editRole.id, { name, description: description || undefined });
+      await updateRole(editRole.id, { name, description: eDesc.trim() || undefined });
       toast.success("Role updated");
       setEditOpen(false);
       setEditRole(null);
       await loadRoles();
     } catch (e: any) {
-      toast.error(e?.message || "Failed to update role");
+      toast.error(e?.message ?? "Failed to update role");
     } finally {
       setSaving(false);
     }
   }
+
+  // ── Delete ────────────────────────────────────────────────────────────────
 
   async function onDelete(role: RoleRow) {
     if (role.is_system) return toast.error("System roles cannot be deleted");
     try {
       await deleteRole(role.id);
       toast.success("Role deleted");
+      setDeleteTarget(null);
       await loadRoles();
     } catch (e: any) {
-      toast.error(e?.message || "Failed to delete role");
+      toast.error(e?.message ?? "Failed to delete role");
     }
   }
 
-  const selectedTenant = useMemo(
-    () => tenants.find((t) => t.id === tenantId) || null,
-    [tenants, tenantId]
-  );
-
-  // -------------------------
-  // Manage Permissions (ENTERPRISE FIX)
-  // -------------------------
+  // ── Manage permissions ────────────────────────────────────────────────────
 
   async function openManagePermissions(role: RoleRow) {
     setPermRole(role);
@@ -317,508 +365,416 @@ export default function SaaSRolesPage() {
     setBaseAssigned([]);
     setDesiredAssigned([]);
     setPermLoading(true);
-
     try {
       const [catalog, assigned] = await Promise.all([
         listPermissions(),
         getRolePermissions(role.id),
       ]);
-
-      const base = uniq(assigned.permissions || []);
-      setPermCatalog(catalog || []);
+      const base = uniq(assigned.permissions ?? []);
+      setPermCatalog(catalog ?? []);
       setBaseAssigned(base);
-      setDesiredAssigned(base); // start desired == base
+      setDesiredAssigned(base);
     } catch (e: any) {
-      toast.error(e?.message || "Failed to load permissions");
-      setPermCatalog([]);
-      setBaseAssigned([]);
-      setDesiredAssigned([]);
+      toast.error(e?.message ?? "Failed to load permissions");
     } finally {
       setPermLoading(false);
     }
   }
 
   const desiredSet = useMemo(() => toSet(desiredAssigned), [desiredAssigned]);
-  const baseSet = useMemo(() => toSet(baseAssigned), [baseAssigned]);
-
-  function isDesiredAssigned(code: string) {
-    return desiredSet.has(code);
-  }
+  const baseSet    = useMemo(() => toSet(baseAssigned),    [baseAssigned]);
 
   function toggleDesired(code: string) {
     setDesiredAssigned((prev) => {
       const s = new Set(prev);
-      if (s.has(code)) s.delete(code);
-      else s.add(code);
+      if (s.has(code)) s.delete(code); else s.add(code);
       return setToArray(s);
     });
   }
 
-  const filteredPermCatalog = useMemo(() => {
-    const needle = permSearch.trim().toLowerCase();
-    const all = permCatalog || [];
-    if (!needle) return all;
-    return all.filter((p) => {
-      const hay = `${p.code} ${p.name || ""} ${p.description || ""}`.toLowerCase();
-      return hay.includes(needle);
-    });
-  }, [permCatalog, permSearch]);
-
-  // diffs (computed from sets => always correct)
   const diff = useMemo(() => {
     const toAdd: string[] = [];
     const toRemove: string[] = [];
-
     for (const c of desiredSet) if (!baseSet.has(c)) toAdd.push(c);
     for (const c of baseSet) if (!desiredSet.has(c)) toRemove.push(c);
-
-    toAdd.sort();
-    toRemove.sort();
-    return { toAdd, toRemove };
+    return { toAdd: toAdd.sort(), toRemove: toRemove.sort() };
   }, [baseSet, desiredSet]);
+
+  const filteredPermCatalog = useMemo(() => {
+    const needle = permSearch.trim().toLowerCase();
+    if (!needle) return permCatalog;
+    return permCatalog.filter((p) =>
+      `${p.code} ${p.name ?? ""} ${p.description ?? ""}`.toLowerCase().includes(needle)
+    );
+  }, [permCatalog, permSearch]);
+
+  // Group permissions by category
+  const groupedPerms = useMemo(() =>
+    filteredPermCatalog.reduce((acc, p) => {
+      const cat = (p as any).category ?? "General";
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(p);
+      return acc;
+    }, {} as Record<string, PermissionRow[]>),
+    [filteredPermCatalog]
+  );
 
   async function saveManagePermissions() {
     if (!permRole) return;
-
-    const toAdd = uniq(diff.toAdd);
-    const toRemove = uniq(diff.toRemove);
-
-    if (toAdd.length === 0 && toRemove.length === 0) {
+    if (diff.toAdd.length === 0 && diff.toRemove.length === 0) {
       toast.message("No changes to save");
       setPermOpen(false);
       return;
     }
-
     setPermSaving(true);
     try {
-      // apply additions first
-      if (toAdd.length) await addRolePermissions(permRole.id, toAdd);
-      if (toRemove.length) await removeRolePermissions(permRole.id, toRemove);
-
-      toast.success("Role permissions updated");
-
-      // refresh base/desired from backend to remain consistent
-      const res = await getRolePermissions(permRole.id);
-      const fresh = uniq(res.permissions || []);
+      if (diff.toAdd.length)    await addRolePermissions(permRole.id, diff.toAdd);
+      if (diff.toRemove.length) await removeRolePermissions(permRole.id, diff.toRemove);
+      toast.success("Permissions updated");
+      const res   = await getRolePermissions(permRole.id);
+      const fresh = uniq(res.permissions ?? []);
       setBaseAssigned(fresh);
       setDesiredAssigned(fresh);
-
       setPermOpen(false);
     } catch (e: any) {
-      toast.error(e?.message || "Failed to update role permissions");
+      toast.error(e?.message ?? "Failed to update permissions");
     } finally {
       setPermSaving(false);
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+
   return (
-    <AppShell title="Super Admin" nav={nav} activeHref="/saas/rbac">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Roles</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage role catalog, tenant scoping, and permission sets.
-          </p>
-        </div>
+    <AppShell title="Super Admin" nav={nav} activeHref="/saas/rbac/roles">
 
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => loadRoles()} disabled={loading}>
-            Refresh
-          </Button>
+      {/* ── Delete confirm ── */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete role "{deleteTarget?.code}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the role. Ensure it is unassigned from all users first.
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => deleteTarget && void onDelete(deleteTarget)}
+            >
+              Delete Role
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-          <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-            <DialogTrigger asChild>
-              <Button>Create role</Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Create role</DialogTitle>
-                <DialogDescription>
-                  Create a <b>global</b> role (platform-wide) or a <b>tenant</b> role (scoped).
-                  {cScope === "tenant" && (
-                    <>
-                      {" "}
-                      Tenant:{" "}
-                      <code className="text-foreground">
-                        {selectedTenant?.slug || "not selected"}
-                      </code>
-                    </>
-                  )}
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">Scope</div>
-                  <Select value={cScope} onValueChange={(v: any) => setCScope(v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select scope" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="global">Global</SelectItem>
-                      <SelectItem value="tenant">Tenant</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {cScope === "tenant" && !tenantId && (
-                    <div className="text-xs text-destructive">
-                      Select a tenant in Filters before creating a tenant role.
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">Code</div>
-                  <Input
-                    placeholder="e.g. SUPER_ADMIN"
-                    value={cCode}
-                    onChange={(e) => setCCode(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">Name</div>
-                  <Input
-                    placeholder="e.g. Super Admin"
-                    value={cName}
-                    onChange={(e) => setCName(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">Description (optional)</div>
-                  <Textarea value={cDesc} onChange={(e) => setCDesc(e.target.value)} />
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setOpenCreate(false)} disabled={creating}>
-                  Cancel
-                </Button>
-                <Button onClick={onCreate} disabled={creating || (cScope === "tenant" && !tenantId)}>
-                  {creating ? "Creating..." : "Create"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-
-      <Card className="mt-6 rounded-2xl">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Filters</CardTitle>
-        </CardHeader>
-
-        <CardContent className="flex flex-col gap-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <Select
-                value={tenantId || "__none__"}
-                onValueChange={(v: any) => setTenantId(v === "__none__" ? "" : v)}
-                disabled={tenantsLoading}
-              >
-                <SelectTrigger className="sm:w-80">
-                  <SelectValue
-                    placeholder={
-                      tenantsLoading ? "Loading tenants..." : "Select tenant (for tenant/all scopes)"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No tenant selected</SelectItem>
-                  {tenants.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name} ({t.slug}){t.is_active ? "" : " • inactive"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={scope} onValueChange={(v: any) => setScope(v)}>
-                <SelectTrigger className="sm:w-44">
-                  <SelectValue placeholder="Scope" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="global">Global</SelectItem>
-                  <SelectItem value="tenant">Tenant</SelectItem>
-                  <SelectItem value="all">All</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Input
-                placeholder="Search by code, name, description…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                className="sm:w-96"
-              />
-            </div>
-
-            <div className="text-sm text-muted-foreground">
-              Showing <span className="font-medium text-foreground">{filtered.length}</span> of{" "}
-              <span className="font-medium text-foreground">{rows.length}</span>
-            </div>
-          </div>
-
-          {(scope === "tenant" || scope === "all") && !tenantId && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
-              <span className="font-medium">Tenant required:</span> select a tenant to view{" "}
-              <code>{scope}</code> roles.
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="mt-4 rounded-2xl">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Role list</CardTitle>
-        </CardHeader>
-
-        <CardContent className="space-y-3">
-          {err && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {err}
-            </div>
-          )}
-
-          {loading && (
-            <div className="space-y-2">
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
-            </div>
-          )}
-
-          {!loading && filtered.length === 0 && (
-            <div className="text-sm text-muted-foreground">No roles match your filters.</div>
-          )}
-
-          {!loading &&
-            filtered.map((r) => (
-              <div key={r.id} className="rounded-xl border p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <code className="text-sm font-medium">{r.code}</code>
-                      {r.tenant_id ? (
-                        <Badge variant="secondary" className="rounded-full">
-                          tenant
-                        </Badge>
-                      ) : (
-                        <Badge className="rounded-full">global</Badge>
-                      )}
-                      {r.is_system && (
-                        <Badge variant="outline" className="rounded-full">
-                          system
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="mt-1 font-medium truncate">{r.name}</div>
-
-                    {r.description ? (
-                      <div className="text-sm text-muted-foreground mt-1">{r.description}</div>
-                    ) : (
-                      <div className="text-sm text-muted-foreground mt-1">—</div>
-                    )}
-
-                    {r.tenant_id && (
-                      <div className="text-xs text-muted-foreground mt-2">
-                        tenant_id: <code>{r.tenant_id}</code>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 sm:justify-end">
-                    <Button variant="outline" onClick={() => openInspect(r)}>
-                      Inspect
-                    </Button>
-
-                    <Button variant="outline" onClick={() => openManagePermissions(r)}>
-                      Manage permissions
-                    </Button>
-
-                    <Button variant="outline" onClick={() => openEdit(r)}>
-                      Edit
-                    </Button>
-
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="destructive" disabled={r.is_system}>
-                          Delete
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete role?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This deletes the role. If it’s assigned to users, make sure you remove it first.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => onDelete(r)}>Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                </div>
-
-                <Separator className="my-3" />
-
-                <div className="text-xs text-muted-foreground">
-                  ID: <code>{r.id}</code>
-                </div>
-              </div>
-            ))}
-        </CardContent>
-      </Card>
-
-      {/* Inspect dialog */}
-      <Dialog open={inspectOpen} onOpenChange={setInspectOpen}>
-        <DialogContent className="sm:max-w-2xl">
+      {/* ── Create role dialog ── */}
+      <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Role permissions</DialogTitle>
+            <DialogTitle>Create Role</DialogTitle>
             <DialogDescription>
-              Role: <code className="text-foreground">{inspectRole?.code || ""}</code>
+              Create a <strong>global</strong> role (platform-wide) or a{" "}
+              <strong>tenant</strong> role scoped to one institution.
             </DialogDescription>
           </DialogHeader>
-
-          {inspectLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : (
-            <div className="rounded-xl border p-3">
-              {inspectPerms.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No permissions assigned to this role.</div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {inspectPerms.map((p) => (
-                    <Badge key={p} variant="secondary" className="rounded-full">
-                      {p}
-                    </Badge>
-                  ))}
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Scope</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["global", "tenant"] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setCScope(s)}
+                    className={`flex items-center gap-2 rounded-xl border p-3 text-sm font-medium transition ${
+                      cScope === s
+                        ? "border-blue-200 bg-blue-50 text-blue-800"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {s === "global"
+                      ? <Globe className="h-4 w-4" />
+                      : <Building2 className="h-4 w-4" />}
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </button>
+                ))}
+              </div>
+              {cScope === "tenant" && (
+                <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Will be scoped to:{" "}
+                  <strong>{selectedTenant?.name ?? "no tenant selected"}</strong>
+                  {!tenantId && (
+                    <span className="ml-1 text-red-600">— select a tenant in the filters first</span>
+                  )}
                 </div>
               )}
             </div>
-          )}
 
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">
+                Role Code <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                placeholder="e.g. SUPER_ADMIN"
+                value={cCode}
+                onChange={(e) => setCCode(e.target.value.toUpperCase())}
+                className="font-mono"
+              />
+              <p className="text-xs text-slate-400">Uppercase. Immutable after creation.</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">
+                Display Name <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                placeholder="e.g. Super Admin"
+                value={cName}
+                onChange={(e) => setCName(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Description</Label>
+              <Textarea
+                placeholder="What does this role allow?"
+                value={cDesc}
+                onChange={(e) => setCDesc(e.target.value)}
+                className="resize-none"
+                rows={3}
+              />
+            </div>
+
+            <Separator />
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setInspectOpen(false)}>
-              Close
+            <Button variant="outline" onClick={() => setOpenCreate(false)} disabled={creating}>Cancel</Button>
+            <Button
+              onClick={() => void onCreate()}
+              disabled={creating || !cCode.trim() || !cName.trim() || (cScope === "tenant" && !tenantId)}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {creating ? (
+                <span className="flex items-center gap-2">
+                  <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Creating…
+                </span>
+              ) : "Create Role"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Manage permissions dialog */}
+      {/* ── Inspect dialog ── */}
+      <Dialog open={inspectOpen} onOpenChange={setInspectOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Role Permissions</DialogTitle>
+            <DialogDescription>
+              Permissions currently assigned to{" "}
+              <code className="rounded bg-slate-100 px-1">{inspectRole?.code}</code>
+            </DialogDescription>
+          </DialogHeader>
+          {inspectLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-3/4" />
+              <Skeleton className="h-8 w-1/2" />
+            </div>
+          ) : inspectPerms.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <ShieldOff className="h-8 w-8 text-slate-200" />
+              <p className="text-sm text-slate-400">No permissions assigned to this role.</p>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5 rounded-xl border border-slate-100 bg-slate-50 p-4">
+              {inspectPerms.map((p) => (
+                <span
+                  key={p}
+                  className="rounded-full bg-blue-50 px-2 py-0.5 font-mono text-xs font-medium text-blue-700 ring-1 ring-blue-200"
+                >
+                  {p}
+                </span>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInspectOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit dialog ── */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Role</DialogTitle>
+            <DialogDescription>
+              Code is immutable:{" "}
+              <code className="rounded bg-slate-100 px-1">{editRole?.code}</code>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Display Name *</Label>
+              <Input value={eName} onChange={(e) => setEName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Description</Label>
+              <Textarea
+                value={eDesc}
+                onChange={(e) => setEDesc(e.target.value)}
+                className="resize-none"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>Cancel</Button>
+            <Button
+              onClick={() => void onSaveEdit()}
+              disabled={saving || !eName.trim()}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {saving ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Manage permissions dialog ── */}
       <Dialog open={permOpen} onOpenChange={setPermOpen}>
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Manage role permissions</DialogTitle>
+            <DialogTitle>Manage Permissions</DialogTitle>
             <DialogDescription>
-              Role: <code className="text-foreground">{permRole?.code || ""}</code>
+              Role:{" "}
+              <code className="rounded bg-slate-100 px-1">{permRole?.code}</code>
+              {" · "}
+              <span className="text-slate-500">
+                {desiredAssigned.length} assigned · {diff.toAdd.length} to add · {diff.toRemove.length} to remove
+              </span>
             </DialogDescription>
           </DialogHeader>
 
           {permLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-3/4" />
+              <Skeleton className="h-10 w-1/2" />
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <Input
-                  placeholder="Search permissions by code/name/description…"
-                  value={permSearch}
-                  onChange={(e) => setPermSearch(e.target.value)}
-                  className="sm:max-w-md"
-                />
-
-                <div className="text-sm text-muted-foreground">
-                  Changes:{" "}
-                  <span className="font-medium text-foreground">
-                    +{diff.toAdd.length}
-                  </span>{" "}
-                  /{" "}
-                  <span className="font-medium text-foreground">
-                    -{diff.toRemove.length}
-                  </span>
+              {/* Search + diff summary */}
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    placeholder="Search permissions…"
+                    value={permSearch}
+                    onChange={(e) => setPermSearch(e.target.value)}
+                    className="pl-8"
+                  />
                 </div>
-              </div>
-
-              <div className="rounded-xl border p-3 max-h-[420px] overflow-auto">
-                {filteredPermCatalog.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No permissions match your search.</div>
-                ) : (
-                  <div className="space-y-2">
-                    {filteredPermCatalog.map((p) => {
-                      const desired = isDesiredAssigned(p.code);
-                      const originally = baseSet.has(p.code);
-                      const changed = desired !== originally;
-
-                      return (
-                        <div
-                          key={p.id}
-                          className="flex items-start justify-between gap-3 rounded-lg border p-3"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <code className="text-sm font-medium">{p.code}</code>
-
-                              {desired ? (
-                                <Badge className="rounded-full">assigned</Badge>
-                              ) : (
-                                <Badge variant="secondary" className="rounded-full">
-                                  not assigned
-                                </Badge>
-                              )}
-
-                              {changed && (
-                                <Badge variant="outline" className="rounded-full">
-                                  modified
-                                </Badge>
-                              )}
-                            </div>
-
-                            <div className="mt-1 font-medium truncate">{p.name}</div>
-
-                            {p.description ? (
-                              <div className="text-sm text-muted-foreground mt-1">{p.description}</div>
-                            ) : (
-                              <div className="text-sm text-muted-foreground mt-1">—</div>
-                            )}
-                          </div>
-
-                          <Button
-                            variant={desired ? "outline" : "default"}
-                            onClick={() => toggleDesired(p.code)}
-                          >
-                            {desired ? "Remove" : "Add"}
-                          </Button>
-                        </div>
-                      );
-                    })}
+                {(diff.toAdd.length > 0 || diff.toRemove.length > 0) && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    {diff.toAdd.length > 0 && (
+                      <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                        +{diff.toAdd.length} to add
+                      </span>
+                    )}
+                    {diff.toRemove.length > 0 && (
+                      <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 ring-1 ring-red-200">
+                        -{diff.toRemove.length} to remove
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
 
+              {/* Permission list grouped by category */}
+              <div className="max-h-[420px] overflow-y-auto rounded-xl border border-slate-100">
+                {Object.keys(groupedPerms).length === 0 ? (
+                  <div className="py-8 text-center text-sm text-slate-400">
+                    No permissions match your search.
+                  </div>
+                ) : (
+                  Object.entries(groupedPerms).map(([cat, perms]) => (
+                    <div key={cat}>
+                      <div className="sticky top-0 border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        {cat}
+                      </div>
+                      {perms.map((p) => {
+                        const desired    = desiredSet.has(p.code);
+                        const originally = baseSet.has(p.code);
+                        const changed    = desired !== originally;
+
+                        return (
+                          <div
+                            key={p.id}
+                            className={`flex items-center justify-between gap-3 border-b border-slate-50 px-4 py-3 last:border-0 ${
+                              changed ? "bg-amber-50/50" : "hover:bg-slate-50"
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">
+                                  {p.code}
+                                </code>
+                                {desired && (
+                                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700 ring-1 ring-blue-200">
+                                    assigned
+                                  </span>
+                                )}
+                                {changed && (
+                                  <span className={`rounded-full px-2 py-0.5 text-xs ring-1 ${
+                                    desired
+                                      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                                      : "bg-red-50 text-red-700 ring-red-200"
+                                  }`}>
+                                    {desired ? "adding" : "removing"}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-0.5 text-sm font-medium text-slate-800">{p.name}</div>
+                              {p.description && (
+                                <div className="mt-0.5 text-xs text-slate-400">{p.description}</div>
+                              )}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant={desired ? "outline" : "default"}
+                              className={desired
+                                ? "h-7 border-red-200 bg-red-50 text-xs text-red-700 hover:bg-red-100"
+                                : "h-7 bg-blue-600 text-xs hover:bg-blue-700"}
+                              onClick={() => toggleDesired(p.code)}
+                            >
+                              {desired ? "Remove" : "Add"}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Pending changes banner */}
               {(diff.toAdd.length > 0 || diff.toRemove.length > 0) && (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
-                  <span className="font-medium">Pending changes:</span>{" "}
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                  <strong>Pending changes — unsaved:</strong>{" "}
                   {diff.toAdd.length > 0 && (
-                    <>
-                      add <code>{diff.toAdd.length}</code>
-                    </>
+                    <span>Adding: {diff.toAdd.join(", ")}</span>
                   )}
-                  {diff.toAdd.length > 0 && diff.toRemove.length > 0 && " • "}
+                  {diff.toAdd.length > 0 && diff.toRemove.length > 0 && " · "}
                   {diff.toRemove.length > 0 && (
-                    <>
-                      remove <code>{diff.toRemove.length}</code>
-                    </>
+                    <span>Removing: {diff.toRemove.join(", ")}</span>
                   )}
                 </div>
               )}
@@ -829,45 +785,347 @@ export default function SaaSRolesPage() {
             <Button variant="outline" onClick={() => setPermOpen(false)} disabled={permSaving}>
               Cancel
             </Button>
-            <Button onClick={saveManagePermissions} disabled={permLoading || permSaving}>
-              {permSaving ? "Saving..." : "Save changes"}
+            <Button
+              onClick={() => void saveManagePermissions()}
+              disabled={permLoading || permSaving}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {permSaving ? (
+                <span className="flex items-center gap-2">
+                  <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Saving…
+                </span>
+              ) : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Edit dialog */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Edit role</DialogTitle>
-            <DialogDescription>
-              Code is immutable: <code className="text-foreground">{editRole?.code || ""}</code>
-            </DialogDescription>
-          </DialogHeader>
+      {/* ── Page body ── */}
+      <div className="space-y-5">
 
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <div className="text-sm font-medium">Name</div>
-              <Input value={eName} onChange={(e) => setEName(e.target.value)} />
+        {/* Header */}
+        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-5 text-white shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
+                  <ShieldCheck className="h-3 w-3" />
+                  RBAC — Roles
+                </span>
+              </div>
+              <h1 className="text-xl font-bold">Role Catalog</h1>
+              <p className="mt-0.5 text-sm text-blue-100">
+                Manage global and tenant-scoped roles, assign permission sets
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {[
+                { label: "Total",  value: rows.length   },
+                { label: "Global", value: globalCount   },
+                { label: "Tenant", value: tenantCount   },
+                { label: "System", value: systemCount   },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 text-center backdrop-blur">
+                  <div className="text-xl font-bold text-white">{item.value}</div>
+                  <div className="text-xs text-blue-200">{item.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Error */}
+        {err && (
+          <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div className="flex items-center gap-2"><XCircle className="h-4 w-4 shrink-0 text-red-500" />{err}</div>
+            <button onClick={() => setErr(null)} className="ml-4 opacity-60 hover:opacity-100">✕</button>
+          </div>
+        )}
+
+        {/* Tenant required warning */}
+        {(scope === "tenant" || scope === "all") && !tenantId && (
+          <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <Building2 className="h-4 w-4 shrink-0 text-amber-500" />
+            Select a tenant in the filter below to view <strong>{scope}</strong>-scoped roles.
+          </div>
+        )}
+
+        {/* Roles table card */}
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+          {/* Toolbar */}
+          <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-slate-400" />
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Roles</h2>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  {filtered.length} of {rows.length} role{rows.length !== 1 ? "s" : ""}
+                  {q.trim() ? ` matching "${q}"` : ""}
+                </p>
+              </div>
             </div>
 
-            <div className="space-y-1">
-              <div className="text-sm font-medium">Description</div>
-              <Textarea value={eDesc} onChange={(e) => setEDesc(e.target.value)} />
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Tenant selector */}
+              <Select
+                value={tenantId || "__none__"}
+                onValueChange={(v) => setTenantId(v === "__none__" ? "" : v)}
+                disabled={tenantsLoading}
+              >
+                <SelectTrigger className="h-8 w-56 text-xs">
+                  <SelectValue placeholder={tenantsLoading ? "Loading…" : "Select tenant…"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No tenant</SelectItem>
+                  {tenants.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                      {!t.is_active && " (inactive)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Scope selector */}
+              <Select value={scope} onValueChange={(v: any) => setScope(v)}>
+                <SelectTrigger className="h-8 w-32 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="global">Global</SelectItem>
+                  <SelectItem value="tenant">Tenant</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Search */}
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <Input
+                  placeholder="Search code, name…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  className="h-8 w-44 pl-8 text-xs"
+                />
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => void loadRoles()}
+                disabled={loading}
+              >
+                <RefreshCw className="h-3 w-3" />
+                Refresh
+              </Button>
+
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 bg-blue-600 text-xs hover:bg-blue-700"
+                onClick={() => setOpenCreate(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create Role
+              </Button>
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
-              Cancel
-            </Button>
-            <Button onClick={onSaveEdit} disabled={saving}>
-              {saving ? "Saving..." : "Save changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {/* Table */}
+          <div className="overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 hover:bg-slate-50">
+                  <TableHead className="w-10 text-xs" />
+                  <TableHead className="text-xs">Code</TableHead>
+                  <TableHead className="text-xs">Name</TableHead>
+                  <TableHead className="text-xs">Scope</TableHead>
+                  <TableHead className="text-xs">Description</TableHead>
+                  <TableHead className="text-xs">Tenant</TableHead>
+                  <TableHead className="w-48 text-xs">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+
+                {loading && (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell colSpan={7} className="py-3 px-5">
+                        <Skeleton className="h-10 w-full rounded-xl" />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+
+                {!loading && filtered.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-12 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <Layers className="h-7 w-7 text-slate-200" />
+                        <p className="text-sm text-slate-400">
+                          {q.trim() ? `No roles matching "${q}"` : "No roles found."}
+                        </p>
+                        {q.trim() && (
+                          <button onClick={() => setQ("")} className="mt-1 text-xs text-blue-500 hover:underline">
+                            Clear search
+                          </button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+
+                {!loading && filtered.map((r) => (
+                  <TableRow key={r.id} className={`hover:bg-slate-50 ${r.is_system ? "opacity-75" : ""}`}>
+
+                    {/* Icon avatar */}
+                    <TableCell className="py-3 pl-5">
+                      <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${avatarColor(r.id)}`}>
+                        {r.code[0]}
+                      </div>
+                    </TableCell>
+
+                    {/* Code */}
+                    <TableCell className="py-3">
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <code className="cursor-default rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-200">
+                              {r.code}
+                            </code>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <span className="font-mono text-xs">ID: {r.id}</span>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </TableCell>
+
+                    {/* Name */}
+                    <TableCell className="py-3">
+                      <div className="text-sm font-medium text-slate-900">{r.name}</div>
+                    </TableCell>
+
+                    {/* Scope badge */}
+                    <TableCell className="py-3">
+                      <ScopeBadge isSystem={r.is_system} tenantId={r.tenant_id} />
+                    </TableCell>
+
+                    {/* Description */}
+                    <TableCell className="max-w-xs py-3">
+                      <p className="truncate text-xs text-slate-400">
+                        {r.description || "—"}
+                      </p>
+                    </TableCell>
+
+                    {/* Tenant slug */}
+                    <TableCell className="py-3">
+                      {r.tenant_id ? (
+                        <code className="text-xs text-slate-400">
+                          {tenants.find((t) => t.id === r.tenant_id)?.slug ?? r.tenant_id.slice(0, 8) + "…"}
+                        </code>
+                      ) : (
+                        <span className="text-xs text-slate-300">—</span>
+                      )}
+                    </TableCell>
+
+                    {/* Actions */}
+                    <TableCell className="py-3 pr-4">
+                      <div className="flex items-center gap-1">
+                        <TooltipProvider delayDuration={200}>
+                          {/* Inspect */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => void openInspect(r)}
+                                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs">Inspect permissions</TooltipContent>
+                          </Tooltip>
+
+                          {/* Manage permissions */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => void openManagePermissions(r)}
+                                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-blue-50 hover:text-blue-700"
+                              >
+                                <ShieldCheck className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs">Manage permissions</TooltipContent>
+                          </Tooltip>
+
+                          {/* Edit */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => openEdit(r)}
+                                disabled={r.is_system}
+                                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-amber-50 hover:text-amber-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs">
+                              {r.is_system ? "System roles cannot be edited" : "Edit role"}
+                            </TooltipContent>
+                          </Tooltip>
+
+                          {/* Delete */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => !r.is_system && setDeleteTarget(r)}
+                                disabled={r.is_system}
+                                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs">
+                              {r.is_system ? "System roles cannot be deleted" : "Delete role"}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Footer */}
+          {filtered.length > 0 && (
+            <div className="flex items-center gap-4 border-t border-slate-100 px-6 py-3">
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                <Globe className="h-3.5 w-3.5 text-blue-400" />
+                {globalCount} global
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                <Building2 className="h-3.5 w-3.5 text-amber-400" />
+                {tenantCount} tenant
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                <Lock className="h-3.5 w-3.5 text-slate-400" />
+                {systemCount} system
+              </span>
+              <span className="ml-auto text-xs text-slate-400">
+                Hover role ID for full UUID
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
     </AppShell>
   );
 }

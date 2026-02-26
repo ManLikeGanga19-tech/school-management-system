@@ -2,14 +2,30 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis } from "recharts";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  XAxis,
+} from "recharts";
 
 import { AppShell } from "@/components/layout/AppShell";
-import { secretaryFinanceHref, secretaryNav, type FinanceSection } from "@/components/layout/nav-config";
+import {
+  secretaryFinanceHref,
+  secretaryNav,
+  type FinanceSection,
+} from "@/components/layout/nav-config";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -27,6 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { api } from "@/lib/api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -147,6 +164,15 @@ type PaymentAllocationDraft = {
 
 type KeyValueRecord = Record<string, unknown>;
 
+type InvoiceFilterState = {
+  enrollment_id: string; // "" means all
+  purpose: string; // optional hint from other pages
+  type: string; // "" means all
+  status: string; // "" means all
+  q: string; // search by student or invoice id
+  outstanding_only: boolean;
+};
+
 const DEFAULT_POLICY: FinancePolicy = {
   allow_partial_enrollment: false,
   min_percent_to_enroll: null,
@@ -234,6 +260,14 @@ function round2(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function normalizeInvoiceType(value: string) {
+  return value.trim().toUpperCase();
+}
+
+function normalizeInvoiceStatus(value: string) {
+  return value.trim().toUpperCase();
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StepBadge({ number, label }: { number: number; label: string }) {
@@ -269,7 +303,9 @@ function SectionCard({
           </div>
         )}
         <h2 className="text-base font-semibold text-slate-900">{title}</h2>
-        {description && <p className="mt-0.5 text-sm text-slate-500">{description}</p>}
+        {description && (
+          <p className="mt-0.5 text-sm text-slate-500">{description}</p>
+        )}
       </div>
       <div className="p-6">{children}</div>
     </div>
@@ -308,7 +344,11 @@ function StatusBadge({ active }: { active: boolean }) {
           : "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
       }`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-emerald-500" : "bg-slate-400"}`} />
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          active ? "bg-emerald-500" : "bg-slate-400"
+        }`}
+      />
       {active ? "Active" : "Inactive"}
     </span>
   );
@@ -324,7 +364,9 @@ function InvoiceStatusBadge({ status }: { status: string }) {
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[s] ?? "bg-slate-100 text-slate-600 ring-1 ring-slate-200"}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+        styles[s] ?? "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
+      }`}
     >
       {s}
     </span>
@@ -370,9 +412,24 @@ function ActionButton({
     >
       {loading ? (
         <span className="flex items-center gap-2">
-          <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          <svg
+            className="h-3.5 w-3.5 animate-spin"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
           </svg>
           {loadingText ?? "Saving..."}
         </span>
@@ -430,7 +487,9 @@ function SummaryCard({
   };
   return (
     <div className={`rounded-xl border p-4 ${colors[color]}`}>
-      <p className="text-xs font-medium uppercase tracking-wide opacity-70">{label}</p>
+      <p className="text-xs font-medium uppercase tracking-wide opacity-70">
+        {label}
+      </p>
       <p className="mt-1 text-xl font-bold">{value}</p>
       {sub && <p className="mt-0.5 text-xs opacity-60">{sub}</p>}
     </div>
@@ -441,14 +500,30 @@ function SummaryCard({
 
 function SecretaryFinancePageContent() {
   const searchParams = useSearchParams();
+
+  // Deep-link support (enterprise style):
+  // If another module sends purpose/enrollment_id but forgets section,
+  // we automatically land on "invoices" so the user sees what they came for.
   const sectionParam = searchParams.get("section");
-  const section: FinanceSection =
-    sectionParam === "invoices" ||
-    sectionParam === "payments" ||
-    sectionParam === "receipts" ||
-    sectionParam === "fee-structures"
-      ? sectionParam
-      : "fee-structures";
+  const deepLinkPurpose = (searchParams.get("purpose") || "").trim();
+  const deepLinkEnrollmentId = (searchParams.get("enrollment_id") || "").trim();
+
+  const section: FinanceSection = useMemo(() => {
+    const valid =
+      sectionParam === "invoices" ||
+      sectionParam === "payments" ||
+      sectionParam === "receipts" ||
+      sectionParam === "fee-structures"
+        ? (sectionParam as FinanceSection)
+        : null;
+
+    if (valid) return valid;
+
+    // If deep-link params exist, default to invoices for better UX
+    if (deepLinkPurpose || deepLinkEnrollmentId) return "invoices";
+
+    return "fee-structures";
+  }, [sectionParam, deepLinkPurpose, deepLinkEnrollmentId]);
 
   const [data, setData] = useState<FinanceResponse>({
     policy: null,
@@ -470,32 +545,81 @@ function SecretaryFinancePageContent() {
   const [policyForm, setPolicyForm] = useState<FinancePolicy>(DEFAULT_POLICY);
   const [policyDirty, setPolicyDirty] = useState(false);
 
-  const [categoryForm, setCategoryForm] = useState({ code: "", name: "", is_active: true });
-  const [itemForm, setItemForm] = useState({ category_id: "", code: "", name: "", is_active: true });
-  const [structureForm, setStructureForm] = useState({ class_code: "", name: "", is_active: true });
+  const [categoryForm, setCategoryForm] = useState({
+    code: "",
+    name: "",
+    is_active: true,
+  });
+  const [itemForm, setItemForm] = useState({
+    category_id: "",
+    code: "",
+    name: "",
+    is_active: true,
+  });
+  const [structureForm, setStructureForm] = useState({
+    class_code: "",
+    name: "",
+    is_active: true,
+  });
   const [editingStructureId, setEditingStructureId] = useState("");
   const [selectedStructureId, setSelectedStructureId] = useState("");
   const [structureRows, setStructureRows] = useState<StructureRowDraft[]>([]);
-  const [structureAddMode, setStructureAddMode] = useState<"existing" | "new">("existing");
-  const [structureExistingItemForm, setStructureExistingItemForm] = useState({ fee_item_id: "", amount: "" });
+  const [structureAddMode, setStructureAddMode] = useState<"existing" | "new">(
+    "existing"
+  );
+  const [structureExistingItemForm, setStructureExistingItemForm] = useState({
+    fee_item_id: "",
+    amount: "",
+  });
   const [structureInlineItemForm, setStructureInlineItemForm] = useState({
-    category_id: "", code: "", name: "", amount: "", is_active: true,
+    category_id: "",
+    code: "",
+    name: "",
+    amount: "",
+    is_active: true,
   });
   const [categoryFilter, setCategoryFilter] = useState("");
   const [itemFilter, setItemFilter] = useState("");
-  const [scholarshipForm, setScholarshipForm] = useState({ name: "", type: "PERCENT", value: "", is_active: true });
-  const [feesInvoiceForm, setFeesInvoiceForm] = useState({ enrollment_id: "", class_code: "", scholarship_id: "" });
-  const [interviewInvoiceForm, setInterviewInvoiceForm] = useState({ enrollment_id: "", description: "Interview fee", amount: "" });
-  const [paymentForm, setPaymentForm] = useState({ provider: "MPESA", reference: "", amount: "" });
+  const [scholarshipForm, setScholarshipForm] = useState({
+    name: "",
+    type: "PERCENT",
+    value: "",
+    is_active: true,
+  });
+  const [feesInvoiceForm, setFeesInvoiceForm] = useState({
+    enrollment_id: "",
+    class_code: "",
+    scholarship_id: "",
+  });
+  const [interviewInvoiceForm, setInterviewInvoiceForm] = useState({
+    enrollment_id: "",
+    description: "Interview fee",
+    amount: "",
+  });
+  const [paymentForm, setPaymentForm] = useState({
+    provider: "MPESA",
+    reference: "",
+    amount: "",
+  });
   const [paymentEnrollmentId, setPaymentEnrollmentId] = useState("");
-  const [paymentAllocations, setPaymentAllocations] = useState<PaymentAllocationDraft[]>([{ invoice_id: "", amount: "" }]);
+  const [paymentAllocations, setPaymentAllocations] = useState<
+    PaymentAllocationDraft[]
+  >([{ invoice_id: "", amount: "" }]);
+
+  // Enterprise-level invoice filtering (UI-only, no business logic changes)
+  const [invoiceFilters, setInvoiceFilters] = useState<InvoiceFilterState>({
+    enrollment_id: "",
+    purpose: "",
+    type: "",
+    status: "",
+    q: "",
+    outstanding_only: false,
+  });
 
   async function loadFinance(silent = false) {
     if (!silent) setLoading(true);
     try {
-      const res = await fetch("/api/tenant/secretary/finance", { method: "GET" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) { setError(readError(body, "Failed to load finance data")); return; }
+      const body = await api.get<any>("/tenants/secretary/finance", { tenantRequired: true });
       const obj = asObject(body) || {};
       const incoming: FinanceResponse = {
         policy: (asObject(obj.policy) as FinancePolicy | null) || null,
@@ -503,7 +627,11 @@ function SecretaryFinancePageContent() {
         fee_categories: asArray<FeeCategory>(obj.fee_categories),
         fee_items: asArray<FeeItem>(obj.fee_items),
         fee_structures: asArray<FeeStructure>(obj.fee_structures),
-        fee_structure_items: (asObject(obj.fee_structure_items) as Record<string, FeeStructureItem[]>) || {},
+        fee_structure_items:
+          (asObject(obj.fee_structure_items) as Record<
+            string,
+            FeeStructureItem[]
+          >) || {},
         scholarships: asArray<Scholarship>(obj.scholarships),
         enrollments: asArray<Enrollment>(obj.enrollments),
         payments: asArray<Payment>(obj.payments),
@@ -511,6 +639,7 @@ function SecretaryFinancePageContent() {
       };
       setData(incoming);
       setError(null);
+
       if (!policyDirty) setPolicyForm(incoming.policy || DEFAULT_POLICY);
       if (!selectedStructureId && incoming.fee_structures.length > 0) {
         setSelectedStructureId(incoming.fee_structures[0].id);
@@ -528,22 +657,59 @@ function SecretaryFinancePageContent() {
     return () => clearInterval(timer);
   }, []);
 
+  // Apply deep-link params into filters & forms (UI only)
   useEffect(() => {
-    if (!selectedStructureId) { setStructureRows([]); return; }
+    const purpose = (searchParams.get("purpose") || "").trim();
+    const enrollment_id = (searchParams.get("enrollment_id") || "").trim();
+
+    if (!purpose && !enrollment_id) return;
+
+    setInvoiceFilters((prev) => ({
+      ...prev,
+      purpose: purpose || prev.purpose,
+      enrollment_id: enrollment_id || prev.enrollment_id,
+      // When user comes from intake, most likely they want to see what's unpaid.
+      outstanding_only: purpose ? true : prev.outstanding_only,
+    }));
+
+    // Helpful autofill for operations (still UI-only)
+    if (enrollment_id) {
+      setInterviewInvoiceForm((p) => ({ ...p, enrollment_id }));
+      setFeesInvoiceForm((p) => ({ ...p, enrollment_id }));
+      setPaymentEnrollmentId(enrollment_id);
+    }
+
+    // Nudge the user with a contextual notice
+    if (purpose === "INTERVIEW_FEE" && enrollment_id) {
+      setNotice(
+        `Deep link: Interview fee workflow for enrollment ${enrollment_id}. Create/locate the interview invoice, then record payment.`
+      );
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!selectedStructureId) {
+      setStructureRows([]);
+      return;
+    }
     const source = data.fee_structure_items[selectedStructureId] || [];
-    setStructureRows(source.map((item) => ({
-      fee_item_id: String(item.fee_item_id || ""),
-      fee_item_code: String(item.fee_item_code || ""),
-      fee_item_name: String(item.fee_item_name || ""),
-      category_id: String(item.category_id || ""),
-      category_code: String(item.category_code || ""),
-      category_name: String(item.category_name || ""),
-      amount: String(item.amount ?? ""),
-    })));
+    setStructureRows(
+      source.map((item) => ({
+        fee_item_id: String(item.fee_item_id || ""),
+        fee_item_code: String(item.fee_item_code || ""),
+        fee_item_name: String(item.fee_item_name || ""),
+        category_id: String(item.category_id || ""),
+        category_code: String(item.category_code || ""),
+        category_name: String(item.category_name || ""),
+        amount: String(item.amount ?? ""),
+      }))
+    );
   }, [selectedStructureId, data.fee_structure_items]);
 
   useEffect(() => {
-    const enrollment = data.enrollments.find((row) => row.id === feesInvoiceForm.enrollment_id);
+    const enrollment = data.enrollments.find(
+      (row) => row.id === feesInvoiceForm.enrollment_id
+    );
     if (!enrollment || feesInvoiceForm.class_code.trim()) return;
     const guessed = enrollmentClassCode(enrollment.payload || {});
     if (guessed) setFeesInvoiceForm((prev) => ({ ...prev, class_code: guessed }));
@@ -559,33 +725,28 @@ function SecretaryFinancePageContent() {
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/tenant/secretary/finance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, payload }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) { setError(readError(body, "Action failed")); return; }
+      await api.post<any>("/tenants/secretary/finance", { action, payload }, { tenantRequired: true });
       if (onSuccess) onSuccess();
       setNotice(successMessage);
       await loadFinance(true);
-    } catch {
-      setError("Unable to reach finance service. Please try again.");
+    } catch (err: any) {
+      setError(typeof err?.message === "string" ? err.message : "Unable to reach finance service. Please try again.");
     } finally {
       setPendingAction(null);
     }
   }
 
   const totals = useMemo(
-    () => data.invoices.reduce(
-      (acc, inv) => {
-        acc.total += toNumber(inv.total_amount);
-        acc.paid += toNumber(inv.paid_amount);
-        acc.balance += toNumber(inv.balance_amount);
-        return acc;
-      },
-      { total: 0, paid: 0, balance: 0 }
-    ),
+    () =>
+      data.invoices.reduce(
+        (acc, inv) => {
+          acc.total += toNumber(inv.total_amount);
+          acc.paid += toNumber(inv.paid_amount);
+          acc.balance += toNumber(inv.balance_amount);
+          return acc;
+        },
+        { total: 0, paid: 0, balance: 0 }
+      ),
     [data.invoices]
   );
 
@@ -595,147 +756,429 @@ function SecretaryFinancePageContent() {
   );
 
   const paymentCandidateInvoices = useMemo(
-    () => outstandingInvoices.filter((inv) =>
-      paymentEnrollmentId ? inv.enrollment_id === paymentEnrollmentId : true
-    ),
+    () =>
+      outstandingInvoices.filter((inv) =>
+        paymentEnrollmentId ? inv.enrollment_id === paymentEnrollmentId : true
+      ),
     [outstandingInvoices, paymentEnrollmentId]
   );
 
   const paymentAllocationTotal = useMemo(
-    () => round2(paymentAllocations.reduce((acc, row) => acc + toNumber(row.amount), 0)),
+    () =>
+      round2(
+        paymentAllocations.reduce((acc, row) => acc + toNumber(row.amount), 0)
+      ),
     [paymentAllocations]
   );
 
+  const activeFinanceHref = secretaryFinanceHref(section);
+  const showFeeStructures = section === "fee-structures";
+  const showInvoices = section === "invoices";
+  const showPayments = section === "payments";
+  const showReceipts = section === "receipts";
+
+  const selectedStructure = data.fee_structures.find(
+    (s) => s.id === selectedStructureId
+  );
+  const structureTotal = structureRows.reduce(
+    (acc, row) => acc + toNumber(row.amount),
+    0
+  );
+
+  // Build a fast lookup for enrollment names to speed up filters
+  const enrollmentNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const e of data.enrollments) {
+      map.set(e.id, enrollmentName(e.payload || {}));
+    }
+    return map;
+  }, [data.enrollments]);
+
+  const availableInvoiceTypes = useMemo(() => {
+    const set = new Set<string>();
+    for (const inv of data.invoices) {
+      const t = normalizeInvoiceType(inv.invoice_type || "");
+      if (t) set.add(t);
+    }
+    return Array.from(set).sort();
+  }, [data.invoices]);
+
+  const availableInvoiceStatuses = useMemo(() => {
+    const set = new Set<string>();
+    for (const inv of data.invoices) {
+      const s = normalizeInvoiceStatus(inv.status || "");
+      if (s) set.add(s);
+    }
+    return Array.from(set).sort();
+  }, [data.invoices]);
+
+  const filteredInvoices = useMemo(() => {
+    const q = invoiceFilters.q.trim().toLowerCase();
+    const type = normalizeInvoiceType(invoiceFilters.type || "");
+    const status = normalizeInvoiceStatus(invoiceFilters.status || "");
+    const enrollment_id = (invoiceFilters.enrollment_id || "").trim();
+    const outstandingOnly = invoiceFilters.outstanding_only;
+
+    // Purpose can set reasonable defaults without forcing filters
+    const purpose = (invoiceFilters.purpose || "").trim().toUpperCase();
+    const purposeTypeHint =
+      purpose === "INTERVIEW_FEE" ? "INTERVIEW" : "";
+
+    return data.invoices
+      .filter((inv) => {
+        if (enrollment_id && String(inv.enrollment_id || "") !== enrollment_id)
+          return false;
+
+        if (outstandingOnly && toNumber(inv.balance_amount) <= 0) return false;
+
+        const invType = normalizeInvoiceType(inv.invoice_type || "");
+        const invStatus = normalizeInvoiceStatus(inv.status || "");
+
+        // explicit type filter wins
+        if (type && invType !== type) return false;
+        // purpose hint (only if user didn't explicitly choose a type)
+        if (!type && purposeTypeHint && invType !== purposeTypeHint) return false;
+
+        if (status && invStatus !== status) return false;
+
+        if (q) {
+          const student = (enrollmentNameById.get(String(inv.enrollment_id || "")) || "").toLowerCase();
+          const invId = String(inv.id || "").toLowerCase();
+          const invType2 = invType.toLowerCase();
+          const invStatus2 = invStatus.toLowerCase();
+
+          return (
+            student.includes(q) ||
+            invId.includes(q) ||
+            invType2.includes(q) ||
+            invStatus2.includes(q)
+          );
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        // Show outstanding first, then by type, then stable by id
+        const ab = toNumber(a.balance_amount);
+        const bb = toNumber(b.balance_amount);
+        if (ab === 0 && bb > 0) return 1;
+        if (ab > 0 && bb === 0) return -1;
+        const at = normalizeInvoiceType(a.invoice_type || "");
+        const bt = normalizeInvoiceType(b.invoice_type || "");
+        if (at !== bt) return at.localeCompare(bt);
+        return String(b.id).localeCompare(String(a.id));
+      });
+  }, [data.invoices, invoiceFilters, enrollmentNameById]);
+
+  const filteredInvoiceTotals = useMemo(() => {
+    return filteredInvoices.reduce(
+      (acc, inv) => {
+        acc.total += toNumber(inv.total_amount);
+        acc.paid += toNumber(inv.paid_amount);
+        acc.balance += toNumber(inv.balance_amount);
+        return acc;
+      },
+      { total: 0, paid: 0, balance: 0 }
+    );
+  }, [filteredInvoices]);
+
   async function savePolicy() {
-    await postAction("update_policy", {
-      allow_partial_enrollment: policyForm.allow_partial_enrollment,
-      min_percent_to_enroll: policyForm.min_percent_to_enroll,
-      min_amount_to_enroll: policyForm.min_amount_to_enroll?.trim() || null,
-      require_interview_fee_before_submit: policyForm.require_interview_fee_before_submit,
-    }, "Finance policy updated.", () => setPolicyDirty(false));
+    await postAction(
+      "update_policy",
+      {
+        allow_partial_enrollment: policyForm.allow_partial_enrollment,
+        min_percent_to_enroll: policyForm.min_percent_to_enroll,
+        min_amount_to_enroll: policyForm.min_amount_to_enroll?.trim() || null,
+        require_interview_fee_before_submit:
+          policyForm.require_interview_fee_before_submit,
+      },
+      "Finance policy updated.",
+      () => setPolicyDirty(false)
+    );
   }
 
   async function createFeeCategory() {
     const code = categoryForm.code.trim();
     const name = categoryForm.name.trim();
-    if (!code || !name) { setError("Fee category code and name are required."); return; }
-    await postAction("create_fee_category", { code: normalizeCode(code), name, is_active: categoryForm.is_active },
-      "Fee category created.", () => setCategoryForm({ code: "", name: "", is_active: true }));
+    if (!code || !name) {
+      setError("Fee category code and name are required.");
+      return;
+    }
+    await postAction(
+      "create_fee_category",
+      { code: normalizeCode(code), name, is_active: categoryForm.is_active },
+      "Fee category created.",
+      () => setCategoryForm({ code: "", name: "", is_active: true })
+    );
   }
 
   async function createFeeItem() {
     const code = itemForm.code.trim();
     const name = itemForm.name.trim();
-    if (!itemForm.category_id || !code || !name) { setError("Category, item code and item name are required."); return; }
-    await postAction("create_fee_item", {
-      category_id: itemForm.category_id,
-      code: normalizeCode(code),
-      name,
-      is_active: itemForm.is_active,
-    }, "Fee item created.", () => setItemForm({ category_id: "", code: "", name: "", is_active: true }));
+    if (!itemForm.category_id || !code || !name) {
+      setError("Category, item code and item name are required.");
+      return;
+    }
+    await postAction(
+      "create_fee_item",
+      {
+        category_id: itemForm.category_id,
+        code: normalizeCode(code),
+        name,
+        is_active: itemForm.is_active,
+      },
+      "Fee item created.",
+      () => setItemForm({ category_id: "", code: "", name: "", is_active: true })
+    );
   }
 
   async function createFeeStructure() {
     const classCode = structureForm.class_code.trim();
     const name = structureForm.name.trim();
-    if (!classCode || !name) { setError("Class code and structure name are required."); return; }
-    if (editingStructureId) {
-      await postAction("update_fee_structure", {
-        structure_id: editingStructureId,
-        updates: { class_code: normalizeCode(classCode), name, is_active: structureForm.is_active },
-      }, "Fee structure updated.", () => {
-        setEditingStructureId("");
-        setStructureForm({ class_code: "", name: "", is_active: true });
-      });
+    if (!classCode || !name) {
+      setError("Class code and structure name are required.");
       return;
     }
-    await postAction("create_fee_structure", { class_code: normalizeCode(classCode), name, is_active: structureForm.is_active },
-      "Fee structure created.", () => setStructureForm({ class_code: "", name: "", is_active: true }));
+    if (editingStructureId) {
+      await postAction(
+        "update_fee_structure",
+        {
+          structure_id: editingStructureId,
+          updates: {
+            class_code: normalizeCode(classCode),
+            name,
+            is_active: structureForm.is_active,
+          },
+        },
+        "Fee structure updated.",
+        () => {
+          setEditingStructureId("");
+          setStructureForm({ class_code: "", name: "", is_active: true });
+        }
+      );
+      return;
+    }
+    await postAction(
+      "create_fee_structure",
+      {
+        class_code: normalizeCode(classCode),
+        name,
+        is_active: structureForm.is_active,
+      },
+      "Fee structure created.",
+      () => setStructureForm({ class_code: "", name: "", is_active: true })
+    );
   }
 
   async function deleteFeeStructure(structureId: string) {
-    await postAction("delete_fee_structure", { structure_id: structureId }, "Fee structure deleted.", () => {
-      if (selectedStructureId === structureId) { setSelectedStructureId(""); setStructureRows([]); }
-    });
+    await postAction(
+      "delete_fee_structure",
+      { structure_id: structureId },
+      "Fee structure deleted.",
+      () => {
+        if (selectedStructureId === structureId) {
+          setSelectedStructureId("");
+          setStructureRows([]);
+        }
+      }
+    );
   }
 
   async function addExistingItemToStructure() {
-    if (!selectedStructureId) { setError("Select a fee structure first."); return; }
-    if (!structureExistingItemForm.fee_item_id || !structureExistingItemForm.amount.trim()) { setError("Fee item and amount are required."); return; }
-    if (toNumber(structureExistingItemForm.amount) <= 0) { setError("Amount must be greater than 0."); return; }
-    await postAction("add_structure_item", {
-      structure_id: selectedStructureId,
-      item: { fee_item_id: structureExistingItemForm.fee_item_id, amount: structureExistingItemForm.amount.trim() },
-    }, "Structure item saved.", () => setStructureExistingItemForm({ fee_item_id: "", amount: "" }));
+    if (!selectedStructureId) {
+      setError("Select a fee structure first.");
+      return;
+    }
+    if (
+      !structureExistingItemForm.fee_item_id ||
+      !structureExistingItemForm.amount.trim()
+    ) {
+      setError("Fee item and amount are required.");
+      return;
+    }
+    if (toNumber(structureExistingItemForm.amount) <= 0) {
+      setError("Amount must be greater than 0.");
+      return;
+    }
+    await postAction(
+      "add_structure_item",
+      {
+        structure_id: selectedStructureId,
+        item: {
+          fee_item_id: structureExistingItemForm.fee_item_id,
+          amount: structureExistingItemForm.amount.trim(),
+        },
+      },
+      "Structure item saved.",
+      () => setStructureExistingItemForm({ fee_item_id: "", amount: "" })
+    );
   }
 
   async function addInlineItemToStructure() {
-    if (!selectedStructureId) { setError("Select a fee structure first."); return; }
+    if (!selectedStructureId) {
+      setError("Select a fee structure first.");
+      return;
+    }
     const code = structureInlineItemForm.code.trim();
     const name = structureInlineItemForm.name.trim();
     const amount = structureInlineItemForm.amount.trim();
-    if (!structureInlineItemForm.category_id || !code || !name || !amount) { setError("Category, code, name and amount are required."); return; }
-    if (toNumber(amount) <= 0) { setError("Amount must be greater than 0."); return; }
-    await postAction("add_structure_item", {
-      structure_id: selectedStructureId,
-      item: { amount, fee_item: { category_id: structureInlineItemForm.category_id, code: normalizeCode(code), name, is_active: structureInlineItemForm.is_active } },
-    }, "New fee item created and attached to structure.", () =>
-      setStructureInlineItemForm({ category_id: "", code: "", name: "", amount: "", is_active: true }));
+    if (
+      !structureInlineItemForm.category_id ||
+      !code ||
+      !name ||
+      !amount
+    ) {
+      setError("Category, code, name and amount are required.");
+      return;
+    }
+    if (toNumber(amount) <= 0) {
+      setError("Amount must be greater than 0.");
+      return;
+    }
+    await postAction(
+      "add_structure_item",
+      {
+        structure_id: selectedStructureId,
+        item: {
+          amount,
+          fee_item: {
+            category_id: structureInlineItemForm.category_id,
+            code: normalizeCode(code),
+            name,
+            is_active: structureInlineItemForm.is_active,
+          },
+        },
+      },
+      "New fee item created and attached to structure.",
+      () =>
+        setStructureInlineItemForm({
+          category_id: "",
+          code: "",
+          name: "",
+          amount: "",
+          is_active: true,
+        })
+    );
   }
 
   async function saveStructureRowAmount(row: StructureRowDraft) {
-    if (!selectedStructureId || !row.fee_item_id || !row.amount.trim() || toNumber(row.amount) <= 0) {
-      setError("Valid fee item and amount required."); return;
+    if (
+      !selectedStructureId ||
+      !row.fee_item_id ||
+      !row.amount.trim() ||
+      toNumber(row.amount) <= 0
+    ) {
+      setError("Valid fee item and amount required.");
+      return;
     }
-    await postAction("add_structure_item", {
-      structure_id: selectedStructureId,
-      item: { fee_item_id: row.fee_item_id, amount: row.amount.trim() },
-    }, `Updated amount for ${row.fee_item_name || row.fee_item_code}.`);
+    await postAction(
+      "add_structure_item",
+      {
+        structure_id: selectedStructureId,
+        item: { fee_item_id: row.fee_item_id, amount: row.amount.trim() },
+      },
+      `Updated amount for ${row.fee_item_name || row.fee_item_code}.`
+    );
   }
 
   async function removeStructureRow(row: StructureRowDraft) {
-    if (!selectedStructureId || !row.fee_item_id) { setError("Invalid selection."); return; }
-    await postAction("remove_structure_item", {
-      structure_id: selectedStructureId,
-      fee_item_id: row.fee_item_id,
-    }, `Removed ${row.fee_item_name || row.fee_item_code} from structure.`);
+    if (!selectedStructureId || !row.fee_item_id) {
+      setError("Invalid selection.");
+      return;
+    }
+    await postAction(
+      "remove_structure_item",
+      {
+        structure_id: selectedStructureId,
+        fee_item_id: row.fee_item_id,
+      },
+      `Removed ${row.fee_item_name || row.fee_item_code} from structure.`
+    );
   }
 
   async function createScholarship() {
     const name = scholarshipForm.name.trim();
     const value = scholarshipForm.value.trim();
-    if (!name || !value || toNumber(value) <= 0) { setError("Scholarship name and a valid value are required."); return; }
-    await postAction("create_scholarship", { name, type: scholarshipForm.type, value, is_active: scholarshipForm.is_active },
-      "Scholarship created.", () => setScholarshipForm({ name: "", type: "PERCENT", value: "", is_active: true }));
+    if (!name || !value || toNumber(value) <= 0) {
+      setError("Scholarship name and a valid value are required.");
+      return;
+    }
+    await postAction(
+      "create_scholarship",
+      {
+        name,
+        type: scholarshipForm.type,
+        value,
+        is_active: scholarshipForm.is_active,
+      },
+      "Scholarship created.",
+      () =>
+        setScholarshipForm({
+          name: "",
+          type: "PERCENT",
+          value: "",
+          is_active: true,
+        })
+    );
   }
 
   async function generateFeesInvoice() {
     if (!feesInvoiceForm.enrollment_id || !feesInvoiceForm.class_code.trim()) {
-      setError("Enrollment and class code are required."); return;
+      setError("Enrollment and class code are required.");
+      return;
     }
-    await postAction("generate_fees_invoice", {
-      enrollment_id: feesInvoiceForm.enrollment_id,
-      class_code: normalizeCode(feesInvoiceForm.class_code),
-      scholarship_id: feesInvoiceForm.scholarship_id || null,
-    }, "School fees invoice generated.");
+    await postAction(
+      "generate_fees_invoice",
+      {
+        enrollment_id: feesInvoiceForm.enrollment_id,
+        class_code: normalizeCode(feesInvoiceForm.class_code),
+        scholarship_id: feesInvoiceForm.scholarship_id || null,
+      },
+      "School fees invoice generated."
+    );
   }
 
   async function createInterviewInvoice() {
     if (!interviewInvoiceForm.enrollment_id || !interviewInvoiceForm.amount.trim()) {
-      setError("Enrollment and amount are required."); return;
+      setError("Enrollment and amount are required.");
+      return;
     }
-    if (toNumber(interviewInvoiceForm.amount) <= 0) { setError("Amount must be greater than 0."); return; }
-    await postAction("create_invoice", {
-      invoice_type: "INTERVIEW",
-      enrollment_id: interviewInvoiceForm.enrollment_id,
-      lines: [{ description: interviewInvoiceForm.description.trim() || "Interview fee", amount: interviewInvoiceForm.amount.trim() }],
-    }, "Interview invoice created.", () => setInterviewInvoiceForm({ enrollment_id: "", description: "Interview fee", amount: "" }));
+    if (toNumber(interviewInvoiceForm.amount) <= 0) {
+      setError("Amount must be greater than 0.");
+      return;
+    }
+    await postAction(
+      "create_invoice",
+      {
+        invoice_type: "INTERVIEW",
+        enrollment_id: interviewInvoiceForm.enrollment_id,
+        lines: [
+          {
+            description: interviewInvoiceForm.description.trim() || "Interview fee",
+            amount: interviewInvoiceForm.amount.trim(),
+          },
+        ],
+      },
+      "Interview invoice created.",
+      () =>
+        setInterviewInvoiceForm({
+          enrollment_id: "",
+          description: "Interview fee",
+          amount: "",
+        })
+    );
   }
 
   function autoDistributePayment() {
     const total = toNumber(paymentForm.amount);
-    if (total <= 0) { setError("Enter payment amount first."); return; }
-    if (paymentCandidateInvoices.length === 0) { setError("No outstanding invoices available."); return; }
+    if (total <= 0) {
+      setError("Enter payment amount first.");
+      return;
+    }
+    if (paymentCandidateInvoices.length === 0) {
+      setError("No outstanding invoices available.");
+      return;
+    }
     let remaining = total;
     const rows: PaymentAllocationDraft[] = [];
     for (const invoice of paymentCandidateInvoices) {
@@ -751,34 +1194,50 @@ function SecretaryFinancePageContent() {
 
   async function recordPayment() {
     const amount = toNumber(paymentForm.amount);
-    if (amount <= 0) { setError("Payment amount must be greater than 0."); return; }
+    if (amount <= 0) {
+      setError("Payment amount must be greater than 0.");
+      return;
+    }
     const allocations = paymentAllocations
-      .map((row) => ({ invoice_id: row.invoice_id.trim(), amount: row.amount.trim() }))
+      .map((row) => ({
+        invoice_id: row.invoice_id.trim(),
+        amount: row.amount.trim(),
+      }))
       .filter((row) => row.invoice_id && row.amount);
-    if (allocations.length === 0) { setError("Add at least one invoice allocation."); return; }
-    const hasDuplicate = allocations.some((row, idx) => allocations.findIndex((x) => x.invoice_id === row.invoice_id) !== idx);
-    if (hasDuplicate) { setError("Duplicate invoice allocations are not allowed."); return; }
-    const allocationSum = round2(allocations.reduce((acc, row) => acc + toNumber(row.amount), 0));
-    if (allocationSum !== round2(amount)) { setError("Allocation total must equal payment amount."); return; }
-    await postAction("record_payment", {
-      provider: paymentForm.provider,
-      reference: paymentForm.reference.trim() || null,
-      amount: paymentForm.amount.trim(),
-      allocations,
-    }, "Payment recorded.", () => {
-      setPaymentForm({ provider: "MPESA", reference: "", amount: "" });
-      setPaymentAllocations([{ invoice_id: "", amount: "" }]);
-    });
+    if (allocations.length === 0) {
+      setError("Add at least one invoice allocation.");
+      return;
+    }
+    const hasDuplicate = allocations.some(
+      (row, idx) =>
+        allocations.findIndex((x) => x.invoice_id === row.invoice_id) !== idx
+    );
+    if (hasDuplicate) {
+      setError("Duplicate invoice allocations are not allowed.");
+      return;
+    }
+    const allocationSum = round2(
+      allocations.reduce((acc, row) => acc + toNumber(row.amount), 0)
+    );
+    if (allocationSum !== round2(amount)) {
+      setError("Allocation total must equal payment amount.");
+      return;
+    }
+    await postAction(
+      "record_payment",
+      {
+        provider: paymentForm.provider,
+        reference: paymentForm.reference.trim() || null,
+        amount: paymentForm.amount.trim(),
+        allocations,
+      },
+      "Payment recorded.",
+      () => {
+        setPaymentForm({ provider: "MPESA", reference: "", amount: "" });
+        setPaymentAllocations([{ invoice_id: "", amount: "" }]);
+      }
+    );
   }
-
-  const activeFinanceHref = secretaryFinanceHref(section);
-  const showFeeStructures = section === "fee-structures";
-  const showInvoices = section === "invoices";
-  const showPayments = section === "payments";
-  const showReceipts = section === "receipts";
-
-  const selectedStructure = data.fee_structures.find((s) => s.id === selectedStructureId);
-  const structureTotal = structureRows.reduce((acc, row) => acc + toNumber(row.amount), 0);
 
   if (loading) {
     return (
@@ -796,7 +1255,6 @@ function SecretaryFinancePageContent() {
   return (
     <AppShell title="Secretary" nav={secretaryNav} activeHref={activeFinanceHref}>
       <div className="space-y-5">
-
         {/* ── Page Header ── */}
         <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
           <div className="flex items-center justify-between">
@@ -816,13 +1274,16 @@ function SecretaryFinancePageContent() {
         </div>
 
         {/* ── Alerts ── */}
-        {error && <AlertBanner type="error" message={error} onDismiss={() => setError(null)} />}
-        {notice && <AlertBanner type="success" message={notice} onDismiss={() => setNotice(null)} />}
+        {error && (
+          <AlertBanner type="error" message={error} onDismiss={() => setError(null)} />
+        )}
+        {notice && (
+          <AlertBanner type="success" message={notice} onDismiss={() => setNotice(null)} />
+        )}
 
         {/* ── FEE STRUCTURES SECTION ── */}
         {showFeeStructures && (
           <div className="space-y-5">
-
             {/* Step 1 — Fee Categories */}
             <SectionCard
               step={1}
@@ -834,20 +1295,30 @@ function SecretaryFinancePageContent() {
                 {/* Create form */}
                 <div className="space-y-4">
                   <div className="rounded-xl border border-blue-50 bg-slate-50 p-4">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">New Category</p>
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      New Category
+                    </p>
                     <div className="space-y-3">
-                      <FormField label="Category Code" hint="Will be auto-uppercased. E.g. TUITION" required>
+                      <FormField
+                        label="Category Code"
+                        hint="Will be auto-uppercased. E.g. TUITION"
+                        required
+                      >
                         <Input
                           placeholder="e.g. BOARDING"
                           value={categoryForm.code}
-                          onChange={(e) => setCategoryForm((p) => ({ ...p, code: e.target.value }))}
+                          onChange={(e) =>
+                            setCategoryForm((p) => ({ ...p, code: e.target.value }))
+                          }
                         />
                       </FormField>
                       <FormField label="Category Name" required>
                         <Input
                           placeholder="e.g. Boarding Fees"
                           value={categoryForm.name}
-                          onChange={(e) => setCategoryForm((p) => ({ ...p, name: e.target.value }))}
+                          onChange={(e) =>
+                            setCategoryForm((p) => ({ ...p, name: e.target.value }))
+                          }
                         />
                       </FormField>
                       <ActionButton
@@ -879,9 +1350,13 @@ function SecretaryFinancePageContent() {
                       <TableBody>
                         {data.fee_categories.map((cat) => (
                           <TableRow key={cat.id} className="hover:bg-slate-50">
-                            <TableCell className="font-mono text-xs font-medium text-blue-700">{cat.code}</TableCell>
+                            <TableCell className="font-mono text-xs font-medium text-blue-700">
+                              {cat.code}
+                            </TableCell>
                             <TableCell className="text-sm">{cat.name}</TableCell>
-                            <TableCell><StatusBadge active={cat.is_active} /></TableCell>
+                            <TableCell>
+                              <StatusBadge active={cat.is_active} />
+                            </TableCell>
                           </TableRow>
                         ))}
                         {data.fee_categories.length === 0 && (
@@ -905,17 +1380,28 @@ function SecretaryFinancePageContent() {
                 {/* Create form */}
                 <div className="space-y-4">
                   <div className="rounded-xl border border-blue-50 bg-slate-50 p-4">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">New Fee Item</p>
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      New Fee Item
+                    </p>
                     {data.fee_categories.length === 0 ? (
                       <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-sm text-amber-700">
                         ⚠️ Create at least one fee category first (Step 1) before adding fee items.
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        <FormField label="Category" hint="Which category does this fee item belong to?" required>
+                        <FormField
+                          label="Category"
+                          hint="Which category does this fee item belong to?"
+                          required
+                        >
                           <Select
                             value={itemForm.category_id || "__none__"}
-                            onValueChange={(value) => setItemForm((p) => ({ ...p, category_id: value === "__none__" ? "" : value }))}
+                            onValueChange={(value) =>
+                              setItemForm((p) => ({
+                                ...p,
+                                category_id: value === "__none__" ? "" : value,
+                              }))
+                            }
                           >
                             <SelectTrigger>
                               <SelectValue placeholder="Select a category" />
@@ -935,14 +1421,18 @@ function SecretaryFinancePageContent() {
                             <Input
                               placeholder="e.g. LUNCH_FEE"
                               value={itemForm.code}
-                              onChange={(e) => setItemForm((p) => ({ ...p, code: e.target.value }))}
+                              onChange={(e) =>
+                                setItemForm((p) => ({ ...p, code: e.target.value }))
+                              }
                             />
                           </FormField>
                           <FormField label="Item Name" required>
                             <Input
                               placeholder="e.g. Lunch Fee"
                               value={itemForm.name}
-                              onChange={(e) => setItemForm((p) => ({ ...p, name: e.target.value }))}
+                              onChange={(e) =>
+                                setItemForm((p) => ({ ...p, name: e.target.value }))
+                              }
                             />
                           </FormField>
                         </div>
@@ -979,14 +1469,18 @@ function SecretaryFinancePageContent() {
                           const cat = data.fee_categories.find((c) => c.id === item.category_id);
                           return (
                             <TableRow key={item.id} className="hover:bg-slate-50">
-                              <TableCell className="font-mono text-xs font-medium text-blue-700">{item.code}</TableCell>
+                              <TableCell className="font-mono text-xs font-medium text-blue-700">
+                                {item.code}
+                              </TableCell>
                               <TableCell className="text-sm">{item.name}</TableCell>
                               <TableCell>
                                 <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
                                   {cat?.code ?? "—"}
                                 </span>
                               </TableCell>
-                              <TableCell><StatusBadge active={item.is_active} /></TableCell>
+                              <TableCell>
+                                <StatusBadge active={item.is_active} />
+                              </TableCell>
                             </TableRow>
                           );
                         })}
@@ -1015,30 +1509,50 @@ function SecretaryFinancePageContent() {
                       {editingStructureId ? "Edit Structure" : "New Structure"}
                     </p>
                     <div className="space-y-3">
-                      <FormField label="Class Code" hint="e.g. GRADE_7, FORM_1, PP2" required>
+                      <FormField
+                        label="Class Code"
+                        hint="e.g. GRADE_7, FORM_1, PP2"
+                        required
+                      >
                         <Input
                           placeholder="e.g. GRADE_7"
                           value={structureForm.class_code}
-                          onChange={(e) => setStructureForm((p) => ({ ...p, class_code: e.target.value }))}
+                          onChange={(e) =>
+                            setStructureForm((p) => ({
+                              ...p,
+                              class_code: e.target.value,
+                            }))
+                          }
                         />
                       </FormField>
                       <FormField label="Structure Name" required>
                         <Input
                           placeholder="e.g. Grade 7 - Day Scholar 2025"
                           value={structureForm.name}
-                          onChange={(e) => setStructureForm((p) => ({ ...p, name: e.target.value }))}
+                          onChange={(e) =>
+                            setStructureForm((p) => ({ ...p, name: e.target.value }))
+                          }
                         />
                       </FormField>
                       <div className="flex gap-2">
                         <ActionButton
                           onClick={createFeeStructure}
-                          loading={pendingAction === "create_fee_structure" || pendingAction === "update_fee_structure"}
+                          loading={
+                            pendingAction === "create_fee_structure" ||
+                            pendingAction === "update_fee_structure"
+                          }
                           className="flex-1"
                         >
                           {editingStructureId ? "Update Structure" : "+ Create Structure"}
                         </ActionButton>
                         {editingStructureId && (
-                          <Button variant="outline" onClick={() => { setEditingStructureId(""); setStructureForm({ class_code: "", name: "", is_active: true }); }}>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setEditingStructureId("");
+                              setStructureForm({ class_code: "", name: "", is_active: true });
+                            }}
+                          >
                             Cancel
                           </Button>
                         )}
@@ -1065,13 +1579,24 @@ function SecretaryFinancePageContent() {
                       <TableBody>
                         {data.fee_structures.map((structure) => (
                           <TableRow key={structure.id} className="hover:bg-slate-50">
-                            <TableCell className="font-mono text-xs font-medium text-blue-700">{structure.class_code}</TableCell>
+                            <TableCell className="font-mono text-xs font-medium text-blue-700">
+                              {structure.class_code}
+                            </TableCell>
                             <TableCell className="text-sm">{structure.name}</TableCell>
-                            <TableCell><StatusBadge active={structure.is_active} /></TableCell>
+                            <TableCell>
+                              <StatusBadge active={structure.is_active} />
+                            </TableCell>
                             <TableCell>
                               <div className="flex gap-1">
                                 <button
-                                  onClick={() => { setEditingStructureId(structure.id); setStructureForm({ class_code: structure.class_code, name: structure.name, is_active: structure.is_active }); }}
+                                  onClick={() => {
+                                    setEditingStructureId(structure.id);
+                                    setStructureForm({
+                                      class_code: structure.class_code,
+                                      name: structure.name,
+                                      is_active: structure.is_active,
+                                    });
+                                  }}
                                   className="rounded-md px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 transition"
                                   disabled={pendingAction !== null}
                                 >
@@ -1143,7 +1668,8 @@ function SecretaryFinancePageContent() {
                       <span className="font-semibold">{selectedStructure.name}</span>
                       {structureRows.length > 0 && (
                         <span className="ml-3 text-blue-600">
-                          {structureRows.length} items · Total: <strong>{formatKes(structureTotal)}</strong>
+                          {structureRows.length} items · Total:{" "}
+                          <strong>{formatKes(structureTotal)}</strong>
                         </span>
                       )}
                     </div>
@@ -1186,7 +1712,12 @@ function SecretaryFinancePageContent() {
                             />
                             <Select
                               value={structureExistingItemForm.fee_item_id || "__none__"}
-                              onValueChange={(value) => setStructureExistingItemForm((p) => ({ ...p, fee_item_id: value === "__none__" ? "" : value }))}
+                              onValueChange={(value) =>
+                                setStructureExistingItemForm((p) => ({
+                                  ...p,
+                                  fee_item_id: value === "__none__" ? "" : value,
+                                }))
+                              }
                             >
                               <SelectTrigger>
                                 <SelectValue placeholder="Choose fee item…" />
@@ -1194,7 +1725,12 @@ function SecretaryFinancePageContent() {
                               <SelectContent>
                                 <SelectItem value="__none__">Choose fee item…</SelectItem>
                                 {data.fee_items
-                                  .filter((it) => !itemFilter || it.code.toLowerCase().includes(itemFilter.toLowerCase()) || it.name.toLowerCase().includes(itemFilter.toLowerCase()))
+                                  .filter(
+                                    (it) =>
+                                      !itemFilter ||
+                                      it.code.toLowerCase().includes(itemFilter.toLowerCase()) ||
+                                      it.name.toLowerCase().includes(itemFilter.toLowerCase())
+                                  )
                                   .map((item) => (
                                     <SelectItem key={item.id} value={item.id}>
                                       {item.code} — {item.name}
@@ -1210,7 +1746,12 @@ function SecretaryFinancePageContent() {
                                 min={0}
                                 placeholder="0.00"
                                 value={structureExistingItemForm.amount}
-                                onChange={(e) => setStructureExistingItemForm((p) => ({ ...p, amount: e.target.value }))}
+                                onChange={(e) =>
+                                  setStructureExistingItemForm((p) => ({
+                                    ...p,
+                                    amount: e.target.value,
+                                  }))
+                                }
                                 className="flex-1"
                               />
                               <ActionButton
@@ -1243,7 +1784,12 @@ function SecretaryFinancePageContent() {
                                 />
                                 <Select
                                   value={structureInlineItemForm.category_id || "__none__"}
-                                  onValueChange={(value) => setStructureInlineItemForm((p) => ({ ...p, category_id: value === "__none__" ? "" : value }))}
+                                  onValueChange={(value) =>
+                                    setStructureInlineItemForm((p) => ({
+                                      ...p,
+                                      category_id: value === "__none__" ? "" : value,
+                                    }))
+                                  }
                                 >
                                   <SelectTrigger>
                                     <SelectValue placeholder="Select category…" />
@@ -1251,7 +1797,12 @@ function SecretaryFinancePageContent() {
                                   <SelectContent>
                                     <SelectItem value="__none__">Select category…</SelectItem>
                                     {data.fee_categories
-                                      .filter((c) => !categoryFilter || c.code.toLowerCase().includes(categoryFilter.toLowerCase()) || c.name.toLowerCase().includes(categoryFilter.toLowerCase()))
+                                      .filter(
+                                        (c) =>
+                                          !categoryFilter ||
+                                          c.code.toLowerCase().includes(categoryFilter.toLowerCase()) ||
+                                          c.name.toLowerCase().includes(categoryFilter.toLowerCase())
+                                      )
                                       .map((cat) => (
                                         <SelectItem key={cat.id} value={cat.id}>
                                           {cat.code} — {cat.name}
@@ -1265,14 +1816,24 @@ function SecretaryFinancePageContent() {
                                   <Input
                                     placeholder="e.g. LUNCH_FEE"
                                     value={structureInlineItemForm.code}
-                                    onChange={(e) => setStructureInlineItemForm((p) => ({ ...p, code: e.target.value }))}
+                                    onChange={(e) =>
+                                      setStructureInlineItemForm((p) => ({
+                                        ...p,
+                                        code: e.target.value,
+                                      }))
+                                    }
                                   />
                                 </FormField>
                                 <FormField label="Item Name" required>
                                   <Input
                                     placeholder="e.g. Lunch Fee"
                                     value={structureInlineItemForm.name}
-                                    onChange={(e) => setStructureInlineItemForm((p) => ({ ...p, name: e.target.value }))}
+                                    onChange={(e) =>
+                                      setStructureInlineItemForm((p) => ({
+                                        ...p,
+                                        name: e.target.value,
+                                      }))
+                                    }
                                   />
                                 </FormField>
                               </div>
@@ -1283,7 +1844,12 @@ function SecretaryFinancePageContent() {
                                     min={0}
                                     placeholder="0.00"
                                     value={structureInlineItemForm.amount}
-                                    onChange={(e) => setStructureInlineItemForm((p) => ({ ...p, amount: e.target.value }))}
+                                    onChange={(e) =>
+                                      setStructureInlineItemForm((p) => ({
+                                        ...p,
+                                        amount: e.target.value,
+                                      }))
+                                    }
                                     className="flex-1"
                                   />
                                   <ActionButton
@@ -1320,11 +1886,16 @@ function SecretaryFinancePageContent() {
                           </TableHeader>
                           <TableBody>
                             {structureRows.map((row, index) => (
-                              <TableRow key={`${row.fee_item_id}-${index}`} className="hover:bg-slate-50">
+                              <TableRow
+                                key={`${row.fee_item_id}-${index}`}
+                                className="hover:bg-slate-50"
+                              >
                                 <TableCell>
                                   <div>
                                     <p className="text-sm font-medium">{row.fee_item_name || "—"}</p>
-                                    <p className="font-mono text-xs text-slate-400">{row.fee_item_code}</p>
+                                    <p className="font-mono text-xs text-slate-400">
+                                      {row.fee_item_code}
+                                    </p>
                                   </div>
                                 </TableCell>
                                 <TableCell>
@@ -1368,10 +1939,16 @@ function SecretaryFinancePageContent() {
                               </TableRow>
                             ))}
                             {structureRows.length === 0 && !selectedStructureId && (
-                              <EmptyRow colSpan={4} message="Select a structure above to view its items." />
+                              <EmptyRow
+                                colSpan={4}
+                                message="Select a structure above to view its items."
+                              />
                             )}
                             {structureRows.length === 0 && selectedStructureId && (
-                              <EmptyRow colSpan={4} message="No fee items yet. Add items using the form on the left." />
+                              <EmptyRow
+                                colSpan={4}
+                                message="No fee items yet. Add items using the form on the left."
+                              />
                             )}
                           </TableBody>
                         </Table>
@@ -1396,20 +1973,26 @@ function SecretaryFinancePageContent() {
             >
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">New Scholarship</p>
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    New Scholarship
+                  </p>
                   <div className="space-y-3">
                     <FormField label="Scholarship Name" required>
                       <Input
                         placeholder="e.g. Bursary Award, Staff Discount"
                         value={scholarshipForm.name}
-                        onChange={(e) => setScholarshipForm((p) => ({ ...p, name: e.target.value }))}
+                        onChange={(e) =>
+                          setScholarshipForm((p) => ({ ...p, name: e.target.value }))
+                        }
                       />
                     </FormField>
                     <div className="grid grid-cols-2 gap-2">
                       <FormField label="Type">
                         <Select
                           value={scholarshipForm.type}
-                          onValueChange={(value) => setScholarshipForm((p) => ({ ...p, type: value }))}
+                          onValueChange={(value) =>
+                            setScholarshipForm((p) => ({ ...p, type: value }))
+                          }
                         >
                           <SelectTrigger>
                             <SelectValue />
@@ -1420,13 +2003,18 @@ function SecretaryFinancePageContent() {
                           </SelectContent>
                         </Select>
                       </FormField>
-                      <FormField label={scholarshipForm.type === "PERCENT" ? "Value (%)" : "Value (KES)"} required>
+                      <FormField
+                        label={scholarshipForm.type === "PERCENT" ? "Value (%)" : "Value (KES)"}
+                        required
+                      >
                         <Input
                           type="number"
                           min={0}
                           placeholder={scholarshipForm.type === "PERCENT" ? "e.g. 25" : "e.g. 5000"}
                           value={scholarshipForm.value}
-                          onChange={(e) => setScholarshipForm((p) => ({ ...p, value: e.target.value }))}
+                          onChange={(e) =>
+                            setScholarshipForm((p) => ({ ...p, value: e.target.value }))
+                          }
                         />
                       </FormField>
                     </div>
@@ -1458,12 +2046,16 @@ function SecretaryFinancePageContent() {
                           <TableRow key={sch.id} className="hover:bg-slate-50">
                             <TableCell className="text-sm font-medium">{sch.name}</TableCell>
                             <TableCell>
-                              <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">{sch.type}</span>
+                              <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
+                                {sch.type}
+                              </span>
                             </TableCell>
                             <TableCell className="text-sm">
                               {sch.type === "PERCENT" ? `${sch.value}%` : formatAmount(sch.value)}
                             </TableCell>
-                            <TableCell><StatusBadge active={sch.is_active} /></TableCell>
+                            <TableCell>
+                              <StatusBadge active={sch.is_active} />
+                            </TableCell>
                           </TableRow>
                         ))}
                         {data.scholarships.length === 0 && (
@@ -1483,20 +2075,38 @@ function SecretaryFinancePageContent() {
           <div className="space-y-5">
             {/* Summary Cards */}
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-              <SummaryCard label="Total Billed" value={formatKes(totals.total)} sub={`${data.invoices.length} invoices`} color="blue" />
+              <SummaryCard
+                label="Total Billed"
+                value={formatKes(totals.total)}
+                sub={`${data.invoices.length} invoices`}
+                color="blue"
+              />
               <SummaryCard label="Collected" value={formatKes(totals.paid)} color="emerald" />
-              <SummaryCard label="Outstanding" value={formatKes(totals.balance)} sub={`${outstandingInvoices.length} unpaid`} color="amber" />
+              <SummaryCard
+                label="Outstanding"
+                value={formatKes(totals.balance)}
+                sub={`${outstandingInvoices.length} unpaid`}
+                color="amber"
+              />
               <SummaryCard label="Enrollments" value={String(data.enrollments.length)} color="blue" />
             </div>
 
             <div className="grid gap-5 xl:grid-cols-2">
               {/* Fees Invoice */}
-              <SectionCard title="Generate School Fees Invoice" description="Creates an invoice for a student based on their class fee structure.">
+              <SectionCard
+                title="Generate School Fees Invoice"
+                description="Creates an invoice for a student based on their class fee structure."
+              >
                 <div className="space-y-3">
                   <FormField label="Student Enrollment" required>
                     <Select
                       value={feesInvoiceForm.enrollment_id || "__none__"}
-                      onValueChange={(value) => setFeesInvoiceForm((p) => ({ ...p, enrollment_id: value === "__none__" ? "" : value }))}
+                      onValueChange={(value) =>
+                        setFeesInvoiceForm((p) => ({
+                          ...p,
+                          enrollment_id: value === "__none__" ? "" : value,
+                        }))
+                      }
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select student enrollment" />
@@ -1512,17 +2122,28 @@ function SecretaryFinancePageContent() {
                     </Select>
                   </FormField>
                   <div className="grid grid-cols-2 gap-3">
-                    <FormField label="Class Code" hint="Auto-filled if available from enrollment" required>
+                    <FormField
+                      label="Class Code"
+                      hint="Auto-filled if available from enrollment"
+                      required
+                    >
                       <Input
                         placeholder="e.g. GRADE_7"
                         value={feesInvoiceForm.class_code}
-                        onChange={(e) => setFeesInvoiceForm((p) => ({ ...p, class_code: e.target.value }))}
+                        onChange={(e) =>
+                          setFeesInvoiceForm((p) => ({ ...p, class_code: e.target.value }))
+                        }
                       />
                     </FormField>
                     <FormField label="Scholarship" hint="Optional discount to apply">
                       <Select
                         value={feesInvoiceForm.scholarship_id || "__none__"}
-                        onValueChange={(value) => setFeesInvoiceForm((p) => ({ ...p, scholarship_id: value === "__none__" ? "" : value }))}
+                        onValueChange={(value) =>
+                          setFeesInvoiceForm((p) => ({
+                            ...p,
+                            scholarship_id: value === "__none__" ? "" : value,
+                          }))
+                        }
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="None" />
@@ -1530,7 +2151,9 @@ function SecretaryFinancePageContent() {
                         <SelectContent>
                           <SelectItem value="__none__">No scholarship</SelectItem>
                           {data.scholarships.map((sch) => (
-                            <SelectItem key={sch.id} value={sch.id}>{sch.name}</SelectItem>
+                            <SelectItem key={sch.id} value={sch.id}>
+                              {sch.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -1548,12 +2171,20 @@ function SecretaryFinancePageContent() {
               </SectionCard>
 
               {/* Interview Invoice */}
-              <SectionCard title="Create Interview Invoice" description="One-off invoice for admission interview processing fee.">
+              <SectionCard
+                title="Create Interview Invoice"
+                description="One-off invoice for admission interview processing fee."
+              >
                 <div className="space-y-3">
                   <FormField label="Student Enrollment" required>
                     <Select
                       value={interviewInvoiceForm.enrollment_id || "__none__"}
-                      onValueChange={(value) => setInterviewInvoiceForm((p) => ({ ...p, enrollment_id: value === "__none__" ? "" : value }))}
+                      onValueChange={(value) =>
+                        setInterviewInvoiceForm((p) => ({
+                          ...p,
+                          enrollment_id: value === "__none__" ? "" : value,
+                        }))
+                      }
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select student enrollment" />
@@ -1573,7 +2204,12 @@ function SecretaryFinancePageContent() {
                       <Input
                         placeholder="Interview fee"
                         value={interviewInvoiceForm.description}
-                        onChange={(e) => setInterviewInvoiceForm((p) => ({ ...p, description: e.target.value }))}
+                        onChange={(e) =>
+                          setInterviewInvoiceForm((p) => ({
+                            ...p,
+                            description: e.target.value,
+                          }))
+                        }
                       />
                     </FormField>
                     <FormField label="Amount (KES)" required>
@@ -1582,7 +2218,9 @@ function SecretaryFinancePageContent() {
                         min={0}
                         placeholder="e.g. 2000"
                         value={interviewInvoiceForm.amount}
-                        onChange={(e) => setInterviewInvoiceForm((p) => ({ ...p, amount: e.target.value }))}
+                        onChange={(e) =>
+                          setInterviewInvoiceForm((p) => ({ ...p, amount: e.target.value }))
+                        }
                       />
                     </FormField>
                   </div>
@@ -1599,7 +2237,162 @@ function SecretaryFinancePageContent() {
             </div>
 
             {/* Invoice Table */}
-            <SectionCard title="All Invoices">
+            <SectionCard
+              title="All Invoices"
+              description="Use filters to quickly locate interview fees, unpaid balances, or a specific student."
+            >
+              {/* Enterprise Filter Bar */}
+              <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="grid gap-3 lg:grid-cols-12">
+                  <div className="lg:col-span-4">
+                    <FormField label="Search" hint="Student name, invoice id, type, status">
+                      <Input
+                        placeholder="e.g. Achieng, INTERVIEW, UNPAID…"
+                        value={invoiceFilters.q}
+                        onChange={(e) =>
+                          setInvoiceFilters((p) => ({ ...p, q: e.target.value }))
+                        }
+                      />
+                    </FormField>
+                  </div>
+
+                  <div className="lg:col-span-3">
+                    <FormField label="Student (Enrollment)">
+                      <Select
+                        value={invoiceFilters.enrollment_id || "__all__"}
+                        onValueChange={(v) =>
+                          setInvoiceFilters((p) => ({
+                            ...p,
+                            enrollment_id: v === "__all__" ? "" : v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="All students" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All students</SelectItem>
+                          {data.enrollments.map((e) => (
+                            <SelectItem key={e.id} value={e.id}>
+                              {enrollmentName(e.payload || {})}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                  </div>
+
+                  <div className="lg:col-span-2">
+                    <FormField label="Type">
+                      <Select
+                        value={invoiceFilters.type || "__all__"}
+                        onValueChange={(v) =>
+                          setInvoiceFilters((p) => ({
+                            ...p,
+                            type: v === "__all__" ? "" : v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="All types" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All types</SelectItem>
+                          {availableInvoiceTypes.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                  </div>
+
+                  <div className="lg:col-span-2">
+                    <FormField label="Status">
+                      <Select
+                        value={invoiceFilters.status || "__all__"}
+                        onValueChange={(v) =>
+                          setInvoiceFilters((p) => ({
+                            ...p,
+                            status: v === "__all__" ? "" : v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="All statuses" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All statuses</SelectItem>
+                          {availableInvoiceStatuses.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                  </div>
+
+                  <div className="lg:col-span-1 flex items-end">
+                    <button
+                      onClick={() =>
+                        setInvoiceFilters((p) => ({
+                          ...p,
+                          outstanding_only: !p.outstanding_only,
+                        }))
+                      }
+                      className={`w-full rounded-lg px-3 py-2 text-xs font-semibold transition ${
+                        invoiceFilters.outstanding_only
+                          ? "bg-amber-600 text-white hover:bg-amber-700"
+                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      {invoiceFilters.outstanding_only ? "Outstanding" : "All"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
+                      Results: <strong className="text-slate-800">{filteredInvoices.length}</strong>
+                    </span>
+                    <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
+                      Total: <strong className="text-slate-800">{formatKes(filteredInvoiceTotals.total)}</strong>
+                    </span>
+                    <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
+                      Paid: <strong className="text-emerald-700">{formatKes(filteredInvoiceTotals.paid)}</strong>
+                    </span>
+                    <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
+                      Balance: <strong className="text-red-600">{formatKes(filteredInvoiceTotals.balance)}</strong>
+                    </span>
+
+                    {invoiceFilters.purpose && (
+                      <span className="rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700 ring-1 ring-blue-200">
+                        Purpose: {invoiceFilters.purpose.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() =>
+                      setInvoiceFilters({
+                        enrollment_id: "",
+                        purpose: "",
+                        type: "",
+                        status: "",
+                        q: "",
+                        outstanding_only: false,
+                      })
+                    }
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
+                  >
+                    Reset Filters
+                  </button>
+                </div>
+              </div>
+
               <div className="rounded-xl border border-slate-100 overflow-hidden">
                 <Table>
                   <TableHeader>
@@ -1613,28 +2406,53 @@ function SecretaryFinancePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.invoices.slice(0, 25).map((invoice) => {
-                      const enrollment = data.enrollments.find((r) => r.id === invoice.enrollment_id);
+                    {filteredInvoices.slice(0, 50).map((invoice) => {
+                      const enrollment = data.enrollments.find(
+                        (r) => r.id === invoice.enrollment_id
+                      );
                       return (
                         <TableRow key={invoice.id} className="hover:bg-slate-50">
                           <TableCell className="text-sm font-medium">
                             {enrollment ? enrollmentName(enrollment.payload || {}) : "N/A"}
+                            {invoice.enrollment_id &&
+                              invoice.enrollment_id === invoiceFilters.enrollment_id && (
+                                <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 ring-1 ring-blue-200">
+                                  Focus
+                                </span>
+                              )}
                           </TableCell>
                           <TableCell>
                             <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-                              {invoice.invoice_type}
+                              {normalizeInvoiceType(invoice.invoice_type)}
                             </span>
                           </TableCell>
-                          <TableCell><InvoiceStatusBadge status={invoice.status} /></TableCell>
-                          <TableCell className="text-right text-sm">{formatAmount(invoice.total_amount)}</TableCell>
-                          <TableCell className="text-right text-sm text-emerald-700">{formatAmount(invoice.paid_amount)}</TableCell>
-                          <TableCell className="text-right text-sm font-medium text-red-600">{formatAmount(invoice.balance_amount)}</TableCell>
+                          <TableCell>
+                            <InvoiceStatusBadge status={invoice.status} />
+                          </TableCell>
+                          <TableCell className="text-right text-sm">
+                            {formatAmount(invoice.total_amount)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm text-emerald-700">
+                            {formatAmount(invoice.paid_amount)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-medium text-red-600">
+                            {formatAmount(invoice.balance_amount)}
+                          </TableCell>
                         </TableRow>
                       );
                     })}
-                    {data.invoices.length === 0 && <EmptyRow colSpan={6} message="No invoices yet." />}
+
+                    {filteredInvoices.length === 0 && (
+                      <EmptyRow colSpan={6} message="No invoices match the current filters." />
+                    )}
                   </TableBody>
                 </Table>
+
+                {filteredInvoices.length > 50 && (
+                  <div className="border-t border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
+                    Showing first 50 results. Refine filters to narrow down the list.
+                  </div>
+                )}
               </div>
             </SectionCard>
           </div>
@@ -1643,17 +2461,26 @@ function SecretaryFinancePageContent() {
         {/* ── PAYMENTS SECTION ── */}
         {showPayments && (
           <div className="space-y-5">
-            <SectionCard title="Record a Payment" description="Capture a payment and allocate it against outstanding invoices.">
+            <SectionCard
+              title="Record a Payment"
+              description="Capture a payment and allocate it against outstanding invoices."
+            >
               <div className="grid gap-6 lg:grid-cols-2">
                 {/* Payment details */}
                 <div className="space-y-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payment Details</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Payment Details
+                  </p>
                   <FormField label="Filter by Student (optional)">
                     <Select
                       value={paymentEnrollmentId || "__none__"}
-                      onValueChange={(value) => setPaymentEnrollmentId(value === "__none__" ? "" : value)}
+                      onValueChange={(value) =>
+                        setPaymentEnrollmentId(value === "__none__" ? "" : value)
+                      }
                     >
-                      <SelectTrigger><SelectValue placeholder="All students" /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All students" />
+                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">All students</SelectItem>
                         {data.enrollments.map((enrollment) => (
@@ -1668,9 +2495,13 @@ function SecretaryFinancePageContent() {
                     <FormField label="Payment Method" required>
                       <Select
                         value={paymentForm.provider}
-                        onValueChange={(value) => setPaymentForm((p) => ({ ...p, provider: value }))}
+                        onValueChange={(value) =>
+                          setPaymentForm((p) => ({ ...p, provider: value }))
+                        }
                       >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="CASH">💵 Cash</SelectItem>
                           <SelectItem value="MPESA">📱 M-Pesa</SelectItem>
@@ -1683,7 +2514,12 @@ function SecretaryFinancePageContent() {
                       <Input
                         placeholder="e.g. QJKL2X3"
                         value={paymentForm.reference}
-                        onChange={(e) => setPaymentForm((p) => ({ ...p, reference: e.target.value }))}
+                        onChange={(e) =>
+                          setPaymentForm((p) => ({
+                            ...p,
+                            reference: e.target.value,
+                          }))
+                        }
                       />
                     </FormField>
                     <FormField label="Total Amount (KES)" required>
@@ -1692,7 +2528,9 @@ function SecretaryFinancePageContent() {
                         min={0}
                         placeholder="0.00"
                         value={paymentForm.amount}
-                        onChange={(e) => setPaymentForm((p) => ({ ...p, amount: e.target.value }))}
+                        onChange={(e) =>
+                          setPaymentForm((p) => ({ ...p, amount: e.target.value }))
+                        }
                       />
                     </FormField>
                   </div>
@@ -1701,7 +2539,9 @@ function SecretaryFinancePageContent() {
                 {/* Allocations */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Allocate to Invoices</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Allocate to Invoices
+                    </p>
                     <button
                       onClick={autoDistributePayment}
                       className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 transition"
@@ -1727,16 +2567,26 @@ function SecretaryFinancePageContent() {
                                 value={row.invoice_id || "__none__"}
                                 onValueChange={(value) =>
                                   setPaymentAllocations((prev) =>
-                                    prev.map((entry, idx) => idx === index ? { ...entry, invoice_id: value === "__none__" ? "" : value } : entry)
+                                    prev.map((entry, idx) =>
+                                      idx === index
+                                        ? {
+                                            ...entry,
+                                            invoice_id: value === "__none__" ? "" : value,
+                                          }
+                                        : entry
+                                    )
                                   )
                                 }
                               >
-                                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select invoice" /></SelectTrigger>
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="Select invoice" />
+                                </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="__none__">Select invoice…</SelectItem>
                                   {paymentCandidateInvoices.map((inv) => (
                                     <SelectItem key={inv.id} value={inv.id}>
-                                      {inv.invoice_type} — balance {formatAmount(inv.balance_amount)}
+                                      {normalizeInvoiceType(inv.invoice_type)} — balance{" "}
+                                      {formatAmount(inv.balance_amount)}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -1750,7 +2600,9 @@ function SecretaryFinancePageContent() {
                                 value={row.amount}
                                 onChange={(e) =>
                                   setPaymentAllocations((prev) =>
-                                    prev.map((entry, idx) => idx === index ? { ...entry, amount: e.target.value } : entry)
+                                    prev.map((entry, idx) =>
+                                      idx === index ? { ...entry, amount: e.target.value } : entry
+                                    )
                                   )
                                 }
                                 className="h-8 text-sm"
@@ -1758,7 +2610,11 @@ function SecretaryFinancePageContent() {
                             </TableCell>
                             <TableCell>
                               <button
-                                onClick={() => setPaymentAllocations((prev) => prev.filter((_, idx) => idx !== index))}
+                                onClick={() =>
+                                  setPaymentAllocations((prev) =>
+                                    prev.filter((_, idx) => idx !== index)
+                                  )
+                                }
                                 className="text-xs text-red-400 hover:text-red-600"
                               >
                                 ✕
@@ -1773,19 +2629,32 @@ function SecretaryFinancePageContent() {
                   {/* Totals check */}
                   <div className="flex items-center justify-between rounded-xl border px-4 py-2 text-sm">
                     <span className="text-slate-500">Allocation total</span>
-                    <span className={`font-semibold ${paymentAllocationTotal === toNumber(paymentForm.amount) && toNumber(paymentForm.amount) > 0 ? "text-emerald-700" : "text-red-600"}`}>
+                    <span
+                      className={`font-semibold ${
+                        paymentAllocationTotal === toNumber(paymentForm.amount) &&
+                        toNumber(paymentForm.amount) > 0
+                          ? "text-emerald-700"
+                          : "text-red-600"
+                      }`}
+                    >
                       {formatKes(paymentAllocationTotal)}
-                      {toNumber(paymentForm.amount) > 0 && paymentAllocationTotal !== toNumber(paymentForm.amount) && (
-                        <span className="ml-2 text-xs font-normal text-red-500">
-                          (must equal {formatKes(toNumber(paymentForm.amount))})
-                        </span>
-                      )}
+                      {toNumber(paymentForm.amount) > 0 &&
+                        paymentAllocationTotal !== toNumber(paymentForm.amount) && (
+                          <span className="ml-2 text-xs font-normal text-red-500">
+                            (must equal {formatKes(toNumber(paymentForm.amount))})
+                          </span>
+                        )}
                     </span>
                   </div>
 
                   <div className="flex gap-2">
                     <button
-                      onClick={() => setPaymentAllocations((prev) => [...prev, { invoice_id: "", amount: "" }])}
+                      onClick={() =>
+                        setPaymentAllocations((prev) => [
+                          ...prev,
+                          { invoice_id: "", amount: "" },
+                        ])
+                      }
                       className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition"
                     >
                       + Add Row
@@ -1823,18 +2692,25 @@ function SecretaryFinancePageContent() {
                           {String(payment.id).slice(0, 8).toUpperCase()}
                         </TableCell>
                         <TableCell>
-                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">{payment.provider}</span>
+                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
+                            {payment.provider}
+                          </span>
                         </TableCell>
-                        <TableCell className="text-sm text-slate-500">{payment.reference || "—"}</TableCell>
+                        <TableCell className="text-sm text-slate-500">
+                          {payment.reference || "—"}
+                        </TableCell>
                         <TableCell className="text-right text-sm font-semibold text-emerald-700">
                           {formatAmount(payment.amount)}
                         </TableCell>
                         <TableCell className="text-sm text-slate-500">
-                          {Array.isArray(payment.allocations) ? payment.allocations.length : 0} invoice{payment.allocations?.length !== 1 ? "s" : ""}
+                          {Array.isArray(payment.allocations) ? payment.allocations.length : 0}{" "}
+                          invoice{payment.allocations?.length !== 1 ? "s" : ""}
                         </TableCell>
                       </TableRow>
                     ))}
-                    {data.payments.length === 0 && <EmptyRow colSpan={5} message="No payments recorded yet." />}
+                    {data.payments.length === 0 && (
+                      <EmptyRow colSpan={5} message="No payments recorded yet." />
+                    )}
                   </TableBody>
                 </Table>
               </div>
@@ -1846,7 +2722,11 @@ function SecretaryFinancePageContent() {
         {showReceipts && (
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-              <SummaryCard label="Paid Invoices" value={String(data.invoices.filter((i) => i.status.toUpperCase() === "PAID").length)} color="emerald" />
+              <SummaryCard
+                label="Paid Invoices"
+                value={String(data.invoices.filter((i) => i.status.toUpperCase() === "PAID").length)}
+                color="emerald"
+              />
               <SummaryCard label="Total Collected" value={formatKes(totals.paid)} color="blue" />
               <SummaryCard label="Total Payments" value={String(data.payments.length)} color="blue" />
               <SummaryCard label="Outstanding" value={formatKes(totals.balance)} color="amber" />
@@ -1876,11 +2756,19 @@ function SecretaryFinancePageContent() {
                               {enrollment ? enrollmentName(enrollment.payload || {}) : "N/A"}
                             </TableCell>
                             <TableCell>
-                              <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">{invoice.invoice_type}</span>
+                              <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
+                                {normalizeInvoiceType(invoice.invoice_type)}
+                              </span>
                             </TableCell>
-                            <TableCell><InvoiceStatusBadge status={invoice.status} /></TableCell>
-                            <TableCell className="text-right text-sm">{formatAmount(invoice.total_amount)}</TableCell>
-                            <TableCell className="text-right text-sm font-medium text-emerald-700">{formatAmount(invoice.paid_amount)}</TableCell>
+                            <TableCell>
+                              <InvoiceStatusBadge status={invoice.status} />
+                            </TableCell>
+                            <TableCell className="text-right text-sm">
+                              {formatAmount(invoice.total_amount)}
+                            </TableCell>
+                            <TableCell className="text-right text-sm font-medium text-emerald-700">
+                              {formatAmount(invoice.paid_amount)}
+                            </TableCell>
                           </TableRow>
                         );
                       })}
@@ -1911,12 +2799,19 @@ function SecretaryFinancePageContent() {
                           {String(payment.id).slice(0, 8).toUpperCase()}
                         </TableCell>
                         <TableCell>
-                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">{payment.provider}</span>
+                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
+                            {payment.provider}
+                          </span>
                         </TableCell>
-                        <TableCell className="text-sm text-slate-500">{payment.reference || "—"}</TableCell>
-                        <TableCell className="text-right text-sm font-semibold text-emerald-700">{formatAmount(payment.amount)}</TableCell>
                         <TableCell className="text-sm text-slate-500">
-                          {Array.isArray(payment.allocations) ? payment.allocations.length : 0} invoice{payment.allocations?.length !== 1 ? "s" : ""}
+                          {payment.reference || "—"}
+                        </TableCell>
+                        <TableCell className="text-right text-sm font-semibold text-emerald-700">
+                          {formatAmount(payment.amount)}
+                        </TableCell>
+                        <TableCell className="text-sm text-slate-500">
+                          {Array.isArray(payment.allocations) ? payment.allocations.length : 0}{" "}
+                          invoice{payment.allocations?.length !== 1 ? "s" : ""}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1934,14 +2829,16 @@ function SecretaryFinancePageContent() {
 
 export default function SecretaryFinancePage() {
   return (
-    <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-          <p className="text-sm text-slate-500">Loading finance…</p>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            <p className="text-sm text-slate-500">Loading finance…</p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <SecretaryFinancePageContent />
     </Suspense>
   );

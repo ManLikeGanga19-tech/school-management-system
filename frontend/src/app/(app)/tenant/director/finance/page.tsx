@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { api, apiFetch } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -186,15 +187,17 @@ export default function TenantFinancePage() {
   const [saving, setSaving]             = useState(false);
 
   async function load() {
-    const res = await fetch("/api/tenant/director/finance", { method: "GET" });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) { setError("Failed to load finance data"); return; }
-    setPolicy(data?.policy || null);
-    setInvoices(Array.isArray(data?.invoices) ? data.invoices : []);
-    setFeeCategories(Array.isArray(data?.fee_categories) ? data.fee_categories : []);
-    setFeeItems(Array.isArray(data?.fee_items) ? data.fee_items : []);
-    setScholarships(Array.isArray(data?.scholarships) ? data.scholarships : []);
-    setError(null);
+    try {
+      const data = await api.get<any>("/tenants/director/finance", { tenantRequired: true });
+      setPolicy(data?.policy || null);
+      setInvoices(Array.isArray(data?.invoices) ? data.invoices : []);
+      setFeeCategories(Array.isArray(data?.fee_categories) ? data.fee_categories : []);
+      setFeeItems(Array.isArray(data?.fee_items) ? data.fee_items : []);
+      setScholarships(Array.isArray(data?.scholarships) ? data.scholarships : []);
+      setError(null);
+    } catch (err: any) {
+      setError(typeof err?.message === "string" ? err.message : "Failed to load finance data");
+    }
   }
 
   useEffect(() => {
@@ -208,18 +211,20 @@ export default function TenantFinancePage() {
     setSaving(true);
     setError(null);
     setNotice(null);
-    const res = await fetch("/api/tenant/director/finance/policy", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(policy),
-    });
-    const data = await res.json().catch(() => ({}));
-    setSaving(false);
-    if (!res.ok) {
-      setError(typeof data?.detail === "string" ? data.detail : "Failed to update policy");
+    try {
+      const updated = await apiFetch<Policy>("/tenants/director/finance/policy", {
+        method: "PUT",
+        tenantRequired: true,
+        body: JSON.stringify(policy),
+        headers: { "Content-Type": "application/json" },
+      });
+      setPolicy(updated);
+      setSaving(false);
+    } catch (err: any) {
+      setSaving(false);
+      setError(typeof err?.message === "string" ? err.message : "Failed to update policy");
       return;
     }
-    setPolicy(data as Policy);
     setNotice("Finance policy saved successfully.");
   }
 

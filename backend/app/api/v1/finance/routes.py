@@ -457,3 +457,122 @@ def enrollment_finance_status(
     _=Depends(get_current_user),
 ):
     return service.get_enrollment_finance_status(db, tenant_id=tenant.id, enrollment_id=enrollment_id)
+
+
+# -------------------------
+# Subscription (Tenant/Director)
+# NOTE: Must use TENANT auth (get_current_user) like other finance endpoints.
+# -------------------------
+
+@router.get(
+    "/subscription",
+    dependencies=[Depends(require_permission("admin.dashboard.view_tenant"))],
+)
+def get_subscription(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """
+    Returns the current tenant subscription info for director dashboard.
+    """
+    try:
+        fn = getattr(service, "get_tenant_subscription")
+    except AttributeError:
+        raise HTTPException(
+            status_code=501,
+            detail="Backend missing service.get_tenant_subscription(db, tenant_id=...)",
+        )
+
+    return fn(db, tenant_id=tenant.id)
+
+
+@router.get(
+    "/subscription/payments",
+    dependencies=[Depends(require_permission("admin.dashboard.view_tenant"))],
+)
+def list_subscription_payments(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """
+    Returns tenant subscription payment history.
+    """
+    try:
+        fn = getattr(service, "list_tenant_subscription_payments")
+    except AttributeError:
+        raise HTTPException(
+            status_code=501,
+            detail="Backend missing service.list_tenant_subscription_payments(db, tenant_id=...)",
+        )
+
+    return fn(db, tenant_id=tenant.id)
+
+
+@router.post(
+    "/subscription/pay",
+    dependencies=[Depends(require_permission("admin.dashboard.view_tenant"))],
+)
+def pay_subscription(
+    payload: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """
+    Initiate M-Pesa subscription payment (STK push).
+    Expected payload:
+      - phone_number
+      - amount
+      - subscription_id (optional)
+    """
+    try:
+        fn = getattr(service, "initiate_tenant_subscription_payment")
+    except AttributeError:
+        raise HTTPException(
+            status_code=501,
+            detail="Backend missing service.initiate_tenant_subscription_payment(db, tenant_id, actor_user_id, phone_number, amount, subscription_id)",
+        )
+
+    phone = (payload.get("phone_number") or "").strip()
+    amount = payload.get("amount")
+    subscription_id = payload.get("subscription_id")
+
+    if not phone:
+        raise HTTPException(status_code=400, detail="phone_number is required")
+    if amount is None:
+        raise HTTPException(status_code=400, detail="amount is required")
+
+    return fn(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        phone_number=phone,
+        amount=amount,
+        subscription_id=subscription_id,
+    )
+
+
+@router.get(
+    "/subscription/payment-status",
+    dependencies=[Depends(require_permission("admin.dashboard.view_tenant"))],
+)
+def subscription_payment_status(
+    checkout_request_id: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """
+    Poll payment status by checkout_request_id.
+    """
+    try:
+        fn = getattr(service, "get_tenant_subscription_payment_status")
+    except AttributeError:
+        raise HTTPException(
+            status_code=501,
+            detail="Backend missing service.get_tenant_subscription_payment_status(db, tenant_id, checkout_request_id)",
+        )
+
+    return fn(db, tenant_id=tenant.id, checkout_request_id=checkout_request_id)

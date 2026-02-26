@@ -28,28 +28,28 @@ export async function listTenants(params?: ListTenantsParams) {
   if (typeof params?.is_active === "boolean") qs.set("is_active", String(params.is_active));
 
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
-  return apiFetch<TenantRow[]>(`/api/v1/admin/tenants${suffix}`, {
+  return apiFetch<TenantRow[]>(`/admin/tenants${suffix}`, {
     method: "GET",
     tenantRequired: false,
   });
 }
 
 export async function suspendTenant(tenantId: string) {
-  return apiFetch<{ ok: true }>(`/api/v1/admin/tenants/${encodeURIComponent(tenantId)}/suspend`, {
+  return apiFetch<{ ok: true }>(`/admin/tenants/${encodeURIComponent(tenantId)}/suspend`, {
     method: "POST",
     tenantRequired: false,
   });
 }
 
 export async function restoreTenant(tenantId: string) {
-  return apiFetch<{ ok: true }>(`/api/v1/admin/tenants/${encodeURIComponent(tenantId)}/restore`, {
+  return apiFetch<{ ok: true }>(`/admin/tenants/${encodeURIComponent(tenantId)}/restore`, {
     method: "POST",
     tenantRequired: false,
   });
 }
 
 export async function deleteTenant(tenantId: string) {
-  return apiFetch<{ ok: true }>(`/api/v1/admin/tenants/${encodeURIComponent(tenantId)}`, {
+  return apiFetch<{ ok: true }>(`/admin/tenants/${encodeURIComponent(tenantId)}`, {
     method: "DELETE",
     tenantRequired: false,
   });

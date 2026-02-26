@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Optional, List
+import re
+import time
+from typing import Optional, List, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 
 from app.core.database import get_db
 from app.core.dependencies import get_tenant, require_permission, require_permission_saas
@@ -31,12 +33,52 @@ from app.models.rbac import (
     UserRole,
     UserPermissionOverride,
 )
+from datetime import date as _date
+from app.api.v1.admin.schemas import (
+    SaaSMetricsResponse,
+    RecentTenantsResponse,
+    TenantRow,
+    CreateTenantRequest,
+    SubscriptionRow,
+    CreateSubscriptionRequest,
+    UpdateSubscriptionRequest,
+    PermissionRow,
+)
 
 router = APIRouter()
 
-# -------------------------
-# SaaS Dashboard (SUPER_ADMIN)
-# -------------------------
+
+# ─────────────────────────────────────────────────────────────────────────────
+# In-process TTL cache (no external dependency)
+# One instance per worker process — good enough for a dashboard endpoint.
+# Invalidated explicitly after any mutation that affects the cached counts.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _TTLCache:
+    def __init__(self, ttl_seconds: int) -> None:
+        self._ttl        = ttl_seconds
+        self._value: Any = None
+        self._expires    = 0.0
+
+    def get(self) -> Any | None:
+        return self._value if time.monotonic() < self._expires else None
+
+    def set(self, value: Any) -> None:
+        self._value   = value
+        self._expires = time.monotonic() + self._ttl
+
+    def invalidate(self) -> None:
+        self._expires = 0.0
+
+
+_metrics_cache = _TTLCache(ttl_seconds=60)
+_recent_cache  = _TTLCache(ttl_seconds=30)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SaaS Dashboard — Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.get("/saas/summary", response_model=SaaSSummary)
 def saas_summary(
     db: Session = Depends(get_db),
@@ -45,9 +87,38 @@ def saas_summary(
     return service.get_saas_summary(db)
 
 
-# -------------------------
-# Tenant Dashboard (tenant scoped)
-# -------------------------
+@router.get("/saas/metrics", response_model=SaaSMetricsResponse)
+def saas_metrics(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    """Platform-wide KPI metrics. Response is cached for 60 s."""
+    cached = _metrics_cache.get()
+    if cached is not None:
+        return cached
+    result = service.get_saas_metrics(db)
+    _metrics_cache.set(result)
+    return result
+
+
+@router.get("/saas/tenants/recent", response_model=RecentTenantsResponse)
+def saas_recent_tenants(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    """Six most recently onboarded tenants. Cached for 30 s."""
+    cached = _recent_cache.get()
+    if cached is not None:
+        return cached
+    result = service.get_recent_tenants(db)
+    _recent_cache.set(result)
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tenant Dashboard — tenant scoped
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.get("/summary", response_model=TenantDashboardSummary)
 def tenant_summary(
     db: Session = Depends(get_db),
@@ -57,41 +128,49 @@ def tenant_summary(
     return service.get_tenant_dashboard(db, tenant.id)
 
 
-# -------------------------
-# Tenant Management (SUPER_ADMIN)
-# -------------------------
-@router.get("/tenants", dependencies=[Depends(require_permission_saas("tenants.read_all"))])
+# ─────────────────────────────────────────────────────────────────────────────
+# Tenant Management — Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/tenants", response_model=list[TenantRow], dependencies=[Depends(require_permission_saas("tenants.read_all"))])
 def list_tenants(
     db: Session = Depends(get_db),
     q: Optional[str] = Query(default=None),
     is_active: Optional[bool] = Query(default=None),
 ):
-    stmt = select(Tenant)
+    return service.list_tenants_with_metadata(db, q=q, is_active=is_active)
 
-    if q:
-        ql = q.strip().lower()
-        stmt = stmt.where(
-            (Tenant.slug.ilike(f"%{ql}%")) |
-            (Tenant.name.ilike(f"%{ql}%")) |
-            (Tenant.primary_domain.ilike(f"%{ql}%"))
+
+@router.post("/tenants")
+def create_tenant_endpoint(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("tenants.create")),
+    name: str                   = Body(...),
+    slug: str                   = Body(...),
+    primary_domain: Optional[str] = Body(default=None),
+    plan: Optional[str]         = Body(default=None),
+):
+    if not re.match(r"^[a-z0-9-]+$", slug):
+        raise HTTPException(
+            status_code=422,
+            detail="slug must be lowercase letters, numbers, and hyphens only",
         )
+    try:
+        tenant = service.create_tenant(db, name=name, slug=slug, primary_domain=primary_domain, plan=plan)
+    except ValueError as exc:
+        code = 409 if "already exists" in str(exc) else 422
+        raise HTTPException(status_code=code, detail=str(exc))
 
-    if is_active is not None:
-        stmt = stmt.where(Tenant.is_active == is_active)
-
-    rows = db.execute(stmt).scalars().all()
-    return [
-        {
-            "id": str(t.id),
-            "slug": t.slug,
-            "name": t.name,
-            "primary_domain": t.primary_domain,
-            "is_active": bool(t.is_active),
-            "created_at": getattr(t, "created_at", None),
-            "updated_at": getattr(t, "updated_at", None),
-        }
-        for t in rows
-    ]
+    _metrics_cache.invalidate()
+    _recent_cache.invalidate()
+    return {
+        "id":             str(tenant.id),
+        "slug":           tenant.slug,
+        "name":           tenant.name,
+        "primary_domain": tenant.primary_domain,
+        "is_active":      tenant.is_active,
+        "created_at":     tenant.created_at,
+    }
 
 
 @router.post("/tenants/{tenant_id}/suspend")
@@ -103,9 +182,10 @@ def suspend_tenant(
     t = db.get(Tenant, tenant_id)
     if not t:
         raise HTTPException(status_code=404, detail="Tenant not found")
-
     t.is_active = False
     db.commit()
+    _metrics_cache.invalidate()
+    _recent_cache.invalidate()
     return {"ok": True}
 
 
@@ -118,9 +198,10 @@ def restore_tenant(
     t = db.get(Tenant, tenant_id)
     if not t:
         raise HTTPException(status_code=404, detail="Tenant not found")
-
     t.is_active = True
     db.commit()
+    _metrics_cache.invalidate()
+    _recent_cache.invalidate()
     return {"ok": True}
 
 
@@ -130,22 +211,20 @@ def soft_delete_tenant(
     db: Session = Depends(get_db),
     _=Depends(require_permission_saas("tenants.delete")),
 ):
-    """
-    Soft delete: mark inactive.
-    (We do NOT hard delete rows to preserve history/audit/billing evidence.)
-    """
     t = db.get(Tenant, tenant_id)
     if not t:
         raise HTTPException(status_code=404, detail="Tenant not found")
-
     t.is_active = False
     db.commit()
+    _metrics_cache.invalidate()
+    _recent_cache.invalidate()
     return {"ok": True}
 
 
-# -------------------------
-# Update Tenant (DIRECTOR / SUPER_ADMIN via perms) - tenant scoped
-# -------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# Update Tenant — tenant scoped (director / super admin via perms)
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.patch("/tenant")
 def update_tenant(
     payload: TenantUpdate,
@@ -159,9 +238,10 @@ def update_tenant(
     return {"ok": True}
 
 
-# -------------------------
-# Users (tenant scoped)
-# -------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# Users — tenant scoped
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.get("/users", response_model=list[UserOut])
 def list_users(
     db: Session = Depends(get_db),
@@ -171,10 +251,87 @@ def list_users(
     return service.list_users(db, tenant.id)
 
 
-# -------------------------
-# RBAC: Permissions (SUPER_ADMIN - global)
-# -------------------------
-@router.get("/rbac/permissions")
+# ─────────────────────────────────────────────────────────────────────────────
+# Subscriptions — Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/subscriptions", response_model=list[SubscriptionRow])
+def list_subscriptions(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+    status: Optional[str] = Query(default=None),
+    plan: Optional[str] = Query(default=None),
+    billing_cycle: Optional[str] = Query(default=None),
+    tenant_id: Optional[UUID] = Query(default=None),
+):
+    return service.list_subscriptions(
+        db, status=status, plan=plan, billing_cycle=billing_cycle, tenant_id=tenant_id
+    )
+
+
+@router.post("/subscriptions", response_model=SubscriptionRow, status_code=201)
+def create_subscription(
+    payload: CreateSubscriptionRequest,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    try:
+        sub_row = service.create_subscription(
+            db,
+            tenant_id=payload.tenant_id,
+            plan=payload.plan,
+            billing_cycle=payload.billing_cycle,
+            discount_percent=payload.discount_percent,
+            notes=payload.notes,
+            period_start=payload.period_start,
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if "Tenant not found" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=422, detail=msg)
+
+    _metrics_cache.invalidate()
+    return sub_row
+
+
+@router.patch("/subscriptions/{subscription_id}", response_model=SubscriptionRow)
+def update_subscription(
+    subscription_id: UUID,
+    payload: UpdateSubscriptionRequest,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    kwargs = {k: v for k, v in payload.model_dump().items() if v is not None}
+
+    try:
+        row = service.update_subscription(db, subscription_id, **kwargs)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    _metrics_cache.invalidate()
+    return row
+
+
+@router.delete("/subscriptions/{subscription_id}")
+def cancel_subscription(
+    subscription_id: UUID,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    try:
+        service.cancel_subscription(db, subscription_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    _metrics_cache.invalidate()
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RBAC: Permissions — Super Admin global
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/rbac/permissions", response_model=list[PermissionRow])
 def list_permissions(
     db: Session = Depends(get_db),
     _=Depends(require_permission_saas("rbac.permissions.manage")),
@@ -182,10 +339,11 @@ def list_permissions(
     perms = db.execute(select(Permission).order_by(Permission.code.asc())).scalars().all()
     return [
         {
-            "id": str(p.id),
+            "id": p.id,
             "code": p.code,
             "name": p.name,
             "description": p.description,
+            "category": getattr(p, "category", None),
             "created_at": p.created_at,
         }
         for p in perms
@@ -203,15 +361,13 @@ def create_permission(
     code = code.strip()
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
-
-    exists = db.execute(select(Permission).where(Permission.code == code)).scalar_one_or_none()
-    if exists:
+    if db.execute(select(Permission).where(Permission.code == code)).scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Permission code already exists")
-
     p = Permission(code=code, name=name, description=description)
     db.add(p)
     db.commit()
     db.refresh(p)
+    _metrics_cache.invalidate()
     return {"ok": True, "id": str(p.id)}
 
 
@@ -226,12 +382,10 @@ def update_permission(
     p = db.execute(select(Permission).where(Permission.code == code)).scalar_one_or_none()
     if not p:
         raise HTTPException(status_code=404, detail="Permission not found")
-
     if name is not None:
         p.name = name
     if description is not None:
         p.description = description
-
     db.commit()
     return {"ok": True}
 
@@ -245,19 +399,15 @@ def delete_permission(
     p = db.execute(select(Permission).where(Permission.code == code)).scalar_one_or_none()
     if not p:
         raise HTTPException(status_code=404, detail="Permission not found")
-
     db.delete(p)
     db.commit()
+    _metrics_cache.invalidate()
     return {"ok": True}
 
 
-# ============================================================
-# ✅ RBAC: Roles (SaaS SUPER_ADMIN)
-#
-# Enterprise behavior:
-# - global roles: tenant_id is NULL (no tenant context required)
-# - tenant roles: require explicit tenant_id (query/body) to prevent accidental full-table scans
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# RBAC: Roles — Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/rbac/roles")
 def list_roles(
@@ -267,32 +417,22 @@ def list_roles(
     tenant_id: Optional[UUID] = Query(default=None),
 ):
     stmt = select(Role)
-
     if scope == "global":
         stmt = stmt.where(Role.tenant_id == None)
-
     elif scope == "tenant":
         if not tenant_id:
-            raise HTTPException(status_code=400, detail="tenant_id is required when scope=tenant")
+            raise HTTPException(status_code=400, detail="tenant_id required when scope=tenant")
         stmt = stmt.where(Role.tenant_id == tenant_id)
-
-    else:  # scope == "all"
-        # Enterprise safe default: require tenant_id so you get (global + one tenant)
+    else:
         if not tenant_id:
-            raise HTTPException(status_code=400, detail="tenant_id is required when scope=all")
-        stmt = stmt.where((Role.tenant_id == None) | (Role.tenant_id == tenant_id))
+            raise HTTPException(status_code=400, detail="tenant_id required when scope=all")
+        stmt = stmt.where(or_(Role.tenant_id == None, Role.tenant_id == tenant_id))
 
     roles = db.execute(stmt.order_by(Role.code.asc())).scalars().all()
     return [
-        {
-            "id": str(r.id),
-            "tenant_id": str(r.tenant_id) if r.tenant_id else None,
-            "code": r.code,
-            "name": r.name,
-            "description": r.description,
-            "is_system": bool(r.is_system),
-            "created_at": r.created_at,
-        }
+        {"id": str(r.id), "tenant_id": str(r.tenant_id) if r.tenant_id else None,
+         "code": r.code, "name": r.name, "description": r.description,
+         "is_system": bool(r.is_system), "created_at": r.created_at}
         for r in roles
     ]
 
@@ -304,39 +444,31 @@ def create_role(
     code: str = Body(...),
     name: str = Body(...),
     description: Optional[str] = Body(default=None),
-    scope: str = Body(default="global"),  # "tenant" | "global"
-    tenant_id: Optional[UUID] = Body(default=None),  # required if scope="tenant"
+    scope: str = Body(default="global"),
+    tenant_id: Optional[UUID] = Body(default=None),
 ):
     code = code.strip()
     if scope not in {"tenant", "global"}:
         raise HTTPException(status_code=400, detail="scope must be 'tenant' or 'global'")
 
-    resolved_tenant_id: Optional[UUID] = None
+    resolved_tid: Optional[UUID] = None
     if scope == "tenant":
         if not tenant_id:
-            raise HTTPException(status_code=400, detail="tenant_id is required when scope='tenant'")
-        # validate tenant exists
-        t = db.get(Tenant, tenant_id)
-        if not t:
+            raise HTTPException(status_code=400, detail="tenant_id required when scope=tenant")
+        if not db.get(Tenant, tenant_id):
             raise HTTPException(status_code=404, detail="Tenant not found")
-        resolved_tenant_id = tenant_id
+        resolved_tid = tenant_id
 
-    exists = db.execute(
-        select(Role).where(and_(Role.tenant_id == resolved_tenant_id, Role.code == code))
-    ).scalar_one_or_none()
-    if exists:
+    if db.execute(
+        select(Role).where(and_(Role.tenant_id == resolved_tid, Role.code == code))
+    ).scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Role code already exists in this scope")
 
-    r = Role(
-        tenant_id=resolved_tenant_id,
-        code=code,
-        name=name,
-        description=description,
-        is_system=False,
-    )
+    r = Role(tenant_id=resolved_tid, code=code, name=name, description=description, is_system=False)
     db.add(r)
     db.commit()
     db.refresh(r)
+    _metrics_cache.invalidate()
     return {"ok": True, "id": str(r.id)}
 
 
@@ -351,12 +483,10 @@ def update_role(
     r = db.get(Role, role_id)
     if not r:
         raise HTTPException(status_code=404, detail="Role not found")
-
     if name is not None:
         r.name = name
     if description is not None:
         r.description = description
-
     db.commit()
     return {"ok": True}
 
@@ -370,28 +500,26 @@ def delete_role(
     r = db.get(Role, role_id)
     if not r:
         raise HTTPException(status_code=404, detail="Role not found")
-
     if r.is_system:
         raise HTTPException(status_code=400, detail="System roles cannot be deleted")
-
     db.delete(r)
     db.commit()
+    _metrics_cache.invalidate()
     return {"ok": True}
 
 
-# -------------------------
-# RBAC: Role Permissions (SaaS SUPER_ADMIN)
-# -------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# RBAC: Role ↔ Permission mapping
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.get("/rbac/roles/{role_id}/permissions")
 def get_role_permissions(
     role_id: UUID,
     db: Session = Depends(get_db),
     _=Depends(require_permission_saas("rbac.roles.manage")),
 ):
-    r = db.get(Role, role_id)
-    if not r:
+    if not db.get(Role, role_id):
         raise HTTPException(status_code=404, detail="Role not found")
-
     rows = db.execute(
         select(Permission.code)
         .select_from(RolePermission)
@@ -399,7 +527,6 @@ def get_role_permissions(
         .where(RolePermission.role_id == role_id)
         .order_by(Permission.code.asc())
     ).all()
-
     return {"role_id": str(role_id), "permissions": [x[0] for x in rows]}
 
 
@@ -410,27 +537,24 @@ def add_role_permissions(
     _=Depends(require_permission_saas("rbac.roles.manage")),
     permission_codes: List[str] = Body(...),
 ):
-    r = db.get(Role, role_id)
-    if not r:
+    if not db.get(Role, role_id):
         raise HTTPException(status_code=404, detail="Role not found")
 
     codes = [c.strip() for c in permission_codes if c and c.strip()]
     if not codes:
         return {"ok": True}
 
-    perms = db.execute(select(Permission).where(Permission.code.in_(codes))).scalars().all()
-    found = {p.code for p in perms}
-    missing = sorted(set(codes) - found)
+    perms   = db.execute(select(Permission).where(Permission.code.in_(codes))).scalars().all()
+    missing = sorted(set(codes) - {p.code for p in perms})
     if missing:
         raise HTTPException(status_code=400, detail={"missing_permissions": missing})
 
     for p in perms:
-        exists = db.execute(
+        if not db.execute(
             select(RolePermission).where(
                 and_(RolePermission.role_id == role_id, RolePermission.permission_id == p.id)
             )
-        ).scalar_one_or_none()
-        if not exists:
+        ).scalar_one_or_none():
             db.add(RolePermission(role_id=role_id, permission_id=p.id))
 
     db.commit()
@@ -444,33 +568,32 @@ def remove_role_permissions(
     _=Depends(require_permission_saas("rbac.roles.manage")),
     permission_codes: List[str] = Body(...),
 ):
-    r = db.get(Role, role_id)
-    if not r:
+    if not db.get(Role, role_id):
         raise HTTPException(status_code=404, detail="Role not found")
 
-    codes = [c.strip() for c in permission_codes if c and c.strip()]
-    if not codes:
-        return {"ok": True}
-
-    perms = db.execute(select(Permission).where(Permission.code.in_(codes))).scalars().all()
-    perm_ids = [p.id for p in perms]
+    codes    = [c.strip() for c in permission_codes if c and c.strip()]
+    perm_ids = [
+        p.id for p in db.execute(
+            select(Permission).where(Permission.code.in_(codes))
+        ).scalars().all()
+    ]
 
     if perm_ids:
-        rows = db.execute(
+        for rp in db.execute(
             select(RolePermission).where(
                 and_(RolePermission.role_id == role_id, RolePermission.permission_id.in_(perm_ids))
             )
-        ).scalars().all()
-        for rp in rows:
+        ).scalars().all():
             db.delete(rp)
+        db.commit()
 
-    db.commit()
     return {"ok": True}
 
 
-# -------------------------
-# Assign Role (tenant scoped)
-# -------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# Assign / Remove Role — tenant scoped
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.post("/roles/assign")
 def assign_role(
     payload: AssignRoleRequest,
@@ -478,7 +601,10 @@ def assign_role(
     tenant=Depends(get_tenant),
     _=Depends(require_permission("rbac.user_roles.manage")),
 ):
-    service.assign_role(db, tenant.id, payload.user_id, payload.role_code)
+    try:
+        service.assign_role(db, tenant.id, payload.user_id, payload.role_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     return {"ok": True}
 
 
@@ -492,10 +618,8 @@ def remove_role(
 ):
     role = db.execute(
         select(Role).where(
-            and_(
-                Role.code == role_code,
-                ((Role.tenant_id == None) | (Role.tenant_id == tenant.id)),
-            )
+            Role.code == role_code,
+            or_(Role.tenant_id == None, Role.tenant_id == tenant.id),
         )
     ).scalar_one_or_none()
     if not role:
@@ -503,11 +627,9 @@ def remove_role(
 
     ur = db.execute(
         select(UserRole).where(
-            and_(
-                UserRole.user_id == user_id,
-                UserRole.role_id == role.id,
-                ((UserRole.tenant_id == None) | (UserRole.tenant_id == tenant.id)),
-            )
+            UserRole.user_id == user_id,
+            UserRole.role_id == role.id,
+            or_(UserRole.tenant_id == None, UserRole.tenant_id == tenant.id),
         )
     ).scalar_one_or_none()
 
@@ -518,9 +640,10 @@ def remove_role(
     return {"ok": True}
 
 
-# -------------------------
-# Permission Override (tenant scoped)
-# -------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# Permission Override — tenant scoped
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.post("/permissions/override")
 def override_permission(
     payload: PermissionOverrideRequest,
@@ -528,13 +651,12 @@ def override_permission(
     tenant=Depends(get_tenant),
     _=Depends(require_permission("rbac.user_permissions.manage")),
 ):
-    service.set_permission_override(
-        db,
-        tenant.id,
-        payload.user_id,
-        payload.permission_code,
-        payload.effect,
-    )
+    try:
+        service.set_permission_override(
+            db, tenant.id, payload.user_id, payload.permission_code, payload.effect
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     return {"ok": True}
 
 
@@ -546,17 +668,20 @@ def delete_permission_override(
     user_id: UUID = Body(...),
     permission_code: str = Body(...),
 ):
-    perm = db.execute(select(Permission).where(Permission.code == permission_code)).scalar_one_or_none()
+    perm = db.execute(
+        select(Permission).where(Permission.code == permission_code)
+    ).scalar_one_or_none()
     if not perm:
         raise HTTPException(status_code=404, detail="Permission not found")
 
     row = db.execute(
         select(UserPermissionOverride).where(
-            and_(
-                UserPermissionOverride.user_id == user_id,
-                UserPermissionOverride.permission_id == perm.id,
-                ((UserPermissionOverride.tenant_id == None) | (UserPermissionOverride.tenant_id == tenant.id)),
-            )
+            UserPermissionOverride.user_id == user_id,
+            UserPermissionOverride.permission_id == perm.id,
+            or_(
+                UserPermissionOverride.tenant_id == None,
+                UserPermissionOverride.tenant_id == tenant.id,
+            ),
         )
     ).scalar_one_or_none()
 

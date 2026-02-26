@@ -1,0 +1,183 @@
+# New SaaS admin endpoints to append to routes.py
+
+# =========================================================================
+# NEW SaaS Admin Endpoints
+# =========================================================================
+
+# -------------------------
+# Extend GET /tenants (EXISTING - patched with metadata)
+# -------------------------
+# Already updated in the routes.py to include user_count and plan
+
+# -------------------------
+# POST /tenants - Create new tenant
+# -------------------------
+@router.post("/tenants", response_model=dict, status_code=201, dependencies=[Depends(require_permission_saas("tenants.create"))])
+def create_tenant_endpoint(
+    payload: CreateTenantRequest,
+    db: Session = Depends(get_db),
+):
+    """Create a new tenant (institution)"""
+    # Validate slug format
+    slug = payload.slug.strip().lower()
+    if not re.match(r"^[a-z0-9-]+$", slug):
+        raise HTTPException(
+            status_code=422,
+            detail="Slug must contain only lowercase letters, numbers, and hyphens"
+        )
+    
+    try:
+        tenant = service.create_tenant(
+            db,
+            name=payload.name,
+            slug=slug,
+            primary_domain=payload.primary_domain,
+            plan=payload.plan,
+        )
+    except ValueError as e:
+        if "already exists" in str(e):
+            raise HTTPException(status_code=409, detail="Slug already exists")
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # TODO: If admin_email provided, create user and send invitation
+    
+    # Return created tenant with metadata
+    result = service.list_tenants_with_metadata(db)
+    for r in result:
+        if r["id"] == tenant.id:
+            return r
+    
+    return {
+        "id": tenant.id,
+        "slug": tenant.slug,
+        "name": tenant.name,
+        "primary_domain": tenant.primary_domain,
+        "is_active": tenant.is_active,
+        "plan": payload.plan,
+        "user_count": 0,
+        "created_at": tenant.created_at,
+        "updated_at": tenant.updated_at,
+    }
+
+
+# -------------------------
+# GET /saas/metrics
+# -------------------------
+@router.get("/saas/metrics", response_model=dict, dependencies=[Depends(require_permission_saas("admin.dashboard.view_all"))])
+def get_saas_metrics(db: Session = Depends(get_db)):
+    """Get SaaS metrics for dashboard (cached for 60s)"""
+    metrics = _metrics_cache.get(db)
+    return metrics
+
+
+# -------------------------
+# GET /saas/tenants/recent
+# -------------------------
+@router.get("/saas/tenants/recent", response_model=dict, dependencies=[Depends(require_permission_saas("tenants.read_all"))])
+def get_recent_tenants(db: Session = Depends(get_db)):
+    """Get 6 most recently onboarded tenants"""
+    tenants = service.get_recent_tenants(db, limit=6)
+    return {"tenants": tenants}
+
+
+# -------------------------
+# GET /subscriptions - List subscriptions
+# -------------------------
+@router.get("/subscriptions", response_model=list, dependencies=[Depends(require_permission_saas("subscriptions.read"))])
+def list_subscriptions_endpoint(
+    db: Session = Depends(get_db),
+    status: Optional[str] = Query(default=None),
+    plan: Optional[str] = Query(default=None),
+    billing_cycle: Optional[str] = Query(default=None),
+    tenant_id: Optional[UUID] = Query(default=None),
+):
+    """List all subscriptions with optional filters"""
+    return service.list_subscriptions(
+        db,
+        status=status,
+        plan=plan,
+        billing_cycle=billing_cycle,
+        tenant_id=tenant_id,
+    )
+
+
+# -------------------------
+# POST /subscriptions - Create subscription
+# -------------------------
+@router.post("/subscriptions", response_model=dict, status_code=201, dependencies=[Depends(require_permission_saas("subscriptions.manage"))])
+def create_subscription_endpoint(
+    payload: CreateSubscriptionRequest,
+    db: Session = Depends(get_db),
+):
+    """Create a new subscription for a tenant"""
+    try:
+        sub = service.create_subscription(
+            db,
+            tenant_id=payload.tenant_id,
+            plan=payload.plan,
+            billing_cycle=payload.billing_cycle,
+            discount_percent=payload.discount_percent,
+            notes=payload.notes,
+            period_start=payload.period_start,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Return subscription with tenant info
+    subs = service.list_subscriptions(db, tenant_id=payload.tenant_id)
+    for s in subs:
+        if s["id"] == sub.id:
+            return s
+    
+    raise HTTPException(status_code=500, detail="Failed to retrieve created subscription")
+
+
+# -------------------------
+# PATCH /subscriptions/{subscription_id}
+# -------------------------
+@router.patch("/subscriptions/{subscription_id}", response_model=dict, dependencies=[Depends(require_permission_saas("subscriptions.manage"))])
+def update_subscription_endpoint(
+    subscription_id: UUID,
+    payload: UpdateSubscriptionRequest,
+    db: Session = Depends(get_db),
+):
+    """Update a subscription (all fields optional)"""
+    try:
+        updated = service.update_subscription(
+            db,
+            subscription_id,
+            **payload.model_dump(exclude_unset=True),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Return updated subscription with tenant info
+    subs = service.list_subscriptions(db, tenant_id=updated.tenant_id)
+    for s in subs:
+        if s["id"] == subscription_id:
+            return s
+    
+    raise HTTPException(status_code=500, detail="Failed to retrieve updated subscription")
+
+
+# -------------------------
+# DELETE /subscriptions/{subscription_id}
+# -------------------------
+@router.delete("/subscriptions/{subscription_id}", dependencies=[Depends(require_permission_saas("subscriptions.manage"))])
+def delete_subscription_endpoint(
+    subscription_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """Soft-cancel a subscription (mark as cancelled)"""
+    try:
+        service.delete_subscription(db, subscription_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    return {"ok": True}
+
+
+# -------------------------
+# GET /permissions - List with category field (PATCH to existing)
+# -------------------------
+# Already updated list_permissions() in /rbac/permissions to include category field

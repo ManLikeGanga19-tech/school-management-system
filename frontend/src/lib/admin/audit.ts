@@ -43,14 +43,14 @@ export async function listAuditLogs(params: AuditListParams) {
     qs.set(k, s);
   });
 
-  return apiFetch<AuditListResponse>(`/api/v1/admin/audit/logs?${qs.toString()}`, {
+  return apiFetch<AuditListResponse>(`/admin/audit/logs?${qs.toString()}`, {
     method: "GET",
     tenantRequired: false, // SaaS endpoint
   });
 }
 
 export async function getAuditLog(logId: string) {
-  return apiFetch<AuditLogRow>(`/api/v1/admin/audit/logs/${encodeURIComponent(logId)}`, {
+  return apiFetch<AuditLogRow>(`/admin/audit/logs/${encodeURIComponent(logId)}`, {
     method: "GET",
     tenantRequired: false,
   });

@@ -16,7 +16,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-
+import { api } from "@/lib/api";
+import { asArray } from "@/lib/utils/asArray";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type AuditRow = {
@@ -132,21 +133,15 @@ export default function SecretaryAuditPage() {
     if (action.trim()) qs.set("action", action.trim());
     if (resource.trim()) qs.set("resource", resource.trim());
 
-    try {
-      const res = await fetch(`/api/tenant/secretary/audit?${qs.toString()}`, { method: "GET" });
-      const data = await res.json().catch(() => []);
-      if (!res.ok) {
+      try {
+        const body = await api.get<any>(`/tenants/secretary/audit?${qs.toString()}`, { tenantRequired: true });
+        setRows(asArray(body?.logs));
+      } catch (err: any) {
         setRows([]);
-        setError(typeof data?.detail === "string" ? data.detail : "Failed to load audit logs");
+        setError(typeof err?.message === "string" ? err.message : "Failed to load audit logs");
         return;
-      }
-      setRows(Array.isArray(data) ? data : []);
-      setLastUpdated(new Date());
-      setError(null);
-    } catch {
-      setError("Audit service is currently unavailable.");
-    } finally {
-      if (!silent) setLoading(false);
+      } finally {
+        if (!silent) setLoading(false);
     }
   }
 

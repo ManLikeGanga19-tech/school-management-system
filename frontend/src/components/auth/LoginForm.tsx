@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 
+import { storage, keys } from "@/lib/storage"; // ✅ add this
+
 type LoginValues = {
   tenant_slug: string;
   email: string;
@@ -67,7 +69,18 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
       return;
     }
 
-    router.replace("/dashboard");
+    // ✅ CRITICAL: persist tenant context for apiFetch tenantRequired calls
+    storage.set(keys.mode, "tenant");
+    storage.set(keys.tenantSlug, tenant_slug);
+
+    // Optional: if your /api/auth/login ever returns access_token, store it
+    // (won't break anything if absent)
+    if (data?.access_token) {
+      storage.set(keys.accessToken, String(data.access_token));
+    }
+
+    // ✅ go to tenant area (server-side pages can route by role)
+    router.replace("/tenant/director/dashboard");
   }
 
   return (

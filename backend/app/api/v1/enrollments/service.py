@@ -1,50 +1,113 @@
 from __future__ import annotations
 
+import re
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from uuid import UUID
 
 from app.models.enrollment import Enrollment
 from app.core.audit import log_event
-
 from app.api.v1.finance import service as finance_service
 
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Maximum number of times a secretary may update an ENROLLED student's record
+# before the record is locked and requires a director override.
+MAX_SECRETARY_EDITS = 3
+
+# Statuses where ALL edits are permanently blocked (no override possible).
+# ENROLLED and ENROLLED_PARTIAL are intentionally NOT here — they are editable
+# subject to the secretary_edit_count / director-override gate.
+_PERMANENTLY_LOCKED_STATUSES = frozenset({"TRANSFERRED"})
+
+# Statuses that are considered "post-enrollment" — edits on these records
+# increment the secretary edit counter.
+_ENROLLED_STATUSES = frozenset({"ENROLLED", "ENROLLED_PARTIAL"})
+
+_ADM_PREFIX = "ADM-"
+_ADM_PATTERN = re.compile(r"ADM-(\d+)$", re.IGNORECASE)
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
 def _require_payload_fields(enrollment: Enrollment, fields: list[str]) -> None:
     payload = enrollment.payload or {}
-    missing = [f for f in fields if not payload.get(f)]
+    missing = [f for f in fields if not str(payload.get(f, "")).strip()]
     if missing:
-        raise ValueError(f"Missing required fields: {', '.join(missing)}")
+        raise ValueError(f"Missing required payload fields: {', '.join(missing)}")
 
 
-def create_enrollment(db: Session, *, tenant_id, actor_user_id, payload: dict) -> Enrollment:
+def _next_admission_number(db: Session, *, tenant_id: UUID) -> str:
+    """
+    Derive the next ADM-XXXX number for a tenant by scanning existing
+    admission_number values via a DB query (safe for concurrent requests
+    within a normal HTTP request/commit cycle).
+    """
+    rows = db.execute(
+        select(Enrollment.admission_number).where(
+            Enrollment.tenant_id == tenant_id,
+            Enrollment.admission_number.isnot(None),
+        )
+    ).scalars().all()
+
+    highest = 999  # first generated will be ADM-1000
+    for raw in rows:
+        m = _ADM_PATTERN.match(raw or "")
+        if m:
+            n = int(m.group(1))
+            if n > highest:
+                highest = n
+
+    return f"{_ADM_PREFIX}{highest + 1:04d}"
+
+
+def _clean_create_payload(payload: dict) -> dict:
+    """Strip internal directive keys that must not be stored in JSONB."""
+    private_keys = {"_fee_structure_id", "_fee_structure_code"}
+    return {k: v for k, v in payload.items() if k not in private_keys}
+
+
+# ---------------------------------------------------------------------------
+# CRUD
+# ---------------------------------------------------------------------------
+
+def create_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    payload: dict,
+) -> Enrollment:
+    fee_structure_id: str | None = (
+        payload.get("_fee_structure_id") or payload.get("fee_structure_id")
+    )
+    clean_payload = _clean_create_payload(payload)
+
     row = Enrollment(
         tenant_id=tenant_id,
-        payload=payload,
+        payload=clean_payload,
         status="DRAFT",
         created_by=actor_user_id,
         updated_by=actor_user_id,
     )
     db.add(row)
     db.flush()
-    # If payload contains a fee structure selection, create an assignment record
-    fee_structure_id = None
-    if isinstance(payload, dict):
-        fee_structure_id = payload.get("_fee_structure_id") or payload.get("fee_structure_id")
 
     if fee_structure_id:
-        try:
-            finance_service.assign_fee_structure_to_enrollment(
-                db,
-                tenant_id=tenant_id,
-                actor_user_id=actor_user_id,
-                enrollment_id=row.id,
-                fee_structure_id=UUID(fee_structure_id),
-                generate_invoice=False,
-            )
-        except Exception:
-            # let caller decide on transaction rollback/commit; surface error
-            raise
+        finance_service.assign_fee_structure_to_enrollment(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            enrollment_id=row.id,
+            fee_structure_id=UUID(str(fee_structure_id)),
+            generate_invoice=False,
+        )
+
     log_event(
         db,
         tenant_id=tenant_id,
@@ -58,14 +121,24 @@ def create_enrollment(db: Session, *, tenant_id, actor_user_id, payload: dict) -
     return row
 
 
-def list_enrollments(db: Session, *, tenant_id, status: str | None = None) -> list[Enrollment]:
+def list_enrollments(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    status: str | None = None,
+) -> list[Enrollment]:
     q = select(Enrollment).where(Enrollment.tenant_id == tenant_id)
     if status:
-        q = q.where(Enrollment.status == status)
+        q = q.where(Enrollment.status == status.upper())
     return db.execute(q.order_by(Enrollment.created_at.desc())).scalars().all()
 
 
-def get_enrollment(db: Session, *, tenant_id, enrollment_id) -> Enrollment | None:
+def get_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    enrollment_id: UUID,
+) -> Enrollment | None:
     return db.execute(
         select(Enrollment).where(
             Enrollment.tenant_id == tenant_id,
@@ -74,13 +147,63 @@ def get_enrollment(db: Session, *, tenant_id, enrollment_id) -> Enrollment | Non
     ).scalar_one_or_none()
 
 
-def update_enrollment(db: Session, *, tenant_id, actor_user_id, enrollment: Enrollment, payload: dict | None) -> Enrollment:
-    # allow edits until ENROLLED / TRANSFERRED
-    if enrollment.status in ("FULLY_ENROLLED", "TRANSFERRED"):
-        raise ValueError("Cannot edit enrollment in this status")
+def update_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    enrollment: Enrollment,
+    payload: dict | None,
+    bypass_edit_limit: bool = False,
+) -> Enrollment:
+    """
+    Merge-update an enrollment's payload.
+
+    Rules:
+      - TRANSFERRED records are permanently locked for everyone — no edits ever.
+      - Directors pass bypass_edit_limit=True which skips all secretary-counter
+        logic entirely: their edits are never counted and never blocked.
+      - ENROLLED / ENROLLED_PARTIAL records edited by secretaries
+        (bypass_edit_limit=False) are subject to MAX_SECRETARY_EDITS.
+        Once secretary_edit_locked is True the update is rejected until a
+        director calls director_override().
+      - Pre-enrollment records (DRAFT → APPROVED) are unrestricted and do
+        NOT increment the secretary edit counter.
+    """
+    status = enrollment.status
+
+    # Permanent lock — blocks everyone including directors
+    if status in _PERMANENTLY_LOCKED_STATUSES:
+        raise ValueError(
+            f"Cannot edit a '{status}' enrollment. "
+            "Use the transfer flow or create a new record."
+        )
+
+    if not bypass_edit_limit:
+        # Secretary path — enforce edit-count gate on enrolled records only.
+        # getattr with defaults guards against the migration not yet having run
+        # (columns absent from DB → attribute missing on ORM object).
+        if status in _ENROLLED_STATUSES:
+            edit_locked = getattr(enrollment, "secretary_edit_locked", False) or False
+            if edit_locked:
+                raise ValueError(
+                    f"Edit limit reached ({MAX_SECRETARY_EDITS}/{MAX_SECRETARY_EDITS}). "
+                    "A director must unlock this record before further changes can be made."
+                )
 
     if payload is not None:
-        enrollment.payload = payload
+        current = dict(enrollment.payload or {})
+        enrollment.payload = {**current, **payload}
+
+    # Only increment the secretary counter — directors are never counted.
+    # getattr guards against the columns not existing in DB yet.
+    if not bypass_edit_limit and status in _ENROLLED_STATUSES:
+        current_count = getattr(enrollment, "secretary_edit_count", 0) or 0
+        new_count = current_count + 1
+        if hasattr(enrollment, "secretary_edit_count"):
+            enrollment.secretary_edit_count = new_count
+        if hasattr(enrollment, "secretary_edit_locked") and new_count >= MAX_SECRETARY_EDITS:
+            enrollment.secretary_edit_locked = True
 
     enrollment.updated_by = actor_user_id
     db.flush()
@@ -92,106 +215,261 @@ def update_enrollment(db: Session, *, tenant_id, actor_user_id, enrollment: Enro
         action="enrollment.update",
         resource="enrollment",
         resource_id=enrollment.id,
-        payload={"status": enrollment.status},
+        payload={
+            "status": enrollment.status,
+            "secretary_edit_count": getattr(enrollment, "secretary_edit_count", 0),
+            "secretary_edit_locked": getattr(enrollment, "secretary_edit_locked", False),
+        },
         meta=None,
     )
     return enrollment
 
 
-def submit_enrollment(db: Session, *, tenant_id, actor_user_id, enrollment: Enrollment) -> Enrollment:
-    if enrollment.status != "DRAFT":
-        raise ValueError("Only DRAFT enrollments can be submitted")
+def director_override(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    enrollment: Enrollment,
+    note: str | None,
+) -> Enrollment:
+    """
+    Director-level action: resets the secretary edit lock on an enrolled
+    student's record, allowing one further update cycle.
 
-    # If tenant policy requires interview fee before submit, enforce it here.
-    finance = finance_service.get_enrollment_finance_status(db, tenant_id=tenant_id, enrollment_id=enrollment.id)
+    The counter is reset to 0 and the lock is cleared.  The director's note
+    and identity are recorded in the audit log.
+
+    Restricted to ENROLLED / ENROLLED_PARTIAL records only.
+    """
+    if enrollment.status not in _ENROLLED_STATUSES:
+        raise ValueError(
+            "Director override is only applicable to ENROLLED or ENROLLED_PARTIAL records."
+        )
+
+    if not (getattr(enrollment, "secretary_edit_locked", False) or False):
+        raise ValueError(
+            "This record is not currently locked. No override is required."
+        )
+
+    prev_count = getattr(enrollment, "secretary_edit_count", 0) or 0
+    if hasattr(enrollment, "secretary_edit_count"):
+        enrollment.secretary_edit_count = 0
+    if hasattr(enrollment, "secretary_edit_locked"):
+        enrollment.secretary_edit_locked = False
+    enrollment.updated_by = actor_user_id
+    db.flush()
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="enrollment.director_override",
+        resource="enrollment",
+        resource_id=enrollment.id,
+        payload={
+            "status": enrollment.status,
+            "previous_edit_count": prev_count,
+            "note": note,
+        },
+        meta=None,
+    )
+    return enrollment
+
+
+# ---------------------------------------------------------------------------
+# Workflow transitions
+# ---------------------------------------------------------------------------
+
+def submit_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    enrollment: Enrollment,
+) -> Enrollment:
+    if enrollment.status != "DRAFT":
+        raise ValueError(
+            f"Only DRAFT enrollments can be submitted (current: {enrollment.status})"
+        )
+
+    finance = finance_service.get_enrollment_finance_status(
+        db, tenant_id=tenant_id, enrollment_id=enrollment.id
+    )
     if finance["policy"]["require_interview_fee_before_submit"]:
         if not finance["interview"]["paid_ok"]:
-            raise ValueError("Interview fee must be fully paid before submission")
+            raise ValueError("Interview fee must be fully paid before submission.")
 
     enrollment.status = "SUBMITTED"
     enrollment.updated_by = actor_user_id
     db.flush()
 
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="enrollment.submit", resource="enrollment", resource_id=enrollment.id, payload={"status": enrollment.status}, meta=None)
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="enrollment.submit", resource="enrollment",
+        resource_id=enrollment.id,
+        payload={"status": enrollment.status}, meta=None,
+    )
     return enrollment
 
 
-def approve_enrollment(db: Session, *, tenant_id, actor_user_id, enrollment: Enrollment) -> Enrollment:
+def approve_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    enrollment: Enrollment,
+) -> Enrollment:
     if enrollment.status != "SUBMITTED":
-        raise ValueError("Only SUBMITTED enrollments can be approved")
+        raise ValueError(
+            f"Only SUBMITTED enrollments can be approved (current: {enrollment.status})"
+        )
 
     enrollment.status = "APPROVED"
     enrollment.updated_by = actor_user_id
     db.flush()
 
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="enrollment.approve", resource="enrollment", resource_id=enrollment.id, payload={"status": enrollment.status}, meta=None)
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="enrollment.approve", resource="enrollment",
+        resource_id=enrollment.id,
+        payload={"status": enrollment.status}, meta=None,
+    )
     return enrollment
 
 
-def reject_enrollment(db: Session, *, tenant_id, actor_user_id, enrollment: Enrollment, reason: str | None) -> Enrollment:
+def reject_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    enrollment: Enrollment,
+    reason: str | None,
+) -> Enrollment:
     if enrollment.status not in ("SUBMITTED", "APPROVED"):
-        raise ValueError("Only SUBMITTED/APPROVED enrollments can be rejected")
+        raise ValueError(
+            f"Only SUBMITTED or APPROVED enrollments can be rejected "
+            f"(current: {enrollment.status})"
+        )
 
     enrollment.status = "REJECTED"
     enrollment.updated_by = actor_user_id
     db.flush()
 
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="enrollment.reject", resource="enrollment", resource_id=enrollment.id, payload={"status": enrollment.status, "reason": reason}, meta=None)
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="enrollment.reject", resource="enrollment",
+        resource_id=enrollment.id,
+        payload={"status": enrollment.status, "reason": reason}, meta=None,
+    )
     return enrollment
 
 
-def mark_enrolled(db: Session, *, tenant_id, actor_user_id, enrollment: Enrollment) -> Enrollment:
+def mark_enrolled(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    enrollment: Enrollment,
+    admission_number: str | None = None,
+) -> Enrollment:
     """
-    Moves enrollment into:
-      - FULLY_ENROLLED if fees invoice PAID
-      - ENROLLED_PARTIAL if policy allows partial and threshold met
+    Final enrollment step.  Transitions to:
+      - ENROLLED         when school fees invoice is fully paid
+      - ENROLLED_PARTIAL when tenant policy allows partial and threshold is met
+
     Requires assessment_no + nemis_no in payload.
+    Auto-generates admission_number if not supplied.
     """
     if enrollment.status not in ("APPROVED", "SUBMITTED"):
-        raise ValueError("Enrollment must be SUBMITTED or APPROVED first")
+        raise ValueError(
+            f"Enrollment must be APPROVED or SUBMITTED before enrolling "
+            f"(current: {enrollment.status})"
+        )
 
     _require_payload_fields(enrollment, ["assessment_no", "nemis_no"])
 
-    finance = finance_service.get_enrollment_finance_status(db, tenant_id=tenant_id, enrollment_id=enrollment.id)
+    finance = finance_service.get_enrollment_finance_status(
+        db, tenant_id=tenant_id, enrollment_id=enrollment.id
+    )
 
     if not finance["interview"]["paid_ok"]:
-        raise ValueError("Interview fee must be fully paid")
+        raise ValueError("Interview fee must be fully paid before final enrollment.")
 
-    # fees logic
     if finance["fees"]["paid_ok"]:
-        enrollment.status = "FULLY_ENROLLED"
+        new_status = "ENROLLED"
     elif finance["fees"]["partial_ok"]:
-        enrollment.status = "ENROLLED_PARTIAL"
+        new_status = "ENROLLED_PARTIAL"
     else:
-        raise ValueError("School fees not cleared and partial enrollment policy not satisfied")
+        raise ValueError(
+            "School fees are not cleared and partial-enrollment policy is not satisfied."
+        )
 
+    if not admission_number or not admission_number.strip():
+        admission_number = _next_admission_number(db, tenant_id=tenant_id)
+
+    enrollment.admission_number = admission_number.strip()
+    enrollment.status = new_status
     enrollment.updated_by = actor_user_id
     db.flush()
 
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="enrollment.enroll", resource="enrollment", resource_id=enrollment.id, payload={"status": enrollment.status}, meta=None)
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="enrollment.enroll", resource="enrollment",
+        resource_id=enrollment.id,
+        payload={
+            "status": enrollment.status,
+            "admission_number": enrollment.admission_number,
+        },
+        meta=None,
+    )
     return enrollment
 
 
-def request_transfer(db: Session, *, tenant_id, actor_user_id, enrollment: Enrollment) -> Enrollment:
-    if enrollment.status not in ("FULLY_ENROLLED", "ENROLLED_PARTIAL"):
-        raise ValueError("Only enrolled students can request transfer")
+def request_transfer(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    enrollment: Enrollment,
+) -> Enrollment:
+    if enrollment.status not in ("ENROLLED", "ENROLLED_PARTIAL"):
+        raise ValueError(
+            f"Only enrolled students can request a transfer (current: {enrollment.status})"
+        )
 
     enrollment.status = "TRANSFER_REQUESTED"
     enrollment.updated_by = actor_user_id
     db.flush()
 
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="enrollment.transfer.request", resource="enrollment", resource_id=enrollment.id, payload={"status": enrollment.status}, meta=None)
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="enrollment.transfer.request", resource="enrollment",
+        resource_id=enrollment.id,
+        payload={"status": enrollment.status}, meta=None,
+    )
     return enrollment
 
 
-def approve_transfer(db: Session, *, tenant_id, actor_user_id, enrollment: Enrollment) -> Enrollment:
+def approve_transfer(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    enrollment: Enrollment,
+) -> Enrollment:
     if enrollment.status != "TRANSFER_REQUESTED":
-        raise ValueError("Transfer must be requested first")
+        raise ValueError(
+            "Transfer must be in TRANSFER_REQUESTED status before approval."
+        )
 
-    # director rule: fees must be fully cleared before transfer completes
-    finance = finance_service.get_enrollment_finance_status(db, tenant_id=tenant_id, enrollment_id=enrollment.id)
+    finance = finance_service.get_enrollment_finance_status(
+        db, tenant_id=tenant_id, enrollment_id=enrollment.id
+    )
     if not finance["fees"]["paid_ok"]:
-        raise ValueError("School fees must be fully cleared before transfer is approved")
+        raise ValueError(
+            "School fees must be fully cleared before the transfer is approved."
+        )
 
     _require_payload_fields(enrollment, ["assessment_no", "nemis_no"])
 
@@ -199,5 +477,10 @@ def approve_transfer(db: Session, *, tenant_id, actor_user_id, enrollment: Enrol
     enrollment.updated_by = actor_user_id
     db.flush()
 
-    log_event(db, tenant_id=tenant_id, actor_user_id=actor_user_id, action="enrollment.transfer.approve", resource="enrollment", resource_id=enrollment.id, payload={"status": enrollment.status}, meta=None)
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="enrollment.transfer.approve", resource="enrollment",
+        resource_id=enrollment.id,
+        payload={"status": enrollment.status}, meta=None,
+    )
     return enrollment

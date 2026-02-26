@@ -2,11 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -17,7 +16,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -28,341 +26,576 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { PermissionRow } from "@/lib/admin/rbac";
-import { createPermission, deletePermission, listPermissions, updatePermission } from "@/lib/admin/rbac";
+import {
+  createPermission,
+  deletePermission,
+  listPermissions,
+  updatePermission,
+} from "@/lib/admin/rbac";
+import {
+  ShieldCheck,
+  Plus,
+  Search,
+  RefreshCw,
+  Pencil,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 
-function normalizeCode(code: string) {
-  return code.trim();
+// ─── Nav ──────────────────────────────────────────────────────────────────────
+
+const nav = [
+  { href: "/saas/dashboard",        label: "SaaS Summary"  },
+  { href: "/saas/tenants",          label: "Tenants"       },
+  { href: "/saas/subscriptions",    label: "Subscriptions" },
+  { href: "/saas/rbac/permissions", label: "Permissions"   },
+  { href: "/saas/rbac/roles",       label: "Roles"         },
+  { href: "/saas/audit",            label: "Audit Logs"    },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Derive a category from dot-notation permission code e.g. "finance.invoices.manage" → "Finance" */
+function categoryFromCode(code: string): string {
+  const first = code.split(".")[0] ?? "general";
+  return first.charAt(0).toUpperCase() + first.slice(1);
 }
 
+/** Deterministic color per category */
+function categoryColor(cat: string): string {
+  const map: Record<string, string> = {
+    Finance:    "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
+    Enrollment: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+    Rbac:       "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
+    Tenant:     "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
+    Audit:      "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
+    Users:      "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200",
+    Saas:       "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200",
+  };
+  return map[cat] ?? "bg-slate-100 text-slate-500 ring-1 ring-slate-200";
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function SaaSPermissionsPage() {
-  const nav = useMemo(
-    () => [
-      { href: "/saas/dashboard", label: "SaaS Summary" },
-      { href: "/saas/tenants", label: "Tenants" },
-      { href: "/saas/rbac", label: "RBAC" },
-      { href: "/saas/audit", label: "Audit Logs" },
-    ],
-    []
-  );
-
-  const [rows, setRows] = useState<PermissionRow[]>([]);
+  const [rows, setRows]       = useState<PermissionRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr]         = useState<string | null>(null);
+  const [q, setQ]             = useState("");
 
-  const [q, setQ] = useState("");
-
-  // Create dialog state
+  // Create dialog
   const [openCreate, setOpenCreate] = useState(false);
-  const [cCode, setCCode] = useState("");
-  const [cName, setCName] = useState("");
-  const [cDesc, setCDesc] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [cCode, setCCode]           = useState("");
+  const [cName, setCName]           = useState("");
+  const [cDesc, setCDesc]           = useState("");
+  const [creating, setCreating]     = useState(false);
 
-  // Edit dialog state
+  // Edit dialog
   const [openEdit, setOpenEdit] = useState(false);
-  const [editRow, setEditRow] = useState<PermissionRow | null>(null);
-  const [eName, setEName] = useState("");
-  const [eDesc, setEDesc] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [editRow, setEditRow]   = useState<PermissionRow | null>(null);
+  const [eName, setEName]       = useState("");
+  const [eDesc, setEDesc]       = useState("");
+  const [saving, setSaving]     = useState(false);
 
-  async function load() {
-    setLoading(true);
+  // Delete confirm
+  const [deleteTarget, setDeleteTarget] = useState<PermissionRow | null>(null);
+
+  // ── Load ─────────────────────────────────────────────────────────────────
+
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     setErr(null);
     try {
       const data = await listPermissions();
-      setRows(data || []);
+      setRows(data ?? []);
     } catch (e: any) {
-      setErr(e?.message || "Couldn’t load permissions");
+      setErr(e?.message ?? "Couldn't load permissions");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { void load(); }, []);
+
+  // ── Filtered + grouped ────────────────────────────────────────────────────
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return rows;
-
-    return rows.filter((p) => {
-      const hay = `${p.code} ${p.name || ""} ${p.description || ""}`.toLowerCase();
-      return hay.includes(needle);
-    });
+    return rows.filter((p) =>
+      `${p.code} ${p.name ?? ""} ${p.description ?? ""}`.toLowerCase().includes(needle)
+    );
   }, [rows, q]);
 
-  async function onCreate() {
-    const code = normalizeCode(cCode);
-    const name = cName.trim();
-    const description = cDesc.trim();
+  const grouped = useMemo(() =>
+    filtered.reduce((acc, p) => {
+      const cat = (p as any).category ?? categoryFromCode(p.code);
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(p);
+      return acc;
+    }, {} as Record<string, PermissionRow[]>),
+    [filtered]
+  );
 
+  const categories = Object.keys(grouped).sort();
+
+  // ── Create ────────────────────────────────────────────────────────────────
+
+  async function onCreate() {
+    const code = cCode.trim();
+    const name = cName.trim();
     if (!code) return toast.error("Permission code is required");
     if (!name) return toast.error("Permission name is required");
 
     setCreating(true);
     try {
-      await createPermission({ code, name, description: description || undefined });
+      await createPermission({ code, name, description: cDesc.trim() || undefined });
       toast.success("Permission created");
       setOpenCreate(false);
-      setCCode("");
-      setCName("");
-      setCDesc("");
-      await load();
+      setCCode(""); setCName(""); setCDesc("");
+      await load(true);
     } catch (e: any) {
-      toast.error(e?.message || "Failed to create permission");
+      toast.error(e?.message ?? "Failed to create permission");
     } finally {
       setCreating(false);
     }
   }
 
+  // ── Edit ──────────────────────────────────────────────────────────────────
+
   function openEditFor(row: PermissionRow) {
     setEditRow(row);
-    setEName(row.name || "");
-    setEDesc(row.description || "");
+    setEName(row.name ?? "");
+    setEDesc(row.description ?? "");
     setOpenEdit(true);
   }
 
   async function onSaveEdit() {
     if (!editRow) return;
-
     const name = eName.trim();
-    const description = eDesc.trim();
-
-    if (!name) return toast.error("Permission name is required");
-
+    if (!name) return toast.error("Name is required");
     setSaving(true);
     try {
-      await updatePermission(editRow.code, {
-        name,
-        description: description || undefined,
-      });
+      await updatePermission(editRow.code, { name, description: eDesc.trim() || undefined });
       toast.success("Permission updated");
       setOpenEdit(false);
       setEditRow(null);
-      await load();
+      await load(true);
     } catch (e: any) {
-      toast.error(e?.message || "Failed to update permission");
+      toast.error(e?.message ?? "Failed to update permission");
     } finally {
       setSaving(false);
     }
   }
 
+  // ── Delete ────────────────────────────────────────────────────────────────
+
   async function onDelete(code: string) {
     try {
       await deletePermission(code);
       toast.success("Permission deleted");
-      await load();
+      setDeleteTarget(null);
+      await load(true);
     } catch (e: any) {
-      toast.error(e?.message || "Failed to delete permission");
+      toast.error(e?.message ?? "Failed to delete permission");
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+
   return (
-    <AppShell title="Super Admin" nav={nav} activeHref="/saas/rbac">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Permissions</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Canonical permission catalog used across the platform.
-          </p>
-        </div>
+    <AppShell title="Super Admin" nav={nav} activeHref="/saas/rbac/permissions">
 
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-
-          <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-            <DialogTrigger asChild>
-              <Button>Create permission</Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Create permission</DialogTitle>
-                <DialogDescription>
-                  Use consistent dot notation (e.g. <code>rbac.roles.manage</code>).
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">Code</div>
-                  <Input
-                    placeholder="e.g. tenants.read_all"
-                    value={cCode}
-                    onChange={(e) => setCCode(e.target.value)}
-                  />
-                  <div className="text-xs text-muted-foreground">
-                    Must be unique. Used directly by tokens and checks.
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">Name</div>
-                  <Input
-                    placeholder="Human friendly label"
-                    value={cName}
-                    onChange={(e) => setCName(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">Description (optional)</div>
-                  <Textarea
-                    placeholder="What does this allow?"
-                    value={cDesc}
-                    onChange={(e) => setCDesc(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setOpenCreate(false)} disabled={creating}>
-                  Cancel
-                </Button>
-                <Button onClick={onCreate} disabled={creating}>
-                  {creating ? "Creating..." : "Create"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-
-      <Card className="mt-6 rounded-2xl">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Search</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Input
-            placeholder="Search by code, name, or description…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="sm:max-w-md"
-          />
-          <div className="text-sm text-muted-foreground">
-            Showing <span className="font-medium text-foreground">{filtered.length}</span> of{" "}
-            <span className="font-medium text-foreground">{rows.length}</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="mt-4 rounded-2xl">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Permission list</CardTitle>
-        </CardHeader>
-
-        <CardContent className="space-y-3">
-          {err && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {err}
-            </div>
-          )}
-
-          {loading && (
-            <div className="space-y-2">
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
-            </div>
-          )}
-
-          {!loading && filtered.length === 0 && (
-            <div className="text-sm text-muted-foreground">No permissions match your search.</div>
-          )}
-
-          {!loading &&
-            filtered.map((p) => (
-              <div key={p.id} className="rounded-xl border p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <code className="text-sm font-medium">{p.code}</code>
-                      <Badge variant="secondary" className="rounded-full">
-                        permission
-                      </Badge>
-                    </div>
-                    <div className="mt-1 font-medium truncate">{p.name}</div>
-                    {p.description ? (
-                      <div className="text-sm text-muted-foreground mt-1">{p.description}</div>
-                    ) : (
-                      <div className="text-sm text-muted-foreground mt-1">—</div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2 sm:justify-end">
-                    <Button variant="outline" onClick={() => openEditFor(p)}>
-                      Edit
-                    </Button>
-
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="destructive">Delete</Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete permission?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This will remove the permission and cascade via role mappings/overrides. Use with care.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => onDelete(p.code)}>
-                            Delete
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                </div>
-
-                <Separator className="my-3" />
-
-                <div className="text-xs text-muted-foreground">
-                  ID: <code>{p.id}</code>
-                </div>
-              </div>
-            ))}
-        </CardContent>
-      </Card>
-
-      <Dialog open={openEdit} onOpenChange={setOpenEdit}>
+      {/* ── Create dialog — top level ── */}
+      <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Edit permission</DialogTitle>
+            <DialogTitle>Create Permission</DialogTitle>
             <DialogDescription>
-              Code is immutable: <code className="text-foreground">{editRow?.code || ""}</code>
+              Use dot notation — e.g.{" "}
+              <code className="rounded bg-slate-100 px-1">finance.invoices.manage</code>.
+              Codes are immutable after creation.
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <div className="text-sm font-medium">Name</div>
-              <Input value={eName} onChange={(e) => setEName(e.target.value)} />
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">
+                Permission Code <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                placeholder="e.g. tenants.read_all"
+                value={cCode}
+                onChange={(e) => setCCode(e.target.value.toLowerCase())}
+                className="font-mono"
+                onKeyDown={(e) => e.key === "Enter" && void onCreate()}
+              />
+              <p className="text-xs text-slate-400">
+                Lowercase dot notation. Must be globally unique.
+              </p>
             </div>
-
-            <div className="space-y-1">
-              <div className="text-sm font-medium">Description</div>
-              <Textarea value={eDesc} onChange={(e) => setEDesc(e.target.value)} />
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">
+                Display Name <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                placeholder="Human-friendly label"
+                value={cName}
+                onChange={(e) => setCName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void onCreate()}
+              />
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Description</Label>
+              <Textarea
+                placeholder="What does this permission allow?"
+                value={cDesc}
+                onChange={(e) => setCDesc(e.target.value)}
+                className="resize-none"
+                rows={3}
+              />
+            </div>
+            <Separator />
           </div>
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenEdit(false)} disabled={saving}>
+            <Button variant="outline" onClick={() => setOpenCreate(false)} disabled={creating}>
               Cancel
             </Button>
-            <Button onClick={onSaveEdit} disabled={saving}>
-              {saving ? "Saving..." : "Save changes"}
+            <Button
+              onClick={() => void onCreate()}
+              disabled={creating || !cCode.trim() || !cName.trim()}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {creating ? (
+                <span className="flex items-center gap-2">
+                  <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Creating…
+                </span>
+              ) : "Create Permission"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Edit dialog — top level ── */}
+      <Dialog open={openEdit} onOpenChange={setOpenEdit}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Permission</DialogTitle>
+            <DialogDescription>
+              Code is immutable:{" "}
+              <code className="rounded bg-slate-100 px-1 font-mono">{editRow?.code}</code>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Display Name *</Label>
+              <Input
+                value={eName}
+                onChange={(e) => setEName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void onSaveEdit()}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Description</Label>
+              <Textarea
+                value={eDesc}
+                onChange={(e) => setEDesc(e.target.value)}
+                className="resize-none"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenEdit(false)} disabled={saving}>Cancel</Button>
+            <Button
+              onClick={() => void onSaveEdit()}
+              disabled={saving || !eName.trim()}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {saving ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete confirm — top level ── */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{deleteTarget?.code}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the permission and cascades to role mappings and user
+              overrides. This <strong>cannot be undone</strong>. Ensure no active roles depend on it first.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => deleteTarget && void onDelete(deleteTarget.code)}
+            >
+              Delete Permission
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Page body ── */}
+      <div className="space-y-5">
+
+        {/* Header */}
+        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-5 text-white shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
+                  <ShieldCheck className="h-3 w-3" />
+                  RBAC — Permissions
+                </span>
+              </div>
+              <h1 className="text-xl font-bold">Permission Catalog</h1>
+              <p className="mt-0.5 text-sm text-blue-100">
+                Canonical permission codes used across all roles and overrides on the platform
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {[
+                { label: "Total",      value: rows.length      },
+                { label: "Filtered",   value: filtered.length  },
+                { label: "Categories", value: categories.length },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl bg-white/10 px-4 py-2 text-center backdrop-blur">
+                  <div className="text-xl font-bold text-white">{item.value}</div>
+                  <div className="text-xs text-blue-200">{item.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Error */}
+        {err && (
+          <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div className="flex items-center gap-2">
+              <XCircle className="h-4 w-4 shrink-0 text-red-500" />
+              {err}
+            </div>
+            <button onClick={() => setErr(null)} className="ml-4 opacity-60 hover:opacity-100">✕</button>
+          </div>
+        )}
+
+        {/* Stat pills — one per category */}
+        {categories.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {categories.map((cat) => (
+              <span
+                key={cat}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${categoryColor(cat)}`}
+              >
+                {cat}
+                <span className="rounded-full bg-white/60 px-1.5 py-0.5 text-xs font-bold">
+                  {grouped[cat].length}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Table card */}
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+          {/* Toolbar */}
+          <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-slate-400" />
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Permissions</h2>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  {filtered.length} of {rows.length} permission{rows.length !== 1 ? "s" : ""}
+                  {q.trim() ? ` matching "${q}"` : ""}
+                  {" · "}grouped by category
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <Input
+                  placeholder="Search code, name, description…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  className="h-8 w-56 pl-8 text-xs"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => void load(true)}
+                disabled={loading}
+              >
+                <RefreshCw className="h-3 w-3" />
+                Refresh
+              </Button>
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 bg-blue-600 text-xs hover:bg-blue-700"
+                onClick={() => setOpenCreate(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New Permission
+              </Button>
+            </div>
+          </div>
+
+          {/* Table — grouped by category with sticky headers */}
+          <div className="overflow-hidden">
+            {loading ? (
+              <div className="space-y-2 p-5">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full rounded-xl" />
+                ))}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-14 text-center">
+                <ShieldCheck className="h-8 w-8 text-slate-200" />
+                <p className="text-sm text-slate-400">
+                  {q.trim() ? `No permissions match "${q}"` : "No permissions found."}
+                </p>
+                {q.trim() && (
+                  <button onClick={() => setQ("")} className="mt-1 text-xs text-blue-500 hover:underline">
+                    Clear search
+                  </button>
+                )}
+              </div>
+            ) : (
+              categories.map((cat) => (
+                <div key={cat}>
+                  {/* Category header */}
+                  <div className={`flex items-center gap-2 border-b border-slate-100 px-6 py-2 ${
+                    categoryColor(cat).replace("ring-1", "").replace(/ring-\S+/, "")
+                  } bg-opacity-40`}>
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${categoryColor(cat)}`}>
+                      {cat}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      {grouped[cat].length} permission{grouped[cat].length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50/60 hover:bg-slate-50">
+                        <TableHead className="text-xs">Code</TableHead>
+                        <TableHead className="text-xs">Name</TableHead>
+                        <TableHead className="text-xs">Description</TableHead>
+                        <TableHead className="w-20 text-xs">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {grouped[cat].map((p) => (
+                        <TableRow key={p.id} className="hover:bg-slate-50">
+
+                          {/* Code */}
+                          <TableCell className="py-3">
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <code className="cursor-default rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-200">
+                                    {p.code}
+                                  </code>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">
+                                  <span className="font-mono text-xs">ID: {p.id}</span>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </TableCell>
+
+                          {/* Name */}
+                          <TableCell className="py-3">
+                            <span className="text-sm font-medium text-slate-800">{p.name}</span>
+                          </TableCell>
+
+                          {/* Description */}
+                          <TableCell className="max-w-xs py-3">
+                            <span className="truncate text-xs text-slate-400">
+                              {p.description || "—"}
+                            </span>
+                          </TableCell>
+
+                          {/* Actions */}
+                          <TableCell className="py-3 pr-4">
+                            <div className="flex items-center gap-1">
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      onClick={() => openEditFor(p)}
+                                      className="rounded-lg p-1.5 text-slate-400 transition hover:bg-amber-50 hover:text-amber-700"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-xs">Edit permission</TooltipContent>
+                                </Tooltip>
+
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      onClick={() => setDeleteTarget(p)}
+                                      className="rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-700"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-xs">Delete permission</TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Footer */}
+          {filtered.length > 0 && (
+            <div className="flex items-center gap-2 border-t border-slate-100 px-6 py-3">
+              <span className="text-xs text-slate-400">
+                {rows.length} permission{rows.length !== 1 ? "s" : ""} across {categories.length} categor{categories.length !== 1 ? "ies" : "y"}
+              </span>
+              <span className="ml-auto text-xs text-slate-400">
+                Hover code for full UUID · Codes are immutable after creation
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
     </AppShell>
   );
 }

@@ -59,6 +59,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
             return True
         if path.startswith("/api/v1/admin/tenants"):
             return True
+        # Subscriptions endpoints are SaaS-level admin operations
+        if path.startswith("/api/v1/admin/subscriptions"):
+            return True
         if path.startswith("/api/v1/admin/audit"):
             return True
         if path.startswith("/api/v1/admin/rbac"):

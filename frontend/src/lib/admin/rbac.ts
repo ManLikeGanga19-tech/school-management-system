@@ -31,7 +31,7 @@ export type RoleRow = {
 // ----------------------------
 
 export async function listPermissions() {
-  return apiFetch<PermissionRow[]>("/api/v1/admin/rbac/permissions", {
+  return apiFetch<PermissionRow[]>("/admin/rbac/permissions", {
     method: "GET",
     tenantRequired: false,
   });
@@ -42,7 +42,7 @@ export async function createPermission(payload: {
   name: string;
   description?: string;
 }) {
-  return apiFetch<{ ok: true; id: string }>("/api/v1/admin/rbac/permissions", {
+  return apiFetch<{ ok: true; id: string }>("/admin/rbac/permissions", {
     method: "POST",
     tenantRequired: false,
     body: JSON.stringify({
@@ -58,7 +58,7 @@ export async function updatePermission(
   payload: { name?: string; description?: string }
 ) {
   return apiFetch<{ ok: true }>(
-    `/api/v1/admin/rbac/permissions/${encodeURIComponent(code)}`,
+    `/admin/rbac/permissions/${encodeURIComponent(code)}`,
     {
       method: "PATCH",
       tenantRequired: false,
@@ -72,7 +72,7 @@ export async function updatePermission(
 
 export async function deletePermission(code: string) {
   return apiFetch<{ ok: true }>(
-    `/api/v1/admin/rbac/permissions/${encodeURIComponent(code)}`,
+    `/admin/rbac/permissions/${encodeURIComponent(code)}`,
     {
       method: "DELETE",
       tenantRequired: false,
@@ -109,7 +109,7 @@ export async function listRoles(
     qs.set("tenant_id", tenantId);
   }
 
-  return apiFetch<RoleRow[]>(`/api/v1/admin/rbac/roles?${qs.toString()}`, {
+  return apiFetch<RoleRow[]>(`/admin/rbac/roles?${qs.toString()}`, {
     method: "GET",
     tenantRequired: false,
   });
@@ -135,7 +135,7 @@ export async function createRole(payload: {
     throw new Error("tenantId is required when creating a tenant-scoped role");
   }
 
-  return apiFetch<{ ok: true; id: string }>("/api/v1/admin/rbac/roles", {
+  return apiFetch<{ ok: true; id: string }>("/admin/rbac/roles", {
     method: "POST",
     tenantRequired: false,
     body: JSON.stringify({
@@ -152,7 +152,7 @@ export async function updateRole(
   roleId: string,
   payload: { name?: string; description?: string }
 ) {
-  return apiFetch<{ ok: true }>(`/api/v1/admin/rbac/roles/${roleId}`, {
+  return apiFetch<{ ok: true }>(`/admin/rbac/roles/${roleId}`, {
     method: "PATCH",
     tenantRequired: false,
     body: JSON.stringify({
@@ -163,7 +163,7 @@ export async function updateRole(
 }
 
 export async function deleteRole(roleId: string) {
-  return apiFetch<{ ok: true }>(`/api/v1/admin/rbac/roles/${roleId}`, {
+  return apiFetch<{ ok: true }>(`/admin/rbac/roles/${roleId}`, {
     method: "DELETE",
     tenantRequired: false,
   });
@@ -175,7 +175,7 @@ export async function deleteRole(roleId: string) {
 
 export async function getRolePermissions(roleId: string) {
   return apiFetch<{ role_id: string; permissions: string[] }>(
-    `/api/v1/admin/rbac/roles/${roleId}/permissions`,
+    `/admin/rbac/roles/${roleId}/permissions`,
     { method: "GET", tenantRequired: false }
   );
 }
@@ -193,7 +193,7 @@ export async function addRolePermissions(roleId: string, permission_codes: strin
     )
   );
 
-  return apiFetch<{ ok: true }>(`/api/v1/admin/rbac/roles/${roleId}/permissions`, {
+  return apiFetch<{ ok: true }>(`/admin/rbac/roles/${roleId}/permissions`, {
     method: "POST",
     tenantRequired: false,
     body: JSON.stringify(codes),
@@ -213,7 +213,7 @@ export async function removeRolePermissions(roleId: string, permission_codes: st
     )
   );
 
-  return apiFetch<{ ok: true }>(`/api/v1/admin/rbac/roles/${roleId}/permissions`, {
+  return apiFetch<{ ok: true }>(`/admin/rbac/roles/${roleId}/permissions`, {
     method: "DELETE",
     tenantRequired: false,
     body: JSON.stringify(codes),

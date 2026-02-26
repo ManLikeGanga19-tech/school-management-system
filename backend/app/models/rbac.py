@@ -29,6 +29,7 @@ class Permission(Base):
     code = Column(String, nullable=False, unique=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
+    category = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

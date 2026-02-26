@@ -3,13 +3,21 @@ import type { AppNavItem } from "@/components/layout/AppShell";
 export type FinanceSection = "fee-structures" | "invoices" | "payments" | "receipts";
 export type EnrollmentSection = "intake" | "students";
 
+// ───────────────────────────────────────────────────────────────
+// Director (App Router) paths: /tenant/director/*
+// ───────────────────────────────────────────────────────────────
+
 export function directorFinanceHref(section: FinanceSection) {
-  return `/tenant/finance?section=${section}`;
+  return `/tenant/director/finance?section=${section}`;
 }
 
 export function directorEnrollmentsHref(section: EnrollmentSection) {
-  return `/tenant/enrollments?section=${section}`;
+  return `/tenant/director/enrollments?section=${section}`;
 }
+
+// ───────────────────────────────────────────────────────────────
+// Secretary paths remain under /tenant/secretary/*
+// ───────────────────────────────────────────────────────────────
 
 export function secretaryFinanceHref(section: FinanceSection) {
   return `/tenant/secretary/finance?section=${section}`;
@@ -18,6 +26,10 @@ export function secretaryFinanceHref(section: FinanceSection) {
 export function secretaryEnrollmentsHref(section: EnrollmentSection) {
   return `/tenant/secretary/enrollments?section=${section}`;
 }
+
+// ───────────────────────────────────────────────────────────────
+// Nav configs
+// ───────────────────────────────────────────────────────────────
 
 export const directorNav: AppNavItem[] = [
   { href: "/tenant/director/dashboard", label: "Dashboard" },
@@ -39,9 +51,10 @@ export const directorNav: AppNavItem[] = [
       { href: directorFinanceHref("receipts"), label: "Receipts" },
     ],
   },
-  { href: "/tenant/users", label: "Users" },
-  { href: "/tenant/rbac", label: "RBAC" },
-  { href: "/tenant/audit", label: "Audit Logs" },
+  { href: "/tenant/director/users", label: "Users" },
+  { href: "/tenant/director/rbac", label: "RBAC" },
+  { href: "/tenant/director/audit", label: "Audit Logs" },
+  { href: "/tenant/director/subscriptions", label: "Subscription" },
 ];
 
 export const secretaryNav: AppNavItem[] = [

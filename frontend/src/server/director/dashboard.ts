@@ -166,16 +166,16 @@ export async function getDirectorDashboardData(): Promise<DirectorDashboardData>
     scholarships,
     auditLogs,
   ] = await Promise.all([
-    getResource<TenantMe>("/api/v1/auth/me"),
-    getResource<TenantDashboardSummary>("/api/v1/admin/summary"),
-    getResource<TenantUser[]>("/api/v1/admin/users"),
-    getResource<EnrollmentRow[]>("/api/v1/enrollments/"),
-    getResource<InvoiceRow[]>("/api/v1/finance/invoices"),
-    getResource<FinancePolicy>("/api/v1/finance/policy"),
-    getResource<FeeCategory[]>("/api/v1/finance/fee-categories"),
-    getResource<FeeItem[]>("/api/v1/finance/fee-items"),
-    getResource<Scholarship[]>("/api/v1/finance/scholarships"),
-    getResource<AuditRow[]>("/api/v1/audit/logs?limit=8&offset=0"),
+    getResource<TenantMe>("/auth/me"),
+    getResource<TenantDashboardSummary>("/admin/summary"),
+    getResource<TenantUser[]>("/admin/users"),
+    getResource<EnrollmentRow[]>("/enrollments/"),
+    getResource<InvoiceRow[]>("/finance/invoices"),
+    getResource<FinancePolicy>("/finance/policy"),
+    getResource<FeeCategory[]>("/finance/fee-categories"),
+    getResource<FeeItem[]>("/finance/fee-items"),
+    getResource<Scholarship[]>("/finance/scholarships"),
+    getResource<AuditRow[]>("/audit/logs?limit=8&offset=0"),
   ]);
 
   return {

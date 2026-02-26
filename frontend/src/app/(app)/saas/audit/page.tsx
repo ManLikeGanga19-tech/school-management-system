@@ -2,12 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -24,163 +22,192 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { AuditLogRow } from "@/lib/admin/audit";
 import { getAuditLog, listAuditLogs } from "@/lib/admin/audit";
-import { listTenants } from "@/lib/admin/tenants"; // assumes you already have this
+import { listTenants } from "@/lib/admin/tenants";
+import {
+  ClipboardList,
+  Search,
+  RefreshCw,
+  Filter,
+  X,
+  Eye,
+  ChevronLeft,
+  ChevronRight,
+  XCircle,
+  TrendingUp,
+} from "lucide-react";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type TenantOption = { id: string; name: string; slug: string };
 
-function toIsoStart(dateStr: string) {
-  // dateStr = "YYYY-MM-DD"
-  return new Date(`${dateStr}T00:00:00.000Z`).toISOString();
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function toIsoEnd(dateStr: string) {
-  return new Date(`${dateStr}T23:59:59.999Z`).toISOString();
+function toIsoStart(d: string) {
+  return new Date(`${d}T00:00:00.000Z`).toISOString();
 }
-
+function toIsoEnd(d: string) {
+  return new Date(`${d}T23:59:59.999Z`).toISOString();
+}
 function pretty(obj: any) {
-  try {
-    return JSON.stringify(obj ?? {}, null, 2);
-  } catch {
-    return String(obj);
-  }
+  try { return JSON.stringify(obj ?? {}, null, 2); }
+  catch { return String(obj); }
 }
+
+function timeAgo(iso?: string) {
+  if (!iso) return "—";
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function formatTimestamp(iso?: string) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-KE", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}
+
+function actionBadgeClass(action: string) {
+  const verb = action.split(".")[0]?.toLowerCase() ?? "";
+  if (["create", "post", "add"].includes(verb))
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  if (["approve", "enroll", "complete", "activate", "restore"].includes(verb))
+    return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+  if (["reject", "delete", "remove", "deactivate", "suspend"].includes(verb))
+    return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (["update", "edit", "transfer", "patch"].includes(verb))
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (["submit", "review", "request", "login", "logout"].includes(verb))
+    return "bg-purple-50 text-purple-700 ring-1 ring-purple-200";
+  return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
+}
+
+// ─── Nav ──────────────────────────────────────────────────────────────────────
+
+const nav = [
+  { href: "/saas/dashboard",        label: "SaaS Summary"  },
+  { href: "/saas/tenants",          label: "Tenants"       },
+  { href: "/saas/subscriptions",    label: "Subscriptions" },
+  { href: "/saas/rbac/permissions", label: "Permissions"   },
+  { href: "/saas/rbac/roles",       label: "Roles"         },
+  { href: "/saas/audit",            label: "Audit Logs"    },
+];
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SaaSAuditPage() {
-  const nav = useMemo(
-    () => [
-      { href: "/saas/dashboard", label: "SaaS Summary" },
-      { href: "/saas/tenants", label: "Tenants" },
-      { href: "/saas/rbac", label: "RBAC" },
-      { href: "/saas/audit", label: "Audit Logs" },
-    ],
-    []
-  );
-
-  // data
-  const [rows, setRows] = useState<AuditLogRow[]>([]);
+  const [rows, setRows]   = useState<AuditLogRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr]     = useState<string | null>(null);
 
-  // tenants for filter
+  // Tenant filter options
   const [tenantOptions, setTenantOptions] = useState<TenantOption[]>([]);
-  const [tenantId, setTenantId] = useState<string>("all");
+  const [tenantId, setTenantId]           = useState<string>("all");
 
-  // filters
-  const [q, setQ] = useState("");
-  const [action, setAction] = useState("");
-  const [resource, setResource] = useState("");
+  // Filters
+  const [q, setQ]                     = useState("");
+  const [action, setAction]           = useState("");
+  const [resource, setResource]       = useState("");
   const [actorUserId, setActorUserId] = useState("");
-  const [requestId, setRequestId] = useState("");
-  const [fromDate, setFromDate] = useState(""); // YYYY-MM-DD
-  const [toDate, setToDate] = useState("");     // YYYY-MM-DD
+  const [requestId, setRequestId]     = useState("");
+  const [fromDate, setFromDate]       = useState("");
+  const [toDate, setToDate]           = useState("");
 
-  // paging
-  const [limit, setLimit] = useState(50);
+  // Pagination
+  const [limit, setLimit]   = useState(50);
   const [offset, setOffset] = useState(0);
 
-  // details dialog
-  const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<AuditLogRow | null>(null);
+  // Detail dialog
+  const [detailOpen, setDetailOpen]       = useState(false);
+  const [selected, setSelected]           = useState<AuditLogRow | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // ── Load ─────────────────────────────────────────────────────────────────
 
   async function loadTenants() {
     try {
-      const t = await listTenants({}); // adjust if your function takes params
-      const opts = (t || []).map((x: any) => ({
-        id: String(x.id),
-        name: String(x.name || x.slug || "Tenant"),
-        slug: String(x.slug || ""),
-      }));
-      setTenantOptions(opts);
+      const t = await listTenants({});
+      setTenantOptions(
+        (t ?? []).map((x: any) => ({
+          id:   String(x.id),
+          name: String(x.name ?? x.slug ?? "Tenant"),
+          slug: String(x.slug ?? ""),
+        }))
+      );
     } catch {
-      // tenants filter is optional; don’t block page
       setTenantOptions([]);
     }
   }
 
-  async function load() {
-    setLoading(true);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     setErr(null);
 
-    const params: any = {
-      limit,
-      offset,
-    };
-
-    if (tenantId !== "all") params.tenant_id = tenantId;
-
-    const qv = q.trim();
-    if (qv) params.q = qv;
-
-    const av = action.trim();
-    if (av) params.action = av;
-
-    const rv = resource.trim();
-    if (rv) params.resource = rv;
-
-    const uv = actorUserId.trim();
-    if (uv) params.actor_user_id = uv;
-
-    const rid = requestId.trim();
-    if (rid) params.request_id = rid;
-
-    if (fromDate) params.from_dt = toIsoStart(fromDate);
-    if (toDate) params.to_dt = toIsoEnd(toDate);
+    const params: Record<string, any> = { limit, offset };
+    if (tenantId !== "all")    params.tenant_id      = tenantId;
+    if (q.trim())              params.q              = q.trim();
+    if (action.trim())         params.action         = action.trim();
+    if (resource.trim())       params.resource       = resource.trim();
+    if (actorUserId.trim())    params.actor_user_id  = actorUserId.trim();
+    if (requestId.trim())      params.request_id     = requestId.trim();
+    if (fromDate)              params.from_dt        = toIsoStart(fromDate);
+    if (toDate)                params.to_dt          = toIsoEnd(toDate);
 
     try {
       const res = await listAuditLogs(params);
-      setRows(res.items || []);
-      setTotal(res.total || 0);
+      setRows(res.items ?? []);
+      setTotal(res.total ?? 0);
     } catch (e: any) {
-      setErr(e?.message || "Couldn’t load audit logs");
+      setErr(e?.message ?? "Couldn't load audit logs");
       setRows([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
-  useEffect(() => {
-    loadTenants();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { void loadTenants(); }, []);
+  useEffect(() => { void load(); }, [tenantId, limit, offset]);
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, limit, offset]);
-
-  // when filters change, reset paging (enterprise UX)
-  useEffect(() => {
+  function applyFilters() {
     setOffset(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, action, resource, actorUserId, requestId, fromDate, toDate, tenantId]);
-
-  async function onApplyFilters() {
-    setOffset(0);
-    await load();
+    void load();
   }
 
-  function onClear() {
+  function clearFilters() {
     setTenantId("all");
-    setQ("");
-    setAction("");
-    setResource("");
-    setActorUserId("");
-    setRequestId("");
-    setFromDate("");
-    setToDate("");
+    setQ(""); setAction(""); setResource("");
+    setActorUserId(""); setRequestId("");
+    setFromDate(""); setToDate("");
     setOffset(0);
     toast.success("Filters cleared");
   }
 
+  // ── Detail dialog ─────────────────────────────────────────────────────────
+
   async function openDetails(row: AuditLogRow) {
     setSelected(row);
-    setOpen(true);
+    setDetailOpen(true);
     setDetailLoading(true);
     try {
       const fresh = await getAuditLog(row.id);
@@ -192,276 +219,550 @@ export default function SaaSAuditPage() {
     }
   }
 
+  // ── Derived ───────────────────────────────────────────────────────────────
+
   const pageFrom = total === 0 ? 0 : offset + 1;
-  const pageTo = Math.min(offset + limit, total);
+  const pageTo   = Math.min(offset + limit, total);
+  const hasPrev  = offset > 0;
+  const hasNext  = offset + limit < total;
+
+  const activeFilters = [
+    tenantId !== "all" && `tenant: ${tenantOptions.find((t) => t.id === tenantId)?.slug ?? tenantId.slice(0, 8)}`,
+    q.trim()           && `search: "${q.trim()}"`,
+    action.trim()      && `action: ${action.trim()}`,
+    resource.trim()    && `resource: ${resource.trim()}`,
+    actorUserId.trim() && `actor: ${actorUserId.trim().slice(0, 8)}…`,
+    requestId.trim()   && `req: ${requestId.trim().slice(0, 8)}…`,
+    fromDate           && `from: ${fromDate}`,
+    toDate             && `to: ${toDate}`,
+  ].filter(Boolean) as string[];
+
+  const uniqueActions   = new Set(rows.map((r) => r.action.split(".")[0])).size;
+  const uniqueTenants   = new Set(rows.map((r) => r.tenant_id)).size;
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <AppShell title="Super Admin" nav={nav} activeHref="/saas/audit">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Audit Logs</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Cross-tenant audit feed (SUPER_ADMIN). Filter by tenant, action, resource, actor, or request id.
-          </p>
-        </div>
 
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-          <Button onClick={onApplyFilters} disabled={loading}>
-            Apply filters
-          </Button>
-          <Button variant="outline" onClick={onClear} disabled={loading}>
-            Clear
-          </Button>
-        </div>
-      </div>
-
-      <Card className="mt-6 rounded-2xl">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Filters</CardTitle>
-        </CardHeader>
-
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Tenant</div>
-            <Select value={tenantId} onValueChange={(v: any) => setTenantId(v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="All tenants" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All tenants</SelectItem>
-                {tenantOptions.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name} {t.slug ? `(${t.slug})` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Search</div>
-            <Input
-              placeholder="Search action/resource/request_id…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Action</div>
-            <Input
-              placeholder="e.g. enrollment.create"
-              value={action}
-              onChange={(e) => setAction(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Resource</div>
-            <Input
-              placeholder="e.g. finance.invoice"
-              value={resource}
-              onChange={(e) => setResource(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Actor user id</div>
-            <Input
-              placeholder="UUID"
-              value={actorUserId}
-              onChange={(e) => setActorUserId(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Request id</div>
-            <Input
-              placeholder="X-Request-ID"
-              value={requestId}
-              onChange={(e) => setRequestId(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">From</div>
-            <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">To</div>
-            <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Page size</div>
-            <Select value={String(limit)} onValueChange={(v: any) => setLimit(Number(v))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Limit" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-                <SelectItem value="200">200</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="mt-4 rounded-2xl">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Results</CardTitle>
-        </CardHeader>
-
-        <CardContent className="space-y-3">
-          {err && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {err}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <div>
-              Showing <span className="text-foreground font-medium">{pageFrom}</span>–{" "}
-              <span className="text-foreground font-medium">{pageTo}</span> of{" "}
-              <span className="text-foreground font-medium">{total}</span>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                disabled={loading || offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - limit))}
-              >
-                Prev
-              </Button>
-              <Button
-                variant="outline"
-                disabled={loading || offset + limit >= total}
-                onClick={() => setOffset(offset + limit)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-
-          {loading && (
-            <div className="space-y-2">
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
-            </div>
-          )}
-
-          {!loading && rows.length === 0 && (
-            <div className="text-sm text-muted-foreground">No audit logs match your filters.</div>
-          )}
-
-          {!loading &&
-            rows.map((r) => (
-              <div key={r.id} className="rounded-xl border p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge className="rounded-full">audit</Badge>
-                      <code className="text-sm font-medium">{r.action}</code>
-                      <Badge variant="secondary" className="rounded-full">
-                        {r.resource}
-                      </Badge>
-                      <Badge variant="outline" className="rounded-full">
-                        tenant: {r.tenant_id.slice(0, 8)}…
-                      </Badge>
-                    </div>
-
-                    <div className="text-xs text-muted-foreground mt-2">
-                      created_at: <code>{r.created_at}</code>
-                    </div>
-
-                    {r.meta?.request_id && (
-                      <div className="text-xs text-muted-foreground mt-1">
-                        request_id: <code>{String(r.meta.request_id)}</code>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2 sm:justify-end">
-                    <Button variant="outline" onClick={() => openDetails(r)}>
-                      View
-                    </Button>
-                  </div>
-                </div>
-
-                <Separator className="my-3" />
-
-                <div className="text-xs text-muted-foreground">
-                  ID: <code>{r.id}</code>
-                </div>
-              </div>
-            ))}
-        </CardContent>
-      </Card>
-
-      <Dialog open={open} onOpenChange={setOpen}>
+      {/* ── Detail dialog ── */}
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Audit log</DialogTitle>
+            <DialogTitle>Audit Event Detail</DialogTitle>
             <DialogDescription>
               {selected ? (
-                <>
-                  <span className="text-foreground font-medium">{selected.action}</span>{" "}
-                  <span className="text-muted-foreground">·</span>{" "}
-                  <code className="text-foreground">{selected.id}</code>
-                </>
-              ) : (
-                "—"
-              )}
+                <span className="flex items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 font-mono text-xs font-medium ${actionBadgeClass(selected.action)}`}>
+                    {selected.action}
+                  </span>
+                  <code className="text-xs text-slate-400">{selected.id}</code>
+                </span>
+              ) : "—"}
             </DialogDescription>
           </DialogHeader>
 
-          {detailLoading && (
+          {detailLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-40 w-full" />
-              <Skeleton className="h-40 w-full" />
+              <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-32 w-full" />
             </div>
-          )}
-
-          {!detailLoading && selected && (
+          ) : selected && (
             <div className="space-y-4">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="rounded-xl border p-3">
-                  <div className="text-xs text-muted-foreground">Tenant</div>
-                  <div className="text-sm"><code>{selected.tenant_id}</code></div>
-                </div>
-                <div className="rounded-xl border p-3">
-                  <div className="text-xs text-muted-foreground">Actor user id</div>
-                  <div className="text-sm"><code>{selected.actor_user_id || "—"}</code></div>
-                </div>
+              {/* Key fields grid */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  { label: "Action",    value: selected.action    },
+                  { label: "Resource",  value: selected.resource  },
+                  { label: "Tenant ID", value: selected.tenant_id },
+                  { label: "Actor ID",  value: selected.actor_user_id || "—" },
+                  { label: "Timestamp", value: formatTimestamp(selected.created_at) },
+                  { label: "Request ID", value: (selected.meta as any)?.request_id ?? "—" },
+                ].map((field) => (
+                  <div key={field.label} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
+                    <div className="mb-1 text-xs font-medium text-slate-400">{field.label}</div>
+                    <code className="text-xs text-slate-700 break-all">{String(field.value)}</code>
+                  </div>
+                ))}
               </div>
 
-              <div className="rounded-xl border p-3">
-                <div className="text-xs text-muted-foreground mb-2">Meta</div>
-                <pre className="text-xs overflow-auto whitespace-pre-wrap">{pretty(selected.meta)}</pre>
+              {/* Meta */}
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Meta</div>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
+                  {pretty(selected.meta)}
+                </pre>
               </div>
 
-              <div className="rounded-xl border p-3">
-                <div className="text-xs text-muted-foreground mb-2">Payload</div>
-                <pre className="text-xs overflow-auto whitespace-pre-wrap">{pretty(selected.payload)}</pre>
+              {/* Payload */}
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Payload</div>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
+                  {pretty((selected as any).payload)}
+                </pre>
               </div>
             </div>
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              Close
-            </Button>
+            <Button variant="outline" onClick={() => setDetailOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Page body ── */}
+      <div className="space-y-5">
+
+        {/* Header */}
+        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-5 text-white shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
+                  <ClipboardList className="h-3 w-3" />
+                  Cross-Tenant · Super Admin
+                </span>
+                <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-blue-100">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
+                  Live
+                </span>
+              </div>
+              <h1 className="text-xl font-bold">Audit Logs</h1>
+              <p className="mt-0.5 text-sm text-blue-100">
+                Platform-wide event stream — filter by tenant, action, actor, or date range
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {[
+                { label: "Total",    value: total         },
+                { label: "Loaded",   value: rows.length   },
+                { label: "Actions",  value: uniqueActions },
+                { label: "Tenants",  value: uniqueTenants },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 text-center backdrop-blur">
+                  <div className="text-xl font-bold text-white">{item.value}</div>
+                  <div className="text-xs text-blue-200">{item.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Error */}
+        {err && (
+          <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div className="flex items-center gap-2"><XCircle className="h-4 w-4 shrink-0 text-red-500" />{err}</div>
+            <button onClick={() => setErr(null)} className="ml-4 opacity-60 hover:opacity-100">✕</button>
+          </div>
+        )}
+
+        {/* Stat pills */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: "Total Events",    value: total,         color: "border-blue-100 bg-blue-50 text-blue-900 text-blue-400" },
+            { label: "This Page",       value: rows.length,   color: "border-slate-100 bg-slate-50 text-slate-900 text-slate-400" },
+            { label: "Unique Actions",  value: uniqueActions, color: "border-emerald-100 bg-emerald-50 text-emerald-900 text-emerald-400" },
+            { label: "Tenants",         value: uniqueTenants, color: "border-purple-100 bg-purple-50 text-purple-900 text-purple-400" },
+          ].map((item) => {
+            const [border, bg, textVal, textSub] = item.color.split(" ");
+            return (
+              <div key={item.label} className={`rounded-xl border px-4 py-3 ${border} ${bg}`}>
+                <div className={`text-2xl font-bold ${textVal}`}>{item.value}</div>
+                <div className={`text-xs font-medium ${textSub}`}>{item.label}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Filter panel */}
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-6 py-4">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-slate-400" />
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Filters</h2>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Narrow results by tenant, action, resource, actor, or date range
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-6">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {/* Tenant */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-500">Tenant</Label>
+                <Select value={tenantId} onValueChange={setTenantId}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="All tenants" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All tenants</SelectItem>
+                    {tenantOptions.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name} {t.slug ? `(${t.slug})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Search */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-500">Search</Label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    placeholder="action / resource / request_id…"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+                    className="h-8 pl-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Action */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-500">Action</Label>
+                <Input
+                  placeholder="e.g. enrollment.create"
+                  value={action}
+                  onChange={(e) => setAction(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+                  className="h-8 text-xs"
+                />
+              </div>
+
+              {/* Resource */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-500">Resource</Label>
+                <Input
+                  placeholder="e.g. finance.invoice"
+                  value={resource}
+                  onChange={(e) => setResource(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+                  className="h-8 text-xs"
+                />
+              </div>
+
+              {/* Actor */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-500">Actor User ID</Label>
+                <Input
+                  placeholder="UUID"
+                  value={actorUserId}
+                  onChange={(e) => setActorUserId(e.target.value)}
+                  className="h-8 font-mono text-xs"
+                />
+              </div>
+
+              {/* Request ID */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-500">Request ID</Label>
+                <Input
+                  placeholder="X-Request-ID"
+                  value={requestId}
+                  onChange={(e) => setRequestId(e.target.value)}
+                  className="h-8 font-mono text-xs"
+                />
+              </div>
+
+              {/* Date range */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-500">From Date</Label>
+                <Input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-500">To Date</Label>
+                <Input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+
+              {/* Page size */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-500">Page Size</Label>
+                <Select value={String(limit)} onValueChange={(v) => setLimit(Number(v))}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[25, 50, 100, 200].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n} per page</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Actions row */}
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                className="h-8 bg-blue-600 text-xs hover:bg-blue-700"
+                onClick={applyFilters}
+                disabled={loading}
+              >
+                <Search className="mr-1.5 h-3 w-3" />
+                Apply Filters
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => void load(true)}
+                disabled={loading}
+              >
+                <RefreshCw className="h-3 w-3" />
+                Refresh
+              </Button>
+              {activeFilters.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs text-slate-500"
+                  onClick={clearFilters}
+                >
+                  <X className="h-3 w-3" />
+                  Clear All
+                </Button>
+              )}
+            </div>
+
+            {/* Active filter pills */}
+            {activeFilters.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {activeFilters.map((f) => (
+                  <span key={f} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
+                    {f}
+                  </span>
+                ))}
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-500">
+                  {total} result{total !== 1 ? "s" : ""}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Results table */}
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+          {/* Table toolbar */}
+          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-slate-400" />
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Results</h2>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Showing {pageFrom}–{pageTo} of {total} event{total !== 1 ? "s" : ""}
+                </p>
+              </div>
+            </div>
+
+            {/* Pagination controls */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">
+                Page {Math.floor(offset / limit) + 1} of {Math.max(1, Math.ceil(total / limit))}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                disabled={loading || !hasPrev}
+                onClick={() => setOffset(Math.max(0, offset - limit))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                disabled={loading || !hasNext}
+                onClick={() => setOffset(offset + limit)}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 hover:bg-slate-50">
+                  <TableHead className="text-xs">Action</TableHead>
+                  <TableHead className="text-xs">Resource</TableHead>
+                  <TableHead className="text-xs">Tenant</TableHead>
+                  <TableHead className="text-xs">Actor</TableHead>
+                  <TableHead className="text-xs">Timestamp</TableHead>
+                  <TableHead className="text-xs">When</TableHead>
+                  <TableHead className="w-12 text-xs" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+
+                {loading && (
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell colSpan={7} className="py-3 px-5">
+                        <Skeleton className="h-8 w-full rounded-lg" />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+
+                {!loading && rows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-12 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <ClipboardList className="h-7 w-7 text-slate-200" />
+                        <p className="text-sm text-slate-400">
+                          {activeFilters.length > 0
+                            ? "No events match your filters."
+                            : "No audit logs found."}
+                        </p>
+                        {activeFilters.length > 0 && (
+                          <button
+                            onClick={clearFilters}
+                            className="mt-1 text-xs text-blue-500 hover:underline"
+                          >
+                            Clear filters
+                          </button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+
+                {!loading && rows.map((r) => (
+                  <TableRow key={r.id} className="hover:bg-slate-50">
+
+                    {/* Action badge */}
+                    <TableCell className="py-3">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-xs font-medium ${actionBadgeClass(r.action)}`}>
+                        {r.action}
+                      </span>
+                    </TableCell>
+
+                    {/* Resource */}
+                    <TableCell className="py-3 text-xs text-slate-600">
+                      {r.resource}
+                    </TableCell>
+
+                    {/* Tenant */}
+                    <TableCell className="py-3">
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <code className="cursor-default rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 hover:bg-slate-200">
+                              {tenantOptions.find((t) => t.id === r.tenant_id)?.slug
+                                ?? r.tenant_id.slice(0, 8) + "…"}
+                            </code>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <span className="font-mono text-xs">{r.tenant_id}</span>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </TableCell>
+
+                    {/* Actor */}
+                    <TableCell className="py-3">
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <code className="cursor-default font-mono text-xs text-slate-400 hover:text-slate-700">
+                              {r.actor_user_id
+                                ? r.actor_user_id.slice(0, 8) + "…"
+                                : "system"}
+                            </code>
+                          </TooltipTrigger>
+                          {r.actor_user_id && (
+                            <TooltipContent side="top">
+                              <span className="font-mono text-xs">{r.actor_user_id}</span>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
+                    </TableCell>
+
+                    {/* Timestamp */}
+                    <TableCell className="py-3 text-xs text-slate-400 whitespace-nowrap">
+                      {formatTimestamp(r.created_at)}
+                    </TableCell>
+
+                    {/* Relative time */}
+                    <TableCell className="py-3 text-xs text-slate-400 whitespace-nowrap">
+                      {timeAgo(r.created_at)}
+                    </TableCell>
+
+                    {/* View button */}
+                    <TableCell className="py-3 pr-4">
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => void openDetails(r)}
+                              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="text-xs">View full event</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Bottom pagination */}
+          {rows.length > 0 && (
+            <div className="flex items-center justify-between border-t border-slate-100 px-6 py-3">
+              <span className="text-xs text-slate-400">
+                {pageFrom}–{pageTo} of {total} events
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  disabled={loading || !hasPrev}
+                  onClick={() => setOffset(Math.max(0, offset - limit))}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  disabled={loading || !hasNext}
+                  onClick={() => setOffset(offset + limit)}
+                >
+                  Next
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </AppShell>
   );
 }

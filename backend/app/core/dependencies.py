@@ -25,18 +25,16 @@ def get_tenant(request: Request):
 
 
 # -----------------------------
-# Auth: Tenant Mode (School Users)
+# Shared: Bearer parsing + token decode
 # -----------------------------
-def get_current_user(
-    request: Request,
-    db: Session = Depends(get_db),
-    tenant=Depends(get_tenant),
-):
+def _read_bearer_token(request: Request) -> str:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing access token")
+    return auth.split(" ", 1)[1].strip()
 
-    token = auth.split(" ", 1)[1].strip()
+
+def _decode_access_token(token: str) -> dict:
     try:
         payload = decode_token(token)
     except JWTError:
@@ -45,17 +43,55 @@ def get_current_user(
     if payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Invalid token type")
 
-    # tenant safety: token must match resolved tenant
-    if payload.get("tenant_id") != str(tenant.id):
-        raise HTTPException(status_code=401, detail="Tenant mismatch")
+    return payload
 
-    user_id = payload.get("sub")
+
+def _load_active_user(db: Session, user_id: str | None) -> User:
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
     try:
         user = db.get(User, user_id)
     except SQLAlchemyError:
         raise HTTPException(status_code=503, detail="Database unavailable")
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Invalid user")
+    return user
+
+
+# -----------------------------
+# Auth: Tenant Mode (School Users)
+# -----------------------------
+def get_current_user(
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+):
+    """
+    Tenant-auth for school users AND safe SaaS-operator impersonation.
+
+    Rules:
+      - Normal tenant token must match resolved tenant.id
+      - SaaS token (tenant_id="__saas__") is allowed ONLY if tenant context exists
+        (i.e. request has a valid X-Tenant-Slug / domain mapping).
+    """
+    token = _read_bearer_token(request)
+    payload = _decode_access_token(token)
+
+    token_tenant_id = payload.get("tenant_id")
+
+    # tenant safety:
+    # - tenant users must match tenant context
+    # - SaaS users may operate in tenant context (impersonation) if tenant is resolved
+    if token_tenant_id == SAAS_TENANT_MARKER:
+        # SaaS token is allowed here ONLY because get_tenant already ensured tenant exists.
+        # This supports SaaS/operator viewing tenant pages with X-Tenant-Slug.
+        pass
+    else:
+        if token_tenant_id != str(tenant.id):
+            raise HTTPException(status_code=401, detail="Tenant mismatch")
+
+    user_id = payload.get("sub")
+    user = _load_active_user(db, user_id)
 
     # For AuditMiddleware + RBAC checks
     request.state.user_id = user.id
@@ -72,30 +108,15 @@ def get_current_user_saas(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing access token")
-
-    token = auth.split(" ", 1)[1].strip()
-    try:
-        payload = decode_token(token)
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired access token")
-
-    if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid token type")
+    token = _read_bearer_token(request)
+    payload = _decode_access_token(token)
 
     # SaaS safety: token must be a SaaS token
     if payload.get("tenant_id") != SAAS_TENANT_MARKER:
         raise HTTPException(status_code=401, detail="Not a SaaS token")
 
     user_id = payload.get("sub")
-    try:
-        user = db.get(User, user_id)
-    except SQLAlchemyError:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="Invalid user")
+    user = _load_active_user(db, user_id)
 
     # For AuditMiddleware + RBAC checks
     request.state.user_id = user.id
@@ -113,7 +134,7 @@ def require_permission(code: str):
     Tenant-scoped permission checker.
     Ensures:
       1) Tenant resolved
-      2) User authenticated
+      2) User authenticated (tenant token OR SaaS token with tenant context)
       3) Permission exists in token permissions
     """
     def _checker(
