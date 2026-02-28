@@ -52,6 +52,31 @@ class TenantRow(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class TenantPrintProfileUpsert(BaseModel):
+    logo_url: Optional[str] = Field(default=None, max_length=500)
+    school_header: Optional[str] = Field(default=None, max_length=500)
+    receipt_footer: Optional[str] = Field(default=None, max_length=500)
+    paper_size: Literal["A4", "THERMAL_80MM"] = "A4"
+    currency: str = Field(default="KES", min_length=3, max_length=10)
+    thermal_width_mm: int = Field(default=80, ge=58, le=120)
+    qr_enabled: bool = True
+
+
+class TenantPrintProfileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    tenant_id: UUID
+    logo_url: Optional[str] = None
+    school_header: Optional[str] = None
+    receipt_footer: Optional[str] = None
+    paper_size: Literal["A4", "THERMAL_80MM"]
+    currency: str
+    thermal_width_mm: int
+    qr_enabled: bool
+    updated_by: Optional[UUID] = None
+    updated_at: Optional[datetime] = None
+
+
 class CreateTenantRequest(BaseModel):
     """Request to create a new tenant"""
     name: str

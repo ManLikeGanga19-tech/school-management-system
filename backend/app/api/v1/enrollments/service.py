@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+import sqlalchemy as sa
 from uuid import UUID
 
 from app.models.enrollment import Enrollment
@@ -28,7 +29,7 @@ _PERMANENTLY_LOCKED_STATUSES = frozenset({"TRANSFERRED"})
 _ENROLLED_STATUSES = frozenset({"ENROLLED", "ENROLLED_PARTIAL"})
 
 _ADM_PREFIX = "ADM-"
-_ADM_PATTERN = re.compile(r"ADM-(\d+)$", re.IGNORECASE)
+_ADM_PATTERN = re.compile(r"^(?:ADM-)?(\d+)$", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -48,14 +49,52 @@ def _next_admission_number(db: Session, *, tenant_id: UUID) -> str:
     admission_number values via a DB query (safe for concurrent requests
     within a normal HTTP request/commit cycle).
     """
-    rows = db.execute(
-        select(Enrollment.admission_number).where(
-            Enrollment.tenant_id == tenant_id,
-            Enrollment.admission_number.isnot(None),
+    rows: list[str] = []
+    try:
+        rows = [
+            str(v or "")
+            for v in db.execute(
+                sa.text(
+                    """
+                    SELECT COALESCE(admission_number, payload->>'admission_number', '')
+                    FROM core.enrollments
+                    WHERE tenant_id = :tenant_id
+                    """
+                ),
+                {"tenant_id": str(tenant_id)},
+            ).scalars().all()
+        ]
+    except Exception as err:
+        msg = str(err).lower()
+        missing_adm_col = (
+            "admission_number" in msg
+            and (
+                "does not exist" in msg
+                or "undefinedcolumn" in msg
+                or "no such column" in msg
+            )
         )
-    ).scalars().all()
+        if not missing_adm_col:
+            raise
 
-    highest = 999  # first generated will be ADM-1000
+        # Compatibility fallback for environments where admission_number
+        # has not been promoted to a dedicated column yet.
+        db.rollback()
+        rows = [
+            str(v or "")
+            for v in db.execute(
+                sa.text(
+                    """
+                    SELECT COALESCE(payload->>'admission_number', '')
+                    FROM core.enrollments
+                    WHERE tenant_id = :tenant_id
+                    """
+                ),
+                {"tenant_id": str(tenant_id)},
+            ).scalars().all()
+        ]
+
+    highest = 0
     for raw in rows:
         m = _ADM_PATTERN.match(raw or "")
         if m:
@@ -70,6 +109,64 @@ def _clean_create_payload(payload: dict) -> dict:
     """Strip internal directive keys that must not be stored in JSONB."""
     private_keys = {"_fee_structure_id", "_fee_structure_code"}
     return {k: v for k, v in payload.items() if k not in private_keys}
+
+
+def _load_admission_number_map(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    status: str | None = None,
+) -> dict[str, str]:
+    where_status = " AND status = :status " if status else ""
+    params: dict[str, str] = {"tenant_id": str(tenant_id)}
+    if status:
+        params["status"] = status.upper()
+
+    try:
+        rows = db.execute(
+            sa.text(
+                f"""
+                SELECT id, COALESCE(admission_number, payload->>'admission_number', '') AS admission_number
+                FROM core.enrollments
+                WHERE tenant_id = :tenant_id
+                {where_status}
+                """
+            ),
+            params,
+        ).mappings().all()
+    except Exception as err:
+        msg = str(err).lower()
+        missing_adm_col = (
+            "admission_number" in msg
+            and (
+                "does not exist" in msg
+                or "undefinedcolumn" in msg
+                or "no such column" in msg
+            )
+        )
+        if not missing_adm_col:
+            raise
+
+        db.rollback()
+        rows = db.execute(
+            sa.text(
+                f"""
+                SELECT id, COALESCE(payload->>'admission_number', '') AS admission_number
+                FROM core.enrollments
+                WHERE tenant_id = :tenant_id
+                {where_status}
+                """
+            ),
+            params,
+        ).mappings().all()
+
+    out: dict[str, str] = {}
+    for r in rows:
+        rid = str(r.get("id") or "").strip()
+        adm = str(r.get("admission_number") or "").strip()
+        if rid and adm:
+            out[rid] = adm
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +227,25 @@ def list_enrollments(
     q = select(Enrollment).where(Enrollment.tenant_id == tenant_id)
     if status:
         q = q.where(Enrollment.status == status.upper())
-    return db.execute(q.order_by(Enrollment.created_at.desc())).scalars().all()
+    rows = db.execute(q.order_by(Enrollment.created_at.desc())).scalars().all()
+
+    try:
+        adm_map = _load_admission_number_map(db, tenant_id=tenant_id, status=status)
+    except Exception:
+        adm_map = {}
+
+    for row in rows:
+        rid = str(getattr(row, "id", "") or "")
+        payload = getattr(row, "payload", None)
+        payload_adm = (
+            str((payload or {}).get("admission_number") or "").strip()
+            if isinstance(payload, dict)
+            else ""
+        )
+        admission_number = adm_map.get(rid) or payload_adm or None
+        setattr(row, "admission_number", admission_number)
+
+    return rows
 
 
 def get_enrollment(
@@ -139,12 +254,33 @@ def get_enrollment(
     tenant_id: UUID,
     enrollment_id: UUID,
 ) -> Enrollment | None:
-    return db.execute(
+    row = db.execute(
         select(Enrollment).where(
             Enrollment.tenant_id == tenant_id,
             Enrollment.id == enrollment_id,
         )
     ).scalar_one_or_none()
+    if not row:
+        return None
+
+    admission_number: str | None = None
+    payload = getattr(row, "payload", None)
+    if isinstance(payload, dict):
+        payload_adm = str(payload.get("admission_number") or "").strip()
+        if payload_adm:
+            admission_number = payload_adm
+
+    if not admission_number:
+        try:
+            admission_number = _load_admission_number_map(
+                db,
+                tenant_id=tenant_id,
+            ).get(str(enrollment_id))
+        except Exception:
+            admission_number = None
+
+    setattr(row, "admission_number", admission_number)
+    return row
 
 
 def update_enrollment(
@@ -408,7 +544,11 @@ def mark_enrolled(
     if not admission_number or not admission_number.strip():
         admission_number = _next_admission_number(db, tenant_id=tenant_id)
 
-    enrollment.admission_number = admission_number.strip()
+    admission_number = admission_number.strip()
+    enrollment.admission_number = admission_number
+    payload = dict(enrollment.payload or {})
+    payload["admission_number"] = admission_number
+    enrollment.payload = payload
     enrollment.status = new_status
     enrollment.updated_by = actor_user_id
     db.flush()

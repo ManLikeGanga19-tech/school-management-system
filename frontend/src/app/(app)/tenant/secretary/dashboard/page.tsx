@@ -33,6 +33,7 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
+import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -165,7 +166,7 @@ function SectionCard({
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+      <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex items-center gap-2">
           {Icon && <Icon className="h-4 w-4 text-slate-400" />}
           <div>
@@ -173,9 +174,9 @@ function SectionCard({
             {subtitle && <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>}
           </div>
         </div>
-        {action}
+        {action && <div className="self-start sm:self-auto">{action}</div>}
       </div>
-      <div className="p-6">{children}</div>
+      <div className="p-4 sm:p-6">{children}</div>
     </div>
   );
 }
@@ -241,6 +242,10 @@ export default function SecretaryDashboardPage() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error]);
+
   // ── Derived ──────────────────────────────────────────────────────────────
 
   const enrollments = Array.isArray(data?.enrollments) ? data.enrollments : [];
@@ -277,10 +282,10 @@ export default function SecretaryDashboardPage() {
       <div className="space-y-5">
 
         {/* ── Hero header ── */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 via-blue-600 to-blue-500 p-6 text-white shadow-sm">
+        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 via-blue-600 to-blue-500 p-4 text-white shadow-sm sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="mb-2 flex items-center gap-2">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
                   <ClipboardList className="h-3 w-3" />
                   Secretary
@@ -302,20 +307,20 @@ export default function SecretaryDashboardPage() {
               </p>
             </div>
 
-            <div className="flex flex-col items-end gap-2">
-              <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+              <div className="grid grid-cols-1 gap-3 text-center sm:grid-cols-3">
                 {[
                   { label: "Enrollments",  value: loading ? "—" : enrollments.length },
                   { label: "Pending",      value: loading ? "—" : pendingEnrollments },
                   { label: "Active Users", value: loading ? "—" : activeUsers },
                 ].map((item) => (
-                  <div key={item.label} className="rounded-xl bg-white/10 px-4 py-2 backdrop-blur">
+                  <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 backdrop-blur sm:px-4">
                     <div className="text-xl font-bold text-white">{item.value}</div>
                     <div className="text-xs text-blue-200">{item.label}</div>
                   </div>
                 ))}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                 {lastUpdated && (
                   <span className="text-xs text-blue-200">
                     Updated {timeAgo(lastUpdated.toISOString())}
@@ -335,7 +340,7 @@ export default function SecretaryDashboardPage() {
 
         {/* ── Error ── */}
         {error && (
-          <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
               {error}
@@ -438,7 +443,7 @@ export default function SecretaryDashboardPage() {
                 ) : undefined
               }
             >
-              <div className="overflow-hidden rounded-xl border border-slate-100">
+              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[600px]">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50">
@@ -501,7 +506,7 @@ export default function SecretaryDashboardPage() {
                 ) : undefined
               }
             >
-              <div className="overflow-hidden rounded-xl border border-slate-100">
+              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[600px]">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50">
@@ -550,7 +555,7 @@ export default function SecretaryDashboardPage() {
                 ) : undefined
               }
             >
-              <div className="overflow-hidden rounded-xl border border-slate-100">
+              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[600px]">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50">
@@ -591,7 +596,7 @@ export default function SecretaryDashboardPage() {
           <>
             <SectionLabel>System Health</SectionLabel>
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center gap-2 border-b border-slate-100 px-6 py-4">
+              <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-4 sm:px-6">
                 <Activity className="h-4 w-4 text-slate-400" />
                 <div>
                   <h2 className="text-sm font-semibold text-slate-900">Live Service Status</h2>
@@ -600,7 +605,7 @@ export default function SecretaryDashboardPage() {
                   </p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2 p-6">
+              <div className="flex flex-wrap gap-2 p-4 sm:p-6">
                 {healthKeys.map((key) => (
                   <div
                     key={key}

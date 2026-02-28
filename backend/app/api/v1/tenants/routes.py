@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Any, Optional, List, Literal
 from uuid import UUID, uuid4
 
@@ -11,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
 import sqlalchemy as sa
-from sqlalchemy.exc import ProgrammingError, OperationalError
+from sqlalchemy.exc import ProgrammingError, OperationalError, InternalError
 
 from app.core.database import get_db
 from app.core.dependencies import get_tenant, get_current_user, require_permission
@@ -19,6 +20,7 @@ from app.core.dependencies import get_tenant, get_current_user, require_permissi
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.membership import UserTenant
+from app.models.tenant_print_profile import TenantPrintProfile
 
 from app.models.rbac import (
     Role,
@@ -97,6 +99,353 @@ class TenantClassOut(BaseModel):
     is_active: bool = True
 
 
+class TenantClassCreateIn(BaseModel):
+    code: str = Field(..., min_length=1, max_length=80)
+    name: str = Field(..., min_length=1, max_length=160)
+    is_active: bool = True
+
+
+class TenantClassUpdateIn(BaseModel):
+    code: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    is_active: Optional[bool] = None
+
+
+class TenantTermOut(BaseModel):
+    id: str
+    code: str
+    name: str
+    is_active: bool = True
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+class TenantTermCreateIn(BaseModel):
+    code: str = Field(..., min_length=1, max_length=80)
+    name: str = Field(..., min_length=1, max_length=160)
+    is_active: bool = True
+    start_date: Optional[str] = Field(default=None, max_length=32)
+    end_date: Optional[str] = Field(default=None, max_length=32)
+
+
+class TenantTermUpdateIn(BaseModel):
+    code: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    is_active: Optional[bool] = None
+    start_date: Optional[str] = Field(default=None, max_length=32)
+    end_date: Optional[str] = Field(default=None, max_length=32)
+
+
+class TenantSubjectOut(BaseModel):
+    id: str
+    code: str
+    name: str
+    is_active: bool = True
+
+
+class TenantSubjectCreateIn(BaseModel):
+    code: str = Field(..., min_length=1, max_length=80)
+    name: str = Field(..., min_length=1, max_length=160)
+    is_active: bool = True
+
+
+class TenantSubjectUpdateIn(BaseModel):
+    code: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    is_active: Optional[bool] = None
+
+
+class TenantStaffOut(BaseModel):
+    id: str
+    staff_no: str
+    staff_type: str
+    role_code: Optional[str] = None
+    primary_subject_id: Optional[str] = None
+    primary_subject_code: Optional[str] = None
+    primary_subject_name: Optional[str] = None
+    employment_type: Optional[str] = None
+    first_name: str
+    last_name: str
+    full_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    id_number: Optional[str] = None
+    tsc_number: Optional[str] = None
+    kra_pin: Optional[str] = None
+    nssf_number: Optional[str] = None
+    nhif_number: Optional[str] = None
+    gender: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    date_hired: Optional[str] = None
+    next_of_kin_name: Optional[str] = None
+    next_of_kin_relation: Optional[str] = None
+    next_of_kin_phone: Optional[str] = None
+    next_of_kin_email: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    separation_status: Optional[str] = None
+    separation_reason: Optional[str] = None
+    separation_date: Optional[str] = None
+    is_active: bool = True
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class TenantStaffCreateIn(BaseModel):
+    staff_no: Optional[str] = Field(default=None, max_length=64)
+    staff_type: str = Field(default="TEACHING", max_length=32)
+    role_code: Optional[str] = Field(default=None, max_length=60)
+    primary_subject_id: Optional[str] = Field(default=None, max_length=64)
+    employment_type: Optional[str] = Field(default=None, max_length=32)
+    first_name: str = Field(..., min_length=1, max_length=120)
+    last_name: str = Field(..., min_length=1, max_length=120)
+    email: Optional[str] = Field(default=None, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=64)
+    id_number: Optional[str] = Field(default=None, max_length=64)
+    tsc_number: Optional[str] = Field(default=None, max_length=64)
+    kra_pin: Optional[str] = Field(default=None, max_length=64)
+    nssf_number: Optional[str] = Field(default=None, max_length=64)
+    nhif_number: Optional[str] = Field(default=None, max_length=64)
+    gender: Optional[str] = Field(default=None, max_length=16)
+    date_of_birth: Optional[str] = Field(default=None, max_length=32)
+    date_hired: Optional[str] = Field(default=None, max_length=32)
+    next_of_kin_name: Optional[str] = Field(default=None, max_length=200)
+    next_of_kin_relation: Optional[str] = Field(default=None, max_length=120)
+    next_of_kin_phone: Optional[str] = Field(default=None, max_length=64)
+    next_of_kin_email: Optional[str] = Field(default=None, max_length=255)
+    address: Optional[str] = Field(default=None, max_length=500)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    is_active: bool = True
+
+
+class TenantStaffUpdateIn(BaseModel):
+    staff_no: Optional[str] = Field(default=None, max_length=64)
+    staff_type: Optional[str] = Field(default=None, max_length=32)
+    role_code: Optional[str] = Field(default=None, max_length=60)
+    primary_subject_id: Optional[str] = Field(default=None, max_length=64)
+    employment_type: Optional[str] = Field(default=None, max_length=32)
+    first_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    last_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    email: Optional[str] = Field(default=None, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=64)
+    id_number: Optional[str] = Field(default=None, max_length=64)
+    tsc_number: Optional[str] = Field(default=None, max_length=64)
+    kra_pin: Optional[str] = Field(default=None, max_length=64)
+    nssf_number: Optional[str] = Field(default=None, max_length=64)
+    nhif_number: Optional[str] = Field(default=None, max_length=64)
+    gender: Optional[str] = Field(default=None, max_length=16)
+    date_of_birth: Optional[str] = Field(default=None, max_length=32)
+    date_hired: Optional[str] = Field(default=None, max_length=32)
+    next_of_kin_name: Optional[str] = Field(default=None, max_length=200)
+    next_of_kin_relation: Optional[str] = Field(default=None, max_length=120)
+    next_of_kin_phone: Optional[str] = Field(default=None, max_length=64)
+    next_of_kin_email: Optional[str] = Field(default=None, max_length=255)
+    address: Optional[str] = Field(default=None, max_length=500)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    separation_status: Optional[str] = Field(default=None, max_length=32)
+    separation_reason: Optional[str] = Field(default=None, max_length=1000)
+    separation_date: Optional[str] = Field(default=None, max_length=32)
+    is_active: Optional[bool] = None
+
+
+class TenantAssetOut(BaseModel):
+    id: str
+    asset_code: str
+    name: str
+    category: str
+    description: Optional[str] = None
+    condition_status: str
+    is_active: bool = True
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class TenantAssetCreateIn(BaseModel):
+    asset_code: str = Field(..., min_length=1, max_length=80)
+    name: str = Field(..., min_length=1, max_length=200)
+    category: str = Field(..., min_length=1, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    condition_status: str = Field(default="AVAILABLE", max_length=32)
+    is_active: bool = True
+
+
+class TenantAssetUpdateIn(BaseModel):
+    asset_code: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    category: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    condition_status: Optional[str] = Field(default=None, max_length=32)
+    is_active: Optional[bool] = None
+
+
+class TeacherAssignmentOut(BaseModel):
+    id: str
+    staff_id: str
+    staff_no: str
+    staff_name: str
+    subject_id: str
+    subject_code: str
+    subject_name: str
+    class_code: str
+    is_active: bool = True
+    assigned_at: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TeacherAssignmentCreateIn(BaseModel):
+    staff_id: str
+    subject_id: str
+    class_code: str = Field(..., min_length=1, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    is_active: bool = True
+
+
+class TeacherAssignmentUpdateIn(BaseModel):
+    staff_id: Optional[str] = None
+    subject_id: Optional[str] = None
+    class_code: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    is_active: Optional[bool] = None
+
+
+class AssetAssignmentOut(BaseModel):
+    id: str
+    asset_id: str
+    asset_code: str
+    asset_name: str
+    assignee_type: str = "STAFF"
+    staff_id: Optional[str] = None
+    staff_no: Optional[str] = None
+    staff_name: Optional[str] = None
+    class_code: Optional[str] = None
+    enrollment_id: Optional[str] = None
+    student_name: Optional[str] = None
+    status: str
+    due_at: Optional[str] = None
+    is_overdue: bool = False
+    assigned_at: Optional[str] = None
+    returned_at: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class AssetAssignmentCreateIn(BaseModel):
+    asset_id: str
+    assignee_type: Literal["STAFF", "CLASS", "STUDENT"] = "STAFF"
+    staff_id: Optional[str] = None
+    class_code: Optional[str] = Field(default=None, max_length=80)
+    enrollment_id: Optional[str] = None
+    due_at: Optional[str] = Field(default=None, max_length=64)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class AssetAssignmentReturnIn(BaseModel):
+    returned_at: Optional[str] = Field(default=None, max_length=32)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class TenantNotificationOut(BaseModel):
+    id: str
+    type: str
+    severity: str
+    title: str
+    message: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[str] = None
+    created_at: str
+    due_at: Optional[str] = None
+    unread: bool = True
+
+
+class TenantExamOut(BaseModel):
+    id: str
+    name: str
+    term_id: Optional[str] = None
+    term_code: Optional[str] = None
+    term_name: Optional[str] = None
+    class_code: str
+    subject_id: Optional[str] = None
+    subject_code: Optional[str] = None
+    subject_name: Optional[str] = None
+    invigilator_staff_id: Optional[str] = None
+    invigilator_staff_no: Optional[str] = None
+    invigilator_name: Optional[str] = None
+    start_date: str
+    end_date: str
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    status: str
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: bool = True
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class TenantExamCreateIn(BaseModel):
+    name: str = Field(default="", max_length=160)
+    term_id: str = Field(default="", max_length=64)
+    class_code: str = Field(default="", max_length=80)
+    subject_id: Optional[str] = Field(default=None, max_length=64)
+    invigilator_staff_id: Optional[str] = Field(default=None, max_length=64)
+    start_date: Optional[str] = Field(default=None, max_length=32)
+    end_date: Optional[str] = Field(default=None, max_length=32)
+    start_time: Optional[str] = Field(default=None, max_length=32)
+    end_time: Optional[str] = Field(default=None, max_length=32)
+    status: str = Field(default="SCHEDULED", max_length=32)
+    location: Optional[str] = Field(default=None, max_length=160)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    is_active: bool = True
+
+
+class TenantExamUpdateIn(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    term_id: Optional[str] = Field(default=None, max_length=64)
+    class_code: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    subject_id: Optional[str] = Field(default=None, max_length=64)
+    invigilator_staff_id: Optional[str] = Field(default=None, max_length=64)
+    start_date: Optional[str] = Field(default=None, max_length=32)
+    end_date: Optional[str] = Field(default=None, max_length=32)
+    start_time: Optional[str] = Field(default=None, max_length=32)
+    end_time: Optional[str] = Field(default=None, max_length=32)
+    status: Optional[str] = Field(default=None, max_length=32)
+    location: Optional[str] = Field(default=None, max_length=160)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    is_active: Optional[bool] = None
+
+
+class TenantExamMarkOut(BaseModel):
+    id: str
+    exam_id: str
+    exam_name: str
+    term_id: Optional[str] = None
+    term_code: Optional[str] = None
+    term_name: Optional[str] = None
+    class_code: str
+    subject_id: str
+    subject_code: Optional[str] = None
+    subject_name: Optional[str] = None
+    student_enrollment_id: str
+    student_name: str
+    admission_number: Optional[str] = None
+    marks_obtained: str
+    max_marks: str
+    grade: Optional[str] = None
+    remarks: Optional[str] = None
+    recorded_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class TenantExamMarkUpsertIn(BaseModel):
+    exam_id: str
+    student_enrollment_id: str
+    subject_id: str
+    class_code: Optional[str] = Field(default=None, max_length=80)
+    marks_obtained: str
+    max_marks: str = Field(default="100")
+    grade: Optional[str] = Field(default=None, max_length=16)
+    remarks: Optional[str] = Field(default=None, max_length=500)
+
+
 class SecretaryUserOut(BaseModel):
     id: str
     email: str
@@ -128,6 +477,56 @@ class DirectorPermissionOut(BaseModel):
     description: Optional[str] = None
 
 
+class DirectorRoleOut(BaseModel):
+    id: str
+    code: str
+    name: str
+    description: Optional[str] = None
+
+
+class DirectorUserOut(BaseModel):
+    id: str
+    email: str
+    full_name: Optional[str] = None
+    is_active: bool = True
+    roles: list[str] = Field(default_factory=list)
+
+
+class DirectorStaffCandidateOut(BaseModel):
+    staff_id: str
+    staff_no: str
+    full_name: str
+    email: str
+    staff_type: str
+    role_code: Optional[str] = None
+    has_account: bool
+    user_id: Optional[str] = None
+
+
+class DirectorUserCredentialIn(BaseModel):
+    staff_id: str
+    password: str = Field(..., min_length=8, max_length=128)
+    role_code: Optional[str] = Field(default=None, max_length=60)
+
+
+class DirectorUserCredentialOut(BaseModel):
+    user_id: str
+    staff_id: str
+    email: str
+    full_name: Optional[str] = None
+    role_code: Optional[str] = None
+    created_user: bool
+    updated_password: bool
+    membership_created: bool
+    role_assigned: bool
+
+
+class DirectorUserRoleActionIn(BaseModel):
+    mode: Literal["assign", "remove"]
+    user_id: str
+    role_code: str = Field(..., min_length=2, max_length=60)
+
+
 class DirectorPermissionOverrideOut(BaseModel):
     user_id: str
     email: str
@@ -135,6 +534,17 @@ class DirectorPermissionOverrideOut(BaseModel):
     permission_code: str
     effect: str
     reason: Optional[str] = None
+
+
+class TenantPrintProfileOut(BaseModel):
+    tenant_id: str
+    logo_url: Optional[str] = None
+    school_header: Optional[str] = None
+    receipt_footer: Optional[str] = None
+    paper_size: str = "A4"
+    currency: str = "KES"
+    thermal_width_mm: int = 80
+    qr_enabled: bool = True
 
 
 # ---------------------------------------------------------------------
@@ -227,6 +637,29 @@ def _request_permissions(request: Request) -> set[str]:
     return {str(code) for code in raw if isinstance(code, str)}
 
 
+def _request_roles(request: Request) -> set[str]:
+    raw = getattr(request.state, "roles", []) or []
+    return {
+        str(role).strip().upper()
+        for role in raw
+        if isinstance(role, str) and str(role).strip()
+    }
+
+
+def _is_director_context(request: Request) -> bool:
+    roles = _request_roles(request)
+    return bool({"DIRECTOR", "SUPER_ADMIN"} & roles)
+
+
+def _normalize_separation_status(value: Optional[str]) -> Optional[str]:
+    cleaned = _text_or_none(value, upper=True)
+    if cleaned in {None, "ACTIVE", "NONE", "EMPLOYED"}:
+        return None
+    if cleaned in {"FIRED_MISCONDUCT", "LEFT_PERMANENTLY"}:
+        return cleaned
+    raise HTTPException(status_code=400, detail="Invalid separation_status")
+
+
 def _parse_uuid(value: Any, *, field: str) -> UUID:
     if isinstance(value, UUID):
         return value
@@ -258,9 +691,33 @@ def _serialize_finance_policy(row: Any) -> dict:
     }
 
 
+def _serialize_structure_policy(row: Any) -> dict:
+    return {
+        "id": str(getattr(row, "id")),
+        "fee_structure_id": str(getattr(row, "fee_structure_id")),
+        "fee_item_id": (
+            str(getattr(row, "fee_item_id"))
+            if getattr(row, "fee_item_id", None) is not None
+            else None
+        ),
+        "allow_partial_enrollment": bool(getattr(row, "allow_partial_enrollment", False)),
+        "min_percent_to_enroll": getattr(row, "min_percent_to_enroll", None),
+        "min_amount_to_enroll": (
+            str(getattr(row, "min_amount_to_enroll"))
+            if getattr(row, "min_amount_to_enroll", None) is not None
+            else None
+        ),
+    }
+
+
 def _serialize_invoice(row: Any) -> dict:
     return {
         "id": str(getattr(row, "id")),
+        "invoice_no": (
+            str(getattr(row, "invoice_no"))
+            if getattr(row, "invoice_no", None) is not None
+            else None
+        ),
         "invoice_type": str(getattr(row, "invoice_type", "") or ""),
         "status": str(getattr(row, "status", "") or ""),
         "enrollment_id": (
@@ -297,7 +754,13 @@ def _serialize_fee_item(row: Any) -> dict:
 def _serialize_fee_structure(row: Any) -> dict:
     return {
         "id": str(getattr(row, "id")),
+        "structure_no": (
+            str(getattr(row, "structure_no"))
+            if getattr(row, "structure_no", None) is not None
+            else None
+        ),
         "class_code": str(getattr(row, "class_code", "") or ""),
+        "term_code": str(getattr(row, "term_code", "GENERAL") or "GENERAL"),
         "name": str(getattr(row, "name", "") or ""),
         "is_active": bool(getattr(row, "is_active", True)),
     }
@@ -315,12 +778,17 @@ def _serialize_structure_item(item: dict[str, Any]) -> dict:
     }
 
 
-def _serialize_scholarship(row: Any) -> dict:
+def _serialize_scholarship(row: Any, *, allocated_amount: Decimal | None = None) -> dict:
+    total = Decimal(getattr(row, "value", 0) or 0)
+    allocated = Decimal(allocated_amount or 0)
+    remaining = max(Decimal("0"), total - allocated)
     return {
         "id": str(getattr(row, "id")),
         "name": str(getattr(row, "name", "") or ""),
         "type": str(getattr(row, "type", "") or ""),
-        "value": str(getattr(row, "value", 0) or 0),
+        "value": str(total),
+        "allocated_amount": str(allocated),
+        "remaining_amount": str(remaining),
         "is_active": bool(getattr(row, "is_active", True)),
     }
 
@@ -330,6 +798,7 @@ def _serialize_payment(row: dict[str, Any]) -> dict:
     safe_allocations = allocations if isinstance(allocations, list) else []
     return {
         "id": str(row.get("id") or ""),
+        "receipt_no": (str(row.get("receipt_no")) if row.get("receipt_no") is not None else None),
         "provider": str(row.get("provider") or ""),
         "reference": (str(row.get("reference")) if row.get("reference") is not None else None),
         "amount": str(row.get("amount") or 0),
@@ -342,6 +811,845 @@ def _serialize_payment(row: dict[str, Any]) -> dict:
             if isinstance(a, dict)
         ],
     }
+
+
+TENANT_CLASS_TABLE_CANDIDATES = ("core.tenant_classes", "tenant_classes")
+TENANT_TERM_TABLE_CANDIDATES = ("core.tenant_terms", "tenant_terms")
+TENANT_SUBJECT_TABLE_CANDIDATES = ("core.tenant_subjects", "tenant_subjects")
+TENANT_STAFF_TABLE_CANDIDATES = ("core.staff_directory", "staff_directory")
+TENANT_ASSET_TABLE_CANDIDATES = ("core.school_assets", "school_assets")
+TEACHER_ASSIGNMENT_TABLE_CANDIDATES = (
+    "core.teacher_subject_assignments",
+    "teacher_subject_assignments",
+)
+ASSET_ASSIGNMENT_TABLE_CANDIDATES = (
+    "core.asset_assignments",
+    "asset_assignments",
+)
+TENANT_NOTIFICATION_READ_TABLE_CANDIDATES = (
+    "core.tenant_notification_reads",
+    "tenant_notification_reads",
+)
+ENROLLMENT_TABLE_CANDIDATES = (
+    "core.enrollments",
+    "enrollment.enrollments",
+    "enrollments",
+)
+FEE_STRUCTURE_TABLE_CANDIDATES = ("core.fee_structures", "fee_structures")
+FEE_STRUCTURE_ITEM_TABLE_CANDIDATES = ("core.fee_structure_items", "fee_structure_items")
+FEE_ITEM_TABLE_CANDIDATES = ("core.fee_items", "fee_items")
+FEE_CATEGORY_TABLE_CANDIDATES = ("core.fee_categories", "fee_categories")
+TENANT_EXAM_TABLE_CANDIDATES = ("core.tenant_exams", "tenant_exams")
+TENANT_EXAM_MARK_TABLE_CANDIDATES = ("core.tenant_exam_marks", "tenant_exam_marks")
+
+
+def _normalize_code(value: str) -> str:
+    return value.strip().upper()
+
+
+def _normalize_name(value: str) -> str:
+    return value.strip()
+
+
+def _normalize_staff_type(value: str) -> str:
+    raw = value.strip().upper().replace(" ", "_")
+    if raw in {"TEACHING", "TEACHER", "LECTURER"}:
+        return "TEACHING"
+    if raw in {"NON_TEACHING", "NONTEACHING", "SUPPORT", "STAFF"}:
+        return "NON_TEACHING"
+    raise HTTPException(status_code=400, detail="Invalid staff_type")
+
+
+def _is_teaching_staff_type(value: Optional[str]) -> bool:
+    raw = (value or "").strip().upper().replace(" ", "_")
+    return raw in {"TEACHING", "TEACHER", "LECTURER"}
+
+
+def _text_or_none(value: Optional[str], *, upper: bool = False) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None
+    return cleaned.upper() if upper else cleaned
+
+
+def _normalized_email(value: Optional[str]) -> Optional[str]:
+    cleaned = _text_or_none(value, upper=False)
+    return cleaned.lower() if cleaned else None
+
+
+def _is_restricted_tenant_role_code(role_code: str) -> bool:
+    return role_code.strip().upper() == "SUPER_ADMIN"
+
+
+def _ensure_director_assignable_role(role_code: str) -> None:
+    if _is_restricted_tenant_role_code(role_code):
+        raise HTTPException(
+            status_code=403,
+            detail="SUPER_ADMIN role cannot be assigned from tenant dashboard",
+        )
+
+
+def _staff_full_name(first_name: str | None, last_name: str | None) -> str:
+    parts = [str(first_name or "").strip(), str(last_name or "").strip()]
+    full = " ".join(p for p in parts if p)
+    return full or "Unnamed staff"
+
+
+def _execute_on_first_table(
+    db: Session,
+    *,
+    table_candidates: tuple[str, ...],
+    sql_template: str,
+    params: dict[str, Any],
+):
+    last_error: Exception | None = None
+    for table_name in table_candidates:
+        try:
+            stmt = sa.text(sql_template.format(table=table_name))
+            return db.execute(stmt, params), table_name
+        except (ProgrammingError, OperationalError, InternalError) as err:
+            # A missing relation aborts the current transaction in Postgres.
+            # Roll back before probing the next candidate table.
+            db.rollback()
+            if _safe_db_missing_table(err):
+                last_error = err
+                continue
+            raise
+        except Exception as err:
+            if _safe_db_missing_table(err):
+                db.rollback()
+                last_error = err
+                continue
+            raise
+
+    if last_error:
+        raise HTTPException(
+            status_code=503,
+            detail="Tenant setup storage is not configured. Run database migrations.",
+        )
+    raise HTTPException(status_code=503, detail="Tenant setup storage is unavailable.")
+
+
+def _read_rows_first_table(
+    db: Session,
+    *,
+    table_candidates: tuple[str, ...],
+    sql_template: str,
+    params: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str | None]:
+    try:
+        result, table_name = _execute_on_first_table(
+            db,
+            table_candidates=table_candidates,
+            sql_template=sql_template,
+            params=params,
+        )
+        rows = result.mappings().all()
+        return [dict(r) for r in rows], table_name
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            return [], None
+        raise
+
+
+def _safe_payload_obj(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _split_table_ref(table_ref: str) -> tuple[str | None, str]:
+    if "." in table_ref:
+        schema, table = table_ref.split(".", 1)
+        return schema, table
+    return None, table_ref
+
+
+def _resolve_existing_table(
+    db: Session,
+    *,
+    candidates: tuple[str, ...],
+) -> tuple[str | None, set[str]]:
+    try:
+        inspector = sa.inspect(db.get_bind())
+    except Exception:
+        return None, set()
+
+    for ref in candidates:
+        schema, table = _split_table_ref(ref)
+        try:
+            cols = inspector.get_columns(table, schema=schema)
+        except Exception:
+            continue
+        if cols:
+            col_names = {
+                str(col.get("name"))
+                for col in cols
+                if col.get("name") is not None
+            }
+            return ref, col_names
+
+    return None, set()
+
+
+def _list_fee_structures_fallback(
+    db: Session,
+    *,
+    tenant_id: UUID,
+) -> tuple[list[dict[str, Any]], bool]:
+    table_ref, cols = _resolve_existing_table(
+        db,
+        candidates=FEE_STRUCTURE_TABLE_CANDIDATES,
+    )
+    if not table_ref:
+        return [], False
+
+    required = {"id", "tenant_id", "class_code"}
+    if not required.issubset(cols):
+        return [], False
+
+    term_expr = "term_code" if "term_code" in cols else "'GENERAL'"
+    name_expr = "name" if "name" in cols else "class_code"
+    active_expr = "COALESCE(is_active, true)" if "is_active" in cols else "true"
+    structure_no_expr = "structure_no" if "structure_no" in cols else "NULL"
+
+    try:
+        rows = db.execute(
+            sa.text(
+                f"""
+                SELECT
+                    id,
+                    class_code,
+                    {term_expr} AS term_code,
+                    {name_expr} AS name,
+                    {active_expr} AS is_active,
+                    {structure_no_expr} AS structure_no
+                FROM {table_ref}
+                WHERE tenant_id = :tenant_id
+                ORDER BY class_code ASC, term_code ASC, name ASC
+                """
+            ),
+            {"tenant_id": str(tenant_id)},
+        ).mappings().all()
+    except Exception:
+        db.rollback()
+        return [], False
+
+    data = [
+        {
+            "id": str(row.get("id") or ""),
+            "structure_no": (
+                str(row.get("structure_no"))
+                if row.get("structure_no") is not None
+                else None
+            ),
+            "class_code": str(row.get("class_code") or ""),
+            "term_code": str(row.get("term_code") or "GENERAL"),
+            "name": str(row.get("name") or ""),
+            "is_active": bool(row.get("is_active", True)),
+        }
+        for row in rows
+        if row.get("id") is not None
+    ]
+    return data, True
+
+
+def _list_fee_structure_items_fallback(
+    db: Session,
+    *,
+    tenant_id: UUID,
+) -> tuple[dict[str, list[dict[str, Any]]], bool]:
+    structure_ref, structure_cols = _resolve_existing_table(
+        db,
+        candidates=FEE_STRUCTURE_TABLE_CANDIDATES,
+    )
+    item_link_ref, item_link_cols = _resolve_existing_table(
+        db,
+        candidates=FEE_STRUCTURE_ITEM_TABLE_CANDIDATES,
+    )
+    fee_item_ref, fee_item_cols = _resolve_existing_table(
+        db,
+        candidates=FEE_ITEM_TABLE_CANDIDATES,
+    )
+    category_ref, category_cols = _resolve_existing_table(
+        db,
+        candidates=FEE_CATEGORY_TABLE_CANDIDATES,
+    )
+
+    if not all([structure_ref, item_link_ref, fee_item_ref, category_ref]):
+        return {}, False
+
+    if not {"id", "tenant_id"}.issubset(structure_cols):
+        return {}, False
+    if not {"structure_id", "fee_item_id", "amount"}.issubset(item_link_cols):
+        return {}, False
+    if not {"id", "category_id", "code", "name"}.issubset(fee_item_cols):
+        return {}, False
+    if not {"id", "code", "name"}.issubset(category_cols):
+        return {}, False
+
+    try:
+        rows = db.execute(
+            sa.text(
+                f"""
+                SELECT
+                    s.id AS structure_id,
+                    fsi.fee_item_id AS fee_item_id,
+                    fsi.amount AS amount,
+                    fi.code AS fee_item_code,
+                    fi.name AS fee_item_name,
+                    fc.id AS category_id,
+                    fc.code AS category_code,
+                    fc.name AS category_name
+                FROM {item_link_ref} fsi
+                JOIN {structure_ref} s ON s.id = fsi.structure_id
+                JOIN {fee_item_ref} fi ON fi.id = fsi.fee_item_id
+                JOIN {category_ref} fc ON fc.id = fi.category_id
+                WHERE s.tenant_id = :tenant_id
+                ORDER BY s.id ASC, fc.code ASC, fi.code ASC
+                """
+            ),
+            {"tenant_id": str(tenant_id)},
+        ).mappings().all()
+    except Exception:
+        db.rollback()
+        return {}, False
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        sid = str(row.get("structure_id") or "")
+        if not sid:
+            continue
+        grouped.setdefault(sid, []).append(_serialize_structure_item(dict(row)))
+    return grouped, True
+
+
+def _list_tenant_enrollments_for_finance(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    limit: int = 500,
+) -> tuple[list[dict[str, Any]], bool]:
+    safe_limit = max(1, min(int(limit), 1000))
+    rows, table_name = _read_rows_first_table(
+        db,
+        table_candidates=ENROLLMENT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, status, payload
+            FROM {table}
+            WHERE tenant_id = :tenant_id
+            ORDER BY id DESC
+            LIMIT :limit
+        """,
+        params={
+            "tenant_id": str(tenant_id),
+            "limit": safe_limit,
+        },
+    )
+
+    items = [
+        {
+            "id": str(row.get("id") or ""),
+            "status": str(row.get("status") or ""),
+            "payload": _safe_payload_obj(row.get("payload")),
+        }
+        for row in rows
+        if row.get("id") is not None
+    ]
+    return items, bool(table_name)
+
+
+def _enrollment_student_name(payload: dict[str, Any]) -> str:
+    for key in ("student_name", "studentName", "full_name", "fullName", "name"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "Unknown student"
+
+
+def _enrollment_admission_number(payload: dict[str, Any]) -> Optional[str]:
+    for key in ("admission_number", "admissionNo", "admission_no"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _tenant_enrollment_index(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    limit: int = 2000,
+) -> dict[str, dict[str, str]]:
+    rows, ok = _list_tenant_enrollments_for_finance(db, tenant_id=tenant_id, limit=limit)
+    if not ok:
+        return {}
+
+    index: dict[str, dict[str, str]] = {}
+    for row in rows:
+        eid = str(row.get("id") or "")
+        if not eid:
+            continue
+        payload = _safe_payload_obj(row.get("payload"))
+        student_name = _enrollment_student_name(payload)
+        admission_number = _enrollment_admission_number(payload) or ""
+        index[eid] = {
+            "student_name": student_name,
+            "admission_number": admission_number,
+        }
+    return index
+
+
+def _normalize_iso_datetime(value: Optional[str], *, field: str) -> Optional[str]:
+    cleaned = _text_or_none(value)
+    if cleaned is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field} must be a valid ISO datetime")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.isoformat()
+
+
+EXAM_STATUS_VALUES = {"SCHEDULED", "ONGOING", "COMPLETED", "CANCELLED"}
+
+
+def _normalize_iso_date_value(
+    value: Optional[str],
+    *,
+    field: str,
+    required: bool = False,
+) -> Optional[str]:
+    cleaned = _text_or_none(value)
+    if cleaned is None:
+        if required:
+            raise HTTPException(status_code=400, detail=f"{field} is required")
+        return None
+
+    raw = cleaned.split("T", 1)[0]
+    try:
+        parsed = date.fromisoformat(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field} must be a valid ISO date (YYYY-MM-DD)")
+    return parsed.isoformat()
+
+
+def _normalize_exam_time_value(value: Optional[str], *, field: str) -> Optional[str]:
+    cleaned = _text_or_none(value)
+    if cleaned is None:
+        return None
+
+    token = cleaned
+    if len(token) == 5 and token.count(":") == 1:
+        token = f"{token}:00"
+    try:
+        parsed = time.fromisoformat(token)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field} must be a valid time (HH:MM or HH:MM:SS)")
+    return parsed.strftime("%H:%M:%S")
+
+
+def _normalize_exam_status_value(value: Optional[str], *, field: str = "status") -> str:
+    raw = _text_or_none(value, upper=True) or "SCHEDULED"
+    normalized = raw.replace(" ", "_")
+    if normalized not in EXAM_STATUS_VALUES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field} must be one of: {', '.join(sorted(EXAM_STATUS_VALUES))}",
+        )
+    return normalized
+
+
+def _enrollment_class_code(payload: dict[str, Any]) -> str:
+    for key in ("admission_class", "class_code", "classCode", "grade"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return _normalize_code(value)
+    return ""
+
+
+def _subject_lookup_for_tenant(db: Session, *, tenant_id: UUID) -> dict[str, dict[str, str]]:
+    rows, _ = _read_rows_first_table(
+        db,
+        table_candidates=TENANT_SUBJECT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, code, name
+            FROM {table}
+            WHERE tenant_id = :tenant_id
+            ORDER BY code ASC, name ASC
+        """,
+        params={"tenant_id": str(tenant_id)},
+    )
+    lookup: dict[str, dict[str, str]] = {}
+    for row in rows:
+        sid = str(row.get("id") or "")
+        if not sid:
+            continue
+        lookup[sid] = {
+            "code": str(row.get("code") or ""),
+            "name": str(row.get("name") or ""),
+        }
+    return lookup
+
+
+def _term_lookup_for_tenant(db: Session, *, tenant_id: UUID) -> dict[str, dict[str, str]]:
+    rows, _ = _read_rows_first_table(
+        db,
+        table_candidates=TENANT_TERM_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, code, name
+            FROM {table}
+            WHERE tenant_id = :tenant_id
+            ORDER BY code ASC, name ASC
+        """,
+        params={"tenant_id": str(tenant_id)},
+    )
+    lookup: dict[str, dict[str, str]] = {}
+    for row in rows:
+        tid = str(row.get("id") or "")
+        if not tid:
+            continue
+        lookup[tid] = {
+            "code": str(row.get("code") or ""),
+            "name": str(row.get("name") or ""),
+        }
+    return lookup
+
+
+def _staff_lookup_for_tenant(db: Session, *, tenant_id: UUID) -> dict[str, dict[str, str]]:
+    rows, _ = _read_rows_first_table(
+        db,
+        table_candidates=TENANT_STAFF_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, staff_no, first_name, last_name
+            FROM {table}
+            WHERE tenant_id = :tenant_id
+            ORDER BY last_name ASC, first_name ASC, staff_no ASC
+        """,
+        params={"tenant_id": str(tenant_id)},
+    )
+    lookup: dict[str, dict[str, str]] = {}
+    for row in rows:
+        sid = str(row.get("id") or "")
+        if not sid:
+            continue
+        first_name = str(row.get("first_name") or "").strip()
+        last_name = str(row.get("last_name") or "").strip()
+        lookup[sid] = {
+            "staff_no": str(row.get("staff_no") or ""),
+            "full_name": _staff_full_name(first_name, last_name),
+        }
+    return lookup
+
+
+def _resolve_exam_table_or_503(db: Session) -> str:
+    table_name, cols = _resolve_existing_table(db, candidates=TENANT_EXAM_TABLE_CANDIDATES)
+    required = {
+        "id",
+        "tenant_id",
+        "name",
+        "term_id",
+        "class_code",
+        "subject_id",
+        "invigilator_staff_id",
+        "start_date",
+        "end_date",
+        "start_time",
+        "end_time",
+        "status",
+        "location",
+        "notes",
+        "is_active",
+        "created_at",
+        "updated_at",
+    }
+    if not table_name or not required.issubset(cols):
+        raise HTTPException(
+            status_code=503,
+            detail="Exams storage is not configured. Run database migrations.",
+        )
+    return table_name
+
+
+def _resolve_exam_mark_table_or_503(db: Session) -> str:
+    table_name, cols = _resolve_existing_table(db, candidates=TENANT_EXAM_MARK_TABLE_CANDIDATES)
+    required = {
+        "id",
+        "tenant_id",
+        "exam_id",
+        "student_enrollment_id",
+        "subject_id",
+        "class_code",
+        "marks_obtained",
+        "max_marks",
+        "grade",
+        "remarks",
+        "recorded_at",
+        "updated_at",
+    }
+    if not table_name or not required.issubset(cols):
+        raise HTTPException(
+            status_code=503,
+            detail="Exam marks storage is not configured. Run database migrations.",
+        )
+    return table_name
+
+
+def _ensure_tenant_class_exists(db: Session, *, tenant_id: UUID, class_code: str) -> None:
+    table_name, _ = _resolve_existing_table(db, candidates=TENANT_CLASS_TABLE_CANDIDATES)
+    if not table_name:
+        return
+    exists = db.execute(
+        sa.text(
+            f"""
+            SELECT id
+            FROM {table_name}
+            WHERE tenant_id = :tenant_id
+              AND UPPER(code) = :class_code
+            LIMIT 1
+            """
+        ),
+        {"tenant_id": str(tenant_id), "class_code": _normalize_code(class_code)},
+    ).first()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Class not found")
+
+
+def _ensure_tenant_term_exists(db: Session, *, tenant_id: UUID, term_id: UUID) -> None:
+    result, _ = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_TERM_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id
+            FROM {table}
+            WHERE id = :term_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"term_id": str(term_id), "tenant_id": str(tenant_id)},
+    )
+    if not result.first():
+        raise HTTPException(status_code=404, detail="Term not found")
+
+
+def _ensure_tenant_subject_exists(db: Session, *, tenant_id: UUID, subject_id: UUID) -> None:
+    result, _ = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_SUBJECT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id
+            FROM {table}
+            WHERE id = :subject_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"subject_id": str(subject_id), "tenant_id": str(tenant_id)},
+    )
+    if not result.first():
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+
+def _ensure_tenant_invigilator_exists(db: Session, *, tenant_id: UUID, staff_id: UUID) -> None:
+    result, _ = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_STAFF_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id
+            FROM {table}
+            WHERE id = :staff_id
+              AND tenant_id = :tenant_id
+              AND COALESCE(is_active, true) = true
+              AND UPPER(staff_type) = 'TEACHING'
+            LIMIT 1
+        """,
+        params={"staff_id": str(staff_id), "tenant_id": str(tenant_id)},
+    )
+    if not result.first():
+        raise HTTPException(status_code=404, detail="Invigilator staff not found")
+
+
+def _serialize_exam_row(
+    row: dict[str, Any],
+    *,
+    term_lookup: dict[str, dict[str, str]],
+    subject_lookup: dict[str, dict[str, str]],
+    staff_lookup: dict[str, dict[str, str]],
+) -> TenantExamOut:
+    term_id = str(row.get("term_id") or "").strip()
+    subject_id = str(row.get("subject_id") or "").strip()
+    staff_id = str(row.get("invigilator_staff_id") or "").strip()
+    term = term_lookup.get(term_id) if term_id else None
+    subject = subject_lookup.get(subject_id) if subject_id else None
+    staff = staff_lookup.get(staff_id) if staff_id else None
+
+    return TenantExamOut(
+        id=str(row.get("id") or ""),
+        name=str(row.get("name") or ""),
+        term_id=(term_id or None),
+        term_code=(term.get("code") if term else None),
+        term_name=(term.get("name") if term else None),
+        class_code=str(row.get("class_code") or ""),
+        subject_id=(subject_id or None),
+        subject_code=(subject.get("code") if subject else None),
+        subject_name=(subject.get("name") if subject else None),
+        invigilator_staff_id=(staff_id or None),
+        invigilator_staff_no=(staff.get("staff_no") if staff else None),
+        invigilator_name=(staff.get("full_name") if staff else None),
+        start_date=str(row.get("start_date") or ""),
+        end_date=str(row.get("end_date") or ""),
+        start_time=(str(row.get("start_time")) if row.get("start_time") is not None else None),
+        end_time=(str(row.get("end_time")) if row.get("end_time") is not None else None),
+        status=str(row.get("status") or "SCHEDULED"),
+        location=(str(row.get("location")) if row.get("location") else None),
+        notes=(str(row.get("notes")) if row.get("notes") else None),
+        is_active=bool(row.get("is_active", True)),
+        created_at=(str(row.get("created_at")) if row.get("created_at") else None),
+        updated_at=(str(row.get("updated_at")) if row.get("updated_at") else None),
+    )
+
+
+def _query_tenant_exams(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    term_id: Optional[UUID] = None,
+    class_code: Optional[str] = None,
+    status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    include_inactive: bool = False,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    table_name = _resolve_exam_table_or_503(db)
+    where_parts = ["tenant_id = :tenant_id"]
+    params: dict[str, Any] = {
+        "tenant_id": str(tenant_id),
+        "limit": int(limit),
+        "offset": int(offset),
+    }
+    if not include_inactive:
+        where_parts.append("COALESCE(is_active, true) = true")
+    if term_id is not None:
+        where_parts.append("term_id = :term_id")
+        params["term_id"] = str(term_id)
+    if class_code:
+        where_parts.append("UPPER(class_code) = :class_code")
+        params["class_code"] = _normalize_code(class_code)
+    if status:
+        where_parts.append("UPPER(status) = :status")
+        params["status"] = _normalize_exam_status_value(status, field="status")
+    if date_from:
+        where_parts.append("start_date >= :date_from")
+        params["date_from"] = date_from
+    if date_to:
+        where_parts.append("end_date <= :date_to")
+        params["date_to"] = date_to
+
+    rows = db.execute(
+        sa.text(
+            f"""
+            SELECT id, name,
+                   CAST(term_id AS TEXT) AS term_id,
+                   class_code,
+                   CAST(subject_id AS TEXT) AS subject_id,
+                   CAST(invigilator_staff_id AS TEXT) AS invigilator_staff_id,
+                   CAST(start_date AS TEXT) AS start_date,
+                   CAST(end_date AS TEXT) AS end_date,
+                   CAST(start_time AS TEXT) AS start_time,
+                   CAST(end_time AS TEXT) AS end_time,
+                   status, location, notes, COALESCE(is_active, true) AS is_active,
+                   CAST(created_at AS TEXT) AS created_at,
+                   CAST(updated_at AS TEXT) AS updated_at
+            FROM {table_name}
+            WHERE {" AND ".join(where_parts)}
+            ORDER BY start_date ASC, start_time ASC NULLS LAST, class_code ASC, name ASC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        params,
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def _query_tenant_exam_marks(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    term_id: Optional[UUID] = None,
+    exam_id: Optional[UUID] = None,
+    student_enrollment_id: Optional[UUID] = None,
+    class_code: Optional[str] = None,
+    subject_id: Optional[UUID] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    mark_table = _resolve_exam_mark_table_or_503(db)
+    exam_table = _resolve_exam_table_or_503(db)
+
+    where_parts = [
+        "m.tenant_id = :tenant_id",
+        "e.tenant_id = :tenant_id",
+        "m.exam_id = e.id",
+    ]
+    params: dict[str, Any] = {
+        "tenant_id": str(tenant_id),
+        "limit": int(limit),
+        "offset": int(offset),
+    }
+    if exam_id is not None:
+        where_parts.append("m.exam_id = :exam_id")
+        params["exam_id"] = str(exam_id)
+    if student_enrollment_id is not None:
+        where_parts.append("m.student_enrollment_id = :student_enrollment_id")
+        params["student_enrollment_id"] = str(student_enrollment_id)
+    if term_id is not None:
+        where_parts.append("e.term_id = :term_id")
+        params["term_id"] = str(term_id)
+    if class_code:
+        where_parts.append("UPPER(m.class_code) = :class_code")
+        params["class_code"] = _normalize_code(class_code)
+    if subject_id is not None:
+        where_parts.append("m.subject_id = :subject_id")
+        params["subject_id"] = str(subject_id)
+
+    rows = db.execute(
+        sa.text(
+            f"""
+            SELECT m.id,
+                   CAST(m.exam_id AS TEXT) AS exam_id,
+                   e.name AS exam_name,
+                   CAST(e.term_id AS TEXT) AS term_id,
+                   m.class_code,
+                   CAST(m.subject_id AS TEXT) AS subject_id,
+                   CAST(m.student_enrollment_id AS TEXT) AS student_enrollment_id,
+                   m.marks_obtained,
+                   m.max_marks,
+                   m.grade,
+                   m.remarks,
+                   CAST(m.recorded_at AS TEXT) AS recorded_at,
+                   CAST(m.updated_at AS TEXT) AS updated_at
+            FROM {mark_table} m
+            JOIN {exam_table} e ON e.id = m.exam_id
+            WHERE {" AND ".join(where_parts)}
+            ORDER BY COALESCE(m.updated_at, m.recorded_at) DESC, m.id DESC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        params,
+    ).mappings().all()
+    return [dict(row) for row in rows]
 
 
 # ---------------------------------------------------------------------
@@ -357,14 +1665,77 @@ def whoami(tenant=Depends(get_tenant)):
     }
 
 
+def _get_or_create_tenant_print_profile(db: Session, *, tenant: Tenant) -> TenantPrintProfile:
+    row = db.execute(
+        select(TenantPrintProfile).where(TenantPrintProfile.tenant_id == tenant.id)
+    ).scalar_one_or_none()
+    if row:
+        return row
+
+    row = TenantPrintProfile(
+        tenant_id=tenant.id,
+        school_header=(tenant.name or "").strip() or None,
+        receipt_footer="Thank you for partnering with us.",
+        paper_size="A4",
+        currency="KES",
+        thermal_width_mm=80,
+        qr_enabled=True,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+@router.get(
+    "/print-profile",
+    response_model=TenantPrintProfileOut,
+    dependencies=[
+        Depends(
+            _require_any_permission(
+                "admin.dashboard.view_tenant",
+                "finance.invoices.view",
+                "finance.payments.view",
+                "finance.fees.view",
+            )
+        )
+    ],
+)
+def tenant_print_profile(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    try:
+        row = _get_or_create_tenant_print_profile(db, tenant=tenant)
+        db.commit()
+    except Exception:
+        db.rollback()
+        row = None
+
+    return TenantPrintProfileOut(
+        tenant_id=str(tenant.id),
+        logo_url=(str(getattr(row, "logo_url", "")).strip() or None) if row is not None else None,
+        school_header=(
+            str(getattr(row, "school_header", "")).strip() or tenant.name
+        ) if row is not None else tenant.name,
+        receipt_footer=(
+            str(getattr(row, "receipt_footer", "")).strip() or "Thank you for partnering with us."
+        ) if row is not None else "Thank you for partnering with us.",
+        paper_size=str(getattr(row, "paper_size", "A4") or "A4") if row is not None else "A4",
+        currency=str(getattr(row, "currency", "KES") or "KES") if row is not None else "KES",
+        thermal_width_mm=int(getattr(row, "thermal_width_mm", 80) or 80) if row is not None else 80,
+        qr_enabled=bool(getattr(row, "qr_enabled", True)) if row is not None else True,
+    )
+
+
 # ---------------------------------------------------------------------
-# ✅ Tenant-scoped Classes (used by Secretary Enrollments UI)
+# Tenant School Setup (Classes + Terms)
 # ---------------------------------------------------------------------
 
 @router.get(
     "/classes",
     response_model=list[TenantClassOut],
-    dependencies=[Depends(require_permission("admin.dashboard.view_tenant"))],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
 )
 def list_tenant_classes(
     db: Session = Depends(get_db),
@@ -373,55 +1744,4667 @@ def list_tenant_classes(
     include_inactive: bool = Query(default=False),
 ):
     """
-    Returns configured school classes for the current tenant.
+    Tenant-scoped classes used by enrollments and finance setup.
+    Deterministic ordering: code asc, name asc.
     """
-    # 1) Try ORM model if present in your project
-    try:
-        from app.models.tenant_class import TenantClass  # type: ignore
-
-        q = select(TenantClass).where(TenantClass.tenant_id == tenant.id)
-        if not include_inactive:
-            q = q.where(TenantClass.is_active == True)
-
-        rows = db.execute(q.order_by(TenantClass.code.asc())).scalars().all()
-        return [
-            TenantClassOut(
-                id=str(r.id),
-                code=str(r.code),
-                name=str(r.name),
-                is_active=bool(getattr(r, "is_active", True)),
-            )
-            for r in rows
-        ]
-
-    except Exception:
-        # 2) Fallback: raw SQL
-        sql = sa.text(
+    rows, _ = _read_rows_first_table(
+        db,
+        table_candidates=TENANT_CLASS_TABLE_CANDIDATES,
+        sql_template=(
             """
             SELECT id, code, name, COALESCE(is_active, true) AS is_active
-            FROM tenant_classes
+            FROM {table}
             WHERE tenant_id = :tenant_id
             """
             + ("" if include_inactive else " AND COALESCE(is_active, true) = true ")
-            + " ORDER BY code ASC"
+            + " ORDER BY code ASC, name ASC"
+        ),
+        params={"tenant_id": str(tenant.id)},
+    )
+
+    return [
+        TenantClassOut(
+            id=str(r.get("id")),
+            code=str(r.get("code") or ""),
+            name=str(r.get("name") or ""),
+            is_active=bool(r.get("is_active", True)),
         )
-        try:
-            rows = db.execute(sql, {"tenant_id": str(tenant.id)}).mappings().all()
-        except Exception:
-            return []
+        for r in rows
+    ]
 
-        if rows is None:
-            return []
 
-        return [
-            TenantClassOut(
-                id=str(r.get("id")),
-                code=str(r.get("code") or ""),
-                name=str(r.get("name") or ""),
-                is_active=bool(r.get("is_active", True)),
+@router.post(
+    "/classes",
+    response_model=TenantClassOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def create_tenant_class(
+    payload: TenantClassCreateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    code = _normalize_code(payload.code)
+    name = _normalize_name(payload.name)
+    if not code or not name:
+        raise HTTPException(status_code=400, detail="code and name are required")
+
+    existing_q = """
+        SELECT id
+        FROM {table}
+        WHERE tenant_id = :tenant_id AND UPPER(code) = :code
+        LIMIT 1
+    """
+    existing_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_CLASS_TABLE_CANDIDATES,
+        sql_template=existing_q,
+        params={"tenant_id": str(tenant.id), "code": code},
+    )
+    if existing_result.first():
+        raise HTTPException(status_code=409, detail="Class code already exists for this tenant")
+
+    insert_q = """
+        INSERT INTO {table} (id, tenant_id, code, name, is_active)
+        VALUES (:id, :tenant_id, :code, :name, :is_active)
+        RETURNING id, code, name, COALESCE(is_active, true) AS is_active
+    """
+    result = db.execute(
+        sa.text(insert_q.format(table=table_name)),
+        {
+            "id": str(uuid4()),
+            "tenant_id": str(tenant.id),
+            "code": code,
+            "name": name,
+            "is_active": bool(payload.is_active),
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to create class")
+
+    return TenantClassOut(
+        id=str(result["id"]),
+        code=str(result["code"]),
+        name=str(result["name"]),
+        is_active=bool(result["is_active"]),
+    )
+
+
+@router.put(
+    "/classes/{class_id}",
+    response_model=TenantClassOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def update_tenant_class(
+    class_id: UUID,
+    payload: TenantClassUpdateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    updates: list[str] = []
+    params: dict[str, Any] = {"class_id": str(class_id), "tenant_id": str(tenant.id)}
+
+    if payload.code is not None:
+        code = _normalize_code(payload.code)
+        if not code:
+            raise HTTPException(status_code=400, detail="code cannot be empty")
+        updates.append("code = :code")
+        params["code"] = code
+
+    if payload.name is not None:
+        name = _normalize_name(payload.name)
+        if not name:
+            raise HTTPException(status_code=400, detail="name cannot be empty")
+        updates.append("name = :name")
+        params["name"] = name
+
+    if payload.is_active is not None:
+        updates.append("is_active = :is_active")
+        params["is_active"] = bool(payload.is_active)
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No updates supplied")
+
+    # Resolve table + ensure row exists within current tenant
+    select_q = """
+        SELECT id
+        FROM {table}
+        WHERE id = :class_id AND tenant_id = :tenant_id
+        LIMIT 1
+    """
+    select_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_CLASS_TABLE_CANDIDATES,
+        sql_template=select_q,
+        params={"class_id": str(class_id), "tenant_id": str(tenant.id)},
+    )
+    if not select_result.first():
+        raise HTTPException(status_code=404, detail="Class not found")
+
+    if "code" in params:
+        dup_check_q = """
+            SELECT id
+            FROM {table}
+            WHERE tenant_id = :tenant_id AND UPPER(code) = :code AND id <> :class_id
+            LIMIT 1
+        """
+        dup = db.execute(
+            sa.text(dup_check_q.format(table=table_name)),
+            {"tenant_id": str(tenant.id), "code": params["code"], "class_id": str(class_id)},
+        ).first()
+        if dup:
+            raise HTTPException(status_code=409, detail="Class code already exists for this tenant")
+
+    update_q = f"""
+        UPDATE {table_name}
+        SET {", ".join(updates)}
+        WHERE id = :class_id AND tenant_id = :tenant_id
+        RETURNING id, code, name, COALESCE(is_active, true) AS is_active
+    """
+    updated = db.execute(sa.text(update_q), params).mappings().first()
+    db.commit()
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Class not found")
+
+    return TenantClassOut(
+        id=str(updated["id"]),
+        code=str(updated["code"]),
+        name=str(updated["name"]),
+        is_active=bool(updated["is_active"]),
+    )
+
+
+@router.get(
+    "/terms",
+    response_model=list[TenantTermOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def list_tenant_terms(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    include_inactive: bool = Query(default=False),
+):
+    """
+    Tenant-scoped academic terms.
+    Deterministic ordering: name asc, code asc.
+    """
+    rows, _ = _read_rows_first_table(
+        db,
+        table_candidates=TENANT_TERM_TABLE_CANDIDATES,
+        sql_template=(
+            """
+            SELECT id, code, name, COALESCE(is_active, true) AS is_active,
+                   CAST(start_date AS TEXT) AS start_date,
+                   CAST(end_date AS TEXT) AS end_date
+            FROM {table}
+            WHERE tenant_id = :tenant_id
+            """
+            + ("" if include_inactive else " AND COALESCE(is_active, true) = true ")
+            + " ORDER BY name ASC, code ASC"
+        ),
+        params={"tenant_id": str(tenant.id)},
+    )
+
+    return [
+        TenantTermOut(
+            id=str(r.get("id")),
+            code=str(r.get("code") or ""),
+            name=str(r.get("name") or ""),
+            is_active=bool(r.get("is_active", True)),
+            start_date=(str(r.get("start_date")) if r.get("start_date") is not None else None),
+            end_date=(str(r.get("end_date")) if r.get("end_date") is not None else None),
+        )
+        for r in rows
+    ]
+
+
+@router.post(
+    "/terms",
+    response_model=TenantTermOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def create_tenant_term(
+    payload: TenantTermCreateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    code = _normalize_code(payload.code)
+    name = _normalize_name(payload.name)
+    if not code or not name:
+        raise HTTPException(status_code=400, detail="code and name are required")
+
+    existing_q = """
+        SELECT id
+        FROM {table}
+        WHERE tenant_id = :tenant_id AND UPPER(code) = :code
+        LIMIT 1
+    """
+    existing_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_TERM_TABLE_CANDIDATES,
+        sql_template=existing_q,
+        params={"tenant_id": str(tenant.id), "code": code},
+    )
+    if existing_result.first():
+        raise HTTPException(status_code=409, detail="Term code already exists for this tenant")
+
+    insert_q = """
+        INSERT INTO {table} (id, tenant_id, code, name, is_active, start_date, end_date)
+        VALUES (:id, :tenant_id, :code, :name, :is_active, :start_date, :end_date)
+        RETURNING id, code, name, COALESCE(is_active, true) AS is_active,
+                  CAST(start_date AS TEXT) AS start_date,
+                  CAST(end_date AS TEXT) AS end_date
+    """
+    created = db.execute(
+        sa.text(insert_q.format(table=table_name)),
+        {
+            "id": str(uuid4()),
+            "tenant_id": str(tenant.id),
+            "code": code,
+            "name": name,
+            "is_active": bool(payload.is_active),
+            "start_date": payload.start_date,
+            "end_date": payload.end_date,
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create term")
+
+    return TenantTermOut(
+        id=str(created["id"]),
+        code=str(created["code"]),
+        name=str(created["name"]),
+        is_active=bool(created["is_active"]),
+        start_date=(str(created["start_date"]) if created["start_date"] is not None else None),
+        end_date=(str(created["end_date"]) if created["end_date"] is not None else None),
+    )
+
+
+@router.put(
+    "/terms/{term_id}",
+    response_model=TenantTermOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def update_tenant_term(
+    term_id: UUID,
+    payload: TenantTermUpdateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    updates: list[str] = []
+    params: dict[str, Any] = {"term_id": str(term_id), "tenant_id": str(tenant.id)}
+
+    if payload.code is not None:
+        code = _normalize_code(payload.code)
+        if not code:
+            raise HTTPException(status_code=400, detail="code cannot be empty")
+        updates.append("code = :code")
+        params["code"] = code
+
+    if payload.name is not None:
+        name = _normalize_name(payload.name)
+        if not name:
+            raise HTTPException(status_code=400, detail="name cannot be empty")
+        updates.append("name = :name")
+        params["name"] = name
+
+    if payload.is_active is not None:
+        updates.append("is_active = :is_active")
+        params["is_active"] = bool(payload.is_active)
+
+    if payload.start_date is not None:
+        updates.append("start_date = :start_date")
+        params["start_date"] = payload.start_date
+
+    if payload.end_date is not None:
+        updates.append("end_date = :end_date")
+        params["end_date"] = payload.end_date
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No updates supplied")
+
+    select_q = """
+        SELECT id
+        FROM {table}
+        WHERE id = :term_id AND tenant_id = :tenant_id
+        LIMIT 1
+    """
+    select_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_TERM_TABLE_CANDIDATES,
+        sql_template=select_q,
+        params={"term_id": str(term_id), "tenant_id": str(tenant.id)},
+    )
+    if not select_result.first():
+        raise HTTPException(status_code=404, detail="Term not found")
+
+    if "code" in params:
+        dup_check_q = """
+            SELECT id
+            FROM {table}
+            WHERE tenant_id = :tenant_id AND UPPER(code) = :code AND id <> :term_id
+            LIMIT 1
+        """
+        dup = db.execute(
+            sa.text(dup_check_q.format(table=table_name)),
+            {"tenant_id": str(tenant.id), "code": params["code"], "term_id": str(term_id)},
+        ).first()
+        if dup:
+            raise HTTPException(status_code=409, detail="Term code already exists for this tenant")
+
+    update_q = f"""
+        UPDATE {table_name}
+        SET {", ".join(updates)}
+        WHERE id = :term_id AND tenant_id = :tenant_id
+        RETURNING id, code, name, COALESCE(is_active, true) AS is_active,
+                  CAST(start_date AS TEXT) AS start_date,
+                  CAST(end_date AS TEXT) AS end_date
+    """
+    updated = db.execute(sa.text(update_q), params).mappings().first()
+    db.commit()
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Term not found")
+
+    return TenantTermOut(
+        id=str(updated["id"]),
+        code=str(updated["code"]),
+        name=str(updated["name"]),
+        is_active=bool(updated["is_active"]),
+        start_date=(str(updated["start_date"]) if updated["start_date"] is not None else None),
+        end_date=(str(updated["end_date"]) if updated["end_date"] is not None else None),
+    )
+
+
+# ---------------------------------------------------------------------
+# Tenant Exams
+# ---------------------------------------------------------------------
+
+def _serialize_exam_mark_row(
+    row: dict[str, Any],
+    *,
+    term_lookup: dict[str, dict[str, str]],
+    subject_lookup: dict[str, dict[str, str]],
+    enrollment_index: dict[str, dict[str, str]],
+) -> TenantExamMarkOut:
+    term_id = str(row.get("term_id") or "")
+    subject_id = str(row.get("subject_id") or "")
+    enrollment_id = str(row.get("student_enrollment_id") or "")
+    term = term_lookup.get(term_id) if term_id else None
+    subject = subject_lookup.get(subject_id) if subject_id else None
+    enrollment = enrollment_index.get(enrollment_id) if enrollment_id else None
+
+    return TenantExamMarkOut(
+        id=str(row.get("id") or ""),
+        exam_id=str(row.get("exam_id") or ""),
+        exam_name=str(row.get("exam_name") or ""),
+        term_id=(term_id or None),
+        term_code=(term.get("code") if term else None),
+        term_name=(term.get("name") if term else None),
+        class_code=str(row.get("class_code") or ""),
+        subject_id=subject_id,
+        subject_code=(subject.get("code") if subject else None),
+        subject_name=(subject.get("name") if subject else None),
+        student_enrollment_id=enrollment_id,
+        student_name=(enrollment.get("student_name") if enrollment else "Unknown student"),
+        admission_number=(enrollment.get("admission_number") if enrollment else None),
+        marks_obtained=str(row.get("marks_obtained") or "0"),
+        max_marks=str(row.get("max_marks") or "0"),
+        grade=(str(row.get("grade")) if row.get("grade") else None),
+        remarks=(str(row.get("remarks")) if row.get("remarks") else None),
+        recorded_at=(str(row.get("recorded_at")) if row.get("recorded_at") else None),
+        updated_at=(str(row.get("updated_at")) if row.get("updated_at") else None),
+    )
+
+
+@router.get(
+    "/exams",
+    response_model=list[TenantExamOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def list_tenant_exams(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    term_id: Optional[UUID] = Query(default=None),
+    class_code: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    include_inactive: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    start_date = _normalize_iso_date_value(date_from, field="date_from") if date_from else None
+    end_date = _normalize_iso_date_value(date_to, field="date_to") if date_to else None
+    rows = _query_tenant_exams(
+        db,
+        tenant_id=tenant.id,
+        term_id=term_id,
+        class_code=class_code,
+        status=status,
+        date_from=start_date,
+        date_to=end_date,
+        include_inactive=include_inactive,
+        limit=limit,
+        offset=offset,
+    )
+    term_lookup = _term_lookup_for_tenant(db, tenant_id=tenant.id)
+    subject_lookup = _subject_lookup_for_tenant(db, tenant_id=tenant.id)
+    staff_lookup = _staff_lookup_for_tenant(db, tenant_id=tenant.id)
+    return [
+        _serialize_exam_row(
+            row,
+            term_lookup=term_lookup,
+            subject_lookup=subject_lookup,
+            staff_lookup=staff_lookup,
+        )
+        for row in rows
+    ]
+
+
+@router.get(
+    "/exams/timetable",
+    response_model=list[TenantExamOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_exam_timetable(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    term_id: Optional[UUID] = Query(default=None),
+    class_code: Optional[str] = Query(default=None),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    include_inactive: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    start_date = _normalize_iso_date_value(date_from, field="date_from") if date_from else None
+    end_date = _normalize_iso_date_value(date_to, field="date_to") if date_to else None
+    rows = _query_tenant_exams(
+        db,
+        tenant_id=tenant.id,
+        term_id=term_id,
+        class_code=class_code,
+        date_from=start_date,
+        date_to=end_date,
+        include_inactive=include_inactive,
+        limit=limit,
+        offset=offset,
+    )
+    term_lookup = _term_lookup_for_tenant(db, tenant_id=tenant.id)
+    subject_lookup = _subject_lookup_for_tenant(db, tenant_id=tenant.id)
+    staff_lookup = _staff_lookup_for_tenant(db, tenant_id=tenant.id)
+    return [
+        _serialize_exam_row(
+            row,
+            term_lookup=term_lookup,
+            subject_lookup=subject_lookup,
+            staff_lookup=staff_lookup,
+        )
+        for row in rows
+    ]
+
+
+@router.post(
+    "/exams",
+    response_model=TenantExamOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def create_tenant_exam(
+    payload: TenantExamCreateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    name = _normalize_name(payload.name)
+    term_id = _parse_uuid(payload.term_id, field="term_id")
+    class_code = _normalize_code(payload.class_code)
+    if not name or not class_code:
+        raise HTTPException(status_code=400, detail="name, term_id, and class_code are required")
+
+    start_date = _normalize_iso_date_value(payload.start_date, field="start_date", required=True)
+    end_date = _normalize_iso_date_value(payload.end_date, field="end_date") or start_date
+    if date.fromisoformat(end_date) < date.fromisoformat(start_date):
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+
+    start_time = _normalize_exam_time_value(payload.start_time, field="start_time")
+    end_time = _normalize_exam_time_value(payload.end_time, field="end_time")
+    if (
+        start_date == end_date
+        and start_time is not None
+        and end_time is not None
+        and end_time < start_time
+    ):
+        raise HTTPException(status_code=400, detail="end_time cannot be earlier than start_time")
+    status = _normalize_exam_status_value(payload.status, field="status")
+
+    subject_id: UUID | None = None
+    subject_raw = _text_or_none(payload.subject_id)
+    if subject_raw:
+        subject_id = _parse_uuid(subject_raw, field="subject_id")
+        _ensure_tenant_subject_exists(db, tenant_id=tenant.id, subject_id=subject_id)
+
+    invigilator_staff_id: UUID | None = None
+    invigilator_raw = _text_or_none(payload.invigilator_staff_id)
+    if invigilator_raw:
+        invigilator_staff_id = _parse_uuid(invigilator_raw, field="invigilator_staff_id")
+        _ensure_tenant_invigilator_exists(
+            db,
+            tenant_id=tenant.id,
+            staff_id=invigilator_staff_id,
+        )
+
+    _ensure_tenant_term_exists(db, tenant_id=tenant.id, term_id=term_id)
+    _ensure_tenant_class_exists(db, tenant_id=tenant.id, class_code=class_code)
+    table_name = _resolve_exam_table_or_503(db)
+
+    duplicate = db.execute(
+        sa.text(
+            f"""
+            SELECT id
+            FROM {table_name}
+            WHERE tenant_id = :tenant_id
+              AND term_id = :term_id
+              AND UPPER(class_code) = :class_code
+              AND UPPER(name) = :name
+              AND start_date = :start_date
+              AND COALESCE(CAST(start_time AS TEXT), '') = COALESCE(:start_time, '')
+              AND COALESCE(CAST(subject_id AS TEXT), '') = COALESCE(:subject_id, '')
+            LIMIT 1
+            """
+        ),
+        {
+            "tenant_id": str(tenant.id),
+            "term_id": str(term_id),
+            "class_code": class_code,
+            "name": name.upper(),
+            "start_date": start_date,
+            "start_time": start_time,
+            "subject_id": str(subject_id) if subject_id else None,
+        },
+    ).first()
+    if duplicate:
+        raise HTTPException(
+            status_code=409,
+            detail="An exam with the same class, subject, and start slot already exists",
+        )
+
+    created = db.execute(
+        sa.text(
+            f"""
+            INSERT INTO {table_name} (
+                id, tenant_id, name, term_id, class_code, subject_id, invigilator_staff_id,
+                start_date, end_date, start_time, end_time, status, location, notes, is_active
             )
-            for r in rows
+            VALUES (
+                :id, :tenant_id, :name, :term_id, :class_code, :subject_id, :invigilator_staff_id,
+                :start_date, :end_date, :start_time, :end_time, :status, :location, :notes, :is_active
+            )
+            RETURNING id, name, CAST(term_id AS TEXT) AS term_id, class_code,
+                      CAST(subject_id AS TEXT) AS subject_id,
+                      CAST(invigilator_staff_id AS TEXT) AS invigilator_staff_id,
+                      CAST(start_date AS TEXT) AS start_date,
+                      CAST(end_date AS TEXT) AS end_date,
+                      CAST(start_time AS TEXT) AS start_time,
+                      CAST(end_time AS TEXT) AS end_time,
+                      status, location, notes, COALESCE(is_active, true) AS is_active,
+                      CAST(created_at AS TEXT) AS created_at,
+                      CAST(updated_at AS TEXT) AS updated_at
+            """
+        ),
+        {
+            "id": str(uuid4()),
+            "tenant_id": str(tenant.id),
+            "name": name,
+            "term_id": str(term_id),
+            "class_code": class_code,
+            "subject_id": str(subject_id) if subject_id else None,
+            "invigilator_staff_id": str(invigilator_staff_id) if invigilator_staff_id else None,
+            "start_date": start_date,
+            "end_date": end_date,
+            "start_time": start_time,
+            "end_time": end_time,
+            "status": status,
+            "location": _text_or_none(payload.location),
+            "notes": _text_or_none(payload.notes),
+            "is_active": bool(payload.is_active),
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create exam")
+
+    term_lookup = _term_lookup_for_tenant(db, tenant_id=tenant.id)
+    subject_lookup = _subject_lookup_for_tenant(db, tenant_id=tenant.id)
+    staff_lookup = _staff_lookup_for_tenant(db, tenant_id=tenant.id)
+    return _serialize_exam_row(
+        dict(created),
+        term_lookup=term_lookup,
+        subject_lookup=subject_lookup,
+        staff_lookup=staff_lookup,
+    )
+
+
+@router.put(
+    "/exams/{exam_id}",
+    response_model=TenantExamOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def update_tenant_exam(
+    exam_id: UUID,
+    payload: TenantExamUpdateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    fields_set = _payload_fields_set(payload)
+    if not fields_set:
+        raise HTTPException(status_code=400, detail="No updates supplied")
+
+    table_name = _resolve_exam_table_or_503(db)
+    current = db.execute(
+        sa.text(
+            f"""
+            SELECT id, name, CAST(term_id AS TEXT) AS term_id, class_code, CAST(subject_id AS TEXT) AS subject_id,
+                   CAST(start_date AS TEXT) AS start_date,
+                   CAST(end_date AS TEXT) AS end_date,
+                   CAST(start_time AS TEXT) AS start_time,
+                   CAST(end_time AS TEXT) AS end_time
+            FROM {table_name}
+            WHERE id = :exam_id AND tenant_id = :tenant_id
+            LIMIT 1
+            """
+        ),
+        {"exam_id": str(exam_id), "tenant_id": str(tenant.id)},
+    ).mappings().first()
+    if not current:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    updates: list[str] = ["updated_at = now()"]
+    params: dict[str, Any] = {"exam_id": str(exam_id), "tenant_id": str(tenant.id)}
+
+    def set_update(column: str, value: Any):
+        updates.append(f"{column} = :{column}")
+        params[column] = value
+
+    if "name" in fields_set:
+        name = _normalize_name(payload.name or "")
+        if not name:
+            raise HTTPException(status_code=400, detail="name cannot be empty")
+        set_update("name", name)
+
+    if "term_id" in fields_set:
+        term_raw = _text_or_none(payload.term_id)
+        if not term_raw:
+            raise HTTPException(status_code=400, detail="term_id cannot be empty")
+        term_uuid = _parse_uuid(term_raw, field="term_id")
+        _ensure_tenant_term_exists(db, tenant_id=tenant.id, term_id=term_uuid)
+        set_update("term_id", str(term_uuid))
+
+    if "class_code" in fields_set:
+        class_code = _normalize_code(payload.class_code or "")
+        if not class_code:
+            raise HTTPException(status_code=400, detail="class_code cannot be empty")
+        _ensure_tenant_class_exists(db, tenant_id=tenant.id, class_code=class_code)
+        set_update("class_code", class_code)
+
+    if "subject_id" in fields_set:
+        subject_raw = _text_or_none(payload.subject_id)
+        if subject_raw:
+            subject_id = _parse_uuid(subject_raw, field="subject_id")
+            _ensure_tenant_subject_exists(db, tenant_id=tenant.id, subject_id=subject_id)
+            set_update("subject_id", str(subject_id))
+        else:
+            set_update("subject_id", None)
+
+    if "invigilator_staff_id" in fields_set:
+        invigilator_raw = _text_or_none(payload.invigilator_staff_id)
+        if invigilator_raw:
+            staff_id = _parse_uuid(invigilator_raw, field="invigilator_staff_id")
+            _ensure_tenant_invigilator_exists(db, tenant_id=tenant.id, staff_id=staff_id)
+            set_update("invigilator_staff_id", str(staff_id))
+        else:
+            set_update("invigilator_staff_id", None)
+
+    if "start_date" in fields_set:
+        start_date = _normalize_iso_date_value(payload.start_date, field="start_date", required=True)
+        set_update("start_date", start_date)
+
+    if "end_date" in fields_set:
+        end_date = _normalize_iso_date_value(payload.end_date, field="end_date", required=True)
+        set_update("end_date", end_date)
+
+    if "start_time" in fields_set:
+        start_time = _normalize_exam_time_value(payload.start_time, field="start_time")
+        set_update("start_time", start_time)
+
+    if "end_time" in fields_set:
+        end_time = _normalize_exam_time_value(payload.end_time, field="end_time")
+        set_update("end_time", end_time)
+
+    if "status" in fields_set:
+        set_update("status", _normalize_exam_status_value(payload.status, field="status"))
+
+    if "location" in fields_set:
+        set_update("location", _text_or_none(payload.location))
+
+    if "notes" in fields_set:
+        set_update("notes", _text_or_none(payload.notes))
+
+    if "is_active" in fields_set and payload.is_active is not None:
+        set_update("is_active", bool(payload.is_active))
+
+    effective_start = str(params.get("start_date") or current.get("start_date") or "")
+    effective_end = str(params.get("end_date") or current.get("end_date") or "")
+    if not effective_start or not effective_end:
+        raise HTTPException(status_code=400, detail="start_date and end_date are required")
+    if date.fromisoformat(effective_end) < date.fromisoformat(effective_start):
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+
+    effective_start_time = _text_or_none(params.get("start_time")) or _text_or_none(current.get("start_time"))
+    effective_end_time = _text_or_none(params.get("end_time")) or _text_or_none(current.get("end_time"))
+    if (
+        effective_start == effective_end
+        and effective_start_time is not None
+        and effective_end_time is not None
+        and effective_end_time < effective_start_time
+    ):
+        raise HTTPException(status_code=400, detail="end_time cannot be earlier than start_time")
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {table_name}
+            SET {", ".join(updates)}
+            WHERE id = :exam_id AND tenant_id = :tenant_id
+            RETURNING id, name, CAST(term_id AS TEXT) AS term_id, class_code,
+                      CAST(subject_id AS TEXT) AS subject_id,
+                      CAST(invigilator_staff_id AS TEXT) AS invigilator_staff_id,
+                      CAST(start_date AS TEXT) AS start_date,
+                      CAST(end_date AS TEXT) AS end_date,
+                      CAST(start_time AS TEXT) AS start_time,
+                      CAST(end_time AS TEXT) AS end_time,
+                      status, location, notes, COALESCE(is_active, true) AS is_active,
+                      CAST(created_at AS TEXT) AS created_at,
+                      CAST(updated_at AS TEXT) AS updated_at
+            """
+        ),
+        params,
+    ).mappings().first()
+    db.commit()
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    term_lookup = _term_lookup_for_tenant(db, tenant_id=tenant.id)
+    subject_lookup = _subject_lookup_for_tenant(db, tenant_id=tenant.id)
+    staff_lookup = _staff_lookup_for_tenant(db, tenant_id=tenant.id)
+    return _serialize_exam_row(
+        dict(updated),
+        term_lookup=term_lookup,
+        subject_lookup=subject_lookup,
+        staff_lookup=staff_lookup,
+    )
+
+
+@router.get(
+    "/exams/marks",
+    response_model=list[TenantExamMarkOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def list_tenant_exam_marks(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    term_id: Optional[UUID] = Query(default=None),
+    exam_id: Optional[UUID] = Query(default=None),
+    student_enrollment_id: Optional[UUID] = Query(default=None),
+    class_code: Optional[str] = Query(default=None),
+    subject_id: Optional[UUID] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    rows = _query_tenant_exam_marks(
+        db,
+        tenant_id=tenant.id,
+        term_id=term_id,
+        exam_id=exam_id,
+        student_enrollment_id=student_enrollment_id,
+        class_code=class_code,
+        subject_id=subject_id,
+        limit=limit,
+        offset=offset,
+    )
+    term_lookup = _term_lookup_for_tenant(db, tenant_id=tenant.id)
+    subject_lookup = _subject_lookup_for_tenant(db, tenant_id=tenant.id)
+    enrollment_index = _tenant_enrollment_index(db, tenant_id=tenant.id, limit=5000)
+    return [
+        _serialize_exam_mark_row(
+            row,
+            term_lookup=term_lookup,
+            subject_lookup=subject_lookup,
+            enrollment_index=enrollment_index,
+        )
+        for row in rows
+    ]
+
+
+def _decimal_or_zero(value: Any) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0")
+
+
+def _decimal_to_text(value: Decimal) -> str:
+    return str(value.quantize(Decimal("0.01")))
+
+
+def _iso_datetime_or_none(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    token = str(value).strip()
+    return token or None
+
+
+def _year_bucket(value: Any) -> str:
+    if isinstance(value, datetime):
+        return str(value.year)
+
+    token = str(value or "").strip()
+    if not token:
+        return "UNKNOWN"
+
+    try:
+        return str(datetime.fromisoformat(token.replace("Z", "+00:00")).year)
+    except ValueError:
+        if len(token) >= 4 and token[:4].isdigit():
+            return token[:4]
+        return "UNKNOWN"
+
+
+def _enrollment_term_bucket(payload: dict[str, Any]) -> str:
+    for key in ("admission_term", "term_code", "term", "academic_term"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return _normalize_code(value)
+    return "UNSCOPED"
+
+
+def _invoice_term_bucket(invoice_meta: Any, *, enrollment_payload: dict[str, Any]) -> str:
+    if isinstance(invoice_meta, dict):
+        term_raw = invoice_meta.get("term_code")
+        if isinstance(term_raw, str) and term_raw.strip():
+            return _normalize_code(term_raw)
+    return _enrollment_term_bucket(enrollment_payload)
+
+
+def _percent_text(obtained: Decimal, maximum: Decimal) -> Optional[str]:
+    if maximum <= 0:
+        return None
+    pct = (obtained / maximum) * Decimal("100")
+    return _decimal_to_text(pct)
+
+
+def _finance_bucket_payload(
+    scope_key: str,
+    *,
+    invoice_count: int,
+    payment_count: int,
+    total_invoiced: Decimal,
+    total_paid: Decimal,
+    total_balance: Decimal,
+    allocated_payments: Decimal,
+) -> dict[str, Any]:
+    return {
+        "scope": scope_key,
+        "invoice_count": int(invoice_count),
+        "payment_count": int(payment_count),
+        "total_invoiced": _decimal_to_text(total_invoiced),
+        "total_paid": _decimal_to_text(total_paid),
+        "total_balance": _decimal_to_text(total_balance),
+        "allocated_payments": _decimal_to_text(allocated_payments),
+    }
+
+
+@router.get(
+    "/students/{enrollment_id}/profile",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_student_profile(
+    enrollment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    from app.api.v1.enrollments import service as enrollment_service
+    from app.api.v1.finance import service as finance_service
+
+    enrollment = enrollment_service.get_enrollment(
+        db,
+        tenant_id=tenant.id,
+        enrollment_id=enrollment_id,
+    )
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="Student enrollment not found")
+
+    payload = _safe_payload_obj(getattr(enrollment, "payload", None))
+    admission_number = (
+        str(getattr(enrollment, "admission_number", "") or "").strip()
+        or (_enrollment_admission_number(payload) or "")
+    )
+
+    student_name = _enrollment_student_name(payload)
+    enrollment_class = _enrollment_class_code(payload)
+    enrollment_term = _enrollment_term_bucket(payload)
+
+    invoices: list[dict[str, Any]] = []
+    payments: list[dict[str, Any]] = []
+    finance_term_agg: dict[str, dict[str, Any]] = {}
+    finance_year_agg: dict[str, dict[str, Any]] = {}
+    invoice_scope_index: dict[str, dict[str, str]] = {}
+
+    total_invoiced = Decimal("0")
+    total_paid = Decimal("0")
+    total_balance = Decimal("0")
+    total_allocated_payments = Decimal("0")
+
+    def ensure_finance_bucket(container: dict[str, dict[str, Any]], key: str) -> dict[str, Any]:
+        bucket = container.get(key)
+        if bucket is not None:
+            return bucket
+        created = {
+            "invoice_count": 0,
+            "payment_count": 0,
+            "total_invoiced": Decimal("0"),
+            "total_paid": Decimal("0"),
+            "total_balance": Decimal("0"),
+            "allocated_payments": Decimal("0"),
+        }
+        container[key] = created
+        return created
+
+    try:
+        invoice_rows = finance_service.list_invoices(
+            db,
+            tenant_id=tenant.id,
+            enrollment_id=enrollment_id,
+        )
+    except Exception:
+        db.rollback()
+        invoice_rows = []
+
+    for inv in invoice_rows:
+        invoice_id = str(getattr(inv, "id"))
+        meta = getattr(inv, "meta", None)
+        term_key = _invoice_term_bucket(meta, enrollment_payload=payload)
+        year_key = _year_bucket(getattr(inv, "created_at", None))
+
+        inv_total = _decimal_or_zero(getattr(inv, "total_amount", 0))
+        inv_paid = _decimal_or_zero(getattr(inv, "paid_amount", 0))
+        inv_balance = _decimal_or_zero(getattr(inv, "balance_amount", 0))
+
+        total_invoiced += inv_total
+        total_paid += inv_paid
+        total_balance += inv_balance
+
+        term_bucket = ensure_finance_bucket(finance_term_agg, term_key)
+        term_bucket["invoice_count"] += 1
+        term_bucket["total_invoiced"] += inv_total
+        term_bucket["total_paid"] += inv_paid
+        term_bucket["total_balance"] += inv_balance
+
+        year_bucket = ensure_finance_bucket(finance_year_agg, year_key)
+        year_bucket["invoice_count"] += 1
+        year_bucket["total_invoiced"] += inv_total
+        year_bucket["total_paid"] += inv_paid
+        year_bucket["total_balance"] += inv_balance
+
+        invoice_scope_index[invoice_id] = {"term": term_key, "year": year_key}
+
+        invoices.append(
+            {
+                "id": invoice_id,
+                "invoice_no": (
+                    str(getattr(inv, "invoice_no"))
+                    if getattr(inv, "invoice_no", None) is not None
+                    else None
+                ),
+                "invoice_type": str(getattr(inv, "invoice_type", "") or ""),
+                "status": str(getattr(inv, "status", "") or ""),
+                "currency": str(getattr(inv, "currency", "KES") or "KES"),
+                "term_code": term_key,
+                "year": year_key,
+                "total_amount": _decimal_to_text(inv_total),
+                "paid_amount": _decimal_to_text(inv_paid),
+                "balance_amount": _decimal_to_text(inv_balance),
+                "created_at": _iso_datetime_or_none(getattr(inv, "created_at", None)),
+                "updated_at": _iso_datetime_or_none(getattr(inv, "updated_at", None)),
+            }
+        )
+
+    try:
+        payment_rows = finance_service.list_payments(
+            db,
+            tenant_id=tenant.id,
+            enrollment_id=enrollment_id,
+        )
+    except Exception:
+        db.rollback()
+        payment_rows = []
+
+    payment_received_map: dict[str, Optional[str]] = {}
+    try:
+        from app.models.payment import Payment  # type: ignore
+
+        payment_ids = [
+            _parse_uuid(row.get("id"), field="payment.id")
+            for row in payment_rows
+            if isinstance(row, dict) and row.get("id")
         ]
+        if payment_ids:
+            date_rows = db.execute(
+                select(Payment.id, Payment.received_at)
+                .where(
+                    Payment.tenant_id == tenant.id,
+                    Payment.id.in_(payment_ids),
+                )
+            ).all()
+            payment_received_map = {
+                str(r[0]): _iso_datetime_or_none(r[1])
+                for r in date_rows
+            }
+    except Exception:
+        db.rollback()
+        payment_received_map = {}
+
+    for pay in payment_rows:
+        if not isinstance(pay, dict):
+            continue
+
+        payment_id = str(pay.get("id") or "")
+        allocations_raw = pay.get("allocations") if isinstance(pay.get("allocations"), list) else []
+        allocations: list[dict[str, Any]] = []
+        allocated_amount = Decimal("0")
+
+        touched_terms: set[str] = set()
+        touched_years: set[str] = set()
+
+        for alloc in allocations_raw:
+            if not isinstance(alloc, dict):
+                continue
+            invoice_id = str(alloc.get("invoice_id") or "")
+            amount = _decimal_or_zero(alloc.get("amount"))
+            allocated_amount += amount
+
+            scope = invoice_scope_index.get(invoice_id, {"term": "UNSCOPED", "year": "UNKNOWN"})
+            term_key = scope["term"]
+            year_key = scope["year"]
+
+            term_bucket = ensure_finance_bucket(finance_term_agg, term_key)
+            term_bucket["allocated_payments"] += amount
+            if term_key not in touched_terms:
+                term_bucket["payment_count"] += 1
+                touched_terms.add(term_key)
+
+            year_bucket = ensure_finance_bucket(finance_year_agg, year_key)
+            year_bucket["allocated_payments"] += amount
+            if year_key not in touched_years:
+                year_bucket["payment_count"] += 1
+                touched_years.add(year_key)
+
+            allocations.append(
+                {
+                    "invoice_id": invoice_id,
+                    "amount": _decimal_to_text(amount),
+                    "term_code": term_key,
+                    "year": year_key,
+                }
+            )
+
+        total_allocated_payments += allocated_amount
+
+        payments.append(
+            {
+                "id": payment_id,
+                "receipt_no": (
+                    str(pay.get("receipt_no"))
+                    if pay.get("receipt_no") is not None
+                    else None
+                ),
+                "provider": str(pay.get("provider") or ""),
+                "reference": (
+                    str(pay.get("reference"))
+                    if pay.get("reference") is not None
+                    else None
+                ),
+                "currency": "KES",
+                "amount": _decimal_to_text(_decimal_or_zero(pay.get("amount"))),
+                "allocated_amount": _decimal_to_text(allocated_amount),
+                "received_at": payment_received_map.get(payment_id),
+                "allocations": allocations,
+            }
+        )
+
+    term_lookup = _term_lookup_for_tenant(db, tenant_id=tenant.id)
+    subject_lookup = _subject_lookup_for_tenant(db, tenant_id=tenant.id)
+    enrollment_index = {
+        str(enrollment.id): {
+            "student_name": student_name,
+            "admission_number": admission_number,
+        }
+    }
+
+    exam_records: list[dict[str, Any]] = []
+    subject_agg: dict[str, dict[str, Any]] = {}
+    term_exam_agg: dict[str, dict[str, Any]] = {}
+
+    try:
+        mark_rows = _query_tenant_exam_marks(
+            db,
+            tenant_id=tenant.id,
+            student_enrollment_id=enrollment_id,
+            limit=1000,
+            offset=0,
+        )
+    except Exception:
+        db.rollback()
+        mark_rows = []
+
+    for raw in mark_rows:
+        serialized = _serialize_exam_mark_row(
+            raw,
+            term_lookup=term_lookup,
+            subject_lookup=subject_lookup,
+            enrollment_index=enrollment_index,
+        )
+        record = serialized.model_dump()
+        obtained = _decimal_or_zero(record.get("marks_obtained"))
+        maximum = _decimal_or_zero(record.get("max_marks"))
+        record["percentage"] = _percent_text(obtained, maximum)
+        exam_records.append(record)
+
+        subject_key = str(record.get("subject_id") or "") or "UNSPECIFIED"
+        subject_bucket = subject_agg.get(subject_key)
+        if subject_bucket is None:
+            subject_bucket = {
+                "subject_id": record.get("subject_id"),
+                "subject_code": record.get("subject_code"),
+                "subject_name": record.get("subject_name"),
+                "exam_count": 0,
+                "total_obtained": Decimal("0"),
+                "total_max": Decimal("0"),
+            }
+            subject_agg[subject_key] = subject_bucket
+        subject_bucket["exam_count"] += 1
+        subject_bucket["total_obtained"] += obtained
+        subject_bucket["total_max"] += maximum
+
+        term_key = str(record.get("term_code") or "UNSCOPED")
+        term_bucket = term_exam_agg.get(term_key)
+        if term_bucket is None:
+            term_bucket = {
+                "term_code": term_key,
+                "term_name": record.get("term_name"),
+                "exam_count": 0,
+                "total_obtained": Decimal("0"),
+                "total_max": Decimal("0"),
+            }
+            term_exam_agg[term_key] = term_bucket
+        term_bucket["exam_count"] += 1
+        term_bucket["total_obtained"] += obtained
+        term_bucket["total_max"] += maximum
+
+    subject_summary = sorted(
+        [
+            {
+                "subject_id": row["subject_id"],
+                "subject_code": row["subject_code"],
+                "subject_name": row["subject_name"],
+                "exam_count": int(row["exam_count"]),
+                "total_obtained": _decimal_to_text(row["total_obtained"]),
+                "total_max": _decimal_to_text(row["total_max"]),
+                "average_percentage": _percent_text(row["total_obtained"], row["total_max"]),
+            }
+            for row in subject_agg.values()
+        ],
+        key=lambda item: (str(item.get("subject_code") or ""), str(item.get("subject_name") or "")),
+    )
+
+    term_exam_summary = sorted(
+        [
+            {
+                "term_code": row["term_code"],
+                "term_name": row["term_name"],
+                "exam_count": int(row["exam_count"]),
+                "total_obtained": _decimal_to_text(row["total_obtained"]),
+                "total_max": _decimal_to_text(row["total_max"]),
+                "average_percentage": _percent_text(row["total_obtained"], row["total_max"]),
+            }
+            for row in term_exam_agg.values()
+        ],
+        key=lambda item: str(item.get("term_code") or ""),
+    )
+
+    finance_term_summary = sorted(
+        [
+            _finance_bucket_payload(
+                term_key,
+                invoice_count=int(bucket["invoice_count"]),
+                payment_count=int(bucket["payment_count"]),
+                total_invoiced=bucket["total_invoiced"],
+                total_paid=bucket["total_paid"],
+                total_balance=bucket["total_balance"],
+                allocated_payments=bucket["allocated_payments"],
+            )
+            for term_key, bucket in finance_term_agg.items()
+        ],
+        key=lambda item: str(item.get("scope") or ""),
+    )
+
+    finance_year_summary = sorted(
+        [
+            _finance_bucket_payload(
+                year_key,
+                invoice_count=int(bucket["invoice_count"]),
+                payment_count=int(bucket["payment_count"]),
+                total_invoiced=bucket["total_invoiced"],
+                total_paid=bucket["total_paid"],
+                total_balance=bucket["total_balance"],
+                allocated_payments=bucket["allocated_payments"],
+            )
+            for year_key, bucket in finance_year_agg.items()
+        ],
+        key=lambda item: str(item.get("scope") or ""),
+    )
+
+    return {
+        "enrollment": {
+            "id": str(enrollment.id),
+            "status": str(getattr(enrollment, "status", "") or ""),
+            "admission_number": (admission_number or None),
+            "student_name": student_name,
+            "class_code": enrollment_class,
+            "term_code": enrollment_term,
+            "payload": payload,
+            "created_at": _iso_datetime_or_none(getattr(enrollment, "created_at", None)),
+            "updated_at": _iso_datetime_or_none(getattr(enrollment, "updated_at", None)),
+        },
+        "finance": {
+            "totals": {
+                "total_invoiced": _decimal_to_text(total_invoiced),
+                "total_paid": _decimal_to_text(total_paid),
+                "total_balance": _decimal_to_text(total_balance),
+                "allocated_payments": _decimal_to_text(total_allocated_payments),
+                "invoice_count": len(invoices),
+                "payment_count": len(payments),
+            },
+            "term_summary": finance_term_summary,
+            "year_summary": finance_year_summary,
+            "invoices": invoices,
+            "payments": payments,
+        },
+        "exams": {
+            "totals": {
+                "record_count": len(exam_records),
+                "subject_count": len(subject_summary),
+                "term_count": len(term_exam_summary),
+            },
+            "subject_summary": subject_summary,
+            "term_summary": term_exam_summary,
+            "records": exam_records,
+        },
+    }
+
+
+@router.post(
+    "/exams/marks",
+    response_model=TenantExamMarkOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def upsert_tenant_exam_mark(
+    payload: TenantExamMarkUpsertIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    exam_uuid = _parse_uuid(payload.exam_id, field="exam_id")
+    enrollment_uuid = _parse_uuid(payload.student_enrollment_id, field="student_enrollment_id")
+    subject_uuid = _parse_uuid(payload.subject_id, field="subject_id")
+    marks_obtained = _parse_decimal(payload.marks_obtained, field="marks_obtained")
+    max_marks = _parse_decimal(payload.max_marks, field="max_marks")
+
+    if max_marks <= 0:
+        raise HTTPException(status_code=400, detail="max_marks must be greater than 0")
+    if marks_obtained < 0:
+        raise HTTPException(status_code=400, detail="marks_obtained cannot be negative")
+    if marks_obtained > max_marks:
+        raise HTTPException(status_code=400, detail="marks_obtained cannot exceed max_marks")
+
+    exam_table = _resolve_exam_table_or_503(db)
+    mark_table = _resolve_exam_mark_table_or_503(db)
+    _ensure_tenant_subject_exists(db, tenant_id=tenant.id, subject_id=subject_uuid)
+
+    exam_row = db.execute(
+        sa.text(
+            f"""
+            SELECT id, name, CAST(term_id AS TEXT) AS term_id, class_code, CAST(subject_id AS TEXT) AS subject_id
+            FROM {exam_table}
+            WHERE id = :exam_id AND tenant_id = :tenant_id
+            LIMIT 1
+            """
+        ),
+        {"exam_id": str(exam_uuid), "tenant_id": str(tenant.id)},
+    ).mappings().first()
+    if not exam_row:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    exam_subject_id = str(exam_row.get("subject_id") or "").strip()
+    if exam_subject_id and exam_subject_id != str(subject_uuid):
+        raise HTTPException(
+            status_code=400,
+            detail="This exam is configured for a different subject",
+        )
+
+    class_code = _normalize_code(payload.class_code or str(exam_row.get("class_code") or ""))
+    if not class_code:
+        raise HTTPException(status_code=400, detail="class_code is required")
+    _ensure_tenant_class_exists(db, tenant_id=tenant.id, class_code=class_code)
+
+    enrollment_result, _ = _execute_on_first_table(
+        db,
+        table_candidates=ENROLLMENT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, payload
+            FROM {table}
+            WHERE id = :enrollment_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"enrollment_id": str(enrollment_uuid), "tenant_id": str(tenant.id)},
+    )
+    enrollment_row = enrollment_result.mappings().first()
+    if not enrollment_row:
+        raise HTTPException(status_code=404, detail="Enrollment not found")
+
+    enrollment_payload = _safe_payload_obj(enrollment_row.get("payload"))
+    enrolled_class_code = _enrollment_class_code(enrollment_payload)
+    if enrolled_class_code and enrolled_class_code != class_code:
+        raise HTTPException(
+            status_code=400,
+            detail="Student is not enrolled in the selected class_code",
+        )
+
+    upsert_params = {
+        "tenant_id": str(tenant.id),
+        "exam_id": str(exam_uuid),
+        "student_enrollment_id": str(enrollment_uuid),
+        "subject_id": str(subject_uuid),
+        "class_code": class_code,
+        "marks_obtained": marks_obtained,
+        "max_marks": max_marks,
+        "grade": _text_or_none(payload.grade, upper=True),
+        "remarks": _text_or_none(payload.remarks),
+        "recorded_by": str(getattr(user, "id", "") or "") or None,
+    }
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {mark_table}
+            SET class_code = :class_code,
+                marks_obtained = :marks_obtained,
+                max_marks = :max_marks,
+                grade = :grade,
+                remarks = :remarks,
+                updated_at = now()
+            WHERE tenant_id = :tenant_id
+              AND exam_id = :exam_id
+              AND student_enrollment_id = :student_enrollment_id
+              AND subject_id = :subject_id
+            RETURNING id,
+                      CAST(exam_id AS TEXT) AS exam_id,
+                      class_code,
+                      CAST(subject_id AS TEXT) AS subject_id,
+                      CAST(student_enrollment_id AS TEXT) AS student_enrollment_id,
+                      marks_obtained,
+                      max_marks,
+                      grade,
+                      remarks,
+                      CAST(recorded_at AS TEXT) AS recorded_at,
+                      CAST(updated_at AS TEXT) AS updated_at
+            """
+        ),
+        upsert_params,
+    ).mappings().first()
+
+    row = updated
+    if not row:
+        row = db.execute(
+            sa.text(
+                f"""
+                INSERT INTO {mark_table} (
+                    id, tenant_id, exam_id, student_enrollment_id, subject_id,
+                    class_code, marks_obtained, max_marks, grade, remarks, recorded_by
+                )
+                VALUES (
+                    :id, :tenant_id, :exam_id, :student_enrollment_id, :subject_id,
+                    :class_code, :marks_obtained, :max_marks, :grade, :remarks, :recorded_by
+                )
+                RETURNING id,
+                          CAST(exam_id AS TEXT) AS exam_id,
+                          class_code,
+                          CAST(subject_id AS TEXT) AS subject_id,
+                          CAST(student_enrollment_id AS TEXT) AS student_enrollment_id,
+                          marks_obtained,
+                          max_marks,
+                          grade,
+                          remarks,
+                          CAST(recorded_at AS TEXT) AS recorded_at,
+                          CAST(updated_at AS TEXT) AS updated_at
+                """
+            ),
+            {
+                **upsert_params,
+                "id": str(uuid4()),
+            },
+        ).mappings().first()
+
+    db.commit()
+    if not row:
+        raise HTTPException(status_code=500, detail="Failed to record exam mark")
+
+    mark_row = dict(row)
+    mark_row["exam_name"] = str(exam_row.get("name") or "")
+    mark_row["term_id"] = str(exam_row.get("term_id") or "")
+    term_lookup = _term_lookup_for_tenant(db, tenant_id=tenant.id)
+    subject_lookup = _subject_lookup_for_tenant(db, tenant_id=tenant.id)
+    enrollment_index = _tenant_enrollment_index(db, tenant_id=tenant.id, limit=5000)
+    return _serialize_exam_mark_row(
+        mark_row,
+        term_lookup=term_lookup,
+        subject_lookup=subject_lookup,
+        enrollment_index=enrollment_index,
+    )
+
+
+def _serialize_staff_row(
+    row: dict[str, Any],
+    *,
+    include_separation: bool = False,
+) -> TenantStaffOut:
+    first_name = str(row.get("first_name") or "").strip()
+    last_name = str(row.get("last_name") or "").strip()
+    return TenantStaffOut(
+        id=str(row.get("id") or ""),
+        staff_no=str(row.get("staff_no") or ""),
+        staff_type=str(row.get("staff_type") or ""),
+        role_code=(str(row.get("role_code")) if row.get("role_code") else None),
+        primary_subject_id=(
+            str(row.get("primary_subject_id")) if row.get("primary_subject_id") else None
+        ),
+        primary_subject_code=(
+            str(row.get("primary_subject_code")) if row.get("primary_subject_code") else None
+        ),
+        primary_subject_name=(
+            str(row.get("primary_subject_name")) if row.get("primary_subject_name") else None
+        ),
+        employment_type=(str(row.get("employment_type")) if row.get("employment_type") else None),
+        first_name=first_name,
+        last_name=last_name,
+        full_name=_staff_full_name(first_name, last_name),
+        email=(str(row.get("email")) if row.get("email") else None),
+        phone=(str(row.get("phone")) if row.get("phone") else None),
+        id_number=(str(row.get("id_number")) if row.get("id_number") else None),
+        tsc_number=(str(row.get("tsc_number")) if row.get("tsc_number") else None),
+        kra_pin=(str(row.get("kra_pin")) if row.get("kra_pin") else None),
+        nssf_number=(str(row.get("nssf_number")) if row.get("nssf_number") else None),
+        nhif_number=(str(row.get("nhif_number")) if row.get("nhif_number") else None),
+        gender=(str(row.get("gender")) if row.get("gender") else None),
+        date_of_birth=(str(row.get("date_of_birth")) if row.get("date_of_birth") else None),
+        date_hired=(str(row.get("date_hired")) if row.get("date_hired") else None),
+        next_of_kin_name=(str(row.get("next_of_kin_name")) if row.get("next_of_kin_name") else None),
+        next_of_kin_relation=(str(row.get("next_of_kin_relation")) if row.get("next_of_kin_relation") else None),
+        next_of_kin_phone=(str(row.get("next_of_kin_phone")) if row.get("next_of_kin_phone") else None),
+        next_of_kin_email=(str(row.get("next_of_kin_email")) if row.get("next_of_kin_email") else None),
+        address=(str(row.get("address")) if row.get("address") else None),
+        notes=(str(row.get("notes")) if row.get("notes") else None),
+        separation_status=(
+            str(row.get("separation_status"))
+            if include_separation and row.get("separation_status")
+            else None
+        ),
+        separation_reason=(
+            str(row.get("separation_reason"))
+            if include_separation and row.get("separation_reason")
+            else None
+        ),
+        separation_date=(
+            str(row.get("separation_date"))
+            if include_separation and row.get("separation_date")
+            else None
+        ),
+        is_active=bool(row.get("is_active", True)),
+        created_at=(str(row.get("created_at")) if row.get("created_at") else None),
+        updated_at=(str(row.get("updated_at")) if row.get("updated_at") else None),
+    )
+
+
+def _generate_staff_no(
+    db: Session,
+    *,
+    table_name: str,
+    tenant_id: UUID,
+) -> str:
+    base = db.execute(
+        sa.text(
+            f"""
+            SELECT COUNT(1)
+            FROM {table_name}
+            WHERE tenant_id = :tenant_id
+            """
+        ),
+        {"tenant_id": str(tenant_id)},
+    ).scalar()
+    start = int(base or 0) + 1
+
+    for seq in range(start, start + 5000):
+        candidate = f"STF-{seq:04d}"
+        exists = db.execute(
+            sa.text(
+                f"""
+                SELECT id
+                FROM {table_name}
+                WHERE tenant_id = :tenant_id AND UPPER(staff_no) = :staff_no
+                LIMIT 1
+                """
+            ),
+            {"tenant_id": str(tenant_id), "staff_no": candidate},
+        ).first()
+        if not exists:
+            return candidate
+    raise HTTPException(status_code=500, detail="Unable to generate staff number")
+
+
+def _payload_fields_set(payload: BaseModel) -> set[str]:
+    model_fields_set = getattr(payload, "model_fields_set", None)
+    if isinstance(model_fields_set, set):
+        return {str(item) for item in model_fields_set}
+    legacy = getattr(payload, "__fields_set__", None)
+    if isinstance(legacy, set):
+        return {str(item) for item in legacy}
+    return set()
+
+
+def _validate_primary_subject_id(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    subject_id: Optional[str],
+) -> Optional[UUID]:
+    cleaned_subject_id = _text_or_none(subject_id)
+    if not cleaned_subject_id:
+        return None
+
+    parsed_subject_id = _parse_uuid(cleaned_subject_id, field="primary_subject_id")
+    result, _ = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_SUBJECT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id
+            FROM {table}
+            WHERE id = :subject_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"subject_id": str(parsed_subject_id), "tenant_id": str(tenant_id)},
+    )
+    if not result.first():
+        raise HTTPException(status_code=404, detail="Primary subject not found")
+
+    return parsed_subject_id
+
+
+def _deactivate_teacher_assignments_for_staff(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    staff_id: UUID,
+) -> int:
+    assignment_ref, _ = _resolve_existing_table(
+        db,
+        candidates=TEACHER_ASSIGNMENT_TABLE_CANDIDATES,
+    )
+    if not assignment_ref:
+        return 0
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {assignment_ref}
+            SET is_active = false
+            WHERE tenant_id = :tenant_id
+              AND staff_id = :staff_id
+              AND COALESCE(is_active, true) = true
+            """
+        ),
+        {"tenant_id": str(tenant_id), "staff_id": str(staff_id)},
+    )
+    return int(updated.rowcount or 0)
+
+
+def _deactivate_stale_teacher_assignments_for_subject_class(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    assignment_table: str,
+    subject_id: UUID,
+    class_code: str,
+    exclude_assignment_id: UUID | None = None,
+) -> int:
+    staff_ref, staff_cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_STAFF_TABLE_CANDIDATES,
+    )
+    if not staff_ref:
+        return 0
+
+    separated_expr = (
+        "(s.separation_status IS NOT NULL AND BTRIM(s.separation_status) <> '')"
+        if "separation_status" in staff_cols
+        else "false"
+    )
+
+    where_parts = [
+        "a.tenant_id = :tenant_id",
+        "a.subject_id = :subject_id",
+        "UPPER(a.class_code) = :class_code",
+        "COALESCE(a.is_active, true) = true",
+        f"""
+        (
+            NOT EXISTS (
+                SELECT 1
+                FROM {staff_ref} s
+                WHERE s.id = a.staff_id
+                  AND s.tenant_id = :tenant_id
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM {staff_ref} s
+                WHERE s.id = a.staff_id
+                  AND s.tenant_id = :tenant_id
+                  AND (
+                      COALESCE(s.is_active, true) = false
+                      OR {separated_expr}
+                  )
+            )
+        )
+        """,
+    ]
+    params: dict[str, Any] = {
+        "tenant_id": str(tenant_id),
+        "subject_id": str(subject_id),
+        "class_code": _normalize_code(class_code),
+    }
+    if exclude_assignment_id is not None:
+        where_parts.append("a.id <> :exclude_assignment_id")
+        params["exclude_assignment_id"] = str(exclude_assignment_id)
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {assignment_table} a
+            SET is_active = false
+            WHERE {" AND ".join(where_parts)}
+            """
+        ),
+        params,
+    )
+    return int(updated.rowcount or 0)
+
+
+# ---------------------------------------------------------------------
+# Tenant School Setup (Subjects)
+# ---------------------------------------------------------------------
+
+@router.get(
+    "/subjects",
+    response_model=list[TenantSubjectOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def list_tenant_subjects(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    include_inactive: bool = Query(default=False),
+):
+    rows, _ = _read_rows_first_table(
+        db,
+        table_candidates=TENANT_SUBJECT_TABLE_CANDIDATES,
+        sql_template=(
+            """
+            SELECT id, code, name, COALESCE(is_active, true) AS is_active
+            FROM {table}
+            WHERE tenant_id = :tenant_id
+            """
+            + ("" if include_inactive else " AND COALESCE(is_active, true) = true ")
+            + " ORDER BY code ASC, name ASC"
+        ),
+        params={"tenant_id": str(tenant.id)},
+    )
+
+    return [
+        TenantSubjectOut(
+            id=str(r.get("id") or ""),
+            code=str(r.get("code") or ""),
+            name=str(r.get("name") or ""),
+            is_active=bool(r.get("is_active", True)),
+        )
+        for r in rows
+    ]
+
+
+@router.post(
+    "/subjects",
+    response_model=TenantSubjectOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def create_tenant_subject(
+    payload: TenantSubjectCreateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    code = _normalize_code(payload.code)
+    name = _normalize_name(payload.name)
+    if not code or not name:
+        raise HTTPException(status_code=400, detail="code and name are required")
+
+    existing_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_SUBJECT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id
+            FROM {table}
+            WHERE tenant_id = :tenant_id AND UPPER(code) = :code
+            LIMIT 1
+        """,
+        params={"tenant_id": str(tenant.id), "code": code},
+    )
+    if existing_result.first():
+        raise HTTPException(status_code=409, detail="Subject code already exists for this tenant")
+
+    created = db.execute(
+        sa.text(
+            f"""
+            INSERT INTO {table_name} (id, tenant_id, code, name, is_active)
+            VALUES (:id, :tenant_id, :code, :name, :is_active)
+            RETURNING id, code, name, COALESCE(is_active, true) AS is_active
+            """
+        ),
+        {
+            "id": str(uuid4()),
+            "tenant_id": str(tenant.id),
+            "code": code,
+            "name": name,
+            "is_active": bool(payload.is_active),
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create subject")
+
+    return TenantSubjectOut(
+        id=str(created.get("id") or ""),
+        code=str(created.get("code") or ""),
+        name=str(created.get("name") or ""),
+        is_active=bool(created.get("is_active", True)),
+    )
+
+
+@router.put(
+    "/subjects/{subject_id}",
+    response_model=TenantSubjectOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def update_tenant_subject(
+    subject_id: UUID,
+    payload: TenantSubjectUpdateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    updates: list[str] = []
+    params: dict[str, Any] = {"subject_id": str(subject_id), "tenant_id": str(tenant.id)}
+
+    if payload.code is not None:
+        code = _normalize_code(payload.code)
+        if not code:
+            raise HTTPException(status_code=400, detail="code cannot be empty")
+        updates.append("code = :code")
+        params["code"] = code
+
+    if payload.name is not None:
+        name = _normalize_name(payload.name)
+        if not name:
+            raise HTTPException(status_code=400, detail="name cannot be empty")
+        updates.append("name = :name")
+        params["name"] = name
+
+    if payload.is_active is not None:
+        updates.append("is_active = :is_active")
+        params["is_active"] = bool(payload.is_active)
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No updates supplied")
+
+    select_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_SUBJECT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id
+            FROM {table}
+            WHERE id = :subject_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"subject_id": str(subject_id), "tenant_id": str(tenant.id)},
+    )
+    if not select_result.first():
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    if "code" in params:
+        dup = db.execute(
+            sa.text(
+                f"""
+                SELECT id
+                FROM {table_name}
+                WHERE tenant_id = :tenant_id
+                  AND UPPER(code) = :code
+                  AND id <> :subject_id
+                LIMIT 1
+                """
+            ),
+            {
+                "tenant_id": str(tenant.id),
+                "code": params["code"],
+                "subject_id": str(subject_id),
+            },
+        ).first()
+        if dup:
+            raise HTTPException(status_code=409, detail="Subject code already exists for this tenant")
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {table_name}
+            SET {", ".join(updates)}
+            WHERE id = :subject_id AND tenant_id = :tenant_id
+            RETURNING id, code, name, COALESCE(is_active, true) AS is_active
+            """
+        ),
+        params,
+    ).mappings().first()
+    db.commit()
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    return TenantSubjectOut(
+        id=str(updated.get("id") or ""),
+        code=str(updated.get("code") or ""),
+        name=str(updated.get("name") or ""),
+        is_active=bool(updated.get("is_active", True)),
+    )
+
+
+# ---------------------------------------------------------------------
+# Tenant HR (Staff, Teacher Assignments, Assets)
+# ---------------------------------------------------------------------
+
+@router.get(
+    "/hr/staff",
+    response_model=list[TenantStaffOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def list_tenant_staff(
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    staff_type: Optional[str] = Query(default=None),
+    include_inactive: bool = Query(default=False),
+    include_separated: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    is_director = _is_director_context(request)
+    normalized_staff_type = _normalize_staff_type(staff_type) if staff_type else None
+    table_name, cols = _resolve_existing_table(db, candidates=TENANT_STAFF_TABLE_CANDIDATES)
+    subject_table, _ = _resolve_existing_table(db, candidates=TENANT_SUBJECT_TABLE_CANDIDATES)
+    if not table_name:
+        return []
+
+    sep_status_expr = (
+        "separation_status"
+        if "separation_status" in cols
+        else "CAST(NULL AS TEXT) AS separation_status"
+    )
+    role_code_expr = (
+        "role_code"
+        if "role_code" in cols
+        else "CAST(NULL AS TEXT) AS role_code"
+    )
+    sep_reason_expr = (
+        "separation_reason"
+        if "separation_reason" in cols
+        else "CAST(NULL AS TEXT) AS separation_reason"
+    )
+    sep_date_expr = (
+        "CAST(separation_date AS TEXT) AS separation_date"
+        if "separation_date" in cols
+        else "CAST(NULL AS TEXT) AS separation_date"
+    )
+    primary_subject_id_expr = (
+        "CAST(primary_subject_id AS TEXT) AS primary_subject_id"
+        if "primary_subject_id" in cols
+        else "CAST(NULL AS TEXT) AS primary_subject_id"
+    )
+    if "primary_subject_id" in cols and subject_table:
+        primary_subject_code_expr = (
+            f"(SELECT sub.code FROM {subject_table} sub WHERE sub.id = primary_subject_id) "
+            "AS primary_subject_code"
+        )
+        primary_subject_name_expr = (
+            f"(SELECT sub.name FROM {subject_table} sub WHERE sub.id = primary_subject_id) "
+            "AS primary_subject_name"
+        )
+    else:
+        primary_subject_code_expr = "CAST(NULL AS TEXT) AS primary_subject_code"
+        primary_subject_name_expr = "CAST(NULL AS TEXT) AS primary_subject_name"
+
+    where_parts = ["tenant_id = :tenant_id"]
+    params: dict[str, Any] = {
+        "tenant_id": str(tenant.id),
+        "limit": int(limit),
+        "offset": int(offset),
+    }
+    if normalized_staff_type:
+        where_parts.append("UPPER(staff_type) = :staff_type")
+        params["staff_type"] = normalized_staff_type
+    if not include_inactive:
+        where_parts.append("COALESCE(is_active, true) = true")
+    if "separation_status" in cols and not (include_separated and is_director):
+        where_parts.append("(separation_status IS NULL OR BTRIM(separation_status) = '')")
+
+    query = f"""
+        SELECT id, staff_no, staff_type, {role_code_expr}, employment_type, first_name, last_name, email, phone,
+               id_number, tsc_number, kra_pin, nssf_number, nhif_number, gender,
+               CAST(date_of_birth AS TEXT) AS date_of_birth,
+               CAST(date_hired AS TEXT) AS date_hired,
+               next_of_kin_name, next_of_kin_relation, next_of_kin_phone, next_of_kin_email,
+               address, notes, COALESCE(is_active, true) AS is_active,
+               {sep_status_expr},
+               {sep_reason_expr},
+               {sep_date_expr},
+               {primary_subject_id_expr},
+               {primary_subject_code_expr},
+               {primary_subject_name_expr},
+               CAST(created_at AS TEXT) AS created_at,
+               CAST(updated_at AS TEXT) AS updated_at
+        FROM {table_name}
+        WHERE {" AND ".join(where_parts)}
+        ORDER BY last_name ASC, first_name ASC, staff_no ASC
+        LIMIT :limit OFFSET :offset
+    """
+    rows = db.execute(sa.text(query), params).mappings().all()
+    return [
+        _serialize_staff_row(dict(r), include_separation=is_director)
+        for r in rows
+    ]
+
+
+@router.post(
+    "/hr/staff",
+    response_model=TenantStaffOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def create_tenant_staff(
+    payload: TenantStaffCreateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    staff_type = _normalize_staff_type(payload.staff_type)
+    first_name = _normalize_name(payload.first_name)
+    last_name = _normalize_name(payload.last_name)
+    if not first_name or not last_name:
+        raise HTTPException(status_code=400, detail="first_name and last_name are required")
+
+    existing_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_STAFF_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id
+            FROM {table}
+            WHERE tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"tenant_id": str(tenant.id)},
+    )
+    del existing_result
+    _, cols = _resolve_existing_table(db, candidates=(table_name,))
+
+    requested_role_code = _text_or_none(payload.role_code, upper=True)
+    role_code: str | None = None
+    if requested_role_code is not None:
+        _ensure_director_assignable_role(requested_role_code)
+        if "role_code" not in cols:
+            raise HTTPException(
+                status_code=503,
+                detail="Staff role storage is not configured. Run database migrations.",
+            )
+        role = _get_role_by_code(db, tenant_id=tenant.id, role_code=requested_role_code)
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+        role_code = str(role.code)
+
+    primary_subject_id: UUID | None = None
+    requested_primary_subject_id = _text_or_none(payload.primary_subject_id)
+    if requested_primary_subject_id is not None:
+        if "primary_subject_id" not in cols:
+            raise HTTPException(
+                status_code=503,
+                detail="Staff primary subject storage is not configured. Run database migrations.",
+            )
+        if not _is_teaching_staff_type(staff_type):
+            raise HTTPException(
+                status_code=400,
+                detail="primary_subject_id can only be set for teaching staff",
+            )
+        primary_subject_id = _validate_primary_subject_id(
+            db,
+            tenant_id=tenant.id,
+            subject_id=requested_primary_subject_id,
+        )
+
+    staff_no = _text_or_none(payload.staff_no, upper=True) or _generate_staff_no(
+        db, table_name=table_name, tenant_id=tenant.id
+    )
+
+    dup_staff = db.execute(
+        sa.text(
+            f"""
+            SELECT id
+            FROM {table_name}
+            WHERE tenant_id = :tenant_id AND UPPER(staff_no) = :staff_no
+            LIMIT 1
+            """
+        ),
+        {"tenant_id": str(tenant.id), "staff_no": staff_no},
+    ).first()
+    if dup_staff:
+        raise HTTPException(status_code=409, detail="Staff number already exists for this tenant")
+
+    tsc_number = _text_or_none(payload.tsc_number, upper=True)
+    if tsc_number:
+        dup_tsc = db.execute(
+            sa.text(
+                f"""
+                SELECT id
+                FROM {table_name}
+                WHERE tenant_id = :tenant_id
+                  AND UPPER(tsc_number) = :tsc_number
+                LIMIT 1
+                """
+            ),
+            {"tenant_id": str(tenant.id), "tsc_number": tsc_number},
+        ).first()
+        if dup_tsc:
+            raise HTTPException(status_code=409, detail="TSC number already exists for this tenant")
+
+    insert_columns = [
+        "id",
+        "tenant_id",
+        "staff_no",
+        "staff_type",
+    ]
+    insert_values = [
+        ":id",
+        ":tenant_id",
+        ":staff_no",
+        ":staff_type",
+    ]
+    if "role_code" in cols:
+        insert_columns.append("role_code")
+        insert_values.append(":role_code")
+    if "primary_subject_id" in cols:
+        insert_columns.append("primary_subject_id")
+        insert_values.append(":primary_subject_id")
+    insert_columns.extend(
+        [
+            "employment_type",
+            "first_name",
+            "last_name",
+            "email",
+            "phone",
+            "id_number",
+            "tsc_number",
+            "kra_pin",
+            "nssf_number",
+            "nhif_number",
+            "gender",
+            "date_of_birth",
+            "date_hired",
+            "next_of_kin_name",
+            "next_of_kin_relation",
+            "next_of_kin_phone",
+            "next_of_kin_email",
+            "address",
+            "notes",
+            "is_active",
+        ]
+    )
+    insert_values.extend(
+        [
+            ":employment_type",
+            ":first_name",
+            ":last_name",
+            ":email",
+            ":phone",
+            ":id_number",
+            ":tsc_number",
+            ":kra_pin",
+            ":nssf_number",
+            ":nhif_number",
+            ":gender",
+            ":date_of_birth",
+            ":date_hired",
+            ":next_of_kin_name",
+            ":next_of_kin_relation",
+            ":next_of_kin_phone",
+            ":next_of_kin_email",
+            ":address",
+            ":notes",
+            ":is_active",
+        ]
+    )
+
+    role_code_expr = (
+        "role_code"
+        if "role_code" in cols
+        else "CAST(NULL AS TEXT) AS role_code"
+    )
+    subject_table, _ = _resolve_existing_table(db, candidates=TENANT_SUBJECT_TABLE_CANDIDATES)
+    primary_subject_id_expr = (
+        "CAST(primary_subject_id AS TEXT) AS primary_subject_id"
+        if "primary_subject_id" in cols
+        else "CAST(NULL AS TEXT) AS primary_subject_id"
+    )
+    if "primary_subject_id" in cols and subject_table:
+        primary_subject_code_expr = (
+            f"(SELECT sub.code FROM {subject_table} sub WHERE sub.id = primary_subject_id) "
+            "AS primary_subject_code"
+        )
+        primary_subject_name_expr = (
+            f"(SELECT sub.name FROM {subject_table} sub WHERE sub.id = primary_subject_id) "
+            "AS primary_subject_name"
+        )
+    else:
+        primary_subject_code_expr = "CAST(NULL AS TEXT) AS primary_subject_code"
+        primary_subject_name_expr = "CAST(NULL AS TEXT) AS primary_subject_name"
+    created = db.execute(
+        sa.text(
+            f"""
+            INSERT INTO {table_name} ({", ".join(insert_columns)})
+            VALUES ({", ".join(insert_values)})
+            RETURNING id, staff_no, staff_type, {role_code_expr},
+                      {primary_subject_id_expr}, {primary_subject_code_expr}, {primary_subject_name_expr},
+                      employment_type, first_name, last_name, email, phone,
+                      id_number, tsc_number, kra_pin, nssf_number, nhif_number, gender,
+                      CAST(date_of_birth AS TEXT) AS date_of_birth,
+                      CAST(date_hired AS TEXT) AS date_hired,
+                      next_of_kin_name, next_of_kin_relation, next_of_kin_phone, next_of_kin_email,
+                      address, notes, COALESCE(is_active, true) AS is_active,
+                      CAST(created_at AS TEXT) AS created_at,
+                      CAST(updated_at AS TEXT) AS updated_at
+            """
+        ),
+        {
+            "id": str(uuid4()),
+            "tenant_id": str(tenant.id),
+            "staff_no": staff_no,
+            "staff_type": staff_type,
+            "role_code": role_code,
+            "primary_subject_id": str(primary_subject_id) if primary_subject_id else None,
+            "employment_type": _text_or_none(payload.employment_type, upper=True),
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": _text_or_none(payload.email),
+            "phone": _text_or_none(payload.phone),
+            "id_number": _text_or_none(payload.id_number, upper=True),
+            "tsc_number": tsc_number,
+            "kra_pin": _text_or_none(payload.kra_pin, upper=True),
+            "nssf_number": _text_or_none(payload.nssf_number, upper=True),
+            "nhif_number": _text_or_none(payload.nhif_number, upper=True),
+            "gender": _text_or_none(payload.gender, upper=True),
+            "date_of_birth": _text_or_none(payload.date_of_birth),
+            "date_hired": _text_or_none(payload.date_hired),
+            "next_of_kin_name": _text_or_none(payload.next_of_kin_name),
+            "next_of_kin_relation": _text_or_none(payload.next_of_kin_relation),
+            "next_of_kin_phone": _text_or_none(payload.next_of_kin_phone),
+            "next_of_kin_email": _text_or_none(payload.next_of_kin_email),
+            "address": _text_or_none(payload.address),
+            "notes": _text_or_none(payload.notes),
+            "is_active": bool(payload.is_active),
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create staff")
+    return _serialize_staff_row(dict(created))
+
+
+@router.put(
+    "/hr/staff/{staff_id}",
+    response_model=TenantStaffOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def update_tenant_staff(
+    staff_id: UUID,
+    payload: TenantStaffUpdateIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    select_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_STAFF_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, staff_type
+            FROM {table}
+            WHERE id = :staff_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"staff_id": str(staff_id), "tenant_id": str(tenant.id)},
+    )
+    current_row = select_result.mappings().first()
+    if not current_row:
+        raise HTTPException(status_code=404, detail="Staff not found")
+
+    _, cols = _resolve_existing_table(db, candidates=(table_name,))
+    fields_set = _payload_fields_set(payload)
+    is_director = _is_director_context(request)
+    role_field_touched = "role_code" in fields_set
+    primary_subject_field_touched = "primary_subject_id" in fields_set
+    requested_primary_subject_id = (
+        _text_or_none(payload.primary_subject_id) if primary_subject_field_touched else None
+    )
+    separation_fields_touched = bool(
+        {"separation_status", "separation_reason", "separation_date"} & fields_set
+    )
+    if role_field_touched and "role_code" not in cols:
+        raise HTTPException(
+            status_code=503,
+            detail="Staff role storage is not configured. Run database migrations.",
+        )
+    if (
+        primary_subject_field_touched
+        and "primary_subject_id" not in cols
+        and requested_primary_subject_id is not None
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Staff primary subject storage is not configured. Run database migrations.",
+        )
+    if separation_fields_touched and not is_director:
+        raise HTTPException(
+            status_code=403,
+            detail="Only directors can manage fired/left staff records",
+        )
+
+    updates: list[str] = ["updated_at = now()"]
+    params: dict[str, Any] = {"staff_id": str(staff_id), "tenant_id": str(tenant.id)}
+    target_staff_type = str(current_row.get("staff_type") or "")
+
+    def set_update(column: str, value: Any):
+        prefix = f"{column} ="
+        updates[:] = [entry for entry in updates if not entry.strip().startswith(prefix)]
+        updates.append(f"{column} = :{column}")
+        params[column] = value
+
+    if payload.staff_no is not None:
+        staff_no = _text_or_none(payload.staff_no, upper=True)
+        if not staff_no:
+            raise HTTPException(status_code=400, detail="staff_no cannot be empty")
+        dup = db.execute(
+            sa.text(
+                f"""
+                SELECT id
+                FROM {table_name}
+                WHERE tenant_id = :tenant_id
+                  AND UPPER(staff_no) = :staff_no
+                  AND id <> :staff_id
+                LIMIT 1
+                """
+            ),
+            {"tenant_id": str(tenant.id), "staff_no": staff_no, "staff_id": str(staff_id)},
+        ).first()
+        if dup:
+            raise HTTPException(status_code=409, detail="Staff number already exists for this tenant")
+        set_update("staff_no", staff_no)
+
+    if payload.staff_type is not None:
+        target_staff_type = _normalize_staff_type(payload.staff_type)
+        set_update("staff_type", target_staff_type)
+    if primary_subject_field_touched and "primary_subject_id" in cols:
+        if requested_primary_subject_id and not _is_teaching_staff_type(target_staff_type):
+            raise HTTPException(
+                status_code=400,
+                detail="primary_subject_id can only be set for teaching staff",
+            )
+        validated_primary_subject_id = _validate_primary_subject_id(
+            db,
+            tenant_id=tenant.id,
+            subject_id=requested_primary_subject_id,
+        )
+        set_update(
+            "primary_subject_id",
+            str(validated_primary_subject_id) if validated_primary_subject_id else None,
+        )
+    elif "staff_type" in fields_set and "primary_subject_id" in cols and not _is_teaching_staff_type(
+        target_staff_type
+    ):
+        set_update("primary_subject_id", None)
+    if payload.role_code is not None:
+        role_code = _text_or_none(payload.role_code, upper=True)
+        if role_code is None:
+            set_update("role_code", None)
+        else:
+            _ensure_director_assignable_role(role_code)
+            role = _get_role_by_code(db, tenant_id=tenant.id, role_code=role_code)
+            if not role:
+                raise HTTPException(status_code=404, detail="Role not found")
+            set_update("role_code", str(role.code))
+    if payload.employment_type is not None:
+        set_update("employment_type", _text_or_none(payload.employment_type, upper=True))
+    if payload.first_name is not None:
+        first_name = _normalize_name(payload.first_name)
+        if not first_name:
+            raise HTTPException(status_code=400, detail="first_name cannot be empty")
+        set_update("first_name", first_name)
+    if payload.last_name is not None:
+        last_name = _normalize_name(payload.last_name)
+        if not last_name:
+            raise HTTPException(status_code=400, detail="last_name cannot be empty")
+        set_update("last_name", last_name)
+    if payload.email is not None:
+        set_update("email", _text_or_none(payload.email))
+    if payload.phone is not None:
+        set_update("phone", _text_or_none(payload.phone))
+    if payload.id_number is not None:
+        set_update("id_number", _text_or_none(payload.id_number, upper=True))
+    if payload.tsc_number is not None:
+        tsc_number = _text_or_none(payload.tsc_number, upper=True)
+        if tsc_number:
+            dup_tsc = db.execute(
+                sa.text(
+                    f"""
+                    SELECT id
+                    FROM {table_name}
+                    WHERE tenant_id = :tenant_id
+                      AND UPPER(tsc_number) = :tsc_number
+                      AND id <> :staff_id
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "tenant_id": str(tenant.id),
+                    "tsc_number": tsc_number,
+                    "staff_id": str(staff_id),
+                },
+            ).first()
+            if dup_tsc:
+                raise HTTPException(status_code=409, detail="TSC number already exists for this tenant")
+        set_update("tsc_number", tsc_number)
+    if payload.kra_pin is not None:
+        set_update("kra_pin", _text_or_none(payload.kra_pin, upper=True))
+    if payload.nssf_number is not None:
+        set_update("nssf_number", _text_or_none(payload.nssf_number, upper=True))
+    if payload.nhif_number is not None:
+        set_update("nhif_number", _text_or_none(payload.nhif_number, upper=True))
+    if payload.gender is not None:
+        set_update("gender", _text_or_none(payload.gender, upper=True))
+    if payload.date_of_birth is not None:
+        set_update("date_of_birth", _text_or_none(payload.date_of_birth))
+    if payload.date_hired is not None:
+        set_update("date_hired", _text_or_none(payload.date_hired))
+    if payload.next_of_kin_name is not None:
+        set_update("next_of_kin_name", _text_or_none(payload.next_of_kin_name))
+    if payload.next_of_kin_relation is not None:
+        set_update("next_of_kin_relation", _text_or_none(payload.next_of_kin_relation))
+    if payload.next_of_kin_phone is not None:
+        set_update("next_of_kin_phone", _text_or_none(payload.next_of_kin_phone))
+    if payload.next_of_kin_email is not None:
+        set_update("next_of_kin_email", _text_or_none(payload.next_of_kin_email))
+    if payload.address is not None:
+        set_update("address", _text_or_none(payload.address))
+    if payload.notes is not None:
+        set_update("notes", _text_or_none(payload.notes))
+    if payload.is_active is not None:
+        set_update("is_active", bool(payload.is_active))
+
+    if separation_fields_touched:
+        required_sep_cols = {"separation_status", "separation_reason", "separation_date"}
+        if not required_sep_cols.issubset(cols):
+            raise HTTPException(
+                status_code=503,
+                detail="Staff separation storage is not configured. Run database migrations.",
+            )
+
+        if "separation_status" in fields_set:
+            normalized_status = _normalize_separation_status(payload.separation_status)
+            set_update("separation_status", normalized_status)
+            if normalized_status is None:
+                set_update("separation_reason", None)
+                set_update("separation_date", None)
+                if payload.is_active is None:
+                    set_update("is_active", True)
+            else:
+                if normalized_status == "FIRED_MISCONDUCT":
+                    reason = _text_or_none(payload.separation_reason)
+                    if not reason:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="separation_reason is required for FIRED_MISCONDUCT",
+                        )
+                    set_update("separation_reason", reason)
+                elif "separation_reason" in fields_set:
+                    set_update("separation_reason", _text_or_none(payload.separation_reason))
+
+                if "separation_date" in fields_set:
+                    set_update("separation_date", _text_or_none(payload.separation_date))
+                else:
+                    set_update("separation_date", datetime.now(timezone.utc).date().isoformat())
+
+                set_update("is_active", False)
+        else:
+            if "separation_reason" in fields_set:
+                set_update("separation_reason", _text_or_none(payload.separation_reason))
+            if "separation_date" in fields_set:
+                set_update("separation_date", _text_or_none(payload.separation_date))
+
+    if len(updates) == 1:
+        raise HTTPException(status_code=400, detail="No updates supplied")
+
+    sep_status_expr = (
+        "separation_status"
+        if "separation_status" in cols
+        else "CAST(NULL AS TEXT) AS separation_status"
+    )
+    role_code_expr = (
+        "role_code"
+        if "role_code" in cols
+        else "CAST(NULL AS TEXT) AS role_code"
+    )
+    sep_reason_expr = (
+        "separation_reason"
+        if "separation_reason" in cols
+        else "CAST(NULL AS TEXT) AS separation_reason"
+    )
+    sep_date_expr = (
+        "CAST(separation_date AS TEXT) AS separation_date"
+        if "separation_date" in cols
+        else "CAST(NULL AS TEXT) AS separation_date"
+    )
+    subject_table, _ = _resolve_existing_table(db, candidates=TENANT_SUBJECT_TABLE_CANDIDATES)
+    primary_subject_id_expr = (
+        "CAST(primary_subject_id AS TEXT) AS primary_subject_id"
+        if "primary_subject_id" in cols
+        else "CAST(NULL AS TEXT) AS primary_subject_id"
+    )
+    if "primary_subject_id" in cols and subject_table:
+        primary_subject_code_expr = (
+            f"(SELECT sub.code FROM {subject_table} sub WHERE sub.id = primary_subject_id) "
+            "AS primary_subject_code"
+        )
+        primary_subject_name_expr = (
+            f"(SELECT sub.name FROM {subject_table} sub WHERE sub.id = primary_subject_id) "
+            "AS primary_subject_name"
+        )
+    else:
+        primary_subject_code_expr = "CAST(NULL AS TEXT) AS primary_subject_code"
+        primary_subject_name_expr = "CAST(NULL AS TEXT) AS primary_subject_name"
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {table_name}
+            SET {", ".join(updates)}
+            WHERE id = :staff_id AND tenant_id = :tenant_id
+            RETURNING id, staff_no, staff_type, {role_code_expr},
+                      {primary_subject_id_expr}, {primary_subject_code_expr}, {primary_subject_name_expr},
+                      employment_type, first_name, last_name, email, phone,
+                      id_number, tsc_number, kra_pin, nssf_number, nhif_number, gender,
+                      CAST(date_of_birth AS TEXT) AS date_of_birth,
+                      CAST(date_hired AS TEXT) AS date_hired,
+                      next_of_kin_name, next_of_kin_relation, next_of_kin_phone, next_of_kin_email,
+                      {sep_status_expr},
+                      {sep_reason_expr},
+                      {sep_date_expr},
+                      address, notes, COALESCE(is_active, true) AS is_active,
+                      CAST(created_at AS TEXT) AS created_at,
+                      CAST(updated_at AS TEXT) AS updated_at
+            """
+        ),
+        params,
+    ).mappings().first()
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Staff not found")
+
+    updated_separation_status = _normalize_separation_status(
+        _text_or_none(updated.get("separation_status"), upper=True)
+    )
+    if (
+        updated_separation_status is not None
+        and _is_teaching_staff_type(
+            str(updated.get("staff_type") or current_row.get("staff_type") or "")
+        )
+    ):
+        _deactivate_teacher_assignments_for_staff(
+            db,
+            tenant_id=tenant.id,
+            staff_id=staff_id,
+        )
+
+    db.commit()
+    return _serialize_staff_row(dict(updated), include_separation=is_director)
+
+
+@router.get(
+    "/hr/assets",
+    response_model=list[TenantAssetOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def list_tenant_assets(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    include_inactive: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    rows, _ = _read_rows_first_table(
+        db,
+        table_candidates=TENANT_ASSET_TABLE_CANDIDATES,
+        sql_template=(
+            """
+            SELECT id, asset_code, name, category, description, condition_status,
+                   COALESCE(is_active, true) AS is_active,
+                   CAST(created_at AS TEXT) AS created_at,
+                   CAST(updated_at AS TEXT) AS updated_at
+            FROM {table}
+            WHERE tenant_id = :tenant_id
+            """
+            + ("" if include_inactive else " AND COALESCE(is_active, true) = true ")
+            + " ORDER BY asset_code ASC, name ASC LIMIT :limit OFFSET :offset"
+        ),
+        params={"tenant_id": str(tenant.id), "limit": int(limit), "offset": int(offset)},
+    )
+    return [
+        TenantAssetOut(
+            id=str(r.get("id") or ""),
+            asset_code=str(r.get("asset_code") or ""),
+            name=str(r.get("name") or ""),
+            category=str(r.get("category") or ""),
+            description=(str(r.get("description")) if r.get("description") else None),
+            condition_status=str(r.get("condition_status") or "AVAILABLE"),
+            is_active=bool(r.get("is_active", True)),
+            created_at=(str(r.get("created_at")) if r.get("created_at") else None),
+            updated_at=(str(r.get("updated_at")) if r.get("updated_at") else None),
+        )
+        for r in rows
+    ]
+
+
+@router.post(
+    "/hr/assets",
+    response_model=TenantAssetOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def create_tenant_asset(
+    payload: TenantAssetCreateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    asset_code = _normalize_code(payload.asset_code)
+    name = _normalize_name(payload.name)
+    category = _normalize_name(payload.category)
+    if not asset_code or not name or not category:
+        raise HTTPException(status_code=400, detail="asset_code, name and category are required")
+
+    existing_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_ASSET_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id
+            FROM {table}
+            WHERE tenant_id = :tenant_id
+              AND UPPER(asset_code) = :asset_code
+            LIMIT 1
+        """,
+        params={"tenant_id": str(tenant.id), "asset_code": asset_code},
+    )
+    if existing_result.first():
+        raise HTTPException(status_code=409, detail="Asset code already exists for this tenant")
+
+    created = db.execute(
+        sa.text(
+            f"""
+            INSERT INTO {table_name} (
+                id, tenant_id, asset_code, name, category, description, condition_status, is_active
+            )
+            VALUES (
+                :id, :tenant_id, :asset_code, :name, :category, :description, :condition_status, :is_active
+            )
+            RETURNING id, asset_code, name, category, description, condition_status,
+                      COALESCE(is_active, true) AS is_active,
+                      CAST(created_at AS TEXT) AS created_at,
+                      CAST(updated_at AS TEXT) AS updated_at
+            """
+        ),
+        {
+            "id": str(uuid4()),
+            "tenant_id": str(tenant.id),
+            "asset_code": asset_code,
+            "name": name,
+            "category": category,
+            "description": _text_or_none(payload.description),
+            "condition_status": _text_or_none(payload.condition_status, upper=True) or "AVAILABLE",
+            "is_active": bool(payload.is_active),
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create asset")
+
+    return TenantAssetOut(
+        id=str(created.get("id") or ""),
+        asset_code=str(created.get("asset_code") or ""),
+        name=str(created.get("name") or ""),
+        category=str(created.get("category") or ""),
+        description=(str(created.get("description")) if created.get("description") else None),
+        condition_status=str(created.get("condition_status") or "AVAILABLE"),
+        is_active=bool(created.get("is_active", True)),
+        created_at=(str(created.get("created_at")) if created.get("created_at") else None),
+        updated_at=(str(created.get("updated_at")) if created.get("updated_at") else None),
+    )
+
+
+@router.put(
+    "/hr/assets/{asset_id}",
+    response_model=TenantAssetOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def update_tenant_asset(
+    asset_id: UUID,
+    payload: TenantAssetUpdateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    select_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_ASSET_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id
+            FROM {table}
+            WHERE id = :asset_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"asset_id": str(asset_id), "tenant_id": str(tenant.id)},
+    )
+    if not select_result.first():
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    updates: list[str] = ["updated_at = now()"]
+    params: dict[str, Any] = {"asset_id": str(asset_id), "tenant_id": str(tenant.id)}
+
+    def set_update(column: str, value: Any):
+        updates.append(f"{column} = :{column}")
+        params[column] = value
+
+    if payload.asset_code is not None:
+        asset_code = _normalize_code(payload.asset_code)
+        if not asset_code:
+            raise HTTPException(status_code=400, detail="asset_code cannot be empty")
+        dup = db.execute(
+            sa.text(
+                f"""
+                SELECT id
+                FROM {table_name}
+                WHERE tenant_id = :tenant_id
+                  AND UPPER(asset_code) = :asset_code
+                  AND id <> :asset_id
+                LIMIT 1
+                """
+            ),
+            {"tenant_id": str(tenant.id), "asset_code": asset_code, "asset_id": str(asset_id)},
+        ).first()
+        if dup:
+            raise HTTPException(status_code=409, detail="Asset code already exists for this tenant")
+        set_update("asset_code", asset_code)
+
+    if payload.name is not None:
+        name = _normalize_name(payload.name)
+        if not name:
+            raise HTTPException(status_code=400, detail="name cannot be empty")
+        set_update("name", name)
+    if payload.category is not None:
+        category = _normalize_name(payload.category)
+        if not category:
+            raise HTTPException(status_code=400, detail="category cannot be empty")
+        set_update("category", category)
+    if payload.description is not None:
+        set_update("description", _text_or_none(payload.description))
+    if payload.condition_status is not None:
+        set_update("condition_status", _text_or_none(payload.condition_status, upper=True))
+    if payload.is_active is not None:
+        set_update("is_active", bool(payload.is_active))
+
+    if len(updates) == 1:
+        raise HTTPException(status_code=400, detail="No updates supplied")
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {table_name}
+            SET {", ".join(updates)}
+            WHERE id = :asset_id AND tenant_id = :tenant_id
+            RETURNING id, asset_code, name, category, description, condition_status,
+                      COALESCE(is_active, true) AS is_active,
+                      CAST(created_at AS TEXT) AS created_at,
+                      CAST(updated_at AS TEXT) AS updated_at
+            """
+        ),
+        params,
+    ).mappings().first()
+    db.commit()
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    return TenantAssetOut(
+        id=str(updated.get("id") or ""),
+        asset_code=str(updated.get("asset_code") or ""),
+        name=str(updated.get("name") or ""),
+        category=str(updated.get("category") or ""),
+        description=(str(updated.get("description")) if updated.get("description") else None),
+        condition_status=str(updated.get("condition_status") or "AVAILABLE"),
+        is_active=bool(updated.get("is_active", True)),
+        created_at=(str(updated.get("created_at")) if updated.get("created_at") else None),
+        updated_at=(str(updated.get("updated_at")) if updated.get("updated_at") else None),
+    )
+
+
+@router.get(
+    "/hr/teacher-assignments",
+    response_model=list[TeacherAssignmentOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def list_teacher_assignments(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    class_code: Optional[str] = Query(default=None),
+    staff_id: Optional[str] = Query(default=None),
+    subject_id: Optional[str] = Query(default=None),
+    include_inactive: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    assignment_ref, _ = _resolve_existing_table(db, candidates=TEACHER_ASSIGNMENT_TABLE_CANDIDATES)
+    staff_ref, _ = _resolve_existing_table(db, candidates=TENANT_STAFF_TABLE_CANDIDATES)
+    subject_ref, _ = _resolve_existing_table(db, candidates=TENANT_SUBJECT_TABLE_CANDIDATES)
+    if not assignment_ref or not staff_ref or not subject_ref:
+        return []
+
+    rows = db.execute(
+        sa.text(
+            f"""
+            SELECT a.id, a.staff_id, a.subject_id, a.class_code, COALESCE(a.is_active, true) AS is_active,
+                   CAST(a.assigned_at AS TEXT) AS assigned_at, a.notes,
+                   s.staff_no, s.first_name, s.last_name,
+                   sub.code AS subject_code, sub.name AS subject_name
+            FROM {assignment_ref} a
+            JOIN {staff_ref} s ON s.id = a.staff_id
+            JOIN {subject_ref} sub ON sub.id = a.subject_id
+            WHERE a.tenant_id = :tenant_id
+              {"AND UPPER(a.class_code) = :class_code" if class_code else ""}
+              {"AND a.staff_id = :staff_id" if staff_id else ""}
+              {"AND a.subject_id = :subject_id" if subject_id else ""}
+              {"" if include_inactive else "AND COALESCE(a.is_active, true) = true"}
+            ORDER BY a.class_code ASC, sub.code ASC, s.last_name ASC, s.first_name ASC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        {
+            "tenant_id": str(tenant.id),
+            "class_code": _normalize_code(class_code) if class_code else None,
+            "staff_id": staff_id,
+            "subject_id": subject_id,
+            "limit": int(limit),
+            "offset": int(offset),
+        },
+    ).mappings().all()
+
+    return [
+        TeacherAssignmentOut(
+            id=str(r.get("id") or ""),
+            staff_id=str(r.get("staff_id") or ""),
+            staff_no=str(r.get("staff_no") or ""),
+            staff_name=_staff_full_name(r.get("first_name"), r.get("last_name")),
+            subject_id=str(r.get("subject_id") or ""),
+            subject_code=str(r.get("subject_code") or ""),
+            subject_name=str(r.get("subject_name") or ""),
+            class_code=str(r.get("class_code") or ""),
+            is_active=bool(r.get("is_active", True)),
+            assigned_at=(str(r.get("assigned_at")) if r.get("assigned_at") else None),
+            notes=(str(r.get("notes")) if r.get("notes") else None),
+        )
+        for r in rows
+    ]
+
+
+@router.post(
+    "/hr/teacher-assignments",
+    response_model=TeacherAssignmentOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def create_teacher_assignment(
+    payload: TeacherAssignmentCreateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    normalized_class_code = _normalize_code(payload.class_code)
+    if not normalized_class_code:
+        raise HTTPException(status_code=400, detail="class_code is required")
+
+    staff_uuid = _parse_uuid(payload.staff_id, field="staff_id")
+    subject_uuid = _parse_uuid(payload.subject_id, field="subject_id")
+
+    staff_table, staff_cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_STAFF_TABLE_CANDIDATES,
+    )
+    if not staff_table:
+        raise HTTPException(
+            status_code=503,
+            detail="Staff registry storage is unavailable",
+        )
+    sep_status_expr = (
+        "separation_status"
+        if "separation_status" in staff_cols
+        else "CAST(NULL AS TEXT) AS separation_status"
+    )
+    staff_row = db.execute(
+        sa.text(
+            f"""
+            SELECT id, staff_no, first_name, last_name, staff_type,
+                   COALESCE(is_active, true) AS is_active,
+                   {sep_status_expr}
+            FROM {staff_table}
+            WHERE id = :staff_id AND tenant_id = :tenant_id
+            LIMIT 1
+            """
+        ),
+        params={"staff_id": str(staff_uuid), "tenant_id": str(tenant.id)},
+    ).mappings().first()
+    if not staff_row:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    if _normalize_staff_type(str(staff_row.get("staff_type") or "TEACHING")) != "TEACHING":
+        raise HTTPException(status_code=400, detail="Only teaching staff can be assigned to subjects")
+    if not bool(staff_row.get("is_active", True)):
+        raise HTTPException(status_code=400, detail="Cannot assign an inactive teacher")
+    if _normalize_separation_status(_text_or_none(staff_row.get("separation_status"), upper=True)) is not None:
+        raise HTTPException(status_code=400, detail="Cannot assign a teacher who has left staff")
+
+    subject_result, subject_table = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_SUBJECT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, code, name
+            FROM {table}
+            WHERE id = :subject_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"subject_id": str(subject_uuid), "tenant_id": str(tenant.id)},
+    )
+    subject_row = subject_result.mappings().first()
+    if not subject_row:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    existing_result, assignment_table = _execute_on_first_table(
+        db,
+        table_candidates=TEACHER_ASSIGNMENT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, staff_id, COALESCE(is_active, true) AS is_active
+            FROM {table}
+            WHERE tenant_id = :tenant_id
+              AND subject_id = :subject_id
+              AND UPPER(class_code) = :class_code
+              AND COALESCE(is_active, true) = true
+            LIMIT 1
+        """,
+        params={
+            "tenant_id": str(tenant.id),
+            "subject_id": str(subject_uuid),
+            "class_code": normalized_class_code,
+        },
+    )
+    existing_row = existing_result.mappings().first()
+    if existing_row and str(existing_row.get("staff_id") or "") != str(staff_uuid):
+        cleaned = _deactivate_stale_teacher_assignments_for_subject_class(
+            db,
+            tenant_id=tenant.id,
+            assignment_table=assignment_table,
+            subject_id=subject_uuid,
+            class_code=normalized_class_code,
+        )
+        if cleaned > 0:
+            existing_row = db.execute(
+                sa.text(
+                    f"""
+                    SELECT id, staff_id, COALESCE(is_active, true) AS is_active
+                    FROM {assignment_table}
+                    WHERE tenant_id = :tenant_id
+                      AND subject_id = :subject_id
+                      AND UPPER(class_code) = :class_code
+                      AND COALESCE(is_active, true) = true
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "tenant_id": str(tenant.id),
+                    "subject_id": str(subject_uuid),
+                    "class_code": normalized_class_code,
+                },
+            ).mappings().first()
+
+    if existing_row and str(existing_row.get("staff_id") or "") != str(staff_uuid):
+        raise HTTPException(
+            status_code=409,
+            detail="This subject is already assigned to another teacher for the selected class",
+        )
+    if existing_row and str(existing_row.get("staff_id") or "") == str(staff_uuid):
+        return TeacherAssignmentOut(
+            id=str(existing_row.get("id") or ""),
+            staff_id=str(staff_uuid),
+            staff_no=str(staff_row.get("staff_no") or ""),
+            staff_name=_staff_full_name(staff_row.get("first_name"), staff_row.get("last_name")),
+            subject_id=str(subject_uuid),
+            subject_code=str(subject_row.get("code") or ""),
+            subject_name=str(subject_row.get("name") or ""),
+            class_code=normalized_class_code,
+            is_active=True,
+            assigned_at=None,
+            notes=_text_or_none(payload.notes),
+        )
+
+    created = db.execute(
+        sa.text(
+            f"""
+            INSERT INTO {assignment_table} (
+                id, tenant_id, staff_id, subject_id, class_code, notes, is_active, assigned_by
+            )
+            VALUES (
+                :id, :tenant_id, :staff_id, :subject_id, :class_code, :notes, :is_active, :assigned_by
+            )
+            RETURNING id, CAST(assigned_at AS TEXT) AS assigned_at, COALESCE(is_active, true) AS is_active, notes
+            """
+        ),
+        {
+            "id": str(uuid4()),
+            "tenant_id": str(tenant.id),
+            "staff_id": str(staff_uuid),
+            "subject_id": str(subject_uuid),
+            "class_code": normalized_class_code,
+            "notes": _text_or_none(payload.notes),
+            "is_active": bool(payload.is_active),
+            "assigned_by": str(getattr(_user, "id", "") or "") or None,
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create teacher assignment")
+
+    return TeacherAssignmentOut(
+        id=str(created.get("id") or ""),
+        staff_id=str(staff_uuid),
+        staff_no=str(staff_row.get("staff_no") or ""),
+        staff_name=_staff_full_name(staff_row.get("first_name"), staff_row.get("last_name")),
+        subject_id=str(subject_uuid),
+        subject_code=str(subject_row.get("code") or ""),
+        subject_name=str(subject_row.get("name") or ""),
+        class_code=normalized_class_code,
+        is_active=bool(created.get("is_active", True)),
+        assigned_at=(str(created.get("assigned_at")) if created.get("assigned_at") else None),
+        notes=(str(created.get("notes")) if created.get("notes") else None),
+    )
+
+
+@router.put(
+    "/hr/teacher-assignments/{assignment_id}",
+    response_model=TeacherAssignmentOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def update_teacher_assignment(
+    assignment_id: UUID,
+    payload: TeacherAssignmentUpdateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    select_result, assignment_table = _execute_on_first_table(
+        db,
+        table_candidates=TEACHER_ASSIGNMENT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, staff_id, subject_id, class_code, COALESCE(is_active, true) AS is_active, notes
+            FROM {table}
+            WHERE id = :assignment_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"assignment_id": str(assignment_id), "tenant_id": str(tenant.id)},
+    )
+    current = select_result.mappings().first()
+    if not current:
+        raise HTTPException(status_code=404, detail="Teacher assignment not found")
+
+    staff_uuid = _parse_uuid(payload.staff_id, field="staff_id") if payload.staff_id else _parse_uuid(
+        current.get("staff_id"), field="staff_id"
+    )
+    subject_uuid = _parse_uuid(payload.subject_id, field="subject_id") if payload.subject_id else _parse_uuid(
+        current.get("subject_id"), field="subject_id"
+    )
+    class_code = _normalize_code(payload.class_code) if payload.class_code is not None else _normalize_code(
+        str(current.get("class_code") or "")
+    )
+    is_active = bool(payload.is_active) if payload.is_active is not None else bool(current.get("is_active", True))
+    notes = _text_or_none(payload.notes) if payload.notes is not None else current.get("notes")
+
+    staff_table, staff_cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_STAFF_TABLE_CANDIDATES,
+    )
+    if not staff_table:
+        raise HTTPException(
+            status_code=503,
+            detail="Staff registry storage is unavailable",
+        )
+    sep_status_expr = (
+        "separation_status"
+        if "separation_status" in staff_cols
+        else "CAST(NULL AS TEXT) AS separation_status"
+    )
+    staff_row = db.execute(
+        sa.text(
+            f"""
+            SELECT id, staff_no, first_name, last_name, staff_type,
+                   COALESCE(is_active, true) AS is_active,
+                   {sep_status_expr}
+            FROM {staff_table}
+            WHERE id = :staff_id AND tenant_id = :tenant_id
+            LIMIT 1
+            """
+        ),
+        {"staff_id": str(staff_uuid), "tenant_id": str(tenant.id)},
+    ).mappings().first()
+    if not staff_row:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    if _normalize_staff_type(str(staff_row.get("staff_type") or "TEACHING")) != "TEACHING":
+        raise HTTPException(status_code=400, detail="Only teaching staff can be assigned to subjects")
+    if not bool(staff_row.get("is_active", True)):
+        raise HTTPException(status_code=400, detail="Cannot assign an inactive teacher")
+    if _normalize_separation_status(_text_or_none(staff_row.get("separation_status"), upper=True)) is not None:
+        raise HTTPException(status_code=400, detail="Cannot assign a teacher who has left staff")
+
+    subject_result, _ = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_SUBJECT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, code, name
+            FROM {table}
+            WHERE id = :subject_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"subject_id": str(subject_uuid), "tenant_id": str(tenant.id)},
+    )
+    subject_row = subject_result.mappings().first()
+    if not subject_row:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    dup = db.execute(
+        sa.text(
+            f"""
+            SELECT id
+            FROM {assignment_table}
+            WHERE tenant_id = :tenant_id
+              AND subject_id = :subject_id
+              AND UPPER(class_code) = :class_code
+              AND COALESCE(is_active, true) = true
+              AND id <> :assignment_id
+            LIMIT 1
+            """
+        ),
+        {
+            "tenant_id": str(tenant.id),
+            "subject_id": str(subject_uuid),
+            "class_code": class_code,
+            "assignment_id": str(assignment_id),
+        },
+    ).first()
+    if dup and is_active:
+        cleaned = _deactivate_stale_teacher_assignments_for_subject_class(
+            db,
+            tenant_id=tenant.id,
+            assignment_table=assignment_table,
+            subject_id=subject_uuid,
+            class_code=class_code,
+            exclude_assignment_id=assignment_id,
+        )
+        if cleaned > 0:
+            dup = db.execute(
+                sa.text(
+                    f"""
+                    SELECT id
+                    FROM {assignment_table}
+                    WHERE tenant_id = :tenant_id
+                      AND subject_id = :subject_id
+                      AND UPPER(class_code) = :class_code
+                      AND COALESCE(is_active, true) = true
+                      AND id <> :assignment_id
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "tenant_id": str(tenant.id),
+                    "subject_id": str(subject_uuid),
+                    "class_code": class_code,
+                    "assignment_id": str(assignment_id),
+                },
+            ).first()
+
+    if dup and is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="This subject is already assigned to another teacher for the selected class",
+        )
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {assignment_table}
+            SET staff_id = :staff_id,
+                subject_id = :subject_id,
+                class_code = :class_code,
+                is_active = :is_active,
+                notes = :notes
+            WHERE id = :assignment_id AND tenant_id = :tenant_id
+            RETURNING id, CAST(assigned_at AS TEXT) AS assigned_at, COALESCE(is_active, true) AS is_active, notes
+            """
+        ),
+        {
+            "assignment_id": str(assignment_id),
+            "tenant_id": str(tenant.id),
+            "staff_id": str(staff_uuid),
+            "subject_id": str(subject_uuid),
+            "class_code": class_code,
+            "is_active": is_active,
+            "notes": notes,
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Teacher assignment not found")
+
+    return TeacherAssignmentOut(
+        id=str(updated.get("id") or ""),
+        staff_id=str(staff_uuid),
+        staff_no=str(staff_row.get("staff_no") or ""),
+        staff_name=_staff_full_name(staff_row.get("first_name"), staff_row.get("last_name")),
+        subject_id=str(subject_uuid),
+        subject_code=str(subject_row.get("code") or ""),
+        subject_name=str(subject_row.get("name") or ""),
+        class_code=class_code,
+        is_active=bool(updated.get("is_active", True)),
+        assigned_at=(str(updated.get("assigned_at")) if updated.get("assigned_at") else None),
+        notes=(str(updated.get("notes")) if updated.get("notes") else None),
+    )
+
+
+@router.delete(
+    "/hr/teacher-assignments/{assignment_id}",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def delete_teacher_assignment(
+    assignment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    assignment_ref, _ = _resolve_existing_table(db, candidates=TEACHER_ASSIGNMENT_TABLE_CANDIDATES)
+    if not assignment_ref:
+        raise HTTPException(status_code=503, detail="Teacher assignment storage is unavailable")
+
+    deleted = db.execute(
+        sa.text(
+            f"""
+            DELETE FROM {assignment_ref}
+            WHERE id = :assignment_id
+              AND tenant_id = :tenant_id
+            """
+        ),
+        {"assignment_id": str(assignment_id), "tenant_id": str(tenant.id)},
+    )
+    if not (deleted.rowcount or 0):
+        raise HTTPException(status_code=404, detail="Teacher assignment not found")
+
+    db.commit()
+    return {"ok": True, "deleted_id": str(assignment_id)}
+
+
+@router.get(
+    "/hr/asset-assignments",
+    response_model=list[AssetAssignmentOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def list_asset_assignments(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    staff_id: Optional[str] = Query(default=None),
+    asset_id: Optional[str] = Query(default=None),
+    class_code: Optional[str] = Query(default=None),
+    enrollment_id: Optional[str] = Query(default=None),
+    assignee_type: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    assignment_ref, assignment_cols = _resolve_existing_table(
+        db,
+        candidates=ASSET_ASSIGNMENT_TABLE_CANDIDATES,
+    )
+    asset_ref, _ = _resolve_existing_table(db, candidates=TENANT_ASSET_TABLE_CANDIDATES)
+    staff_ref, _ = _resolve_existing_table(db, candidates=TENANT_STAFF_TABLE_CANDIDATES)
+    if not assignment_ref or not asset_ref:
+        return []
+
+    status_filter = _text_or_none(status, upper=True)
+    assignee_filter = _text_or_none(assignee_type, upper=True)
+    if assignee_filter and assignee_filter not in {"STAFF", "CLASS", "STUDENT"}:
+        raise HTTPException(status_code=400, detail="Invalid assignee_type")
+
+    assignee_type_expr = (
+        "COALESCE(a.assignee_type, 'STAFF') AS assignee_type"
+        if "assignee_type" in assignment_cols
+        else "'STAFF' AS assignee_type"
+    )
+    staff_id_expr = (
+        "CAST(a.staff_id AS TEXT) AS staff_id"
+        if "staff_id" in assignment_cols
+        else "CAST(NULL AS TEXT) AS staff_id"
+    )
+    class_code_expr = (
+        "a.class_code AS class_code"
+        if "class_code" in assignment_cols
+        else "CAST(NULL AS TEXT) AS class_code"
+    )
+    enrollment_id_expr = (
+        "CAST(a.enrollment_id AS TEXT) AS enrollment_id"
+        if "enrollment_id" in assignment_cols
+        else "CAST(NULL AS TEXT) AS enrollment_id"
+    )
+    due_at_expr = (
+        "CAST(a.due_at AS TEXT) AS due_at"
+        if "due_at" in assignment_cols
+        else "CAST(NULL AS TEXT) AS due_at"
+    )
+
+    where_parts = ["a.tenant_id = :tenant_id"]
+    params: dict[str, Any] = {
+        "tenant_id": str(tenant.id),
+        "limit": int(limit),
+        "offset": int(offset),
+    }
+    if staff_id and "staff_id" in assignment_cols:
+        where_parts.append("a.staff_id = :staff_id")
+        params["staff_id"] = staff_id
+    if asset_id:
+        where_parts.append("a.asset_id = :asset_id")
+        params["asset_id"] = asset_id
+    if class_code and "class_code" in assignment_cols:
+        where_parts.append("UPPER(a.class_code) = :class_code")
+        params["class_code"] = _normalize_code(class_code)
+    if enrollment_id and "enrollment_id" in assignment_cols:
+        where_parts.append("a.enrollment_id = :enrollment_id")
+        params["enrollment_id"] = enrollment_id
+    if assignee_filter:
+        where_parts.append("UPPER(COALESCE(a.assignee_type, 'STAFF')) = :assignee_type")
+        params["assignee_type"] = assignee_filter
+    if status_filter:
+        where_parts.append("UPPER(a.status) = :status")
+        params["status"] = status_filter
+
+    rows = db.execute(
+        sa.text(
+            f"""
+            SELECT a.id, a.asset_id, {assignee_type_expr}, {staff_id_expr},
+                   {class_code_expr}, {enrollment_id_expr}, a.status, a.notes,
+                   CAST(a.assigned_at AS TEXT) AS assigned_at,
+                   CAST(a.returned_at AS TEXT) AS returned_at,
+                   {due_at_expr},
+                   ass.asset_code, ass.name AS asset_name,
+                   s.staff_no, s.first_name, s.last_name
+            FROM {assignment_ref} a
+            JOIN {asset_ref} ass ON ass.id = a.asset_id
+            {f"LEFT JOIN {staff_ref} s ON s.id = a.staff_id" if staff_ref and "staff_id" in assignment_cols else "LEFT JOIN (SELECT NULL::text AS staff_no, NULL::text AS first_name, NULL::text AS last_name) s ON true"}
+            WHERE {" AND ".join(where_parts)}
+            ORDER BY a.assigned_at DESC, a.id DESC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        params,
+    ).mappings().all()
+
+    enrollment_ids = {
+        str(r.get("enrollment_id"))
+        for r in rows
+        if r.get("enrollment_id") is not None
+    }
+    enrollment_index = _tenant_enrollment_index(db, tenant_id=tenant.id) if enrollment_ids else {}
+
+    now_utc = datetime.now(timezone.utc)
+    response: list[AssetAssignmentOut] = []
+    for r in rows:
+        assignee = _text_or_none(r.get("assignee_type"), upper=True) or "STAFF"
+        enrollment_key = str(r.get("enrollment_id") or "")
+        enrollment_row = enrollment_index.get(enrollment_key, {})
+        staff_id_value = str(r.get("staff_id") or "") or None
+        staff_no_value = str(r.get("staff_no") or "") or None
+        staff_name_value = (
+            _staff_full_name(r.get("first_name"), r.get("last_name"))
+            if r.get("first_name") or r.get("last_name")
+            else None
+        )
+        due_at_value = str(r.get("due_at")) if r.get("due_at") else None
+        due_dt: datetime | None = None
+        if due_at_value:
+            try:
+                due_dt = datetime.fromisoformat(due_at_value.replace("Z", "+00:00"))
+            except Exception:
+                due_dt = None
+            if due_dt is not None and due_dt.tzinfo is None:
+                due_dt = due_dt.replace(tzinfo=timezone.utc)
+        status_value = str(r.get("status") or "ASSIGNED").upper()
+        is_overdue = bool(
+            due_dt is not None
+            and status_value == "ASSIGNED"
+            and not r.get("returned_at")
+            and due_dt < now_utc
+        )
+
+        response.append(
+            AssetAssignmentOut(
+                id=str(r.get("id") or ""),
+                asset_id=str(r.get("asset_id") or ""),
+                asset_code=str(r.get("asset_code") or ""),
+                asset_name=str(r.get("asset_name") or ""),
+                assignee_type=assignee,
+                staff_id=staff_id_value if assignee == "STAFF" else None,
+                staff_no=staff_no_value if assignee == "STAFF" else None,
+                staff_name=staff_name_value if assignee == "STAFF" else None,
+                class_code=(str(r.get("class_code")) if assignee == "CLASS" and r.get("class_code") else None),
+                enrollment_id=(enrollment_key if assignee == "STUDENT" and enrollment_key else None),
+                student_name=(
+                    enrollment_row.get("student_name")
+                    if assignee == "STUDENT"
+                    else None
+                ),
+                status=status_value,
+                due_at=due_at_value,
+                is_overdue=is_overdue,
+                assigned_at=(str(r.get("assigned_at")) if r.get("assigned_at") else None),
+                returned_at=(str(r.get("returned_at")) if r.get("returned_at") else None),
+                notes=(str(r.get("notes")) if r.get("notes") else None),
+            )
+        )
+
+    return response
+
+
+@router.post(
+    "/hr/asset-assignments",
+    response_model=AssetAssignmentOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def create_asset_assignment(
+    payload: AssetAssignmentCreateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    asset_uuid = _parse_uuid(payload.asset_id, field="asset_id")
+    assignee_type = _text_or_none(payload.assignee_type, upper=True) or "STAFF"
+    if assignee_type not in {"STAFF", "CLASS", "STUDENT"}:
+        raise HTTPException(status_code=400, detail="Invalid assignee_type")
+
+    asset_result, asset_table = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_ASSET_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, asset_code, name
+            FROM {table}
+            WHERE id = :asset_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"asset_id": str(asset_uuid), "tenant_id": str(tenant.id)},
+    )
+    asset_row = asset_result.mappings().first()
+    if not asset_row:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    assignment_table, assignment_cols = _resolve_existing_table(
+        db,
+        candidates=ASSET_ASSIGNMENT_TABLE_CANDIDATES,
+    )
+    if not assignment_table:
+        raise HTTPException(status_code=503, detail="Asset assignment storage is unavailable")
+    if assignee_type != "STAFF":
+        if "assignee_type" not in assignment_cols:
+            raise HTTPException(
+                status_code=503,
+                detail="Asset assignment scope is not configured. Run database migrations.",
+            )
+        if assignee_type == "CLASS" and "class_code" not in assignment_cols:
+            raise HTTPException(
+                status_code=503,
+                detail="Asset class assignment storage is not configured. Run database migrations.",
+            )
+        if assignee_type == "STUDENT" and "enrollment_id" not in assignment_cols:
+            raise HTTPException(
+                status_code=503,
+                detail="Asset student assignment storage is not configured. Run database migrations.",
+            )
+
+    if payload.due_at is not None and "due_at" not in assignment_cols:
+        raise HTTPException(
+            status_code=503,
+            detail="Asset due date storage is not configured. Run database migrations.",
+        )
+
+    staff_uuid: UUID | None = None
+    staff_row: Optional[dict[str, Any]] = None
+    class_code: str | None = None
+    enrollment_uuid: UUID | None = None
+    student_name: str | None = None
+
+    if assignee_type == "STAFF":
+        staff_uuid = _parse_uuid(payload.staff_id, field="staff_id")
+        staff_result, _ = _execute_on_first_table(
+            db,
+            table_candidates=TENANT_STAFF_TABLE_CANDIDATES,
+            sql_template="""
+                SELECT id, staff_no, first_name, last_name
+                FROM {table}
+                WHERE id = :staff_id AND tenant_id = :tenant_id
+                LIMIT 1
+            """,
+            params={"staff_id": str(staff_uuid), "tenant_id": str(tenant.id)},
+        )
+        staff_row = staff_result.mappings().first()
+        if not staff_row:
+            raise HTTPException(status_code=404, detail="Staff not found")
+    elif assignee_type == "CLASS":
+        class_code = _normalize_code(payload.class_code or "")
+        if not class_code:
+            raise HTTPException(status_code=400, detail="class_code is required for CLASS assignment")
+        class_result, _ = _execute_on_first_table(
+            db,
+            table_candidates=TENANT_CLASS_TABLE_CANDIDATES,
+            sql_template="""
+                SELECT id
+                FROM {table}
+                WHERE tenant_id = :tenant_id
+                  AND UPPER(code) = :class_code
+                LIMIT 1
+            """,
+            params={"tenant_id": str(tenant.id), "class_code": class_code},
+        )
+        if not class_result.first():
+            raise HTTPException(status_code=404, detail="Class not found")
+    else:
+        enrollment_uuid = _parse_uuid(payload.enrollment_id, field="enrollment_id")
+        enrollment_result, _ = _execute_on_first_table(
+            db,
+            table_candidates=ENROLLMENT_TABLE_CANDIDATES,
+            sql_template="""
+                SELECT id, payload
+                FROM {table}
+                WHERE id = :enrollment_id
+                  AND tenant_id = :tenant_id
+                LIMIT 1
+            """,
+            params={"enrollment_id": str(enrollment_uuid), "tenant_id": str(tenant.id)},
+        )
+        enrollment_row = enrollment_result.mappings().first()
+        if not enrollment_row:
+            raise HTTPException(status_code=404, detail="Student enrollment not found")
+        student_payload = _safe_payload_obj(enrollment_row.get("payload"))
+        student_name = _enrollment_student_name(student_payload)
+
+    existing_result = db.execute(
+        sa.text(
+            f"""
+            SELECT id
+            FROM {assignment_table}
+            WHERE tenant_id = :tenant_id
+              AND asset_id = :asset_id
+              AND UPPER(status) = 'ASSIGNED'
+              AND returned_at IS NULL
+            LIMIT 1
+            """
+        ),
+        {"tenant_id": str(tenant.id), "asset_id": str(asset_uuid)},
+    )
+    if existing_result.first():
+        raise HTTPException(status_code=409, detail="Asset is currently assigned and not yet returned")
+
+    insert_columns = ["id", "tenant_id", "asset_id", "assigned_by", "status", "notes"]
+    insert_values = [":id", ":tenant_id", ":asset_id", ":assigned_by", ":status", ":notes"]
+    if "staff_id" in assignment_cols:
+        insert_columns.append("staff_id")
+        insert_values.append(":staff_id")
+    if "assignee_type" in assignment_cols:
+        insert_columns.append("assignee_type")
+        insert_values.append(":assignee_type")
+    if "class_code" in assignment_cols:
+        insert_columns.append("class_code")
+        insert_values.append(":class_code")
+    if "enrollment_id" in assignment_cols:
+        insert_columns.append("enrollment_id")
+        insert_values.append(":enrollment_id")
+    if "due_at" in assignment_cols:
+        insert_columns.append("due_at")
+        insert_values.append(":due_at")
+
+    assignee_type_expr = (
+        "COALESCE(assignee_type, 'STAFF') AS assignee_type"
+        if "assignee_type" in assignment_cols
+        else "'STAFF' AS assignee_type"
+    )
+    class_code_expr = (
+        "class_code"
+        if "class_code" in assignment_cols
+        else "CAST(NULL AS TEXT) AS class_code"
+    )
+    enrollment_id_expr = (
+        "CAST(enrollment_id AS TEXT) AS enrollment_id"
+        if "enrollment_id" in assignment_cols
+        else "CAST(NULL AS TEXT) AS enrollment_id"
+    )
+    due_at_expr = (
+        "CAST(due_at AS TEXT) AS due_at"
+        if "due_at" in assignment_cols
+        else "CAST(NULL AS TEXT) AS due_at"
+    )
+
+    created = db.execute(
+        sa.text(
+            f"""
+            INSERT INTO {assignment_table} ({", ".join(insert_columns)})
+            VALUES ({", ".join(insert_values)})
+            RETURNING id, CAST(assigned_at AS TEXT) AS assigned_at,
+                      CAST(returned_at AS TEXT) AS returned_at,
+                      {assignee_type_expr},
+                      CAST(staff_id AS TEXT) AS staff_id,
+                      {class_code_expr},
+                      {enrollment_id_expr},
+                      {due_at_expr},
+                      status, notes
+            """
+        ),
+        {
+            "id": str(uuid4()),
+            "tenant_id": str(tenant.id),
+            "asset_id": str(asset_uuid),
+            "staff_id": str(staff_uuid) if staff_uuid is not None else None,
+            "assignee_type": assignee_type,
+            "class_code": class_code,
+            "enrollment_id": str(enrollment_uuid) if enrollment_uuid is not None else None,
+            "due_at": _normalize_iso_datetime(payload.due_at, field="due_at"),
+            "assigned_by": str(getattr(_user, "id", "") or "") or None,
+            "status": "ASSIGNED",
+            "notes": _text_or_none(payload.notes),
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create asset assignment")
+
+    return AssetAssignmentOut(
+        id=str(created.get("id") or ""),
+        asset_id=str(asset_uuid),
+        asset_code=str(asset_row.get("asset_code") or ""),
+        asset_name=str(asset_row.get("name") or ""),
+        assignee_type=str(created.get("assignee_type") or assignee_type),
+        staff_id=(str(staff_uuid) if assignee_type == "STAFF" and staff_uuid else None),
+        staff_no=(str(staff_row.get("staff_no") or "") if assignee_type == "STAFF" and staff_row else None),
+        staff_name=(
+            _staff_full_name(staff_row.get("first_name"), staff_row.get("last_name"))
+            if assignee_type == "STAFF" and staff_row
+            else None
+        ),
+        class_code=(class_code if assignee_type == "CLASS" else None),
+        enrollment_id=(str(enrollment_uuid) if assignee_type == "STUDENT" and enrollment_uuid else None),
+        student_name=(student_name if assignee_type == "STUDENT" else None),
+        status=str(created.get("status") or "ASSIGNED"),
+        due_at=(str(created.get("due_at")) if created.get("due_at") else None),
+        is_overdue=False,
+        assigned_at=(str(created.get("assigned_at")) if created.get("assigned_at") else None),
+        returned_at=(str(created.get("returned_at")) if created.get("returned_at") else None),
+        notes=(str(created.get("notes")) if created.get("notes") else None),
+    )
+
+
+@router.put(
+    "/hr/asset-assignments/{assignment_id}/return",
+    response_model=AssetAssignmentOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def return_asset_assignment(
+    assignment_id: UUID,
+    payload: AssetAssignmentReturnIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    assignment_ref, assignment_cols = _resolve_existing_table(
+        db,
+        candidates=ASSET_ASSIGNMENT_TABLE_CANDIDATES,
+    )
+    asset_ref, _ = _resolve_existing_table(db, candidates=TENANT_ASSET_TABLE_CANDIDATES)
+    staff_ref, _ = _resolve_existing_table(db, candidates=TENANT_STAFF_TABLE_CANDIDATES)
+    if not assignment_ref or not asset_ref:
+        raise HTTPException(status_code=503, detail="Asset assignment storage is unavailable")
+
+    assignee_type_expr = (
+        "COALESCE(assignee_type, 'STAFF') AS assignee_type"
+        if "assignee_type" in assignment_cols
+        else "'STAFF' AS assignee_type"
+    )
+    class_code_expr = (
+        "class_code"
+        if "class_code" in assignment_cols
+        else "CAST(NULL AS TEXT) AS class_code"
+    )
+    enrollment_id_expr = (
+        "CAST(enrollment_id AS TEXT) AS enrollment_id"
+        if "enrollment_id" in assignment_cols
+        else "CAST(NULL AS TEXT) AS enrollment_id"
+    )
+    due_at_expr = (
+        "CAST(due_at AS TEXT) AS due_at"
+        if "due_at" in assignment_cols
+        else "CAST(NULL AS TEXT) AS due_at"
+    )
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {assignment_ref}
+            SET status = 'RETURNED',
+                returned_at = COALESCE(:returned_at, now()),
+                notes = COALESCE(:notes, notes)
+            WHERE id = :assignment_id
+              AND tenant_id = :tenant_id
+              AND UPPER(status) = 'ASSIGNED'
+              AND returned_at IS NULL
+            RETURNING id, asset_id, CAST(staff_id AS TEXT) AS staff_id,
+                      {assignee_type_expr}, {class_code_expr}, {enrollment_id_expr}, {due_at_expr},
+                      status, notes,
+                      CAST(assigned_at AS TEXT) AS assigned_at,
+                      CAST(returned_at AS TEXT) AS returned_at
+            """
+        ),
+        {
+            "assignment_id": str(assignment_id),
+            "tenant_id": str(tenant.id),
+            "returned_at": _text_or_none(payload.returned_at),
+            "notes": _text_or_none(payload.notes),
+        },
+    ).mappings().first()
+    if not updated:
+        raise HTTPException(status_code=404, detail="Active asset assignment not found")
+
+    asset_staff = db.execute(
+        sa.text(
+            f"""
+            SELECT ass.asset_code, ass.name AS asset_name,
+                   s.staff_no, s.first_name, s.last_name
+            FROM {assignment_ref} a
+            JOIN {asset_ref} ass ON ass.id = a.asset_id
+            {f"LEFT JOIN {staff_ref} s ON s.id = a.staff_id" if staff_ref and "staff_id" in assignment_cols else "LEFT JOIN (SELECT NULL::text AS staff_no, NULL::text AS first_name, NULL::text AS last_name) s ON true"}
+            WHERE a.id = :assignment_id AND a.tenant_id = :tenant_id
+            LIMIT 1
+            """
+        ),
+        {"assignment_id": str(assignment_id), "tenant_id": str(tenant.id)},
+    ).mappings().first()
+
+    enrollment_key = str(updated.get("enrollment_id") or "")
+    student_name: str | None = None
+    if enrollment_key:
+        enrollment_index = _tenant_enrollment_index(db, tenant_id=tenant.id)
+        student_name = enrollment_index.get(enrollment_key, {}).get("student_name")
+
+    db.commit()
+
+    assignee = _text_or_none(updated.get("assignee_type"), upper=True) or "STAFF"
+    return AssetAssignmentOut(
+        id=str(updated.get("id") or ""),
+        asset_id=str(updated.get("asset_id") or ""),
+        asset_code=str(asset_staff.get("asset_code") if asset_staff else ""),
+        asset_name=str(asset_staff.get("asset_name") if asset_staff else ""),
+        assignee_type=assignee,
+        staff_id=(
+            str(updated.get("staff_id") or "")
+            if assignee == "STAFF" and updated.get("staff_id") is not None
+            else None
+        ),
+        staff_no=(
+            str(asset_staff.get("staff_no") if asset_staff else "") or None
+            if assignee == "STAFF"
+            else None
+        ),
+        staff_name=(
+            _staff_full_name(
+                asset_staff.get("first_name") if asset_staff else None,
+                asset_staff.get("last_name") if asset_staff else None,
+            )
+            if assignee == "STAFF"
+            else None
+        ),
+        class_code=(str(updated.get("class_code") or "") or None) if assignee == "CLASS" else None,
+        enrollment_id=enrollment_key or None if assignee == "STUDENT" else None,
+        student_name=student_name if assignee == "STUDENT" else None,
+        status=str(updated.get("status") or "RETURNED"),
+        due_at=(str(updated.get("due_at")) if updated.get("due_at") else None),
+        is_overdue=False,
+        assigned_at=(str(updated.get("assigned_at")) if updated.get("assigned_at") else None),
+        returned_at=(str(updated.get("returned_at")) if updated.get("returned_at") else None),
+        notes=(str(updated.get("notes")) if updated.get("notes") else None),
+    )
+
+
+# ---------------------------------------------------------------------
+# Tenant Notifications
+# ---------------------------------------------------------------------
+
+def _list_overdue_asset_notifications(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    limit: int,
+    offset: int,
+) -> list[TenantNotificationOut]:
+    assignment_ref, assignment_cols = _resolve_existing_table(
+        db,
+        candidates=ASSET_ASSIGNMENT_TABLE_CANDIDATES,
+    )
+    asset_ref, _ = _resolve_existing_table(db, candidates=TENANT_ASSET_TABLE_CANDIDATES)
+    staff_ref, _ = _resolve_existing_table(db, candidates=TENANT_STAFF_TABLE_CANDIDATES)
+    if not assignment_ref or not asset_ref or "due_at" not in assignment_cols:
+        return []
+
+    assignee_type_expr = (
+        "COALESCE(a.assignee_type, 'STAFF') AS assignee_type"
+        if "assignee_type" in assignment_cols
+        else "'STAFF' AS assignee_type"
+    )
+    class_code_expr = (
+        "a.class_code AS class_code"
+        if "class_code" in assignment_cols
+        else "CAST(NULL AS TEXT) AS class_code"
+    )
+    enrollment_id_expr = (
+        "CAST(a.enrollment_id AS TEXT) AS enrollment_id"
+        if "enrollment_id" in assignment_cols
+        else "CAST(NULL AS TEXT) AS enrollment_id"
+    )
+    staff_id_expr = (
+        "CAST(a.staff_id AS TEXT) AS staff_id"
+        if "staff_id" in assignment_cols
+        else "CAST(NULL AS TEXT) AS staff_id"
+    )
+
+    rows = db.execute(
+        sa.text(
+            f"""
+            SELECT a.id, {assignee_type_expr}, {staff_id_expr}, {class_code_expr},
+                   {enrollment_id_expr}, CAST(a.due_at AS TEXT) AS due_at,
+                   ass.asset_code, ass.name AS asset_name,
+                   s.staff_no, s.first_name, s.last_name
+            FROM {assignment_ref} a
+            JOIN {asset_ref} ass ON ass.id = a.asset_id
+            {f"LEFT JOIN {staff_ref} s ON s.id = a.staff_id" if staff_ref and "staff_id" in assignment_cols else "LEFT JOIN (SELECT NULL::text AS staff_no, NULL::text AS first_name, NULL::text AS last_name) s ON true"}
+            WHERE a.tenant_id = :tenant_id
+              AND UPPER(a.status) = 'ASSIGNED'
+              AND a.returned_at IS NULL
+              AND a.due_at IS NOT NULL
+              AND a.due_at < now()
+            ORDER BY a.due_at ASC, a.id ASC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        {
+            "tenant_id": str(tenant_id),
+            "limit": int(limit),
+            "offset": int(offset),
+        },
+    ).mappings().all()
+
+    enrollment_ids = {
+        str(row.get("enrollment_id"))
+        for row in rows
+        if row.get("enrollment_id") is not None
+    }
+    enrollment_index = _tenant_enrollment_index(db, tenant_id=tenant_id) if enrollment_ids else {}
+
+    notifications: list[TenantNotificationOut] = []
+    for row in rows:
+        assignee_type = _text_or_none(row.get("assignee_type"), upper=True) or "STAFF"
+        due_at = str(row.get("due_at") or "")
+        asset_code = str(row.get("asset_code") or "")
+        asset_name = str(row.get("asset_name") or "Asset")
+
+        assignee_label = "Unassigned"
+        if assignee_type == "STAFF":
+            assignee_label = _staff_full_name(row.get("first_name"), row.get("last_name"))
+            staff_no = str(row.get("staff_no") or "")
+            if staff_no:
+                assignee_label = f"{assignee_label} ({staff_no})"
+        elif assignee_type == "CLASS":
+            code = str(row.get("class_code") or "").strip()
+            assignee_label = f"Class {code}" if code else "Class assignment"
+        elif assignee_type == "STUDENT":
+            enrollment_key = str(row.get("enrollment_id") or "")
+            student = enrollment_index.get(enrollment_key, {})
+            student_name = student.get("student_name") or "Student"
+            adm = (student.get("admission_number") or "").strip()
+            assignee_label = f"{student_name} ({adm})" if adm else student_name
+
+        notifications.append(
+            TenantNotificationOut(
+                id=f"asset-due-{row.get('id')}",
+                type="ASSET_DUE",
+                severity="warning",
+                title=f"Asset return overdue · {asset_code}",
+                message=f"{asset_name} assigned to {assignee_label} is overdue since {due_at}.",
+                entity_type="asset_assignment",
+                entity_id=str(row.get("id") or ""),
+                created_at=due_at or datetime.now(timezone.utc).isoformat(),
+                due_at=due_at or None,
+                unread=True,
+            )
+        )
+    return notifications
+
+
+def _count_overdue_asset_notifications(
+    db: Session,
+    *,
+    tenant_id: UUID,
+) -> int:
+    assignment_ref, assignment_cols = _resolve_existing_table(
+        db,
+        candidates=ASSET_ASSIGNMENT_TABLE_CANDIDATES,
+    )
+    if not assignment_ref or "due_at" not in assignment_cols:
+        return 0
+    count = db.execute(
+        sa.text(
+            f"""
+            SELECT COUNT(1)
+            FROM {assignment_ref}
+            WHERE tenant_id = :tenant_id
+              AND UPPER(status) = 'ASSIGNED'
+              AND returned_at IS NULL
+              AND due_at IS NOT NULL
+              AND due_at < now()
+            """
+        ),
+        {"tenant_id": str(tenant_id)},
+    ).scalar()
+    return int(count or 0)
+
+
+def _teacher_unfilled_assignment_slots_for_staff(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    staff_id: str,
+    assignment_table: str,
+    subject_table: str | None,
+) -> tuple[int, list[str]]:
+    count_row = db.execute(
+        sa.text(
+            f"""
+            WITH lost_slots AS (
+                SELECT DISTINCT subject_id, UPPER(class_code) AS class_code
+                FROM {assignment_table}
+                WHERE tenant_id = :tenant_id
+                  AND staff_id = :staff_id
+            ),
+            covered_slots AS (
+                SELECT DISTINCT subject_id, UPPER(class_code) AS class_code
+                FROM {assignment_table}
+                WHERE tenant_id = :tenant_id
+                  AND COALESCE(is_active, true) = true
+                  AND staff_id <> :staff_id
+            )
+            SELECT COUNT(1)
+            FROM lost_slots ls
+            LEFT JOIN covered_slots cs
+              ON cs.subject_id = ls.subject_id
+             AND cs.class_code = ls.class_code
+            WHERE cs.subject_id IS NULL
+            """
+        ),
+        {"tenant_id": str(tenant_id), "staff_id": str(staff_id)},
+    ).scalar()
+    unresolved_count = int(count_row or 0)
+    if unresolved_count <= 0:
+        return 0, []
+
+    if subject_table:
+        preview_rows = db.execute(
+            sa.text(
+                f"""
+                WITH lost_slots AS (
+                    SELECT DISTINCT subject_id, UPPER(class_code) AS class_code
+                    FROM {assignment_table}
+                    WHERE tenant_id = :tenant_id
+                      AND staff_id = :staff_id
+                ),
+                covered_slots AS (
+                    SELECT DISTINCT subject_id, UPPER(class_code) AS class_code
+                    FROM {assignment_table}
+                    WHERE tenant_id = :tenant_id
+                      AND COALESCE(is_active, true) = true
+                      AND staff_id <> :staff_id
+                )
+                SELECT ls.class_code, sub.code AS subject_code
+                FROM lost_slots ls
+                LEFT JOIN covered_slots cs
+                  ON cs.subject_id = ls.subject_id
+                 AND cs.class_code = ls.class_code
+                LEFT JOIN {subject_table} sub ON sub.id = ls.subject_id
+                WHERE cs.subject_id IS NULL
+                ORDER BY ls.class_code ASC, COALESCE(sub.code, '') ASC
+                LIMIT 4
+                """
+            ),
+            {"tenant_id": str(tenant_id), "staff_id": str(staff_id)},
+        ).mappings().all()
+    else:
+        preview_rows = db.execute(
+            sa.text(
+                f"""
+                WITH lost_slots AS (
+                    SELECT DISTINCT subject_id, UPPER(class_code) AS class_code
+                    FROM {assignment_table}
+                    WHERE tenant_id = :tenant_id
+                      AND staff_id = :staff_id
+                ),
+                covered_slots AS (
+                    SELECT DISTINCT subject_id, UPPER(class_code) AS class_code
+                    FROM {assignment_table}
+                    WHERE tenant_id = :tenant_id
+                      AND COALESCE(is_active, true) = true
+                      AND staff_id <> :staff_id
+                )
+                SELECT ls.class_code, CAST(NULL AS TEXT) AS subject_code
+                FROM lost_slots ls
+                LEFT JOIN covered_slots cs
+                  ON cs.subject_id = ls.subject_id
+                 AND cs.class_code = ls.class_code
+                WHERE cs.subject_id IS NULL
+                ORDER BY ls.class_code ASC
+                LIMIT 4
+                """
+            ),
+            {"tenant_id": str(tenant_id), "staff_id": str(staff_id)},
+        ).mappings().all()
+
+    preview = []
+    for row in preview_rows[:3]:
+        class_code = str(row.get("class_code") or "").strip()
+        subject_code = str(row.get("subject_code") or "").strip()
+        if subject_code and class_code:
+            preview.append(f"{subject_code} · {class_code}")
+        elif class_code:
+            preview.append(f"Class {class_code}")
+        elif subject_code:
+            preview.append(subject_code)
+    return unresolved_count, preview
+
+
+def _list_separated_teacher_notifications(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    limit: int,
+    offset: int,
+) -> list[TenantNotificationOut]:
+    staff_ref, staff_cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_STAFF_TABLE_CANDIDATES,
+    )
+    if not staff_ref:
+        return []
+
+    if "separation_status" not in staff_cols:
+        return []
+
+    sep_reason_expr = (
+        "s.separation_reason"
+        if "separation_reason" in staff_cols
+        else "CAST(NULL AS TEXT) AS separation_reason"
+    )
+    sep_date_expr = (
+        "CAST(s.separation_date AS TEXT) AS separation_date"
+        if "separation_date" in staff_cols
+        else "CAST(NULL AS TEXT) AS separation_date"
+    )
+    updated_at_expr = (
+        "CAST(s.updated_at AS TEXT) AS updated_at"
+        if "updated_at" in staff_cols
+        else "CAST(NULL AS TEXT) AS updated_at"
+    )
+    created_at_expr = (
+        "CAST(s.created_at AS TEXT) AS created_at"
+        if "created_at" in staff_cols
+        else "CAST(NULL AS TEXT) AS created_at"
+    )
+
+    rows = db.execute(
+        sa.text(
+            f"""
+            SELECT
+                CAST(s.id AS TEXT) AS id,
+                s.staff_no,
+                s.first_name,
+                s.last_name,
+                UPPER(COALESCE(s.separation_status, '')) AS separation_status,
+                {sep_reason_expr},
+                {sep_date_expr},
+                {updated_at_expr},
+                {created_at_expr}
+            FROM {staff_ref} s
+            WHERE s.tenant_id = :tenant_id
+              AND UPPER(COALESCE(s.staff_type, '')) IN ('TEACHING', 'TEACHER', 'LECTURER')
+              AND UPPER(COALESCE(s.separation_status, '')) IN ('FIRED_MISCONDUCT', 'LEFT_PERMANENTLY')
+            ORDER BY COALESCE(s.updated_at, s.created_at) DESC, s.staff_no ASC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        {
+            "tenant_id": str(tenant_id),
+            "limit": int(limit),
+            "offset": int(offset),
+        },
+    ).mappings().all()
+
+    assignment_ref, _ = _resolve_existing_table(
+        db,
+        candidates=TEACHER_ASSIGNMENT_TABLE_CANDIDATES,
+    )
+    subject_ref, _ = _resolve_existing_table(
+        db,
+        candidates=TENANT_SUBJECT_TABLE_CANDIDATES,
+    )
+
+    notifications: list[TenantNotificationOut] = []
+    for row in rows:
+        staff_id = str(row.get("id") or "")
+        if not staff_id:
+            continue
+
+        unresolved_count = 0
+        unresolved_preview: list[str] = []
+        if assignment_ref:
+            unresolved_count, unresolved_preview = _teacher_unfilled_assignment_slots_for_staff(
+                db,
+                tenant_id=tenant_id,
+                staff_id=staff_id,
+                assignment_table=assignment_ref,
+                subject_table=subject_ref,
+            )
+            # When assignment storage exists, notify only when there are uncovered slots.
+            if unresolved_count <= 0:
+                continue
+
+        staff_no = str(row.get("staff_no") or "").strip()
+        staff_name = _staff_full_name(row.get("first_name"), row.get("last_name"))
+        sep_status = str(row.get("separation_status") or "").upper()
+        sep_reason = _text_or_none(row.get("separation_reason"))
+        sep_date = _text_or_none(row.get("separation_date"))
+        created_at = (
+            sep_date
+            or _text_or_none(row.get("updated_at"))
+            or _text_or_none(row.get("created_at"))
+            or datetime.now(timezone.utc).isoformat()
+        )
+
+        if sep_status == "FIRED_MISCONDUCT":
+            title = f"Teacher fired · {staff_no or staff_name}"
+            status_text = "was fired due to misconduct"
+            severity = "error"
+        else:
+            title = f"Teacher left school · {staff_no or staff_name}"
+            status_text = "left school permanently"
+            severity = "warning"
+
+        message_parts = [f"{staff_name} ({staff_no or 'no staff number'}) {status_text}."]
+        if unresolved_count > 0:
+            message_parts.append(
+                f"{unresolved_count} subject/class assignment slot(s) need reassignment."
+            )
+        if unresolved_preview:
+            message_parts.append(
+                "Action now: reassign " + ", ".join(unresolved_preview)
+                + (" and others." if unresolved_count > len(unresolved_preview) else ".")
+            )
+        if sep_reason:
+            message_parts.append(f"Reason: {sep_reason}.")
+
+        notifications.append(
+            TenantNotificationOut(
+                id=f"teacher-separated-{staff_id}",
+                type="TEACHER_SEPARATED",
+                severity=severity,
+                title=title,
+                message=" ".join(part.strip() for part in message_parts if part.strip()),
+                entity_type="staff",
+                entity_id=staff_id,
+                created_at=created_at,
+                due_at=None,
+                unread=True,
+            )
+        )
+
+    return notifications
+
+
+def _count_separated_teacher_notifications(
+    db: Session,
+    *,
+    tenant_id: UUID,
+) -> int:
+    # One notification per separated teacher with unresolved teaching slots.
+    rows = _list_separated_teacher_notifications(
+        db,
+        tenant_id=tenant_id,
+        limit=1000,
+        offset=0,
+    )
+    return len(rows)
+
+
+def _collect_tenant_notifications(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    limit: int,
+) -> list[TenantNotificationOut]:
+    fetch_limit = max(50, min(2000, int(limit)))
+    notifications = _list_overdue_asset_notifications(
+        db,
+        tenant_id=tenant_id,
+        limit=fetch_limit,
+        offset=0,
+    ) + _list_separated_teacher_notifications(
+        db,
+        tenant_id=tenant_id,
+        limit=fetch_limit,
+        offset=0,
+    )
+    notifications.sort(
+        key=lambda n: (
+            str(n.created_at or ""),
+            str(n.id or ""),
+        ),
+        reverse=True,
+    )
+    return notifications
+
+
+def _read_notification_ids_for_user(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    notification_ids: list[str],
+) -> set[str]:
+    ids = [str(nid).strip() for nid in notification_ids if str(nid).strip()]
+    if not ids:
+        return set()
+
+    table_ref, cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_NOTIFICATION_READ_TABLE_CANDIDATES,
+    )
+    if not table_ref:
+        return set()
+
+    deleted_filter = "AND deleted_at IS NULL" if "deleted_at" in cols else ""
+    stmt = sa.text(
+        f"""
+        SELECT notification_id
+        FROM {table_ref}
+        WHERE tenant_id = :tenant_id
+          AND user_id = :user_id
+          AND notification_id IN :notification_ids
+          {deleted_filter}
+        """
+    ).bindparams(sa.bindparam("notification_ids", expanding=True))
+
+    rows = db.execute(
+        stmt,
+        {
+            "tenant_id": str(tenant_id),
+            "user_id": str(user_id),
+            "notification_ids": ids,
+        },
+    ).all()
+    return {str(row[0]) for row in rows if row and row[0] is not None}
+
+
+def _read_deleted_notification_ids_for_user(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    notification_ids: list[str],
+) -> set[str]:
+    ids = [str(nid).strip() for nid in notification_ids if str(nid).strip()]
+    if not ids:
+        return set()
+
+    table_ref, cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_NOTIFICATION_READ_TABLE_CANDIDATES,
+    )
+    if not table_ref or "deleted_at" not in cols:
+        return set()
+
+    stmt = sa.text(
+        f"""
+        SELECT notification_id
+        FROM {table_ref}
+        WHERE tenant_id = :tenant_id
+          AND user_id = :user_id
+          AND notification_id IN :notification_ids
+          AND deleted_at IS NOT NULL
+        """
+    ).bindparams(sa.bindparam("notification_ids", expanding=True))
+
+    rows = db.execute(
+        stmt,
+        {
+            "tenant_id": str(tenant_id),
+            "user_id": str(user_id),
+            "notification_ids": ids,
+        },
+    ).all()
+    return {str(row[0]) for row in rows if row and row[0] is not None}
+
+
+def _apply_notification_read_state(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    notifications: list[TenantNotificationOut],
+) -> list[TenantNotificationOut]:
+    notification_ids = [str(n.id) for n in notifications if getattr(n, "id", None)]
+    deleted_ids = _read_deleted_notification_ids_for_user(
+        db,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        notification_ids=notification_ids,
+    )
+    read_ids = _read_notification_ids_for_user(
+        db,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        notification_ids=notification_ids,
+    )
+    visible_notifications: list[TenantNotificationOut] = []
+    for notification in notifications:
+        notification_id = str(notification.id)
+        if notification_id in deleted_ids:
+            continue
+        notification.unread = notification_id not in read_ids
+        visible_notifications.append(notification)
+    return visible_notifications
+
+
+def _mark_notification_read(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    notification_id: str,
+) -> bool:
+    table_ref, cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_NOTIFICATION_READ_TABLE_CANDIDATES,
+    )
+    if not table_ref:
+        return False
+
+    if "deleted_at" in cols:
+        on_conflict_sql = (
+            "DO UPDATE SET read_at = EXCLUDED.read_at "
+            f"WHERE {table_ref}.deleted_at IS NULL"
+        )
+    else:
+        on_conflict_sql = "DO UPDATE SET read_at = EXCLUDED.read_at"
+
+    db.execute(
+        sa.text(
+            f"""
+            INSERT INTO {table_ref} (
+                tenant_id, user_id, notification_id, read_at, created_at
+            )
+            VALUES (
+                :tenant_id, :user_id, :notification_id, now(), now()
+            )
+            ON CONFLICT (tenant_id, user_id, notification_id)
+            {on_conflict_sql}
+            """
+        ),
+        {
+            "tenant_id": str(tenant_id),
+            "user_id": str(user_id),
+            "notification_id": str(notification_id),
+        },
+    )
+    return True
+
+
+def _mark_notifications_read_bulk(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    notification_ids: list[str],
+) -> int:
+    ids = sorted({str(nid).strip() for nid in notification_ids if str(nid).strip()})
+    if not ids:
+        return 0
+
+    table_ref, cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_NOTIFICATION_READ_TABLE_CANDIDATES,
+    )
+    if not table_ref:
+        return 0
+
+    if "deleted_at" in cols:
+        on_conflict_sql = (
+            "DO UPDATE SET read_at = EXCLUDED.read_at "
+            f"WHERE {table_ref}.deleted_at IS NULL"
+        )
+    else:
+        on_conflict_sql = "DO UPDATE SET read_at = EXCLUDED.read_at"
+
+    db.execute(
+        sa.text(
+            f"""
+            INSERT INTO {table_ref} (
+                tenant_id, user_id, notification_id, read_at, created_at
+            )
+            VALUES (
+                :tenant_id, :user_id, :notification_id, now(), now()
+            )
+            ON CONFLICT (tenant_id, user_id, notification_id)
+            {on_conflict_sql}
+            """
+        ),
+        [
+            {
+                "tenant_id": str(tenant_id),
+                "user_id": str(user_id),
+                "notification_id": nid,
+            }
+            for nid in ids
+        ],
+    )
+    return len(ids)
+
+
+def _delete_notification_for_user(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    notification_id: str,
+) -> bool:
+    table_ref, cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_NOTIFICATION_READ_TABLE_CANDIDATES,
+    )
+    if not table_ref or "deleted_at" not in cols:
+        return False
+
+    db.execute(
+        sa.text(
+            f"""
+            INSERT INTO {table_ref} (
+                tenant_id, user_id, notification_id, read_at, deleted_at, created_at
+            )
+            VALUES (
+                :tenant_id, :user_id, :notification_id, now(), now(), now()
+            )
+            ON CONFLICT (tenant_id, user_id, notification_id)
+            DO UPDATE SET deleted_at = now()
+            """
+        ),
+        {
+            "tenant_id": str(tenant_id),
+            "user_id": str(user_id),
+            "notification_id": str(notification_id),
+        },
+    )
+    return True
+
+
+@router.post(
+    "/notifications/{notification_id}/read",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_notification_mark_read(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    cleaned_id = str(notification_id or "").strip()
+    if not cleaned_id:
+        raise HTTPException(status_code=400, detail="notification_id is required")
+    if len(cleaned_id) > 255:
+        raise HTTPException(status_code=400, detail="notification_id is too long")
+
+    user_id = _parse_uuid(getattr(_user, "id", None), field="current_user.id")
+    marked = _mark_notification_read(
+        db,
+        tenant_id=tenant.id,
+        user_id=user_id,
+        notification_id=cleaned_id,
+    )
+    if not marked:
+        raise HTTPException(
+            status_code=503,
+            detail="Notification read storage is not configured. Run database migrations.",
+        )
+    db.commit()
+    return {"ok": True, "notification_id": cleaned_id}
+
+
+@router.post(
+    "/notifications/{notification_id}/delete",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_notification_delete(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    cleaned_id = str(notification_id or "").strip()
+    if not cleaned_id:
+        raise HTTPException(status_code=400, detail="notification_id is required")
+    if len(cleaned_id) > 255:
+        raise HTTPException(status_code=400, detail="notification_id is too long")
+
+    user_id = _parse_uuid(getattr(_user, "id", None), field="current_user.id")
+    deleted = _delete_notification_for_user(
+        db,
+        tenant_id=tenant.id,
+        user_id=user_id,
+        notification_id=cleaned_id,
+    )
+    if not deleted:
+        raise HTTPException(
+            status_code=503,
+            detail="Notification delete storage is not configured. Run database migrations.",
+        )
+    db.commit()
+    return {"ok": True, "notification_id": cleaned_id}
+
+
+@router.post(
+    "/notifications/mark-all-read",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_notifications_mark_all_read(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    user_id = _parse_uuid(getattr(_user, "id", None), field="current_user.id")
+    notifications = _collect_tenant_notifications(
+        db,
+        tenant_id=tenant.id,
+        limit=2000,
+    )
+    notifications = _apply_notification_read_state(
+        db,
+        tenant_id=tenant.id,
+        user_id=user_id,
+        notifications=notifications,
+    )
+    marked_count = _mark_notifications_read_bulk(
+        db,
+        tenant_id=tenant.id,
+        user_id=user_id,
+        notification_ids=[str(n.id) for n in notifications],
+    )
+    if notifications and marked_count == 0:
+        raise HTTPException(
+            status_code=503,
+            detail="Notification read storage is not configured. Run database migrations.",
+        )
+    db.commit()
+    return {"ok": True, "marked_count": int(marked_count)}
+
+
+@router.get(
+    "/notifications",
+    response_model=list[TenantNotificationOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_notifications(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    user_id = _parse_uuid(getattr(_user, "id", None), field="current_user.id")
+    notifications = _collect_tenant_notifications(
+        db,
+        tenant_id=tenant.id,
+        limit=int(limit) + int(offset) + 100,
+    )
+    notifications = _apply_notification_read_state(
+        db,
+        tenant_id=tenant.id,
+        user_id=user_id,
+        notifications=notifications,
+    )
+    start = int(offset)
+    end = start + int(limit)
+    return notifications[start:end]
+
+
+@router.get(
+    "/notifications/unread-count",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_notifications_unread_count(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    user_id = _parse_uuid(getattr(_user, "id", None), field="current_user.id")
+    notifications = _collect_tenant_notifications(
+        db,
+        tenant_id=tenant.id,
+        limit=2000,
+    )
+    notifications = _apply_notification_read_state(
+        db,
+        tenant_id=tenant.id,
+        user_id=user_id,
+        notifications=notifications,
+    )
+    unread_count = sum(1 for notification in notifications if bool(notification.unread))
+    return {"unread_count": int(unread_count)}
 
 
 # ---------------------------------------------------------------------
@@ -938,16 +6921,12 @@ def assign_user_role(
     _ensure_user_in_tenant(db, tenant_id=tenant.id, user_id=user_id)
 
     role_code = payload.role_code.strip().upper()
+    _ensure_director_assignable_role(role_code)
     r = _get_role_by_code(db, tenant_id=tenant.id, role_code=role_code)
     if not r:
         raise HTTPException(status_code=404, detail="Role not found")
 
-    if r.code == "SUPER_ADMIN" and (r.tenant_id is None):
-        raise HTTPException(status_code=403, detail="SUPER_ADMIN role can only be managed by SaaS operator")
-
     assign_scope_tenant_id = tenant.id
-    if r.tenant_id is None and r.code == "SUPER_ADMIN":
-        assign_scope_tenant_id = None
 
     exists = db.execute(
         select(UserRole).where(
@@ -988,12 +6967,10 @@ def remove_user_role(
     _ensure_user_in_tenant(db, tenant_id=tenant.id, user_id=user_id)
 
     code = role_code.strip().upper()
+    _ensure_director_assignable_role(code)
     r = _get_role_by_code(db, tenant_id=tenant.id, role_code=code)
     if not r:
         raise HTTPException(status_code=404, detail="Role not found")
-
-    if r.code == "SUPER_ADMIN" and r.tenant_id is None:
-        raise HTTPException(status_code=403, detail="SUPER_ADMIN role can only be managed by SaaS operator")
 
     db.execute(
         sa.delete(UserRole).where(
@@ -1214,6 +7191,27 @@ def secretary_finance(
     from app.api.v1.finance import service as finance_service
 
     perms = _request_permissions(request)
+    can_admin_view_tenant = "admin.dashboard.view_tenant" in perms
+    can_view_policy = can_admin_view_tenant or "finance.policy.view" in perms
+    can_view_invoices = can_admin_view_tenant or "finance.invoices.view" in perms
+    can_manage_invoices = can_admin_view_tenant or "finance.invoices.manage" in perms
+    can_view_fees = (
+        can_admin_view_tenant
+        or "finance.fees.view" in perms
+        or "finance.invoices.view" in perms
+        or "finance.invoices.manage" in perms
+    )
+    can_view_scholarships = can_admin_view_tenant or "finance.scholarships.view" in perms
+    can_view_payments = can_admin_view_tenant or "finance.payments.view" in perms
+    can_manage_payments = can_admin_view_tenant or "finance.payments.manage" in perms
+    can_view_enrollments = (
+        can_admin_view_tenant
+        or "enrollment.manage" in perms
+        or can_view_invoices
+        or can_manage_invoices
+        or can_view_payments
+        or can_manage_payments
+    )
 
     policy: dict | None = None
     invoices: list[dict] = []
@@ -1221,6 +7219,7 @@ def secretary_finance(
     fee_items: list[dict] = []
     fee_structures: list[dict] = []
     fee_structure_items: dict[str, list[dict]] = {}
+    structure_policies: list[dict] = []
     scholarships: list[dict] = []
     enrollments: list[dict] = []
     payments: list[dict] = []
@@ -1232,12 +7231,13 @@ def secretary_finance(
         "fee_items": False,
         "fee_structures": False,
         "fee_structure_items": False,
+        "structure_policies": False,
         "scholarships": False,
         "enrollments": False,
         "payments": False,
     }
 
-    if "finance.policy.view" in perms:
+    if can_view_policy:
         try:
             row = finance_service.get_or_create_policy(db, tenant_id=tenant.id)
             db.commit()
@@ -1246,7 +7246,17 @@ def secretary_finance(
         except Exception:
             policy = None
 
-    if "finance.invoices.view" in perms:
+        try:
+            rows = finance_service.list_fee_structure_policies(
+                db,
+                tenant_id=tenant.id,
+            )
+            structure_policies = [_serialize_structure_policy(r) for r in rows]
+            health["structure_policies"] = True
+        except Exception:
+            structure_policies = []
+
+    if can_view_invoices:
         try:
             rows = finance_service.list_invoices(db, tenant_id=tenant.id)
             invoices = [_serialize_invoice(r) for r in rows]
@@ -1254,7 +7264,7 @@ def secretary_finance(
         except Exception:
             invoices = []
 
-    if "finance.fees.view" in perms:
+    if can_view_fees:
         try:
             rows = finance_service.list_fee_categories(db, tenant_id=tenant.id)
             fee_categories = [_serialize_fee_category(r) for r in rows]
@@ -1270,60 +7280,100 @@ def secretary_finance(
             fee_items = []
 
         structure_rows: list[Any] = []
+        loaded_structures_via_service = False
         try:
             structure_rows = finance_service.list_fee_structures(db, tenant_id=tenant.id)
             fee_structures = [_serialize_fee_structure(r) for r in structure_rows]
             health["fee_structures"] = True
+            loaded_structures_via_service = True
         except Exception:
-            fee_structures = []
+            db.rollback()
+            fee_structures, fallback_ok = _list_fee_structures_fallback(
+                db,
+                tenant_id=tenant.id,
+            )
+            health["fee_structures"] = fallback_ok
             structure_rows = []
 
         if health["fee_structures"]:
             items_ok = True
-            for structure in structure_rows:
-                sid = str(getattr(structure, "id"))
-                try:
-                    _, items = finance_service.get_structure_with_items(
+            if loaded_structures_via_service:
+                for structure in structure_rows:
+                    sid = str(getattr(structure, "id"))
+                    try:
+                        _, items = finance_service.get_structure_with_items(
+                            db,
+                            tenant_id=tenant.id,
+                            structure_id=getattr(structure, "id"),
+                        )
+                        fee_structure_items[sid] = [_serialize_structure_item(i) for i in items]
+                    except Exception:
+                        items_ok = False
+                        fee_structure_items[sid] = []
+
+                if not items_ok:
+                    fallback_items, fallback_items_ok = _list_fee_structure_items_fallback(
                         db,
                         tenant_id=tenant.id,
-                        structure_id=getattr(structure, "id"),
                     )
-                    fee_structure_items[sid] = [_serialize_structure_item(i) for i in items]
-                except Exception:
-                    items_ok = False
+                    if fallback_items_ok:
+                        fee_structure_items = fallback_items
+                        items_ok = True
+            else:
+                fallback_items, fallback_items_ok = _list_fee_structure_items_fallback(
+                    db,
+                    tenant_id=tenant.id,
+                )
+                fee_structure_items = fallback_items if fallback_items_ok else {}
+                items_ok = fallback_items_ok
+
+            for structure in fee_structures:
+                sid = str(structure.get("id") or "")
+                if sid and sid not in fee_structure_items:
                     fee_structure_items[sid] = []
+
             health["fee_structure_items"] = items_ok
 
-    if "finance.scholarships.view" in perms:
+    if can_view_scholarships:
         try:
             rows = finance_service.list_scholarships(db, tenant_id=tenant.id)
-            scholarships = [_serialize_scholarship(r) for r in rows]
+            usage_map = finance_service.scholarship_usage_map(
+                db,
+                tenant_id=tenant.id,
+                scholarship_ids=[getattr(r, "id") for r in rows] if rows else None,
+            )
+            scholarships = [
+                _serialize_scholarship(
+                    r,
+                    allocated_amount=usage_map.get(getattr(r, "id"), Decimal("0")),
+                )
+                for r in rows
+            ]
             health["scholarships"] = True
         except Exception:
             scholarships = []
 
-    if "enrollment.manage" in perms:
+    if can_view_enrollments:
         try:
-            from app.models.enrollment import Enrollment  # type: ignore
-
-            rows = db.execute(
-                select(Enrollment)
-                .where(Enrollment.tenant_id == tenant.id)
-                .order_by(Enrollment.created_at.desc())
-            ).scalars().all()
-            enrollments = [
-                {
-                    "id": str(getattr(r, "id")),
-                    "status": str(getattr(r, "status", "") or ""),
-                    "payload": getattr(r, "payload", None),
-                }
-                for r in rows
-            ]
-            health["enrollments"] = True
+            enrollments, ok = _list_tenant_enrollments_for_finance(
+                db,
+                tenant_id=tenant.id,
+                limit=500,
+            )
+            health["enrollments"] = ok
         except Exception:
-            enrollments = []
+            db.rollback()
+            try:
+                enrollments, ok = _list_tenant_enrollments_for_finance(
+                    db,
+                    tenant_id=tenant.id,
+                    limit=500,
+                )
+                health["enrollments"] = ok
+            except Exception:
+                enrollments = []
 
-    if "finance.payments.view" in perms:
+    if can_view_payments:
         try:
             rows = finance_service.list_payments(db, tenant_id=tenant.id)
             payments = [_serialize_payment(r) for r in rows if isinstance(r, dict)]
@@ -1338,6 +7388,7 @@ def secretary_finance(
         "fee_items": fee_items,
         "fee_structures": fee_structures,
         "fee_structure_items": fee_structure_items,
+        "structure_policies": structure_policies,
         "scholarships": scholarships,
         "enrollments": enrollments,
         "payments": payments,
@@ -1460,13 +7511,27 @@ def secretary_finance_action(
             class_code = str(payload.get("class_code") or "").strip()
             if not class_code:
                 raise HTTPException(status_code=400, detail="payload.class_code is required")
+            term_code_raw = payload.get("term_code")
+            term_code = str(term_code_raw).strip() if term_code_raw not in (None, "") else None
 
             scholarship_raw = payload.get("scholarship_id")
             scholarship_id = None
+            scholarship_amount = None
+            scholarship_reason = None
             if scholarship_raw not in (None, ""):
                 scholarship_id = _parse_uuid(
                     scholarship_raw,
                     field="payload.scholarship_id",
+                )
+                scholarship_amount = _parse_decimal(
+                    payload.get("scholarship_amount"),
+                    field="payload.scholarship_amount",
+                )
+                scholarship_reason_raw = payload.get("scholarship_reason")
+                scholarship_reason = (
+                    str(scholarship_reason_raw).strip()
+                    if scholarship_reason_raw not in (None, "")
+                    else None
                 )
 
             row = finance_service.generate_school_fees_invoice_from_structure(
@@ -1475,7 +7540,10 @@ def secretary_finance_action(
                 actor_user_id=user.id,
                 enrollment_id=enrollment_id,
                 class_code=class_code,
+                term_code=term_code,
                 scholarship_id=scholarship_id,
+                scholarship_amount=scholarship_amount,
+                scholarship_reason=scholarship_reason,
             )
             db.commit()
             db.refresh(row)
@@ -1573,6 +7641,7 @@ def secretary_finance_action(
                 tenant_id=tenant.id,
                 actor_user_id=user.id,
                 class_code=str(payload.get("class_code") or ""),
+                term_code=str(payload.get("term_code") or "GENERAL"),
                 name=str(payload.get("name") or ""),
                 is_active=bool(payload.get("is_active", True)),
             )
@@ -1773,8 +7842,123 @@ def director_finance_policy_update(
 
 
 @router.get(
+    "/director/finance/policy/structure",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "finance.policy.view"))],
+)
+def director_finance_structure_policy_list(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    fee_structure_id: UUID | None = Query(default=None),
+):
+    from app.api.v1.finance import service as finance_service
+
+    rows = finance_service.list_fee_structure_policies(
+        db,
+        tenant_id=tenant.id,
+        fee_structure_id=fee_structure_id,
+    )
+    return [_serialize_structure_policy(r) for r in rows]
+
+
+@router.put(
+    "/director/finance/policy/structure",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "finance.policy.manage"))],
+)
+def director_finance_structure_policy_upsert(
+    payload: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload must be an object")
+
+    fee_structure_id = _parse_uuid(
+        payload.get("fee_structure_id"),
+        field="payload.fee_structure_id",
+    )
+    fee_item_raw = payload.get("fee_item_id")
+    fee_item_id = (
+        _parse_uuid(fee_item_raw, field="payload.fee_item_id")
+        if fee_item_raw not in (None, "")
+        else None
+    )
+
+    min_percent_raw = payload.get("min_percent_to_enroll")
+    min_percent = None
+    if min_percent_raw not in (None, ""):
+        try:
+            min_percent = int(min_percent_raw)
+        except Exception:
+            raise HTTPException(status_code=400, detail="payload.min_percent_to_enroll must be an integer")
+        if min_percent < 0 or min_percent > 100:
+            raise HTTPException(status_code=400, detail="payload.min_percent_to_enroll must be between 0 and 100")
+
+    min_amount_raw = payload.get("min_amount_to_enroll")
+    min_amount = (
+        _parse_decimal(min_amount_raw, field="payload.min_amount_to_enroll")
+        if min_amount_raw not in (None, "")
+        else None
+    )
+
+    from app.api.v1.finance import service as finance_service
+
+    row = finance_service.upsert_fee_structure_policy(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        fee_structure_id=fee_structure_id,
+        fee_item_id=fee_item_id,
+        allow_partial_enrollment=bool(payload.get("allow_partial_enrollment", False)),
+        min_percent_to_enroll=min_percent,
+        min_amount_to_enroll=min_amount,
+    )
+    db.commit()
+    db.refresh(row)
+    return _serialize_structure_policy(row)
+
+
+@router.delete(
+    "/director/finance/policy/structure",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "finance.policy.manage"))],
+)
+def director_finance_structure_policy_delete(
+    payload: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload must be an object")
+
+    fee_structure_id = _parse_uuid(
+        payload.get("fee_structure_id"),
+        field="payload.fee_structure_id",
+    )
+    fee_item_raw = payload.get("fee_item_id")
+    fee_item_id = (
+        _parse_uuid(fee_item_raw, field="payload.fee_item_id")
+        if fee_item_raw not in (None, "")
+        else None
+    )
+
+    from app.api.v1.finance import service as finance_service
+
+    finance_service.delete_fee_structure_policy(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        fee_structure_id=fee_structure_id,
+        fee_item_id=fee_item_id,
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@router.get(
     "/director/users",
-    response_model=list[SecretaryUserOut],
+    response_model=list[DirectorUserOut],
     dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "users.manage"))],
 )
 def director_users(
@@ -1784,7 +7968,385 @@ def director_users(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):
-    return secretary_users(db=db, tenant=tenant, _user=_user, limit=limit, offset=offset)
+    users_rows = db.execute(
+        select(User.id, User.email, User.full_name, User.is_active)
+        .select_from(UserTenant)
+        .join(User, User.id == UserTenant.user_id)
+        .where(
+            UserTenant.tenant_id == tenant.id,
+            UserTenant.is_active == True,
+        )
+        .order_by(User.email.asc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+
+    user_ids = [row[0] for row in users_rows]
+    role_map: dict[UUID, list[str]] = {uid: [] for uid in user_ids}
+    if user_ids:
+        role_rows = db.execute(
+            select(UserRole.user_id, Role.code)
+            .select_from(UserRole)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(
+                UserRole.tenant_id == tenant.id,
+                UserRole.user_id.in_(user_ids),
+            )
+            .order_by(Role.code.asc())
+        ).all()
+        for user_id, role_code in role_rows:
+            if role_code is None:
+                continue
+            code = str(role_code).strip().upper()
+            if _is_restricted_tenant_role_code(code):
+                continue
+            role_map.setdefault(user_id, []).append(code)
+
+    return [
+        DirectorUserOut(
+            id=str(user_id),
+            email=str(email),
+            full_name=(str(full_name) if full_name else None),
+            is_active=bool(is_active),
+            roles=role_map.get(user_id, []),
+        )
+        for user_id, email, full_name, is_active in users_rows
+    ]
+
+
+@router.get(
+    "/director/roles",
+    response_model=dict[str, list[DirectorRoleOut]],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "rbac.roles.manage"))],
+)
+def director_roles(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    roles = db.execute(
+        select(Role)
+        .where(
+            sa.or_(Role.tenant_id.is_(None), Role.tenant_id == tenant.id),
+            sa.func.upper(Role.code) != "SUPER_ADMIN",
+        )
+        .order_by(Role.code.asc(), Role.name.asc())
+    ).scalars().all()
+    payload = [
+        DirectorRoleOut(
+            id=str(role.id),
+            code=str(role.code),
+            name=str(role.name),
+            description=(str(role.description) if role.description is not None else None),
+        ).model_dump()
+        for role in roles
+    ]
+    return {"roles": payload}
+
+
+@router.get(
+    "/director/users/staff-candidates",
+    response_model=list[DirectorStaffCandidateOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "users.manage"))],
+)
+def director_user_staff_candidates(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    table_name, cols = _resolve_existing_table(db, candidates=TENANT_STAFF_TABLE_CANDIDATES)
+    if not table_name:
+        return []
+
+    role_code_expr = (
+        "s.role_code"
+        if "role_code" in cols
+        else "CAST(NULL AS TEXT) AS role_code"
+    )
+    sep_status_expr = (
+        "s.separation_status"
+        if "separation_status" in cols
+        else "CAST(NULL AS TEXT) AS separation_status"
+    )
+
+    rows = db.execute(
+        sa.text(
+            f"""
+            SELECT
+                s.id AS staff_id,
+                s.staff_no,
+                s.staff_type,
+                {role_code_expr},
+                s.first_name,
+                s.last_name,
+                s.email,
+                COALESCE(s.is_active, true) AS is_active,
+                {sep_status_expr},
+                u.id AS user_id,
+                CASE WHEN ut.user_id IS NULL THEN false ELSE true END AS has_account
+            FROM {table_name} s
+            LEFT JOIN core.users u
+              ON LOWER(u.email) = LOWER(s.email)
+            LEFT JOIN core.user_tenants ut
+              ON ut.user_id = u.id
+             AND ut.tenant_id = :tenant_id
+             AND ut.is_active = true
+            WHERE s.tenant_id = :tenant_id
+              AND COALESCE(s.is_active, true) = true
+              AND s.email IS NOT NULL
+              AND BTRIM(s.email) <> ''
+            ORDER BY s.last_name ASC, s.first_name ASC, s.staff_no ASC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        {"tenant_id": str(tenant.id), "limit": int(limit), "offset": int(offset)},
+    ).mappings().all()
+
+    payload: list[DirectorStaffCandidateOut] = []
+    for row in rows:
+        separation_status = _text_or_none(row.get("separation_status"), upper=True)
+        if separation_status in {"FIRED_MISCONDUCT", "LEFT_PERMANENTLY"}:
+            continue
+
+        role_code = _text_or_none(row.get("role_code"), upper=True)
+        if role_code and _is_restricted_tenant_role_code(role_code):
+            role_code = None
+
+        first_name = _text_or_none(row.get("first_name")) or ""
+        last_name = _text_or_none(row.get("last_name")) or ""
+        full_name = _staff_full_name(first_name, last_name)
+        email = _normalized_email(row.get("email"))
+        if not email:
+            continue
+
+        payload.append(
+            DirectorStaffCandidateOut(
+                staff_id=str(row.get("staff_id") or ""),
+                staff_no=str(row.get("staff_no") or ""),
+                full_name=full_name,
+                email=email,
+                staff_type=str(row.get("staff_type") or ""),
+                role_code=role_code,
+                has_account=bool(row.get("has_account", False)),
+                user_id=(str(row.get("user_id")) if row.get("user_id") else None),
+            )
+        )
+    return payload
+
+
+@router.post(
+    "/director/users/credentials",
+    response_model=DirectorUserCredentialOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "users.manage"))],
+)
+def director_user_credentials_create_or_reset(
+    payload: DirectorUserCredentialIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    password = str(payload.password or "").strip()
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="password must be at least 8 characters")
+    if not any(ch.isalpha() for ch in password) or not any(ch.isdigit() for ch in password):
+        raise HTTPException(
+            status_code=400,
+            detail="password must include at least one letter and one number",
+        )
+
+    staff_id = _parse_uuid(payload.staff_id, field="payload.staff_id")
+    table_name, cols = _resolve_existing_table(db, candidates=TENANT_STAFF_TABLE_CANDIDATES)
+    if not table_name:
+        raise HTTPException(
+            status_code=503,
+            detail="Staff registry storage is not configured. Run database migrations.",
+        )
+
+    role_code_expr = (
+        "role_code"
+        if "role_code" in cols
+        else "CAST(NULL AS TEXT) AS role_code"
+    )
+    staff_row = db.execute(
+        sa.text(
+            f"""
+            SELECT id, staff_no, staff_type, first_name, last_name, email, phone, {role_code_expr},
+                   COALESCE(is_active, true) AS is_active
+            FROM {table_name}
+            WHERE id = :staff_id AND tenant_id = :tenant_id
+            LIMIT 1
+            """
+        ),
+        {"staff_id": str(staff_id), "tenant_id": str(tenant.id)},
+    ).mappings().first()
+    if not staff_row:
+        raise HTTPException(status_code=404, detail="Staff record not found")
+    if not bool(staff_row.get("is_active", True)):
+        raise HTTPException(status_code=400, detail="Cannot create credentials for inactive staff")
+
+    email = _normalized_email(staff_row.get("email"))
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Staff email is required before creating login credentials",
+        )
+
+    first_name = _text_or_none(staff_row.get("first_name")) or ""
+    last_name = _text_or_none(staff_row.get("last_name")) or ""
+    full_name = _staff_full_name(first_name, last_name)
+    phone = _text_or_none(staff_row.get("phone"))
+
+    requested_role_code = _text_or_none(payload.role_code, upper=True)
+    role_code = requested_role_code
+    if role_code is None:
+        role_code = _text_or_none(staff_row.get("role_code"), upper=True)
+    if role_code is not None and _is_restricted_tenant_role_code(role_code):
+        if requested_role_code is not None:
+            _ensure_director_assignable_role(role_code)
+        role_code = None
+    if role_code is not None:
+        _ensure_director_assignable_role(role_code)
+
+    existing_user = db.execute(
+        select(User).where(sa.func.lower(User.email) == email)
+    ).scalar_one_or_none()
+
+    existing_membership: UserTenant | None = None
+    if existing_user is not None:
+        existing_membership = db.execute(
+            select(UserTenant).where(
+                UserTenant.tenant_id == tenant.id,
+                UserTenant.user_id == existing_user.id,
+            )
+        ).scalar_one_or_none()
+
+        if existing_membership is None:
+            active_other_membership = db.execute(
+                select(UserTenant.id).where(
+                    UserTenant.user_id == existing_user.id,
+                    UserTenant.tenant_id != tenant.id,
+                    UserTenant.is_active == True,
+                )
+                .limit(1)
+            ).first()
+            if active_other_membership:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Email is already used by an account in another tenant. Use a tenant-specific staff email.",
+                )
+
+    created_user = False
+    if existing_user is None:
+        existing_user = User(
+            id=uuid4(),
+            email=email,
+            password_hash=hash_password(password),
+            full_name=full_name or None,
+            phone=phone,
+            is_active=True,
+        )
+        db.add(existing_user)
+        created_user = True
+    else:
+        existing_user.password_hash = hash_password(password)
+        if not existing_user.full_name and full_name:
+            existing_user.full_name = full_name
+        if not existing_user.phone and phone:
+            existing_user.phone = phone
+        existing_user.is_active = True
+
+    db.flush()
+
+    membership = existing_membership
+    membership_created = False
+    if membership is None:
+        db.add(
+            UserTenant(
+                id=uuid4(),
+                tenant_id=tenant.id,
+                user_id=existing_user.id,
+                is_active=True,
+            )
+        )
+        membership_created = True
+    elif not bool(membership.is_active):
+        membership.is_active = True
+
+    role_assigned = False
+    assigned_role_code: str | None = None
+    if role_code:
+        role = _get_role_by_code(db, tenant_id=tenant.id, role_code=role_code)
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+        _ensure_director_assignable_role(str(role.code))
+
+        existing_assignment = db.execute(
+            select(UserRole).where(
+                UserRole.user_id == existing_user.id,
+                UserRole.tenant_id == tenant.id,
+                UserRole.role_id == role.id,
+            )
+        ).scalar_one_or_none()
+        if existing_assignment is None:
+            db.add(
+                UserRole(
+                    id=uuid4(),
+                    tenant_id=tenant.id,
+                    user_id=existing_user.id,
+                    role_id=role.id,
+                )
+            )
+            role_assigned = True
+        assigned_role_code = str(role.code)
+
+    db.commit()
+
+    return DirectorUserCredentialOut(
+        user_id=str(existing_user.id),
+        staff_id=str(staff_row.get("id")),
+        email=str(existing_user.email),
+        full_name=(str(existing_user.full_name) if existing_user.full_name else None),
+        role_code=assigned_role_code,
+        created_user=created_user,
+        updated_password=True,
+        membership_created=membership_created,
+        role_assigned=role_assigned,
+    )
+
+
+@router.post(
+    "/director/users/roles",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "users.manage"))],
+)
+def director_user_role_action(
+    payload: DirectorUserRoleActionIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    user_id = _parse_uuid(payload.user_id, field="payload.user_id")
+    role_code = payload.role_code.strip().upper()
+    _ensure_director_assignable_role(role_code)
+
+    if payload.mode == "assign":
+        assign_user_role(
+            user_id=user_id,
+            payload=UserRoleAssign(role_code=role_code),
+            db=db,
+            tenant=tenant,
+            _user=_user,
+        )
+    else:
+        remove_user_role(
+            user_id=user_id,
+            role_code=role_code,
+            db=db,
+            tenant=tenant,
+            _user=_user,
+        )
+    return {"ok": True}
 
 
 @router.get(

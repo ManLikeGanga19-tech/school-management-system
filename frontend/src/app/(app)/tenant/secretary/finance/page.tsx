@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Bar,
@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -43,7 +44,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
+import { normalizeTerms, type TenantTerm } from "@/lib/school-setup/terms";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -61,6 +64,13 @@ type FeeCategory = {
   is_active: boolean;
 };
 
+type TenantClass = {
+  id: string;
+  code: string;
+  name: string;
+  is_active?: boolean;
+};
+
 type FeeItem = {
   id: string;
   category_id: string;
@@ -72,6 +82,7 @@ type FeeItem = {
 type FeeStructure = {
   id: string;
   class_code: string;
+  term_code?: string;
   name: string;
   is_active: boolean;
 };
@@ -91,6 +102,8 @@ type Scholarship = {
   name: string;
   type: string;
   value: string | number;
+  allocated_amount?: string | number;
+  remaining_amount?: string | number;
   is_active: boolean;
 };
 
@@ -192,6 +205,61 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function asString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeEnrollments(input: unknown): Enrollment[] {
+  if (!Array.isArray(input)) return [];
+
+  const seen = new Set<string>();
+  const rows: Enrollment[] = [];
+
+  for (const value of input) {
+    const obj = asObject(value);
+    if (!obj) continue;
+
+    const id = asString(obj.id);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+
+    rows.push({
+      id,
+      status: asString(obj.status),
+      payload: asObject(obj.payload) || {},
+    });
+  }
+
+  return rows;
+}
+
+function normalizeTenantClasses(input: unknown): TenantClass[] {
+  if (!Array.isArray(input)) return [];
+
+  const byCode = new Map<string, TenantClass>();
+  for (const row of input) {
+    if (!row || typeof row !== "object") continue;
+    const rec = row as Record<string, unknown>;
+    const rawCode = asString(rec.code);
+    if (!rawCode) continue;
+    const code = rawCode.toUpperCase();
+
+    if (!byCode.has(code)) {
+      byCode.set(code, {
+        id: asString(rec.id) || `class-${code.toLowerCase()}`,
+        code,
+        name: asString(rec.name) || code,
+        is_active:
+          typeof rec.is_active === "boolean" ? rec.is_active : true,
+      });
+    }
+  }
+
+  return Array.from(byCode.values()).sort((a, b) =>
+    a.code.localeCompare(b.code)
+  );
+}
+
 function toNumber(value: string | number | null | undefined) {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   if (typeof value === "string") {
@@ -230,10 +298,25 @@ function enrollmentName(payload: Record<string, unknown>) {
     payload.full_name,
     payload.fullName,
     payload.name,
+    payload.applicant_name,
+    payload.learner_name,
+    payload.student,
   ];
   for (const value of options) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const nested = value as Record<string, unknown>;
+      const nestedName = [
+        nested.name,
+        nested.full_name,
+        nested.student_name,
+      ].find((entry) => typeof entry === "string" && entry.trim());
+      if (typeof nestedName === "string") return nestedName;
+    }
     if (typeof value === "string" && value.trim()) return value;
   }
+  const first = typeof payload.first_name === "string" ? payload.first_name.trim() : "";
+  const last = typeof payload.last_name === "string" ? payload.last_name.trim() : "";
+  if (first || last) return `${first} ${last}`.trim();
   return "Unknown student";
 }
 
@@ -252,8 +335,26 @@ function enrollmentClassCode(payload: Record<string, unknown>) {
   return "";
 }
 
+function enrollmentTermCode(payload: Record<string, unknown>) {
+  const options = [
+    payload.admission_term,
+    payload.term_code,
+    payload.termCode,
+    payload.term,
+    payload.academic_term,
+  ];
+  for (const value of options) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function normalizeCode(value: string) {
   return value.trim().toUpperCase().replace(/\s+/g, "_");
+}
+
+function normalizeClassCode(value: string) {
+  return value.trim().toUpperCase();
 }
 
 function round2(value: number) {
@@ -296,7 +397,7 @@ function SectionCard({
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-100 px-6 py-4">
+      <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
         {step !== undefined && stepLabel && (
           <div className="mb-2">
             <StepBadge number={step} label={stepLabel} />
@@ -307,7 +408,7 @@ function SectionCard({
           <p className="mt-0.5 text-sm text-slate-500">{description}</p>
         )}
       </div>
-      <div className="p-6">{children}</div>
+      <div className="p-4 sm:p-6">{children}</div>
     </div>
   );
 }
@@ -451,17 +552,17 @@ function AlertBanner({
 }) {
   return (
     <div
-      className={`flex items-start justify-between rounded-xl px-4 py-3 text-sm ${
+      className={`flex flex-col gap-2 rounded-xl px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between ${
         type === "error"
           ? "border border-red-200 bg-red-50 text-red-800"
           : "border border-emerald-200 bg-emerald-50 text-emerald-800"
       }`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-start gap-2">
         <span>{type === "error" ? "⚠️" : "✅"}</span>
         <span>{message}</span>
       </div>
-      <button onClick={onDismiss} className="ml-4 opacity-60 hover:opacity-100">
+      <button onClick={onDismiss} className="self-end opacity-60 hover:opacity-100 sm:ml-4 sm:self-auto">
         ✕
       </button>
     </div>
@@ -541,6 +642,9 @@ function SecretaryFinancePageContent() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<FinanceAction | null>(null);
+  const [loadingStructureLookups, setLoadingStructureLookups] = useState(true);
+  const [tenantClasses, setTenantClasses] = useState<TenantClass[]>([]);
+  const [tenantTerms, setTenantTerms] = useState<TenantTerm[]>([]);
 
   const [policyForm, setPolicyForm] = useState<FinancePolicy>(DEFAULT_POLICY);
   const [policyDirty, setPolicyDirty] = useState(false);
@@ -558,6 +662,7 @@ function SecretaryFinancePageContent() {
   });
   const [structureForm, setStructureForm] = useState({
     class_code: "",
+    term_code: "",
     name: "",
     is_active: true,
   });
@@ -589,7 +694,10 @@ function SecretaryFinancePageContent() {
   const [feesInvoiceForm, setFeesInvoiceForm] = useState({
     enrollment_id: "",
     class_code: "",
+    term_code: "",
     scholarship_id: "",
+    scholarship_amount: "",
+    scholarship_reason: "",
   });
   const [interviewInvoiceForm, setInterviewInvoiceForm] = useState({
     enrollment_id: "",
@@ -633,10 +741,43 @@ function SecretaryFinancePageContent() {
             FeeStructureItem[]
           >) || {},
         scholarships: asArray<Scholarship>(obj.scholarships),
-        enrollments: asArray<Enrollment>(obj.enrollments),
+        enrollments: normalizeEnrollments(
+          obj.enrollments ??
+            obj.student_enrollments ??
+            obj.enrollment_rows
+        ),
         payments: asArray<Payment>(obj.payments),
         health: (asObject(obj.health) as Record<string, boolean>) || {},
       };
+
+      const hasEnrollmentRefs = incoming.invoices.some((row) => Boolean(row.enrollment_id));
+      if (incoming.enrollments.length === 0 && hasEnrollmentRefs) {
+        try {
+          const fallback = await api.get<unknown>("/enrollments/", {
+            tenantRequired: true,
+            noRedirect: true,
+          });
+          const fallbackRows = normalizeEnrollments(fallback);
+          if (fallbackRows.length > 0) {
+            incoming.enrollments = fallbackRows;
+          }
+        } catch {
+          try {
+            const dashboard = await api.get<unknown>("/tenants/secretary/dashboard", {
+              tenantRequired: true,
+              noRedirect: true,
+            });
+            const dashboardObj = asObject(dashboard);
+            const fallbackRows = normalizeEnrollments(dashboardObj?.enrollments);
+            if (fallbackRows.length > 0) {
+              incoming.enrollments = fallbackRows;
+            }
+          } catch {
+            // best-effort fallback only
+          }
+        }
+      }
+
       setData(incoming);
       setError(null);
 
@@ -651,11 +792,50 @@ function SecretaryFinancePageContent() {
     }
   }
 
+  const loadStructureLookups = useCallback(async () => {
+    setLoadingStructureLookups(true);
+    try {
+      const [classesRes, termsRes] = await Promise.allSettled([
+        api.get<unknown>("/tenants/classes?include_inactive=true", {
+          tenantRequired: true,
+          noRedirect: true,
+        }),
+        api.get<unknown>("/tenants/terms?include_inactive=true", {
+          tenantRequired: true,
+          noRedirect: true,
+        }),
+      ]);
+
+      if (classesRes.status === "fulfilled") {
+        setTenantClasses(normalizeTenantClasses(classesRes.value));
+      } else {
+        setTenantClasses([]);
+      }
+
+      if (termsRes.status === "fulfilled") {
+        setTenantTerms(normalizeTerms(termsRes.value));
+      } else {
+        setTenantTerms([]);
+      }
+    } finally {
+      setLoadingStructureLookups(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadFinance();
+    void loadStructureLookups();
     const timer = setInterval(() => void loadFinance(true), 20000);
     return () => clearInterval(timer);
-  }, []);
+  }, [loadStructureLookups]);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error]);
+
+  useEffect(() => {
+    if (notice) toast.success(notice);
+  }, [notice]);
 
   // Apply deep-link params into filters & forms (UI only)
   useEffect(() => {
@@ -710,10 +890,25 @@ function SecretaryFinancePageContent() {
     const enrollment = data.enrollments.find(
       (row) => row.id === feesInvoiceForm.enrollment_id
     );
-    if (!enrollment || feesInvoiceForm.class_code.trim()) return;
-    const guessed = enrollmentClassCode(enrollment.payload || {});
-    if (guessed) setFeesInvoiceForm((prev) => ({ ...prev, class_code: guessed }));
-  }, [feesInvoiceForm.enrollment_id, feesInvoiceForm.class_code, data.enrollments]);
+    if (!enrollment) return;
+
+    const guessedClassCode = enrollmentClassCode(enrollment.payload || {});
+    const guessedTermCode = enrollmentTermCode(enrollment.payload || {});
+    setFeesInvoiceForm((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      if (!prev.class_code.trim() && guessedClassCode) {
+        next.class_code = guessedClassCode;
+        changed = true;
+      }
+      if (!prev.term_code.trim() && guessedTermCode) {
+        next.term_code = normalizeCode(guessedTermCode);
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [feesInvoiceForm.enrollment_id, data.enrollments]);
 
   async function postAction(
     action: FinanceAction,
@@ -793,6 +988,31 @@ function SecretaryFinancePageContent() {
     }
     return map;
   }, [data.enrollments]);
+
+  const invoiceById = useMemo(() => {
+    const map = new Map<string, Invoice>();
+    for (const inv of data.invoices) {
+      map.set(inv.id, inv);
+    }
+    return map;
+  }, [data.invoices]);
+
+  function paymentStudentLabel(payment: Payment): string {
+    if (!Array.isArray(payment.allocations) || payment.allocations.length === 0) {
+      return "N/A";
+    }
+    const names = new Set<string>();
+    for (const alloc of payment.allocations) {
+      const inv = invoiceById.get(String(alloc.invoice_id || ""));
+      const enrollmentId = String(inv?.enrollment_id || "");
+      const studentName = enrollmentNameById.get(enrollmentId);
+      if (studentName) names.add(studentName);
+    }
+    if (names.size === 0) return "N/A";
+    if (names.size === 1) return Array.from(names)[0];
+    const [first] = Array.from(names);
+    return `${first} +${names.size - 1}`;
+  }
 
   const availableInvoiceTypes = useMemo(() => {
     const set = new Set<string>();
@@ -882,6 +1102,28 @@ function SecretaryFinancePageContent() {
     );
   }, [filteredInvoices]);
 
+  const configuredClassCodes = useMemo(
+    () => new Set(tenantClasses.map((row) => normalizeClassCode(row.code))),
+    [tenantClasses]
+  );
+
+  const configuredTermCodes = useMemo(
+    () => new Set(tenantTerms.map((row) => normalizeCode(row.code))),
+    [tenantTerms]
+  );
+
+  const selectedClassMissing = useMemo(() => {
+    if (!structureForm.class_code) return false;
+    return !configuredClassCodes.has(
+      normalizeClassCode(structureForm.class_code)
+    );
+  }, [configuredClassCodes, structureForm.class_code]);
+
+  const selectedTermMissing = useMemo(() => {
+    if (!structureForm.term_code) return false;
+    return !configuredTermCodes.has(normalizeCode(structureForm.term_code));
+  }, [configuredTermCodes, structureForm.term_code]);
+
   async function savePolicy() {
     await postAction(
       "update_policy",
@@ -933,19 +1175,47 @@ function SecretaryFinancePageContent() {
   }
 
   async function createFeeStructure() {
-    const classCode = structureForm.class_code.trim();
+    const classCode = normalizeClassCode(structureForm.class_code);
+    const termCode = normalizeCode(structureForm.term_code);
     const name = structureForm.name.trim();
-    if (!classCode || !name) {
-      setError("Class code and structure name are required.");
+    if (!classCode || !termCode || !name) {
+      setError("Class code, term code and structure name are required.");
       return;
     }
+    if (configuredClassCodes.size === 0 || configuredTermCodes.size === 0) {
+      setError(
+        "Configure tenant classes and tenant terms in School Setup before creating fee structures."
+      );
+      return;
+    }
+
+    const editingStructure = data.fee_structures.find(
+      (row) => row.id === editingStructureId
+    );
+    const isLegacyEditingClass =
+      Boolean(editingStructure) &&
+      normalizeClassCode(editingStructure?.class_code || "") === classCode;
+    const isLegacyEditingTerm =
+      Boolean(editingStructure) &&
+      normalizeCode(editingStructure?.term_code || "") === termCode;
+
+    if (!configuredClassCodes.has(classCode) && !isLegacyEditingClass) {
+      setError("Select a class from configured School Setup classes.");
+      return;
+    }
+    if (!configuredTermCodes.has(termCode) && !isLegacyEditingTerm) {
+      setError("Select a term from configured School Setup terms.");
+      return;
+    }
+
     if (editingStructureId) {
       await postAction(
         "update_fee_structure",
         {
           structure_id: editingStructureId,
           updates: {
-            class_code: normalizeCode(classCode),
+            class_code: classCode,
+            term_code: termCode,
             name,
             is_active: structureForm.is_active,
           },
@@ -953,7 +1223,12 @@ function SecretaryFinancePageContent() {
         "Fee structure updated.",
         () => {
           setEditingStructureId("");
-          setStructureForm({ class_code: "", name: "", is_active: true });
+          setStructureForm({
+            class_code: "",
+            term_code: "",
+            name: "",
+            is_active: true,
+          });
         }
       );
       return;
@@ -961,12 +1236,19 @@ function SecretaryFinancePageContent() {
     await postAction(
       "create_fee_structure",
       {
-        class_code: normalizeCode(classCode),
+        class_code: classCode,
+        term_code: termCode,
         name,
         is_active: structureForm.is_active,
       },
       "Fee structure created.",
-      () => setStructureForm({ class_code: "", name: "", is_active: true })
+      () =>
+        setStructureForm({
+          class_code: "",
+          term_code: "",
+          name: "",
+          is_active: true,
+        })
     );
   }
 
@@ -1127,12 +1409,38 @@ function SecretaryFinancePageContent() {
       setError("Enrollment and class code are required.");
       return;
     }
+
+    const scholarshipSelected = Boolean(feesInvoiceForm.scholarship_id);
+    if (scholarshipSelected) {
+      if (!feesInvoiceForm.scholarship_amount.trim()) {
+        setError("Scholarship amount is required when applying a scholarship.");
+        return;
+      }
+      if (toNumber(feesInvoiceForm.scholarship_amount) <= 0) {
+        setError("Scholarship amount must be greater than 0.");
+        return;
+      }
+      if (!feesInvoiceForm.scholarship_reason.trim()) {
+        setError("Scholarship reason is required.");
+        return;
+      }
+    }
+
     await postAction(
       "generate_fees_invoice",
       {
         enrollment_id: feesInvoiceForm.enrollment_id,
         class_code: normalizeCode(feesInvoiceForm.class_code),
+        term_code: feesInvoiceForm.term_code.trim()
+          ? normalizeCode(feesInvoiceForm.term_code)
+          : null,
         scholarship_id: feesInvoiceForm.scholarship_id || null,
+        scholarship_amount: scholarshipSelected
+          ? feesInvoiceForm.scholarship_amount.trim()
+          : null,
+        scholarship_reason: scholarshipSelected
+          ? feesInvoiceForm.scholarship_reason.trim()
+          : null,
       },
       "School fees invoice generated."
     );
@@ -1256,8 +1564,8 @@ function SecretaryFinancePageContent() {
     <AppShell title="Secretary" nav={secretaryNav} activeHref={activeFinanceHref}>
       <div className="space-y-5">
         {/* ── Page Header ── */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex items-center justify-between">
+        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-4 text-white shadow-sm sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-xl font-bold">Finance Operations</h1>
               <p className="mt-0.5 text-sm text-blue-100 capitalize">
@@ -1266,7 +1574,7 @@ function SecretaryFinancePageContent() {
             </div>
             <button
               onClick={() => void loadFinance()}
-              className="flex items-center gap-1.5 rounded-lg bg-white/20 px-3 py-1.5 text-xs font-medium text-white backdrop-blur hover:bg-white/30 transition"
+              className="flex items-center gap-1.5 w-full justify-center rounded-lg bg-white/20 px-3 py-1.5 text-xs font-medium text-white backdrop-blur hover:bg-white/30 transition sm:w-auto"
             >
               ↻ Refresh
             </button>
@@ -1338,7 +1646,7 @@ function SecretaryFinancePageContent() {
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Existing Categories ({data.fee_categories.length})
                   </p>
-                  <div className="rounded-xl border border-slate-100 overflow-hidden">
+                  <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-slate-50">
@@ -1416,7 +1724,7 @@ function SecretaryFinancePageContent() {
                             </SelectContent>
                           </Select>
                         </FormField>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           <FormField label="Item Code" required>
                             <Input
                               placeholder="e.g. LUNCH_FEE"
@@ -1454,7 +1762,7 @@ function SecretaryFinancePageContent() {
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Fee Items ({data.fee_items.length})
                   </p>
-                  <div className="rounded-xl border border-slate-100 overflow-hidden">
+                  <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-slate-50">
@@ -1499,7 +1807,7 @@ function SecretaryFinancePageContent() {
               step={3}
               stepLabel="Create Fee Structures"
               title="Fee Structures"
-              description="A fee structure defines all the fees applicable to a specific class or grade."
+              description="A fee structure defines all fees for a specific class and term."
             >
               <div className="grid gap-6 lg:grid-cols-2">
                 {/* Create/Edit form */}
@@ -1511,20 +1819,86 @@ function SecretaryFinancePageContent() {
                     <div className="space-y-3">
                       <FormField
                         label="Class Code"
-                        hint="e.g. GRADE_7, FORM_1, PP2"
+                        hint="Derived from School Setup → Classes."
                         required
                       >
-                        <Input
-                          placeholder="e.g. GRADE_7"
-                          value={structureForm.class_code}
-                          onChange={(e) =>
+                        <Select
+                          value={structureForm.class_code || "__none__"}
+                          onValueChange={(value) =>
                             setStructureForm((p) => ({
                               ...p,
-                              class_code: e.target.value,
+                              class_code: value === "__none__" ? "" : value,
                             }))
                           }
-                        />
+                        >
+                          <SelectTrigger disabled={loadingStructureLookups}>
+                            <SelectValue
+                              placeholder={
+                                loadingStructureLookups
+                                  ? "Loading classes..."
+                                  : "Select class"
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">Select class…</SelectItem>
+                            {tenantClasses.map((row) => (
+                              <SelectItem key={row.id} value={row.code}>
+                                {row.name} ({row.code})
+                              </SelectItem>
+                            ))}
+                            {selectedClassMissing && (
+                              <SelectItem value={structureForm.class_code}>
+                                Legacy ({structureForm.class_code})
+                              </SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
                       </FormField>
+                      <FormField
+                        label="Term Code"
+                        hint="Derived from School Setup → Terms."
+                        required
+                      >
+                        <Select
+                          value={structureForm.term_code || "__none__"}
+                          onValueChange={(value) =>
+                            setStructureForm((p) => ({
+                              ...p,
+                              term_code: value === "__none__" ? "" : value,
+                            }))
+                          }
+                        >
+                          <SelectTrigger disabled={loadingStructureLookups}>
+                            <SelectValue
+                              placeholder={
+                                loadingStructureLookups
+                                  ? "Loading terms..."
+                                  : "Select term"
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">Select term…</SelectItem>
+                            {tenantTerms.map((row) => (
+                              <SelectItem key={row.id} value={row.code}>
+                                {row.name} ({row.code})
+                              </SelectItem>
+                            ))}
+                            {selectedTermMissing && (
+                              <SelectItem value={structureForm.term_code}>
+                                Legacy ({structureForm.term_code})
+                              </SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </FormField>
+                      {!loadingStructureLookups &&
+                        (tenantClasses.length === 0 || tenantTerms.length === 0) && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            Configure School Setup classes and terms before creating fee structures.
+                          </div>
+                        )}
                       <FormField label="Structure Name" required>
                         <Input
                           placeholder="e.g. Grade 7 - Day Scholar 2025"
@@ -1534,7 +1908,7 @@ function SecretaryFinancePageContent() {
                           }
                         />
                       </FormField>
-                      <div className="flex gap-2">
+                      <div className="flex flex-col gap-2 sm:flex-row">
                         <ActionButton
                           onClick={createFeeStructure}
                           loading={
@@ -1550,7 +1924,12 @@ function SecretaryFinancePageContent() {
                             variant="outline"
                             onClick={() => {
                               setEditingStructureId("");
-                              setStructureForm({ class_code: "", name: "", is_active: true });
+                              setStructureForm({
+                                class_code: "",
+                                term_code: "",
+                                name: "",
+                                is_active: true,
+                              });
                             }}
                           >
                             Cancel
@@ -1566,11 +1945,12 @@ function SecretaryFinancePageContent() {
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Structures ({data.fee_structures.length})
                   </p>
-                  <div className="rounded-xl border border-slate-100 overflow-hidden">
+                  <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-slate-50">
                           <TableHead className="text-xs">Class</TableHead>
+                          <TableHead className="text-xs">Term</TableHead>
                           <TableHead className="text-xs">Name</TableHead>
                           <TableHead className="text-xs">Status</TableHead>
                           <TableHead className="text-xs">Actions</TableHead>
@@ -1581,6 +1961,9 @@ function SecretaryFinancePageContent() {
                           <TableRow key={structure.id} className="hover:bg-slate-50">
                             <TableCell className="font-mono text-xs font-medium text-blue-700">
                               {structure.class_code}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-slate-600">
+                              {structure.term_code || "GENERAL"}
                             </TableCell>
                             <TableCell className="text-sm">{structure.name}</TableCell>
                             <TableCell>
@@ -1593,6 +1976,7 @@ function SecretaryFinancePageContent() {
                                     setEditingStructureId(structure.id);
                                     setStructureForm({
                                       class_code: structure.class_code,
+                                      term_code: structure.term_code || "GENERAL",
                                       name: structure.name,
                                       is_active: structure.is_active,
                                     });
@@ -1621,7 +2005,7 @@ function SecretaryFinancePageContent() {
                           </TableRow>
                         ))}
                         {data.fee_structures.length === 0 && (
-                          <EmptyRow colSpan={4} message="No structures yet. Create one above." />
+                          <EmptyRow colSpan={5} message="No structures yet. Create one above." />
                         )}
                       </TableBody>
                     </Table>
@@ -1657,7 +2041,7 @@ function SecretaryFinancePageContent() {
                               : "border border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
                           }`}
                         >
-                          {s.class_code}
+                          {s.class_code} · {s.term_code || "GENERAL"}
                         </button>
                       ))}
                     </div>
@@ -1678,7 +2062,7 @@ function SecretaryFinancePageContent() {
                   <div className="grid gap-5 lg:grid-cols-2">
                     {/* Add item form */}
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="mb-3 flex gap-2">
+                      <div className="mb-3 flex flex-col gap-2 sm:flex-row">
                         <button
                           onClick={() => setStructureAddMode("existing")}
                           className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
@@ -1740,7 +2124,7 @@ function SecretaryFinancePageContent() {
                             </Select>
                           </FormField>
                           <FormField label="Amount (KES)" required>
-                            <div className="flex gap-2">
+                            <div className="flex flex-col gap-2 sm:flex-row">
                               <Input
                                 type="number"
                                 min={0}
@@ -1811,7 +2195,7 @@ function SecretaryFinancePageContent() {
                                   </SelectContent>
                                 </Select>
                               </FormField>
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                 <FormField label="Item Code" required>
                                   <Input
                                     placeholder="e.g. LUNCH_FEE"
@@ -1838,7 +2222,7 @@ function SecretaryFinancePageContent() {
                                 </FormField>
                               </div>
                               <FormField label="Amount (KES)" required>
-                                <div className="flex gap-2">
+                                <div className="flex flex-col gap-2 sm:flex-row">
                                   <Input
                                     type="number"
                                     min={0}
@@ -1872,9 +2256,11 @@ function SecretaryFinancePageContent() {
                     <div>
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Items in Structure
-                        {selectedStructure ? ` (${selectedStructure.class_code})` : ""}
+                        {selectedStructure
+                          ? ` (${selectedStructure.class_code} · ${selectedStructure.term_code || "GENERAL"})`
+                          : ""}
                       </p>
-                      <div className="rounded-xl border border-slate-100 overflow-hidden">
+                      <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                         <Table>
                           <TableHeader>
                             <TableRow className="bg-slate-50">
@@ -1986,7 +2372,7 @@ function SecretaryFinancePageContent() {
                         }
                       />
                     </FormField>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <FormField label="Type">
                         <Select
                           value={scholarshipForm.type}
@@ -2031,13 +2417,15 @@ function SecretaryFinancePageContent() {
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Scholarships ({data.scholarships.length})
                   </p>
-                  <div className="rounded-xl border border-slate-100 overflow-hidden">
+                  <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-slate-50">
                           <TableHead className="text-xs">Name</TableHead>
                           <TableHead className="text-xs">Type</TableHead>
                           <TableHead className="text-xs">Value</TableHead>
+                          <TableHead className="text-xs">Allocated</TableHead>
+                          <TableHead className="text-xs">Remaining</TableHead>
                           <TableHead className="text-xs">Status</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -2053,13 +2441,19 @@ function SecretaryFinancePageContent() {
                             <TableCell className="text-sm">
                               {sch.type === "PERCENT" ? `${sch.value}%` : formatAmount(sch.value)}
                             </TableCell>
+                            <TableCell className="text-sm">
+                              {formatAmount(sch.allocated_amount)}
+                            </TableCell>
+                            <TableCell className="text-sm font-medium text-emerald-700">
+                              {formatAmount(sch.remaining_amount)}
+                            </TableCell>
                             <TableCell>
                               <StatusBadge active={sch.is_active} />
                             </TableCell>
                           </TableRow>
                         ))}
                         {data.scholarships.length === 0 && (
-                          <EmptyRow colSpan={4} message="No scholarships yet." />
+                          <EmptyRow colSpan={6} message="No scholarships yet." />
                         )}
                       </TableBody>
                     </Table>
@@ -2074,7 +2468,7 @@ function SecretaryFinancePageContent() {
         {showInvoices && (
           <div className="space-y-5">
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryCard
                 label="Total Billed"
                 value={formatKes(totals.total)}
@@ -2121,7 +2515,7 @@ function SecretaryFinancePageContent() {
                       </SelectContent>
                     </Select>
                   </FormField>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-3 sm:grid-cols-3">
                     <FormField
                       label="Class Code"
                       hint="Auto-filled if available from enrollment"
@@ -2133,6 +2527,18 @@ function SecretaryFinancePageContent() {
                         onChange={(e) =>
                           setFeesInvoiceForm((p) => ({ ...p, class_code: e.target.value }))
                         }
+                        />
+                      </FormField>
+                    <FormField
+                      label="Term Code"
+                      hint="Optional, but recommended for term-specific structures"
+                    >
+                      <Input
+                        placeholder="e.g. TERM_1_2026"
+                        value={feesInvoiceForm.term_code}
+                        onChange={(e) =>
+                          setFeesInvoiceForm((p) => ({ ...p, term_code: e.target.value }))
+                        }
                       />
                     </FormField>
                     <FormField label="Scholarship" hint="Optional discount to apply">
@@ -2142,6 +2548,10 @@ function SecretaryFinancePageContent() {
                           setFeesInvoiceForm((p) => ({
                             ...p,
                             scholarship_id: value === "__none__" ? "" : value,
+                            scholarship_amount:
+                              value === "__none__" ? "" : p.scholarship_amount,
+                            scholarship_reason:
+                              value === "__none__" ? "" : p.scholarship_reason,
                           }))
                         }
                       >
@@ -2159,6 +2569,56 @@ function SecretaryFinancePageContent() {
                       </Select>
                     </FormField>
                   </div>
+                  {feesInvoiceForm.scholarship_id && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <FormField
+                        label="Scholarship Amount (KES)"
+                        hint="Amount to apply for this specific student"
+                        required
+                      >
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          placeholder="e.g. 3000"
+                          value={feesInvoiceForm.scholarship_amount}
+                          onChange={(e) =>
+                            setFeesInvoiceForm((p) => ({
+                              ...p,
+                              scholarship_amount: e.target.value,
+                            }))
+                          }
+                        />
+                      </FormField>
+                      <FormField
+                        label="Scholarship Reason"
+                        hint="Mandatory audit reason for this application"
+                        required
+                      >
+                        <Textarea
+                          rows={3}
+                          placeholder="Reason for awarding this scholarship amount"
+                          value={feesInvoiceForm.scholarship_reason}
+                          onChange={(e) =>
+                            setFeesInvoiceForm((p) => ({
+                              ...p,
+                              scholarship_reason: e.target.value,
+                            }))
+                          }
+                        />
+                      </FormField>
+                    </div>
+                  )}
+                  {feesInvoiceForm.scholarship_id && (
+                    <p className="text-xs text-slate-500">
+                      Remaining scholarship balance:{" "}
+                      {formatAmount(
+                        data.scholarships.find(
+                          (row) => row.id === feesInvoiceForm.scholarship_id
+                        )?.remaining_amount
+                      )}
+                    </p>
+                  )}
                   <ActionButton
                     onClick={generateFeesInvoice}
                     loading={pendingAction === "generate_fees_invoice"}
@@ -2199,7 +2659,7 @@ function SecretaryFinancePageContent() {
                       </SelectContent>
                     </Select>
                   </FormField>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <FormField label="Description">
                       <Input
                         placeholder="Interview fee"
@@ -2393,7 +2853,7 @@ function SecretaryFinancePageContent() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-100 overflow-hidden">
+              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50">
@@ -2491,7 +2951,7 @@ function SecretaryFinancePageContent() {
                       </SelectContent>
                     </Select>
                   </FormField>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <FormField label="Payment Method" required>
                       <Select
                         value={paymentForm.provider}
@@ -2538,7 +2998,7 @@ function SecretaryFinancePageContent() {
 
                 {/* Allocations */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Allocate to Invoices
                     </p>
@@ -2550,7 +3010,7 @@ function SecretaryFinancePageContent() {
                     </button>
                   </div>
 
-                  <div className="rounded-xl border border-slate-100 overflow-hidden">
+                  <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-slate-50">
@@ -2584,13 +3044,16 @@ function SecretaryFinancePageContent() {
                                 <SelectContent>
                                   <SelectItem value="__none__">Select invoice…</SelectItem>
                                   {paymentCandidateInvoices.map((inv) => (
-                                    <SelectItem key={inv.id} value={inv.id}>
-                                      {normalizeInvoiceType(inv.invoice_type)} — balance{" "}
+                                  <SelectItem key={inv.id} value={inv.id}>
+                                      {(enrollmentNameById.get(String(inv.enrollment_id || "")) || "Unknown student")}
+                                      {" · "}
+                                      {normalizeInvoiceType(inv.invoice_type)}
+                                      {" · balance "}
                                       {formatAmount(inv.balance_amount)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                             </TableCell>
                             <TableCell>
                               <Input
@@ -2627,7 +3090,7 @@ function SecretaryFinancePageContent() {
                   </div>
 
                   {/* Totals check */}
-                  <div className="flex items-center justify-between rounded-xl border px-4 py-2 text-sm">
+                  <div className="flex flex-col gap-1 rounded-xl border px-4 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-slate-500">Allocation total</span>
                     <span
                       className={`font-semibold ${
@@ -2647,7 +3110,7 @@ function SecretaryFinancePageContent() {
                     </span>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <button
                       onClick={() =>
                         setPaymentAllocations((prev) => [
@@ -2674,11 +3137,12 @@ function SecretaryFinancePageContent() {
 
             {/* Payments Table */}
             <SectionCard title="Payment Records">
-              <div className="rounded-xl border border-slate-100 overflow-hidden">
+              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50">
                       <TableHead className="text-xs">Receipt No.</TableHead>
+                      <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Method</TableHead>
                       <TableHead className="text-xs">Reference</TableHead>
                       <TableHead className="text-xs text-right">Amount</TableHead>
@@ -2690,6 +3154,9 @@ function SecretaryFinancePageContent() {
                       <TableRow key={payment.id} className="hover:bg-slate-50">
                         <TableCell className="font-mono text-xs font-medium text-blue-700">
                           {String(payment.id).slice(0, 8).toUpperCase()}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {paymentStudentLabel(payment)}
                         </TableCell>
                         <TableCell>
                           <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
@@ -2709,7 +3176,7 @@ function SecretaryFinancePageContent() {
                       </TableRow>
                     ))}
                     {data.payments.length === 0 && (
-                      <EmptyRow colSpan={5} message="No payments recorded yet." />
+                      <EmptyRow colSpan={6} message="No payments recorded yet." />
                     )}
                   </TableBody>
                 </Table>
@@ -2721,7 +3188,7 @@ function SecretaryFinancePageContent() {
         {/* ── RECEIPTS SECTION ── */}
         {showReceipts && (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryCard
                 label="Paid Invoices"
                 value={String(data.invoices.filter((i) => i.status.toUpperCase() === "PAID").length)}
@@ -2733,7 +3200,7 @@ function SecretaryFinancePageContent() {
             </div>
 
             <SectionCard title="Paid Invoices (Receipts)">
-              <div className="rounded-xl border border-slate-100 overflow-hidden">
+              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50">
@@ -2781,11 +3248,12 @@ function SecretaryFinancePageContent() {
             </SectionCard>
 
             <SectionCard title="Payment Records">
-              <div className="rounded-xl border border-slate-100 overflow-hidden">
+              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50">
                       <TableHead className="text-xs">Receipt No.</TableHead>
+                      <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Method</TableHead>
                       <TableHead className="text-xs">Reference</TableHead>
                       <TableHead className="text-xs text-right">Amount</TableHead>
@@ -2797,6 +3265,9 @@ function SecretaryFinancePageContent() {
                       <TableRow key={payment.id} className="hover:bg-slate-50">
                         <TableCell className="font-mono text-xs font-semibold text-blue-700">
                           {String(payment.id).slice(0, 8).toUpperCase()}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {paymentStudentLabel(payment)}
                         </TableCell>
                         <TableCell>
                           <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
@@ -2815,7 +3286,7 @@ function SecretaryFinancePageContent() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {data.payments.length === 0 && <EmptyRow colSpan={5} message="No payments yet." />}
+                    {data.payments.length === 0 && <EmptyRow colSpan={6} message="No payments yet." />}
                   </TableBody>
                 </Table>
               </div>

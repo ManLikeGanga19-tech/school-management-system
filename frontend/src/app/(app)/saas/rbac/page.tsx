@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
+import { saasNav } from "@/components/layout/nav-config";
 import {
   ShieldCheck,
   Layers,
@@ -10,17 +11,6 @@ import {
   Globe,
   Building2,
 } from "lucide-react";
-
-// ─── Nav ──────────────────────────────────────────────────────────────────────
-
-const nav = [
-  { href: "/saas/dashboard",        label: "SaaS Summary"  },
-  { href: "/saas/tenants",          label: "Tenants"       },
-  { href: "/saas/subscriptions",    label: "Subscriptions" },
-  { href: "/saas/rbac/permissions", label: "Permissions"   },
-  { href: "/saas/rbac/roles",       label: "Roles"         },
-  { href: "/saas/audit",            label: "Audit Logs"    },
-];
 
 // ─── Module cards ─────────────────────────────────────────────────────────────
 
@@ -90,12 +80,12 @@ const steps = [
 
 export default function SaaSRbacHubPage() {
   return (
-    <AppShell title="Super Admin" nav={nav} activeHref="/saas/rbac">
+    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/rbac">
       <div className="space-y-6">
 
         {/* ── Header ── */}
         <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-6 text-white shadow-sm">
-          <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="mb-2 flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
@@ -109,7 +99,7 @@ export default function SaaSRbacHubPage() {
                 and control exactly what every user across every institution can do.
               </p>
             </div>
-            <Globe className="h-10 w-10 shrink-0 text-white/20" />
+            <Globe className="hidden h-10 w-10 shrink-0 text-white/20 sm:block" />
           </div>
         </div>
 

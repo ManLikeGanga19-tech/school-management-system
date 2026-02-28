@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -67,6 +68,13 @@ type Permission = {
   name: string;
   description?: string | null;
   category?: string | null;
+};
+
+type TenantRole = {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
 };
 
 type PermissionOverride = {
@@ -139,6 +147,28 @@ async function fetchPermissions(): Promise<Permission[]> {
     const data = await api.get<{ permissions: Permission[] } | Permission[]>("/tenants/director/rbac/permissions", { tenantRequired: true, noRedirect: true });
     if (Array.isArray(data)) return data;
     return Array.isArray(data?.permissions) ? data.permissions : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch tenant + system roles available to the tenant context */
+async function fetchRoles(): Promise<TenantRole[]> {
+  try {
+    const data = await api.get<{ roles: TenantRole[] } | TenantRole[]>("/tenants/director/roles", {
+      tenantRequired: true,
+      noRedirect: true,
+    });
+    const rows = Array.isArray(data) ? data : Array.isArray(data?.roles) ? data.roles : [];
+    return rows
+      .map((row) => ({
+        id: String(row.id),
+        code: String(row.code || "").toUpperCase(),
+        name: String(row.name || ""),
+        description: row.description ?? null,
+      }))
+      .filter((row) => row.id && row.code && row.name)
+      .sort((a, b) => a.code.localeCompare(b.code));
   } catch {
     return [];
   }
@@ -252,6 +282,7 @@ function EffectBadge({ effect }: { effect: "ALLOW" | "DENY" }) {
 
 export default function TenantRbacPage() {
   const [users, setUsers]           = useState<TenantUser[]>([]);
+  const [roles, setRoles]           = useState<TenantRole[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [overrides, setOverrides]   = useState<PermissionOverride[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -277,8 +308,14 @@ export default function TenantRbacPage() {
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
-    const [u, p, o] = await Promise.all([fetchUsers(), fetchPermissions(), fetchOverrides()]);
+    const [u, r, p, o] = await Promise.all([
+      fetchUsers(),
+      fetchRoles(),
+      fetchPermissions(),
+      fetchOverrides(),
+    ]);
     setUsers(u);
+    setRoles(r);
     setPermissions(p);
     setOverrides(o);
     if (!silent) setLoading(false);
@@ -289,6 +326,14 @@ export default function TenantRbacPage() {
     const timer = setInterval(() => void load(true), 20_000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error]);
+
+  useEffect(() => {
+    if (notice) toast.success(notice);
+  }, [notice]);
 
   // ── Save override ─────────────────────────────────────────────────────────
 
@@ -572,6 +617,7 @@ export default function TenantRbacPage() {
             <div className="flex items-center gap-3">
               {[
                 { label: "Users",       value: users.length       },
+                { label: "Roles",       value: roles.length       },
                 { label: "Permissions", value: permissions.length },
                 { label: "Overrides",   value: overrides.length   },
                 { label: "DENY active", value: denyCount, warn: denyCount > 0 },
@@ -736,6 +782,27 @@ export default function TenantRbacPage() {
                 <Lock className="h-3.5 w-3.5 text-red-500" />
                 {denyCount} DENY override{denyCount !== 1 ? "s" : ""}
               </span>
+            </div>
+          )}
+        </SectionCard>
+
+        {/* Two-column: Users | Permissions */}
+        <SectionCard
+          title="Role Catalog"
+          subtitle="Roles loaded from tenant RBAC store"
+          icon={ShieldCheck}
+        >
+          {roles.length === 0 ? (
+            <div className="px-6 py-6 text-sm text-slate-500">No roles loaded.</div>
+          ) : (
+            <div className="grid gap-3 px-6 py-4 md:grid-cols-2 lg:grid-cols-3">
+              {roles.map((role) => (
+                <div key={role.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-xs font-semibold text-slate-900">{role.name}</div>
+                  <div className="mt-1 font-mono text-[11px] text-slate-500">{role.code}</div>
+                  <div className="mt-1 text-xs text-slate-500">{role.description || "No description"}</div>
+                </div>
+              ))}
             </div>
           )}
         </SectionCard>

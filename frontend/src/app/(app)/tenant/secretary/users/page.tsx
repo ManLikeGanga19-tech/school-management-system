@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -156,6 +157,14 @@ export default function SecretaryUsersPage() {
     const timer = setInterval(() => void load(), 20000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error]);
+
+  useEffect(() => {
+    if (notice) toast.success(notice);
+  }, [notice]);
 
   const canManageRoles = Boolean(me?.permissions?.includes("rbac.user_roles.manage"));
 

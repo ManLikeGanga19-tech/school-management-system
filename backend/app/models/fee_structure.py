@@ -8,7 +8,7 @@ from app.core.database import Base
 class FeeStructure(Base):
     __tablename__ = "fee_structures"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "class_code", name="uq_fee_structures_tenant_class"),
+        UniqueConstraint("tenant_id", "class_code", "term_code", name="uq_fee_structures_tenant_class_term"),
         {"schema": "core"},
     )
 
@@ -16,7 +16,9 @@ class FeeStructure(Base):
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("core.tenants.id", ondelete="CASCADE"), nullable=False)
 
     class_code = Column(String(50), nullable=False)
+    term_code = Column(String(80), nullable=False, server_default=text("'GENERAL'"))
     name = Column(String(160), nullable=False)
+    structure_no = Column(String(50), nullable=True)
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())

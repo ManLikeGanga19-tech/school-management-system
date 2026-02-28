@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
+import { saasNav } from "@/components/layout/nav-config";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import {
   Dialog,
   DialogContent,
@@ -113,17 +114,6 @@ const BASE_TERM_PRICE: Record<string, number> = {
   Professional: 25_000,
   Enterprise:   50_000,
 };
-
-// ─── Nav ──────────────────────────────────────────────────────────────────────
-
-const nav = [
-  { href: "/saas/dashboard",        label: "SaaS Summary"  },
-  { href: "/saas/tenants",          label: "Tenants"       },
-  { href: "/saas/subscriptions",    label: "Subscriptions" },
-  { href: "/saas/rbac/permissions", label: "Permissions"   },
-  { href: "/saas/rbac/roles",       label: "Roles"         },
-  { href: "/saas/audit",            label: "Audit Logs"    },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -430,7 +420,7 @@ export default function SaaSSubscriptionsPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <AppShell title="Super Admin" nav={nav} activeHref="/saas/subscriptions">
+    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/subscriptions">
 
       {/* ── Create dialog ── */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -776,7 +766,7 @@ export default function SaaSSubscriptionsPage() {
                 Manage per-term and full-year billing plans across all tenant institutions
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-4 sm:gap-3">
               {[
                 { label: "Total",    value: rows.length  },
                 { label: "Active",   value: activeCount  },
@@ -784,7 +774,7 @@ export default function SaaSSubscriptionsPage() {
                 { label: "Trialing", value: trialCount   },
               ].map((item) => (
                 <div key={item.label} className={`rounded-xl px-3 py-2 text-center backdrop-blur ${(item as any).warn ? "bg-red-500/20" : "bg-white/10"}`}>
-                  <div className={`text-xl font-bold ${(item as any).warn ? "text-red-200" : "text-white"}`}>{item.value}</div>
+                  <div className={`text-lg font-bold sm:text-xl ${(item as any).warn ? "text-red-200" : "text-white"}`}>{item.value}</div>
                   <div className="text-xs text-blue-200">{item.label}</div>
                 </div>
               ))}
@@ -872,21 +862,21 @@ export default function SaaSSubscriptionsPage() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               {/* Search */}
-              <div className="relative">
+              <div className="relative w-full sm:w-auto">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <Input
                   placeholder="Search tenant, plan…"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  className="h-8 w-44 pl-8 text-xs"
+                  className="h-8 w-full pl-8 text-xs sm:w-44"
                 />
               </div>
 
               {/* Status filter */}
               <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="h-8 w-32 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectTrigger className="h-8 w-full text-xs sm:w-32"><SelectValue placeholder="Status" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All statuses</SelectItem>
                   {STATUSES.map((s) => <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>)}
@@ -895,7 +885,7 @@ export default function SaaSSubscriptionsPage() {
 
               {/* Cycle filter */}
               <Select value={filterCycle} onValueChange={setFilterCycle}>
-                <SelectTrigger className="h-8 w-32 text-xs"><SelectValue placeholder="Cycle" /></SelectTrigger>
+                <SelectTrigger className="h-8 w-full text-xs sm:w-32"><SelectValue placeholder="Cycle" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All cycles</SelectItem>
                   <SelectItem value="per_term">Per Term</SelectItem>
@@ -905,7 +895,7 @@ export default function SaaSSubscriptionsPage() {
 
               {/* Plan filter */}
               <Select value={filterPlan} onValueChange={setFilterPlan}>
-                <SelectTrigger className="h-8 w-32 text-xs"><SelectValue placeholder="Plan" /></SelectTrigger>
+                <SelectTrigger className="h-8 w-full text-xs sm:w-32"><SelectValue placeholder="Plan" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All plans</SelectItem>
                   {PLANS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
@@ -925,7 +915,7 @@ export default function SaaSSubscriptionsPage() {
           </div>
 
           {/* Table */}
-          <div className="overflow-hidden">
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 hover:bg-slate-50">
@@ -1087,7 +1077,7 @@ export default function SaaSSubscriptionsPage() {
           </div>
 
           {filteredRows.length > 0 && (
-            <div className="flex items-center gap-4 border-t border-slate-100 px-6 py-3">
+            <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-6 py-3">
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                 <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
                 {activeCount} active
@@ -1100,7 +1090,7 @@ export default function SaaSSubscriptionsPage() {
                 <Calendar className="h-3.5 w-3.5 text-purple-400" />
                 {yearCount} full-year
               </span>
-              <span className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-700">
+              <span className="flex items-center gap-1.5 text-xs font-medium text-amber-700 sm:ml-auto">
                 <TrendingUp className="h-3.5 w-3.5" />
                 Est. MRR: {formatKes(totalMrr)}
               </span>

@@ -1,12 +1,25 @@
 # app/core/database.py
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
+try:
+    # SQLAlchemy 2.x
+    from sqlalchemy.orm import DeclarativeBase  # type: ignore
+except ImportError:
+    DeclarativeBase = None  # type: ignore
 
-class Base(DeclarativeBase):
-    """SQLAlchemy Declarative Base for all models."""
-    pass
+
+if DeclarativeBase is not None:
+    class Base(DeclarativeBase):
+        """SQLAlchemy Declarative Base for all models."""
+
+        pass
+else:
+    # SQLAlchemy 1.4 fallback
+    from sqlalchemy.orm import declarative_base
+
+    Base = declarative_base()
 
 
 # Database engine configuration.

@@ -115,6 +115,10 @@ async function readJson<T>(res: Response): Promise<T | null> {
   return res.json().catch(() => null);
 }
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
 function getErrorMessage(body: any, fallback: string): string {
   if (!body) return fallback;
 
@@ -154,29 +158,88 @@ async function getResource<T>(path: string): Promise<Resource<T>> {
 }
 
 export async function getDirectorDashboardData(): Promise<DirectorDashboardData> {
-  const [
-    me,
-    summary,
-    users,
-    enrollments,
-    invoices,
-    policy,
-    feeCategories,
-    feeItems,
-    scholarships,
-    auditLogs,
-  ] = await Promise.all([
+  // Use tenant-aggregated endpoints to reduce DB fan-out and improve dashboard
+  // resilience under load.
+  const [me, dashboard, finance] = await Promise.all([
     getResource<TenantMe>("/auth/me"),
-    getResource<TenantDashboardSummary>("/admin/summary"),
-    getResource<TenantUser[]>("/admin/users"),
-    getResource<EnrollmentRow[]>("/enrollments/"),
-    getResource<InvoiceRow[]>("/finance/invoices"),
-    getResource<FinancePolicy>("/finance/policy"),
-    getResource<FeeCategory[]>("/finance/fee-categories"),
-    getResource<FeeItem[]>("/finance/fee-items"),
-    getResource<Scholarship[]>("/finance/scholarships"),
-    getResource<AuditRow[]>("/audit/logs?limit=8&offset=0"),
+    getResource<{
+      summary?: TenantDashboardSummary;
+      users?: TenantUser[];
+      audit?: AuditRow[];
+      enrollments?: EnrollmentRow[];
+      invoices?: InvoiceRow[];
+    }>("/tenants/secretary/dashboard"),
+    getResource<{
+      policy?: FinancePolicy | null;
+      invoices?: InvoiceRow[];
+      fee_categories?: FeeCategory[];
+      fee_items?: FeeItem[];
+      scholarships?: Scholarship[];
+      enrollments?: EnrollmentRow[];
+    }>("/tenants/director/finance"),
   ]);
+
+  const dashboardData = dashboard.data;
+  const financeData = finance.data;
+
+  const summary: Resource<TenantDashboardSummary> = {
+    data: dashboardData?.summary ?? null,
+    error: dashboardData?.summary ? null : dashboard.error,
+  };
+
+  const users: Resource<TenantUser[]> = {
+    data: asArray<TenantUser>(dashboardData?.users),
+    error: dashboardData?.users ? null : dashboard.error,
+  };
+
+  const auditLogs: Resource<AuditRow[]> = {
+    data: asArray<AuditRow>(dashboardData?.audit),
+    error: dashboardData?.audit ? null : dashboard.error,
+  };
+
+  const enrollments: Resource<EnrollmentRow[]> = {
+    data:
+      asArray<EnrollmentRow>(financeData?.enrollments).length > 0
+        ? asArray<EnrollmentRow>(financeData?.enrollments)
+        : asArray<EnrollmentRow>(dashboardData?.enrollments),
+    error:
+      asArray<EnrollmentRow>(financeData?.enrollments).length > 0 ||
+      asArray<EnrollmentRow>(dashboardData?.enrollments).length > 0
+        ? null
+        : finance.error || dashboard.error,
+  };
+
+  const invoices: Resource<InvoiceRow[]> = {
+    data:
+      asArray<InvoiceRow>(financeData?.invoices).length > 0
+        ? asArray<InvoiceRow>(financeData?.invoices)
+        : asArray<InvoiceRow>(dashboardData?.invoices),
+    error:
+      asArray<InvoiceRow>(financeData?.invoices).length > 0 ||
+      asArray<InvoiceRow>(dashboardData?.invoices).length > 0
+        ? null
+        : finance.error || dashboard.error,
+  };
+
+  const policy: Resource<FinancePolicy> = {
+    data: (financeData?.policy as FinancePolicy) ?? null,
+    error: financeData?.policy ? null : finance.error,
+  };
+
+  const feeCategories: Resource<FeeCategory[]> = {
+    data: asArray<FeeCategory>(financeData?.fee_categories),
+    error: financeData?.fee_categories ? null : finance.error,
+  };
+
+  const feeItems: Resource<FeeItem[]> = {
+    data: asArray<FeeItem>(financeData?.fee_items),
+    error: financeData?.fee_items ? null : finance.error,
+  };
+
+  const scholarships: Resource<Scholarship[]> = {
+    data: asArray<Scholarship>(financeData?.scholarships),
+    error: financeData?.scholarships ? null : finance.error,
+  };
 
   return {
     me,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pie, PieChart, Cell } from "recharts";
 import {
   Users,
@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Separator } from "@/components/ui/separator";
+import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -67,6 +68,17 @@ type TenantRole = {
   code: string;
   name: string;
   description?: string | null;
+};
+
+type StaffCredentialCandidate = {
+  staff_id: string;
+  staff_no: string;
+  full_name: string;
+  email: string;
+  staff_type: string;
+  role_code?: string | null;
+  has_account: boolean;
+  user_id?: string | null;
 };
 
 // ─── Chart config ─────────────────────────────────────────────────────────────
@@ -102,21 +114,25 @@ function avatarColor(id: string): string {
   return palette[Math.abs(hash) % palette.length];
 }
 
+function isAssignableRole(roleCode: string | null | undefined): boolean {
+  return (roleCode ?? "").trim().toUpperCase() !== "SUPER_ADMIN";
+}
+
 // ─── Backend wiring ───────────────────────────────────────────────────────────
 //
 // TODO (Python backend):
 //
-//   GET  /api/tenant/director/roles
+//   GET  /api/v1/tenants/director/roles
 //        → { roles: { id, code, name, description }[] }
 //
-//   GET  /api/tenant/director/users
+//   GET  /api/v1/tenants/director/users
 //        → { users: { id, email, full_name, is_active, roles?: string[] }[] }
 //
-//   POST /api/tenant/director/users
-//        body: { email, full_name?, role_code? }
+//   POST /api/v1/tenants/director/users/credentials
+//        body: { staff_id, password, role_code? }
 //        → 201 on success
 //
-//   POST /api/tenant/director/users/roles
+//   POST /api/v1/tenants/director/users/roles
 //        body: { mode: "assign" | "remove", user_id, role_code }
 //        → 200 on success
 //
@@ -137,7 +153,7 @@ function InlineRoleAction({
 }) {
   const [selectedRole, setSelectedRole] = useState<string>("");
   const [open, setOpen] = useState(false);
-  const userRoles = user.roles ?? [];
+  const userRoles = (user.roles ?? []).filter((code) => isAssignableRole(code));
 
   async function handleAssign() {
     if (!selectedRole) return;
@@ -237,16 +253,18 @@ function InlineRoleAction({
 export default function TenantUsersPage() {
   const [users, setUsers]     = useState<TenantUser[]>([]);
   const [roles, setRoles]     = useState<TenantRole[]>([]);
+  const [staffCandidates, setStaffCandidates] = useState<StaffCredentialCandidate[]>([]);
   const [error, setError]     = useState<string | null>(null);
   const [notice, setNotice]   = useState<string | null>(null);
   const [busy, setBusy]       = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState("");
 
-  // Add user dialog — lifted to top level to avoid nesting conflicts
+  // Provision credential dialog
   const [addOpen, setAddOpen]   = useState(false);
-  const [newEmail, setNewEmail] = useState("");
-  const [newName, setNewName]   = useState("");
+  const [selectedStaffId, setSelectedStaffId] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [newRole, setNewRole]   = useState("");
   const [addBusy, setAddBusy]   = useState(false);
 
@@ -255,10 +273,15 @@ export default function TenantUsersPage() {
   async function loadUsers() {
     try {
       const data = await api.get<{ users: TenantUser[] } | TenantUser[]>("/tenants/director/users", { tenantRequired: true });
+      const normalize = (rows: TenantUser[]) =>
+        rows.map((row) => ({
+          ...row,
+          roles: Array.isArray(row.roles) ? row.roles.filter((code) => isAssignableRole(code)) : [],
+        }));
       if (Array.isArray(data)) {
-        setUsers(data);
+        setUsers(normalize(data));
       } else if ("users" in data && Array.isArray(data.users)) {
-        setUsers(data.users);
+        setUsers(normalize(data.users));
       } else {
         setUsers([]);
       }
@@ -270,15 +293,42 @@ export default function TenantUsersPage() {
   async function loadRoles() {
     try {
       const data = await api.get<{ roles: TenantRole[] }>("/tenants/director/roles", { tenantRequired: true, noRedirect: true });
-      setRoles(Array.isArray(data?.roles) ? data.roles : []);
+      const rows = Array.isArray(data?.roles) ? data.roles : [];
+      setRoles(rows.filter((role) => isAssignableRole(role.code)));
     } catch {
       // silently fail — roles endpoint may not exist yet
+      setRoles([]);
+    }
+  }
+
+  async function loadStaffCandidates() {
+    try {
+      const data = await api.get<StaffCredentialCandidate[] | { staff: StaffCredentialCandidate[] }>(
+        "/tenants/director/users/staff-candidates?limit=500",
+        { tenantRequired: true, noRedirect: true }
+      );
+      const rows = Array.isArray(data) ? data : Array.isArray((data as any)?.staff) ? (data as any).staff : [];
+      const normalized = rows
+        .map((row) => ({
+          staff_id: String(row.staff_id || ""),
+          staff_no: String(row.staff_no || ""),
+          full_name: String(row.full_name || "").trim(),
+          email: String(row.email || "").trim().toLowerCase(),
+          staff_type: String(row.staff_type || "").trim().toUpperCase(),
+          role_code: row.role_code ? String(row.role_code).trim().toUpperCase() : null,
+          has_account: Boolean(row.has_account),
+          user_id: row.user_id ? String(row.user_id) : null,
+        }))
+        .filter((row) => row.staff_id && row.email);
+      setStaffCandidates(normalized);
+    } catch {
+      setStaffCandidates([]);
     }
   }
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
-    await Promise.all([loadUsers(), loadRoles()]);
+    await Promise.all([loadUsers(), loadRoles(), loadStaffCandidates()]);
     if (!silent) setLoading(false);
   }
 
@@ -288,9 +338,26 @@ export default function TenantUsersPage() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error]);
+
+  useEffect(() => {
+    if (notice) toast.success(notice);
+  }, [notice]);
+
+  const selectedStaff = useMemo(
+    () => staffCandidates.find((item) => item.staff_id === selectedStaffId) ?? null,
+    [staffCandidates, selectedStaffId]
+  );
+
   // ── Role action ───────────────────────────────────────────────────────────
 
   async function runRoleAction(userId: string, roleCode: string, mode: "assign" | "remove") {
+    if (!isAssignableRole(roleCode)) {
+      setError("SUPER_ADMIN cannot be managed from tenant dashboard.");
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -309,20 +376,51 @@ export default function TenantUsersPage() {
   // ── Add user ──────────────────────────────────────────────────────────────
 
   async function addUser() {
-    if (!newEmail.trim()) return;
+    if (!selectedStaffId) {
+      setError("Select a staff member first.");
+      return;
+    }
+    if (!newPassword.trim()) {
+      setError("Password is required.");
+      return;
+    }
+    if (newPassword.trim().length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Password confirmation does not match.");
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      staff_id: selectedStaffId,
+      password: newPassword,
+    };
+    if (newRole && newRole !== "__none__" && newRole !== "__staff_default__") {
+      if (!isAssignableRole(newRole)) {
+        setError("SUPER_ADMIN cannot be assigned from tenant dashboard.");
+        return;
+      }
+      payload.role_code = newRole;
+    }
+
     setAddBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await api.post("/tenants/director/users", { email: newEmail.trim(), full_name: newName.trim() || null, role_code: newRole || null }, { tenantRequired: true });
+      await api.post("/tenants/director/users/credentials", payload, { tenantRequired: true });
       setAddBusy(false);
-      setNotice(`User ${newEmail.trim()} created successfully.`);
-      setNewEmail(""); setNewName(""); setNewRole("");
+      setNotice("Login credential provisioned successfully.");
+      setSelectedStaffId("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setNewRole("");
       setAddOpen(false);
       await load(true);
     } catch (err: any) {
       setAddBusy(false);
-      setError(typeof err?.message === "string" ? err.message : "Failed to create user");
+      setError(typeof err?.message === "string" ? err.message : "Failed to provision credential");
       return;
     }
   }
@@ -353,51 +451,89 @@ export default function TenantUsersPage() {
 
   return (
     <AppShell title="Director" nav={directorNav} activeHref="/tenant/users">
-      {/* ── Add User Dialog — top-level, NOT nested ── */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+      {/* ── Provision Login Credential Dialog ── */}
+      <Dialog
+        open={addOpen}
+        onOpenChange={(open) => {
+          setAddOpen(open);
+          if (!open) {
+            setSelectedStaffId("");
+            setNewPassword("");
+            setConfirmPassword("");
+            setNewRole("");
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add New User</DialogTitle>
+            <DialogTitle>Provision Login Credential</DialogTitle>
             <DialogDescription>
-              Create a new account for this tenant. Assign an initial role if
-              needed — roles can always be changed later.
+              Create or reset tenant login credentials for a registered staff member.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-slate-600">
-                Email address <span className="text-red-500">*</span>
+                Staff member <span className="text-red-500">*</span>
               </Label>
-              <Input
-                type="email"
-                placeholder="user@school.ac.ke"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addUser()}
-                autoFocus
-              />
+              <Select
+                value={selectedStaffId}
+                onValueChange={(value) => {
+                  setSelectedStaffId(value);
+                  if (!newRole) setNewRole("__staff_default__");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select staff..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {staffCandidates.map((staff) => (
+                    <SelectItem key={staff.staff_id} value={staff.staff_id}>
+                      {staff.full_name} ({staff.staff_no}) · {staff.email}
+                    </SelectItem>
+                  ))}
+                  {staffCandidates.length === 0 && (
+                    <SelectItem value="__empty__" disabled>
+                      No eligible staff with email found
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {selectedStaff && (
+                <p className="text-[11px] text-slate-500">
+                  {selectedStaff.has_account
+                    ? "Existing tenant account detected. Provisioning will reset password."
+                    : "No account detected. Provisioning will create a new login for this staff member."}
+                </p>
+              )}
+              {selectedStaff?.staff_type === "NON_TEACHING" && (
+                <p className="text-[11px] text-amber-700">
+                  Non-teaching staff usually do not require dashboard access. Keep role unassigned unless explicitly required.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Full name</Label>
+              <Label className="text-xs font-medium text-slate-600">Email</Label>
               <Input
-                placeholder="Jane Wanjiku"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
+                value={selectedStaff?.email ?? ""}
+                readOnly
+                placeholder="Selected staff email"
               />
             </div>
 
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-slate-600">
-                Initial role <span className="text-slate-400">(optional)</span>
+                Role to assign <span className="text-slate-400">(optional)</span>
               </Label>
               <Select value={newRole} onValueChange={setNewRole}>
                 <SelectTrigger>
-                  <SelectValue placeholder="No initial role…" />
+                  <SelectValue placeholder="Use staff role..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">No initial role</SelectItem>
+                  <SelectItem value="__staff_default__">Use staff role</SelectItem>
+                  <SelectItem value="__none__">No role assignment</SelectItem>
                   {roles.map((r) => (
                     <SelectItem key={r.code} value={r.code}>
                       {r.name}
@@ -412,14 +548,39 @@ export default function TenantUsersPage() {
               </Select>
             </div>
 
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">
+                Password <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                type="password"
+                placeholder="At least 8 characters, include letters and numbers"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">
+                Confirm password <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                type="password"
+                placeholder="Re-enter password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addUser()}
+              />
+            </div>
+
             <Separator />
 
             <p className="text-xs text-slate-400">
               Calls{" "}
               <code className="rounded bg-slate-100 px-1 py-0.5">
-                POST /api/tenant/director/users
+                POST /api/v1/tenants/director/users/credentials
               </code>
-              . Add your creation logic in your Python backend.
+              {" "}to create/reset account credentials for staff.
             </p>
           </div>
 
@@ -428,7 +589,7 @@ export default function TenantUsersPage() {
               Cancel
             </Button>
             <Button
-              disabled={addBusy || !newEmail.trim()}
+              disabled={addBusy || !selectedStaffId || !newPassword.trim() || !confirmPassword.trim()}
               onClick={addUser}
               className="bg-blue-600 hover:bg-blue-700"
             >
@@ -438,9 +599,9 @@ export default function TenantUsersPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  Creating…
+                  Provisioning…
                 </span>
-              ) : "Create User"}
+              ) : "Provision Credential"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -453,9 +614,9 @@ export default function TenantUsersPage() {
         <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 to-blue-500 p-5 text-white shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-xl font-bold">User &amp; Role Management</h1>
+              <h1 className="text-xl font-bold">User Credentials &amp; Role Management</h1>
               <p className="mt-0.5 text-sm text-blue-100">
-                Manage tenant users, assign roles, and monitor account status
+                Provision staff logins, assign roles, and monitor tenant account access
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -578,7 +739,7 @@ export default function TenantUsersPage() {
                 <p className="text-sm text-slate-400">No roles loaded yet</p>
                 <p className="text-xs text-slate-300">
                   Implement{" "}
-                  <code className="rounded bg-slate-100 px-1">GET /api/tenant/director/roles</code>
+                  <code className="rounded bg-slate-100 px-1">GET /api/v1/tenants/director/roles</code>
                 </p>
               </div>
             ) : (
@@ -698,7 +859,7 @@ export default function TenantUsersPage() {
                 onClick={() => setAddOpen(true)}
               >
                 <UserPlus className="h-3.5 w-3.5" />
-                Add User
+                Provision Login
               </Button>
             </div>
           </div>

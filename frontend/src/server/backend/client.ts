@@ -9,7 +9,11 @@ function joinUrl(base: string, path: string) {
   return `${base}/${p}`;
 }
 
-const DEFAULT_TIMEOUT_MS = 12000;
+const DEFAULT_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.BACKEND_FETCH_TIMEOUT_MS || "20000");
+  if (!Number.isFinite(raw)) return 20000;
+  return Math.max(1000, Math.floor(raw));
+})();
 
 async function getTenantHeaders() {
   const c = await cookies();
@@ -32,12 +36,13 @@ async function getRefreshCookieHeader() {
   return refresh ? { Cookie: `sms_refresh=${refresh}` } : {};
 }
 
-function withTimeoutSignal(init?: RequestInit, timeoutMs: number = DEFAULT_TIMEOUT_MS) {
-  if (init?.signal) return init.signal;
-
+function createTimeoutController(timeoutMs: number) {
   const controller = new AbortController();
-  setTimeout(() => controller.abort(), timeoutMs);
-  return controller.signal;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timer),
+  };
 }
 
 export async function backendFetch(path: string, init?: RequestInit) {
@@ -69,10 +74,39 @@ export async function backendFetch(path: string, init?: RequestInit) {
     headers.set("Content-Type", "application/json");
   }
 
-  return fetch(url, {
+  const reqInit: RequestInit = {
     ...init,
     headers,
     cache: "no-store",
-    signal: withTimeoutSignal(init),
-  });
+  };
+
+  // If caller already provided a signal, respect it directly.
+  if (reqInit.signal) {
+    return fetch(url, reqInit);
+  }
+
+  // One retry for GET on timeout to reduce transient dashboard flakiness.
+  const method = String(reqInit.method || "GET").toUpperCase();
+  const maxAttempts = method === "GET" ? 2 : 1;
+
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const timeoutMs =
+      attempt === 1 ? DEFAULT_TIMEOUT_MS : Math.round(DEFAULT_TIMEOUT_MS * 1.5);
+    const timeout = createTimeoutController(timeoutMs);
+    try {
+      return await fetch(url, { ...reqInit, signal: timeout.signal });
+    } catch (err: any) {
+      lastErr = err;
+      const isAbort = err?.name === "AbortError";
+      if (!isAbort || attempt >= maxAttempts) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    } finally {
+      timeout.clear();
+    }
+  }
+
+  throw lastErr;
 }

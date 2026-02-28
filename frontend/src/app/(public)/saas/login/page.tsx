@@ -2,12 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/sonner";
 
 import { login } from "@/lib/auth/auth";
 
@@ -44,6 +45,10 @@ export default function SaaSLoginPage() {
       setServerError(err?.message || "Login failed. Please check your credentials.");
     }
   };
+
+  useEffect(() => {
+    if (serverError) toast.error(serverError);
+  }, [serverError]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-muted/30">

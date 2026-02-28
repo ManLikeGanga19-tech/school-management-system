@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, and_, or_
 
 from app.core.database import get_db
-from app.core.dependencies import get_tenant, require_permission, require_permission_saas
+from app.core.dependencies import (
+    get_tenant,
+    get_current_user,
+    require_permission,
+    require_permission_saas,
+)
 
 from app.api.v1.admin import service
 from app.api.v1.admin.schemas import (
@@ -38,6 +43,8 @@ from app.api.v1.admin.schemas import (
     SaaSMetricsResponse,
     RecentTenantsResponse,
     TenantRow,
+    TenantPrintProfileOut,
+    TenantPrintProfileUpsert,
     CreateTenantRequest,
     SubscriptionRow,
     CreateSubscriptionRequest,
@@ -139,6 +146,76 @@ def list_tenants(
     is_active: Optional[bool] = Query(default=None),
 ):
     return service.list_tenants_with_metadata(db, q=q, is_active=is_active)
+
+
+@router.get(
+    "/tenants/{tenant_id}/print-profile",
+    response_model=TenantPrintProfileOut,
+    dependencies=[Depends(require_permission_saas("tenants.read_all"))],
+)
+def get_tenant_print_profile(
+    tenant_id: UUID,
+    db: Session = Depends(get_db),
+):
+    try:
+        row = service.get_or_create_tenant_print_profile(db, tenant_id=tenant_id)
+        db.commit()
+        db.refresh(row)
+        return row
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception:
+        db.rollback()
+        tenant = db.get(Tenant, tenant_id)
+        if tenant is None:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        return TenantPrintProfileOut(
+            tenant_id=tenant.id,
+            logo_url=None,
+            school_header=tenant.name,
+            receipt_footer="Thank you for partnering with us.",
+            paper_size="A4",
+            currency="KES",
+            thermal_width_mm=80,
+            qr_enabled=True,
+            updated_by=None,
+            updated_at=None,
+        )
+
+
+@router.put(
+    "/tenants/{tenant_id}/print-profile",
+    response_model=TenantPrintProfileOut,
+    dependencies=[Depends(require_permission_saas("tenants.update"))],
+)
+def update_tenant_print_profile(
+    tenant_id: UUID,
+    payload: TenantPrintProfileUpsert,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    try:
+        row = service.upsert_tenant_print_profile(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=getattr(user, "id", None),
+            data=payload.model_dump(),
+        )
+        db.commit()
+        db.refresh(row)
+        return row
+    except ValueError as exc:
+        db.rollback()
+        detail = str(exc)
+        status = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status, detail=detail)
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to update print profile. Ensure latest migrations are applied.",
+        )
 
 
 @router.post("/tenants")

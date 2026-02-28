@@ -10,7 +10,7 @@
 //
 // 3. ApiError class replaces plain Error so callers can inspect status codes.
 //
-// 4. api.get / api.post / api.patch / api.delete convenience wrappers.
+// 4. api.get / api.post / api.put / api.patch / api.delete convenience wrappers.
 //
 // Everything else is unchanged:
 //   - Direct browser → backend calls (API_BASE = http://127.0.0.1:8000)
@@ -254,6 +254,69 @@ export async function apiFetch<T>(path: string, opts?: ApiOptions): Promise<T> {
   return data as T;
 }
 
+export async function apiFetchRaw(path: string, opts?: ApiOptions): Promise<Response> {
+  const url = joinUrl(API_BASE, path);
+  const { noRedirect, ...fetchOpts } = opts ?? {};
+
+  let headers: Headers;
+  try {
+    headers = buildHeaders(opts);
+  } catch (err: any) {
+    throw err instanceof ApiError
+      ? err
+      : new ApiError(401, err?.message ?? "Authentication error");
+  }
+
+  const doFetch = () =>
+    fetch(url, {
+      ...fetchOpts,
+      headers,
+      credentials: "include",
+      cache: "no-store",
+    });
+
+  let res = await doFetch();
+
+  if (res.status === 401) {
+    const refreshed = await silentRefresh();
+    if (refreshed) {
+      try {
+        headers = buildHeaders(opts);
+      } catch {
+        // no-op: request below will still return 401 and be handled.
+      }
+      res = await doFetch();
+    }
+
+    if (res.status === 401) {
+      let body: any = {};
+      try {
+        body = await res.clone().json();
+      } catch {
+        body = {};
+      }
+      const msg = body?.detail ?? "Session expired. Please log in again.";
+      if (!noRedirect) redirectToLogin();
+      throw new ApiError(401, msg, body);
+    }
+  }
+
+  if (!res.ok) {
+    let body: any = {};
+    try {
+      body = await res.clone().json();
+    } catch {
+      body = await res.clone().text().catch(() => "");
+    }
+    const msg =
+      (typeof body === "object" ? body?.detail || body?.message : "") ||
+      `Request failed (${res.status})`;
+    throw new ApiError(res.status, typeof msg === "string" ? msg : JSON.stringify(msg), body);
+  }
+
+  return res;
+}
+
 // ─── Convenience wrappers ─────────────────────────────────────────────────────
 
 export const api = {
@@ -264,6 +327,13 @@ export const api = {
     apiFetch<T>(path, {
       ...opts,
       method: "POST",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    }),
+
+  put: <T = unknown>(path: string, body?: unknown, opts?: ApiOptions) =>
+    apiFetch<T>(path, {
+      ...opts,
+      method: "PUT",
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }),
 

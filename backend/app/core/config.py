@@ -1,4 +1,11 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+try:
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+    _HAS_PYDANTIC_SETTINGS = True
+except Exception:  # pragma: no cover - compatibility fallback
+    from pydantic import BaseSettings  # type: ignore
+
+    SettingsConfigDict = None  # type: ignore
+    _HAS_PYDANTIC_SETTINGS = False
 
 
 class Settings(BaseSettings):
@@ -17,7 +24,12 @@ class Settings(BaseSettings):
     DB_POOL_RECYCLE_SEC: int = 1800
     DB_POOL_PRE_PING: bool = True
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    if _HAS_PYDANTIC_SETTINGS:
+        model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    else:
+        class Config:
+            env_file = ".env"
+            extra = "ignore"
 
 
 settings = Settings()

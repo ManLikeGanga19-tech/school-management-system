@@ -14,6 +14,7 @@ class Payment(Base):
 
     provider = Column(String(30), nullable=False)  # CASH|MPESA|BANK|CHEQUE
     reference = Column(String(100), nullable=True)
+    receipt_no = Column(String(50), nullable=True)
 
     amount = Column(Numeric(12, 2), nullable=False)
     currency = Column(String(10), nullable=False, server_default=text("'KES'"))

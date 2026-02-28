@@ -28,6 +28,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
+import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { asArray } from "@/lib/utils/asArray";
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -183,6 +184,10 @@ export default function TenantAuditPage() {
     const timer = setInterval(() => void load(true), 15_000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error]);
 
   function handleApply() {
     void load();

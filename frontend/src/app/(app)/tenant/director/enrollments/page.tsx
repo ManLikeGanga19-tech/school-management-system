@@ -76,8 +76,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
+import {
+  buildDefaultTerms,
+  normalizeTerms,
+  termFromPayload,
+  type TenantTerm,
+} from "@/lib/school-setup/terms";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -110,6 +116,7 @@ type ActionType =
 type UpdateDraft = {
   student_name: string;
   admission_class: string;
+  admission_term: string;
   intake_date: string;
   date_of_birth: string;
   gender: string;
@@ -119,16 +126,23 @@ type UpdateDraft = {
   previous_school: string;
   assessment_no: string;
   nemis_no: string;
+  has_medical_conditions: boolean;
+  medical_conditions_details: string;
+  has_medication_in_school: boolean;
+  medication_in_school_details: string;
   notes: string;
 };
 
 // ─── Initial states ───────────────────────────────────────────────────────────
 
 const INITIAL_UPDATE_DRAFT: UpdateDraft = {
-  student_name: "", admission_class: "", intake_date: "",
+  student_name: "", admission_class: "", admission_term: "", intake_date: "",
   date_of_birth: "", gender: "", guardian_name: "",
   guardian_phone: "", guardian_email: "", previous_school: "",
-  assessment_no: "", nemis_no: "", notes: "",
+  assessment_no: "", nemis_no: "",
+  has_medical_conditions: false, medical_conditions_details: "",
+  has_medication_in_school: false, medication_in_school_details: "",
+  notes: "",
 };
 
 // ─── Static config ────────────────────────────────────────────────────────────
@@ -176,14 +190,42 @@ function studentClass(payload: Record<string, unknown>): string {
 
 function isNonEmpty(v: string): boolean { return v.trim().length > 0; }
 
+function payloadString(payload: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function payloadBoolean(payload: Record<string, unknown>, keys: string[]): boolean {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["true", "yes", "y", "1"].includes(normalized)) return true;
+      if (["false", "no", "n", "0"].includes(normalized)) return false;
+    }
+  }
+  return false;
+}
+
 function rowMatchesSearch(row: EnrollmentRow, q: string): boolean {
   if (!q.trim()) return true;
   const lq  = q.toLowerCase();
   const name = studentName(row.payload || {}).toLowerCase();
   const cls  = studentClass(row.payload || {}).toLowerCase();
+  const term = termFromPayload(row.payload || {}).toLowerCase();
   const adm  = String(row.admission_number ?? (row.payload as any)?.admission_number ?? "").toLowerCase();
   const id   = row.id.toLowerCase();
-  return name.includes(lq) || cls.includes(lq) || adm.includes(lq) || id.includes(lq);
+  return (
+    name.includes(lq) ||
+    cls.includes(lq) ||
+    term.includes(lq) ||
+    adm.includes(lq) ||
+    id.includes(lq)
+  );
 }
 
 function statusToSuggestedActions(s: string): ActionType[] {
@@ -322,6 +364,40 @@ function ClassSelect({ value, onChange, classes, loadingClasses }: {
   );
 }
 
+function TermSelect({ value, onChange, terms, loadingTerms }: {
+  value: string;
+  onChange: (v: string) => void;
+  terms: TenantTerm[];
+  loadingTerms: boolean;
+}) {
+  return (
+    <Select
+      value={value || "__none__"}
+      onValueChange={(v) => onChange(v === "__none__" ? "" : v)}
+      disabled={loadingTerms}
+    >
+      <SelectTrigger>
+        <SelectValue placeholder={loadingTerms ? "Loading terms…" : "Select term"} />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__none__">
+          {loadingTerms ? "Loading…" : "Select a term"}
+        </SelectItem>
+        {terms.map((term) => (
+          <SelectItem key={term.id} value={term.code}>
+            {term.name}
+          </SelectItem>
+        ))}
+        {!loadingTerms && terms.length === 0 && (
+          <SelectItem value="__empty__" disabled>
+            No terms configured yet
+          </SelectItem>
+        )}
+      </SelectContent>
+    </Select>
+  );
+}
+
 // ─── Student Detail Dialog ────────────────────────────────────────────────────
 
 function StudentDetailDialog({ row, open, onClose }: {
@@ -335,6 +411,7 @@ function StudentDetailDialog({ row, open, onClose }: {
     { label: "Full Name",         value: studentName(p) },
     { label: "Admission Number",  value: admNum },
     { label: "Class",             value: studentClass(p) || "—" },
+    { label: "Term",              value: termFromPayload(p) || "—" },
     { label: "Intake Date",       value: (p as any)?.intake_date || "—" },
     { label: "Date of Birth",     value: (p as any)?.date_of_birth || "—" },
     { label: "Gender",            value: (p as any)?.gender || "—" },
@@ -345,6 +422,41 @@ function StudentDetailDialog({ row, open, onClose }: {
     { label: "Assessment No.",    value: (p as any)?.assessment_no || "—" },
     { label: "NEMIS No.",         value: (p as any)?.nemis_no || "—" },
     { label: "Enrollment Source", value: (p as any)?.enrollment_source || "INTAKE" },
+    {
+      label: "Has Medical Condition",
+      value: payloadBoolean(p, [
+        "has_medical_conditions",
+        "has_underlying_medical_conditions",
+      ])
+        ? "Yes"
+        : "No",
+    },
+    {
+      label: "Medical Condition Details",
+      value:
+        payloadString(p, [
+          "medical_conditions_details",
+          "underlying_medical_conditions",
+          "medical_report",
+        ]) || "—",
+    },
+    {
+      label: "Medicine Kept In School",
+      value: payloadBoolean(p, [
+        "has_medication_in_school",
+        "medication_left_in_school",
+      ])
+        ? "Yes"
+        : "No",
+    },
+    {
+      label: "Medication Details",
+      value:
+        payloadString(p, [
+          "medication_in_school_details",
+          "medication_prescription_details",
+        ]) || "—",
+    },
     { label: "Notes",             value: (p as any)?.notes || "—" },
   ];
 
@@ -399,10 +511,14 @@ function StudentDetailDialog({ row, open, onClose }: {
 // ─── Update Dialog ────────────────────────────────────────────────────────────
 // Director has NO edit-count restrictions — can update at any time.
 
-function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, loadingClasses }: {
+function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, terms, loadingClasses, loadingTerms }: {
   row: EnrollmentRow | null; open: boolean; onClose: () => void;
   onSave: (id: string, draft: UpdateDraft) => Promise<void>;
-  saving: boolean; classes: TenantClass[]; loadingClasses: boolean;
+  saving: boolean;
+  classes: TenantClass[];
+  terms: TenantTerm[];
+  loadingClasses: boolean;
+  loadingTerms: boolean;
 }) {
   const [draft, setDraft] = useState<UpdateDraft>(INITIAL_UPDATE_DRAFT);
 
@@ -412,6 +528,7 @@ function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, l
       setDraft({
         student_name:    String((p as any)?.student_name    ?? studentName(p)),
         admission_class: String((p as any)?.admission_class ?? studentClass(p) ?? ""),
+        admission_term:  String((p as any)?.admission_term  ?? termFromPayload(p) ?? ""),
         intake_date:     String((p as any)?.intake_date     ?? ""),
         date_of_birth:   String((p as any)?.date_of_birth   ?? ""),
         gender:          String((p as any)?.gender          ?? ""),
@@ -421,6 +538,23 @@ function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, l
         previous_school: String((p as any)?.previous_school ?? ""),
         assessment_no:   String((p as any)?.assessment_no   ?? ""),
         nemis_no:        String((p as any)?.nemis_no        ?? ""),
+        has_medical_conditions: payloadBoolean(p, [
+          "has_medical_conditions",
+          "has_underlying_medical_conditions",
+        ]),
+        medical_conditions_details: payloadString(p, [
+          "medical_conditions_details",
+          "underlying_medical_conditions",
+          "medical_report",
+        ]),
+        has_medication_in_school: payloadBoolean(p, [
+          "has_medication_in_school",
+          "medication_left_in_school",
+        ]),
+        medication_in_school_details: payloadString(p, [
+          "medication_in_school_details",
+          "medication_prescription_details",
+        ]),
         notes:           String((p as any)?.notes           ?? ""),
       });
     }
@@ -452,6 +586,14 @@ function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, l
             <FormField label="Admission Class" required hint="Select from configured school classes">
               <ClassSelect value={draft.admission_class} onChange={(v) => setDraft((p) => ({ ...p, admission_class: v }))}
                 classes={classes} loadingClasses={loadingClasses} />
+            </FormField>
+            <FormField label="Admission Term" hint="Academic term this enrollment belongs to">
+              <TermSelect
+                value={draft.admission_term}
+                onChange={(v) => setDraft((p) => ({ ...p, admission_term: v }))}
+                terms={terms}
+                loadingTerms={loadingTerms}
+              />
             </FormField>
             <FormField label="Intake Date">
               <Input type="date" value={draft.intake_date} onChange={(e) => setDraft((p) => ({ ...p, intake_date: e.target.value }))} />
@@ -487,6 +629,72 @@ function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, l
             <FormField label="NEMIS Number">
               <Input value={draft.nemis_no} onChange={(e) => setDraft((p) => ({ ...p, nemis_no: e.target.value }))} />
             </FormField>
+            <FormField label="Underlying Medical Condition">
+              <Select
+                value={draft.has_medical_conditions ? "YES" : "NO"}
+                onValueChange={(v) =>
+                  setDraft((p) => ({
+                    ...p,
+                    has_medical_conditions: v === "YES",
+                    medical_conditions_details: v === "YES" ? p.medical_conditions_details : "",
+                  }))
+                }
+              >
+                <SelectTrigger><SelectValue placeholder="Select option" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NO">No</SelectItem>
+                  <SelectItem value="YES">Yes</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="Medicine Left In School">
+              <Select
+                value={draft.has_medication_in_school ? "YES" : "NO"}
+                onValueChange={(v) =>
+                  setDraft((p) => ({
+                    ...p,
+                    has_medication_in_school: v === "YES",
+                    medication_in_school_details: v === "YES" ? p.medication_in_school_details : "",
+                  }))
+                }
+              >
+                <SelectTrigger><SelectValue placeholder="Select option" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NO">No</SelectItem>
+                  <SelectItem value="YES">Yes</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+            {draft.has_medical_conditions && (
+              <div className="md:col-span-2">
+                <FormField
+                  label="Medical Condition Details"
+                  hint="Diagnosis, triggers, and emergency guidance."
+                >
+                  <Textarea
+                    value={draft.medical_conditions_details}
+                    rows={3}
+                    className="resize-none"
+                    onChange={(e) => setDraft((p) => ({ ...p, medical_conditions_details: e.target.value }))}
+                  />
+                </FormField>
+              </div>
+            )}
+            {draft.has_medication_in_school && (
+              <div className="md:col-span-2">
+                <FormField
+                  label="Medication Details"
+                  hint="Medicine names, dosage, and school handling instructions."
+                >
+                  <Textarea
+                    value={draft.medication_in_school_details}
+                    rows={3}
+                    className="resize-none"
+                    onChange={(e) => setDraft((p) => ({ ...p, medication_in_school_details: e.target.value }))}
+                  />
+                </FormField>
+              </div>
+            )}
             <div className="md:col-span-2">
               <FormField label="Notes">
                 <Textarea value={draft.notes} rows={3} className="resize-none" onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))} />
@@ -516,6 +724,7 @@ function DirectorOverrideDialog({ row, open, onClose, onConfirm, loading }: {
   const [note, setNote] = useState("");
   useEffect(() => { if (open) setNote(""); }, [open]);
   if (!row) return null;
+  const admissionNumber = row.admission_number ?? (row.payload as any)?.admission_number;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -532,8 +741,8 @@ function DirectorOverrideDialog({ row, open, onClose, onConfirm, loading }: {
               <span className="text-sm font-semibold text-slate-800">{studentName(row.payload || {})}</span>
               <EnrollmentStatusBadge status={row.status} />
             </div>
-            {row.admission_number && (
-              <span className="font-mono text-xs font-semibold text-emerald-700">{row.admission_number}</span>
+            {admissionNumber && (
+              <span className="font-mono text-xs font-semibold text-emerald-700">{admissionNumber}</span>
             )}
           </div>
           <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3">
@@ -588,6 +797,7 @@ function DeleteStudentDialog({ row, open, onClose, onSoftDelete, onHardDelete, s
 
   if (!row) return null;
   const name = studentName(row.payload || {});
+  const admissionNumber = row.admission_number ?? (row.payload as any)?.admission_number;
   const isSoftDeleted = row.status.toUpperCase() === "DELETED";
 
   // If already soft-deleted, skip straight to hard delete step
@@ -617,8 +827,8 @@ function DeleteStudentDialog({ row, open, onClose, onSoftDelete, onHardDelete, s
               <EnrollmentStatusBadge status={row.status} />
             </div>
             <div className="flex items-center gap-3 text-xs">
-              {row.admission_number && (
-                <span className="font-mono font-semibold text-emerald-700">{row.admission_number}</span>
+              {admissionNumber && (
+                <span className="font-mono font-semibold text-emerald-700">{admissionNumber}</span>
               )}
               <span className="font-mono text-slate-400">{row.id.slice(0, 16)}…</span>
             </div>
@@ -718,6 +928,8 @@ function TenantEnrollmentsPageContent() {
   // ── Classes ──
   const [tenantClasses, setTenantClasses]   = useState<TenantClass[]>([]);
   const [loadingClasses, setLoadingClasses] = useState(true);
+  const [tenantTerms, setTenantTerms] = useState<TenantTerm[]>([]);
+  const [loadingTerms, setLoadingTerms] = useState(true);
 
   // ── Workflow ──
   const [selectedAction, setSelectedAction] = useState<ActionType>("approve");
@@ -730,6 +942,7 @@ function TenantEnrollmentsPageContent() {
   const [queueSearch, setQueueSearch]                 = useState("");
   const [studentsSearch, setStudentsSearch]           = useState("");
   const [studentsClassFilter, setStudentsClassFilter] = useState("__all__");
+  const [studentsTermFilter, setStudentsTermFilter] = useState("__all__");
 
   // ── Dialogs ──
   const [viewOpen, setViewOpen]             = useState(false);
@@ -757,7 +970,7 @@ function TenantEnrollmentsPageContent() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const data = await api.get<EnrollmentRow[]>("/enrollments", { tenantRequired: true });
+      const data = await api.get<EnrollmentRow[]>("/enrollments/", { tenantRequired: true });
       setRows(Array.isArray(data) ? data : []);
     } catch (err: any) {
       if (!silent) toast.error(typeof err?.message === "string" ? err.message : "Failed to load enrollments");
@@ -793,6 +1006,30 @@ function TenantEnrollmentsPageContent() {
   return () => { mounted = false; };
 }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    setLoadingTerms(true);
+    (async () => {
+      try {
+        const data = await api.get<unknown>("/tenants/terms", {
+          tenantRequired: true,
+          noRedirect: true,
+        });
+        if (!mounted) return;
+        const normalized = normalizeTerms(data);
+        setTenantTerms(normalized.length > 0 ? normalized : buildDefaultTerms());
+      } catch {
+        if (!mounted) return;
+        setTenantTerms(buildDefaultTerms());
+      } finally {
+        if (mounted) setLoadingTerms(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const enrolledRows = useMemo(
@@ -816,14 +1053,24 @@ function TenantEnrollmentsPageContent() {
     () => enrolledRows.filter((r) => {
       const ms = rowMatchesSearch(r, studentsSearch);
       const mc = studentsClassFilter === "__all__" || studentClass(r.payload || {}) === studentsClassFilter;
-      return ms && mc;
+      const mt = studentsTermFilter === "__all__" || termFromPayload(r.payload || {}) === studentsTermFilter;
+      return ms && mc && mt;
     }),
-    [enrolledRows, studentsSearch, studentsClassFilter]
+    [enrolledRows, studentsSearch, studentsClassFilter, studentsTermFilter]
   );
 
   const uniqueClasses = useMemo(() => {
     const s = new Set<string>();
     enrolledRows.forEach((r) => { const c = studentClass(r.payload || {}); if (c) s.add(c); });
+    return Array.from(s).sort();
+  }, [enrolledRows]);
+
+  const uniqueTerms = useMemo(() => {
+    const s = new Set<string>();
+    enrolledRows.forEach((r) => {
+      const term = termFromPayload(r.payload || {});
+      if (term) s.add(term);
+    });
     return Array.from(s).sort();
   }, [enrolledRows]);
 
@@ -854,12 +1101,18 @@ function TenantEnrollmentsPageContent() {
     setSubmitting(true);
     try {
       await api.post<any>(
-        "/enrollments",
-        {
-          enrollment_id: enrollmentId,
-          action: act,
-          ...(act === "reject" && { reason: reason?.trim() }),
-        },
+        act === "submit"
+          ? `/enrollments/${enrollmentId}/submit`
+          : act === "approve"
+            ? `/enrollments/${enrollmentId}/approve`
+            : act === "reject"
+              ? `/enrollments/${enrollmentId}/reject`
+              : act === "enroll"
+                ? `/enrollments/${enrollmentId}/enroll`
+                : act === "transfer_request"
+                  ? `/enrollments/${enrollmentId}/transfer/request`
+                  : `/enrollments/${enrollmentId}/transfer/approve`,
+        act === "reject" ? { reason: reason?.trim() || null } : undefined,
         { tenantRequired: true }
       );
       toast.success(`Action "${actionConfig[act].label}" completed successfully.`);
@@ -875,12 +1128,12 @@ function TenantEnrollmentsPageContent() {
     setUpdateSaving(true);
     try {
       await api.patch<any>(
-        "/enrollments",
+        `/enrollments/${id}`,
         {
-          enrollment_id: id,
           payload: {
             student_name:    d.student_name.trim(),
             admission_class: d.admission_class.trim(),
+            admission_term:  d.admission_term.trim() || null,
             intake_date:     d.intake_date || null,
             date_of_birth:   d.date_of_birth || null,
             gender:          d.gender || null,
@@ -890,6 +1143,14 @@ function TenantEnrollmentsPageContent() {
             previous_school: d.previous_school.trim() || null,
             assessment_no:   d.assessment_no.trim() || null,
             nemis_no:        d.nemis_no.trim() || null,
+            has_medical_conditions: d.has_medical_conditions,
+            medical_conditions_details: d.has_medical_conditions
+              ? d.medical_conditions_details.trim() || null
+              : null,
+            has_medication_in_school: d.has_medication_in_school,
+            medication_in_school_details: d.has_medication_in_school
+              ? d.medication_in_school_details.trim() || null
+              : null,
             notes:           d.notes.trim() || null,
           },
         },
@@ -909,8 +1170,8 @@ function TenantEnrollmentsPageContent() {
     setSoftDeleting(true);
     try {
       await api.post<any>(
-        "/enrollments",
-        { enrollment_id: id, action: "delete" },
+        `/enrollments/${id}/soft-delete`,
+        undefined,
         { tenantRequired: true }
       );
       // Update local state immediately so dialog shows updated status
@@ -927,7 +1188,7 @@ function TenantEnrollmentsPageContent() {
   async function hardDeleteStudent(id: string) {
     setHardDeleting(true);
     try {
-      await api.delete<any>("/enrollments", { enrollment_id: id }, { tenantRequired: true });
+      await api.delete<any>(`/enrollments/${id}`, undefined, { tenantRequired: true });
       setRows((prev) => prev.filter((r) => r.id !== id));
       setDeleteOpen(false); setDeleteRow(null);
       toast.success("Student record permanently deleted from the system.");
@@ -984,7 +1245,10 @@ function TenantEnrollmentsPageContent() {
           row={updateRow} open={updateOpen}
           onClose={() => { setUpdateOpen(false); setUpdateRow(null); }}
           onSave={saveUpdate} saving={updateSaving}
-          classes={tenantClasses} loadingClasses={loadingClasses}
+          classes={tenantClasses}
+          terms={tenantTerms}
+          loadingClasses={loadingClasses}
+          loadingTerms={loadingTerms}
         />
 
         <DeleteStudentDialog
@@ -1138,6 +1402,7 @@ function TenantEnrollmentsPageContent() {
                       <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Adm. No.</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
+                      <TableHead className="text-xs">Term</TableHead>
                       <TableHead className="text-xs">Status</TableHead>
                       <TableHead className="text-xs">Intake Date</TableHead>
                       <TableHead className="text-xs">Record ID</TableHead>
@@ -1162,6 +1427,11 @@ function TenantEnrollmentsPageContent() {
                           </TableCell>
                           <TableCell>
                             <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-mono text-xs text-slate-500">
+                              {termFromPayload(row.payload || {}) || "—"}
+                            </span>
                           </TableCell>
                           <TableCell><EnrollmentStatusBadge status={row.status} /></TableCell>
                           <TableCell className="text-xs text-slate-500">{intakeDate || "—"}</TableCell>
@@ -1249,6 +1519,7 @@ function TenantEnrollmentsPageContent() {
                       <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Adm. No.</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
+                      <TableHead className="text-xs">Term</TableHead>
                       <TableHead className="text-xs">Status</TableHead>
                       <TableHead className="text-xs">Intake Date</TableHead>
                       <TableHead className="text-xs">Record ID</TableHead>
@@ -1272,6 +1543,11 @@ function TenantEnrollmentsPageContent() {
                           <TableCell>
                             <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
                           </TableCell>
+                          <TableCell>
+                            <span className="font-mono text-xs text-slate-500">
+                              {termFromPayload(row.payload || {}) || "—"}
+                            </span>
+                          </TableCell>
                           <TableCell><EnrollmentStatusBadge status={row.status} /></TableCell>
                           <TableCell className="text-xs text-slate-500">{intakeDate || "—"}</TableCell>
                           <TableCell className="font-mono text-xs text-slate-400">{row.id.slice(0, 8)}…</TableCell>
@@ -1285,7 +1561,7 @@ function TenantEnrollmentsPageContent() {
                       );
                     })}
                     {!loading && filteredQueue.length === 0 && (
-                      <EmptyRow colSpan={7} message={queueSearch ? "No results match your search." : "No enrollments found."} />
+                      <EmptyRow colSpan={8} message={queueSearch ? "No results match your search." : "No enrollments found."} />
                     )}
                   </TableBody>
                 </Table>
@@ -1322,6 +1598,19 @@ function TenantEnrollmentsPageContent() {
                       {uniqueClasses.map((cls) => <SelectItem key={cls} value={cls}>{cls}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  <Select value={studentsTermFilter} onValueChange={setStudentsTermFilter}>
+                    <SelectTrigger className="h-8 w-[160px] text-xs">
+                      <SelectValue placeholder="Filter by term" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All Terms</SelectItem>
+                      {uniqueTerms.map((term) => (
+                        <SelectItem key={term} value={term}>
+                          {term}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 whitespace-nowrap">
                     {filteredStudents.length} enrolled
                   </span>
@@ -1332,13 +1621,14 @@ function TenantEnrollmentsPageContent() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-slate-50">
-                    <TableHead className="text-xs">Student Name</TableHead>
-                    <TableHead className="text-xs">Adm. No.</TableHead>
-                    <TableHead className="text-xs">Class</TableHead>
-                    <TableHead className="text-xs">Intake Date</TableHead>
-                    <TableHead className="text-xs">Status</TableHead>
-                    <TableHead className="text-xs">Record ID</TableHead>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="text-xs">Student Name</TableHead>
+                      <TableHead className="text-xs">Adm. No.</TableHead>
+                      <TableHead className="text-xs">Class</TableHead>
+                      <TableHead className="text-xs">Term</TableHead>
+                      <TableHead className="text-xs">Intake Date</TableHead>
+                      <TableHead className="text-xs">Status</TableHead>
+                      <TableHead className="text-xs">Record ID</TableHead>
                     <TableHead className="text-xs w-[180px] text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1357,6 +1647,11 @@ function TenantEnrollmentsPageContent() {
                         </TableCell>
                         <TableCell className="pt-3">
                           <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
+                        </TableCell>
+                        <TableCell className="pt-3">
+                          <span className="font-mono text-xs text-slate-500">
+                            {termFromPayload(row.payload || {}) || "—"}
+                          </span>
                         </TableCell>
                         <TableCell className="text-xs text-slate-500 pt-3">{intakeDate || "—"}</TableCell>
                         <TableCell className="pt-3"><EnrollmentStatusBadge status={row.status} /></TableCell>
@@ -1400,7 +1695,7 @@ function TenantEnrollmentsPageContent() {
 
                   {!loading && filteredStudents.length === 0 && (
                     <EmptyRow colSpan={8}
-                      message={studentsSearch || studentsClassFilter !== "__all__"
+                      message={studentsSearch || studentsClassFilter !== "__all__" || studentsTermFilter !== "__all__"
                         ? "No students match your search or filter."
                         : "No enrolled students found."} />
                   )}

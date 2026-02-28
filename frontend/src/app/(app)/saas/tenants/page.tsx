@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
+import { saasNav } from "@/components/layout/nav-config";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -75,6 +76,17 @@ type TenantRow = {
   updated_at?: string | null;
 };
 
+type TenantPrintProfile = {
+  tenant_id: string;
+  logo_url: string | null;
+  school_header: string | null;
+  receipt_footer: string | null;
+  paper_size: "A4" | "THERMAL_80MM";
+  currency: string;
+  thermal_width_mm: number;
+  qr_enabled: boolean;
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function timeAgo(iso?: string | null) {
@@ -102,16 +114,34 @@ function avatarColor(id: string) {
   return palette[Math.abs(hash) % palette.length];
 }
 
-// ─── Nav ──────────────────────────────────────────────────────────────────────
+const DEFAULT_PRINT_PROFILE: TenantPrintProfile = {
+  tenant_id: "",
+  logo_url: null,
+  school_header: null,
+  receipt_footer: null,
+  paper_size: "A4",
+  currency: "KES",
+  thermal_width_mm: 80,
+  qr_enabled: true,
+};
 
-const nav = [
-  { href: "/saas/dashboard",        label: "SaaS Summary"  },
-  { href: "/saas/tenants",          label: "Tenants"       },
-  { href: "/saas/subscriptions",    label: "Subscriptions" },
-  { href: "/saas/rbac/permissions", label: "Permissions"   },
-  { href: "/saas/rbac/roles",       label: "Roles"         },
-  { href: "/saas/audit",            label: "Audit Logs"    },
-];
+function normalizePrintProfile(
+  value: Partial<TenantPrintProfile> | null | undefined,
+  tenantId: string
+): TenantPrintProfile {
+  const paper = String(value?.paper_size ?? "A4").toUpperCase();
+  const width = Number(value?.thermal_width_mm ?? 80);
+  return {
+    tenant_id: String(value?.tenant_id ?? tenantId),
+    logo_url: value?.logo_url ?? null,
+    school_header: value?.school_header ?? null,
+    receipt_footer: value?.receipt_footer ?? null,
+    paper_size: paper === "THERMAL_80MM" ? "THERMAL_80MM" : "A4",
+    currency: String(value?.currency ?? "KES").toUpperCase(),
+    thermal_width_mm: Number.isFinite(width) ? Math.max(58, Math.min(120, width)) : 80,
+    qr_enabled: value?.qr_enabled ?? true,
+  };
+}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -138,6 +168,12 @@ export default function SaaSTenantsPage() {
   const [cPlan, setCPlan]                   = useState<string>("__none__");
   const [cAdminEmail, setCAdminEmail]       = useState("");
   const [creating, setCreating]             = useState(false);
+
+  // ── Tenant print profile ────────────────────────────────────────────────
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileTarget, setProfileTarget] = useState<TenantRow | null>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [printProfile, setPrintProfile] = useState<TenantPrintProfile>(DEFAULT_PRINT_PROFILE);
 
   const PLANS = ["Starter", "Basic", "Professional", "Enterprise"];
 
@@ -263,6 +299,57 @@ export default function SaaSTenantsPage() {
     }
   }
 
+  async function openPrintProfileEditor(tenant: TenantRow) {
+    setProfileTarget(tenant);
+    setProfileOpen(true);
+    setProfileBusy(true);
+    try {
+      const data = await apiFetch<Partial<TenantPrintProfile>>(
+        `/admin/tenants/${tenant.id}/print-profile`,
+        { method: "GET", tenantRequired: false }
+      );
+      setPrintProfile(normalizePrintProfile(data, tenant.id));
+    } catch (e: any) {
+      setPrintProfile(normalizePrintProfile(DEFAULT_PRINT_PROFILE, tenant.id));
+      toast.error(e?.message ?? "Failed to load print profile");
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  async function savePrintProfileSettings() {
+    if (!profileTarget) return;
+    setProfileBusy(true);
+    try {
+      const payload = {
+        logo_url: printProfile.logo_url?.trim() || null,
+        school_header: printProfile.school_header?.trim() || null,
+        receipt_footer: printProfile.receipt_footer?.trim() || null,
+        paper_size: printProfile.paper_size,
+        currency: printProfile.currency.trim().toUpperCase() || "KES",
+        thermal_width_mm: Number(printProfile.thermal_width_mm || 80),
+        qr_enabled: Boolean(printProfile.qr_enabled),
+      };
+      const saved = await apiFetch<Partial<TenantPrintProfile>>(
+        `/admin/tenants/${profileTarget.id}/print-profile`,
+        {
+          method: "PUT",
+          tenantRequired: false,
+          body: JSON.stringify(payload),
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+      setPrintProfile(normalizePrintProfile(saved, profileTarget.id));
+      toast.success(`Print profile saved for "${profileTarget.name}"`);
+      setProfileOpen(false);
+      setProfileTarget(null);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to save print profile");
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const activeCount   = rows.filter((r) => r.is_active).length;
@@ -288,7 +375,7 @@ export default function SaaSTenantsPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <AppShell title="Super Admin" nav={nav} activeHref="/saas/tenants">
+    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/tenants">
 
       {/* ── Create tenant dialog ── */}
       <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) resetCreateForm(); }}>
@@ -370,6 +457,149 @@ export default function SaaSTenantsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Print profile dialog ── */}
+      <Dialog
+        open={profileOpen}
+        onOpenChange={(o) => {
+          setProfileOpen(o);
+          if (!o) setProfileTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Tenant Print Profile</DialogTitle>
+            <DialogDescription>
+              Configure standardized documents for{" "}
+              <strong>{profileTarget?.name ?? "this tenant"}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Logo URL</Label>
+              <Input
+                placeholder="https://..."
+                value={printProfile.logo_url ?? ""}
+                onChange={(e) =>
+                  setPrintProfile((p) => ({ ...p, logo_url: e.target.value || null }))
+                }
+                disabled={profileBusy}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">School Header</Label>
+              <Input
+                placeholder="Printed document header"
+                value={printProfile.school_header ?? ""}
+                onChange={(e) =>
+                  setPrintProfile((p) => ({ ...p, school_header: e.target.value || null }))
+                }
+                disabled={profileBusy}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Receipt Footer</Label>
+              <Input
+                placeholder="Footer text for receipts/documents"
+                value={printProfile.receipt_footer ?? ""}
+                onChange={(e) =>
+                  setPrintProfile((p) => ({ ...p, receipt_footer: e.target.value || null }))
+                }
+                disabled={profileBusy}
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-600">Paper Size</Label>
+                <Select
+                  value={printProfile.paper_size}
+                  onValueChange={(v: "A4" | "THERMAL_80MM") =>
+                    setPrintProfile((p) => ({ ...p, paper_size: v }))
+                  }
+                  disabled={profileBusy}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="A4">A4</SelectItem>
+                    <SelectItem value="THERMAL_80MM">Thermal 80mm</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-600">Currency</Label>
+                <Input
+                  placeholder="KES"
+                  value={printProfile.currency}
+                  onChange={(e) =>
+                    setPrintProfile((p) => ({ ...p, currency: e.target.value.toUpperCase() }))
+                  }
+                  disabled={profileBusy}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-600">Thermal Width (mm)</Label>
+                <Input
+                  type="number"
+                  min={58}
+                  max={120}
+                  value={String(printProfile.thermal_width_mm)}
+                  onChange={(e) =>
+                    setPrintProfile((p) => ({
+                      ...p,
+                      thermal_width_mm: Number(e.target.value || 80),
+                    }))
+                  }
+                  disabled={profileBusy}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-600">Verification QR</Label>
+                <label className="inline-flex h-10 w-full items-center gap-2 rounded-md border px-3 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={printProfile.qr_enabled}
+                    onChange={(e) =>
+                      setPrintProfile((p) => ({ ...p, qr_enabled: e.target.checked }))
+                    }
+                    disabled={profileBusy}
+                  />
+                  Enable QR payload in documents
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setProfileOpen(false);
+                setProfileTarget(null);
+              }}
+              disabled={profileBusy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void savePrintProfileSettings()}
+              disabled={profileBusy || !profileTarget}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {profileBusy ? "Saving…" : "Save Print Profile"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Suspend confirmation ── */}
       <AlertDialog open={!!suspendTarget} onOpenChange={() => setSuspendTarget(null)}>
         <AlertDialogContent>
@@ -432,14 +662,14 @@ export default function SaaSTenantsPage() {
                 Manage all schools on the platform — suspend, restore, and monitor activity
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-3 sm:gap-3">
               {[
                 { label: "Total",    value: rows.length   },
                 { label: "Active",   value: activeCount   },
                 { label: "Inactive", value: inactiveCount },
               ].map((item) => (
-                <div key={item.label} className="rounded-xl bg-white/10 px-4 py-2 text-center backdrop-blur">
-                  <div className="text-xl font-bold text-white">{item.value}</div>
+                <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 text-center backdrop-blur sm:px-4">
+                  <div className="text-lg font-bold text-white sm:text-xl">{item.value}</div>
                   <div className="text-xs text-blue-200">{item.label}</div>
                 </div>
               ))}
@@ -492,22 +722,22 @@ export default function SaaSTenantsPage() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               {/* Search */}
-              <div className="relative">
+              <div className="relative w-full sm:w-auto">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <Input
                   placeholder="Search name, slug, domain…"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && void load()}
-                  className="h-8 w-56 pl-8 text-xs"
+                  className="h-8 w-full pl-8 text-xs sm:w-56"
                 />
               </div>
 
               {/* Status filter */}
               <Select value={status} onValueChange={(v: any) => setStatus(v)}>
-                <SelectTrigger className="h-8 w-36 text-xs">
+                <SelectTrigger className="h-8 w-full text-xs sm:w-36">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -550,7 +780,7 @@ export default function SaaSTenantsPage() {
           </div>
 
           {/* Table */}
-          <div className="overflow-hidden">
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 hover:bg-slate-50">
@@ -561,7 +791,7 @@ export default function SaaSTenantsPage() {
                   <TableHead className="text-xs">Plan</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Created</TableHead>
-                  <TableHead className="w-28 text-xs">Actions</TableHead>
+                  <TableHead className="w-56 text-xs">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -680,27 +910,37 @@ export default function SaaSTenantsPage() {
 
                     {/* Actions */}
                     <TableCell className="py-3 pr-4">
-                      {t.is_active ? (
+                      <div className="flex items-center gap-2">
+                        {t.is_active ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 border-red-200 bg-red-50 text-xs text-red-700 hover:bg-red-100 hover:border-red-300"
+                            onClick={() => setSuspendTarget(t)}
+                          >
+                            <ShieldOff className="h-3 w-3" />
+                            Suspend
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 border-emerald-200 bg-emerald-50 text-xs text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300"
+                            onClick={() => setRestoreTarget(t)}
+                          >
+                            <ShieldCheck className="h-3 w-3" />
+                            Restore
+                          </Button>
+                        )}
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-7 gap-1.5 border-red-200 bg-red-50 text-xs text-red-700 hover:bg-red-100 hover:border-red-300"
-                          onClick={() => setSuspendTarget(t)}
+                          className="h-7 text-xs"
+                          onClick={() => void openPrintProfileEditor(t)}
                         >
-                          <ShieldOff className="h-3 w-3" />
-                          Suspend
+                          Print Setup
                         </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 gap-1.5 border-emerald-200 bg-emerald-50 text-xs text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300"
-                          onClick={() => setRestoreTarget(t)}
-                        >
-                          <ShieldCheck className="h-3 w-3" />
-                          Restore
-                        </Button>
-                      )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -710,7 +950,7 @@ export default function SaaSTenantsPage() {
 
           {/* Table footer */}
           {filteredRows.length > 0 && (
-            <div className="flex items-center gap-4 border-t border-slate-100 px-6 py-3">
+            <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-6 py-3">
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                 <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
                 {activeCount} active
@@ -719,7 +959,7 @@ export default function SaaSTenantsPage() {
                 <Activity className="h-3.5 w-3.5 text-red-400" />
                 {inactiveCount} suspended
               </span>
-              <span className="ml-auto text-xs text-slate-400">
+              <span className="text-xs text-slate-400 sm:ml-auto">
                 Auto-refreshes every 30s
               </span>
             </div>

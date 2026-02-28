@@ -19,6 +19,7 @@ from app.models.subscription import Subscription
 from app.models.payment import Payment
 from app.models.enrollment import Enrollment
 from app.models.invoice import Invoice
+from app.models.tenant_print_profile import TenantPrintProfile
 
 # If your project has hashing util (it does, used in tenants/routes.py)
 from app.utils.hashing import hash_password
@@ -35,6 +36,15 @@ PLAN_PRICES: dict[str, float] = {
 
 ALLOWED_BILLING_CYCLES = {"per_term", "full_year"}
 ALLOWED_SUB_STATUSES = {"active", "trialing", "past_due", "cancelled", "paused"}
+
+
+def _clean_optional_text(value: Any, *, max_len: int) -> str | None:
+    if value is None:
+        return None
+    out = str(value).strip()
+    if not out:
+        return None
+    return out[:max_len]
 
 
 def _compute_amount_and_end(
@@ -282,6 +292,69 @@ def list_tenants_with_metadata(
         )
 
     return result
+
+
+def get_or_create_tenant_print_profile(db: Session, *, tenant_id: UUID) -> TenantPrintProfile:
+    row = db.execute(
+        select(TenantPrintProfile).where(TenantPrintProfile.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    if row:
+        return row
+
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        raise ValueError("Tenant not found")
+
+    row = TenantPrintProfile(
+        tenant_id=tenant_id,
+        school_header=(tenant.name or "").strip() or None,
+        receipt_footer="Thank you for partnering with us.",
+        paper_size="A4",
+        currency="KES",
+        thermal_width_mm=80,
+        qr_enabled=True,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def upsert_tenant_print_profile(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID | None,
+    data: dict[str, Any],
+) -> TenantPrintProfile:
+    row = get_or_create_tenant_print_profile(db, tenant_id=tenant_id)
+
+    paper_size = str(data.get("paper_size") or row.paper_size or "A4").upper().strip()
+    if paper_size not in {"A4", "THERMAL_80MM"}:
+        raise ValueError("paper_size must be A4 or THERMAL_80MM")
+
+    try:
+        thermal_width = int(data.get("thermal_width_mm", row.thermal_width_mm or 80))
+    except Exception:
+        raise ValueError("thermal_width_mm must be an integer")
+    if thermal_width < 58 or thermal_width > 120:
+        raise ValueError("thermal_width_mm must be between 58 and 120")
+
+    currency = str(data.get("currency") or row.currency or "KES").upper().strip()
+    if not currency:
+        raise ValueError("currency is required")
+    if len(currency) > 10:
+        raise ValueError("currency must be at most 10 characters")
+
+    row.logo_url = _clean_optional_text(data.get("logo_url"), max_len=500)
+    row.school_header = _clean_optional_text(data.get("school_header"), max_len=500)
+    row.receipt_footer = _clean_optional_text(data.get("receipt_footer"), max_len=500)
+    row.paper_size = paper_size
+    row.currency = currency
+    row.thermal_width_mm = thermal_width
+    row.qr_enabled = bool(data.get("qr_enabled", row.qr_enabled))
+    row.updated_by = actor_user_id
+    db.flush()
+    return row
 
 
 # ─── Create Tenant (with optional plan + optional admin invite) ───────────────

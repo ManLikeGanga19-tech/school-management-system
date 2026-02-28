@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { saasNav } from "@/components/layout/nav-config";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import {
   Dialog,
   DialogContent,
@@ -100,17 +101,6 @@ function actionBadgeClass(action: string) {
     return "bg-purple-50 text-purple-700 ring-1 ring-purple-200";
   return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
 }
-
-// ─── Nav ──────────────────────────────────────────────────────────────────────
-
-const nav = [
-  { href: "/saas/dashboard",        label: "SaaS Summary"  },
-  { href: "/saas/tenants",          label: "Tenants"       },
-  { href: "/saas/subscriptions",    label: "Subscriptions" },
-  { href: "/saas/rbac/permissions", label: "Permissions"   },
-  { href: "/saas/rbac/roles",       label: "Roles"         },
-  { href: "/saas/audit",            label: "Audit Logs"    },
-];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -243,7 +233,7 @@ export default function SaaSAuditPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <AppShell title="Super Admin" nav={nav} activeHref="/saas/audit">
+    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/audit">
 
       {/* ── Detail dialog ── */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
@@ -333,7 +323,7 @@ export default function SaaSAuditPage() {
                 Platform-wide event stream — filter by tenant, action, actor, or date range
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-4 sm:gap-3">
               {[
                 { label: "Total",    value: total         },
                 { label: "Loaded",   value: rows.length   },
@@ -341,7 +331,7 @@ export default function SaaSAuditPage() {
                 { label: "Tenants",  value: uniqueTenants },
               ].map((item) => (
                 <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 text-center backdrop-blur">
-                  <div className="text-xl font-bold text-white">{item.value}</div>
+                  <div className="text-lg font-bold text-white sm:text-xl">{item.value}</div>
                   <div className="text-xs text-blue-200">{item.label}</div>
                 </div>
               ))}
@@ -561,7 +551,7 @@ export default function SaaSAuditPage() {
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
 
           {/* Table toolbar */}
-          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-slate-400" />
               <div>
@@ -573,7 +563,7 @@ export default function SaaSAuditPage() {
             </div>
 
             {/* Pagination controls */}
-            <div className="flex items-center gap-2">
+            <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
               <span className="text-xs text-slate-400">
                 Page {Math.floor(offset / limit) + 1} of {Math.max(1, Math.ceil(total / limit))}
               </span>
@@ -599,7 +589,7 @@ export default function SaaSAuditPage() {
           </div>
 
           {/* Table */}
-          <div className="overflow-hidden">
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 hover:bg-slate-50">
@@ -733,7 +723,7 @@ export default function SaaSAuditPage() {
 
           {/* Bottom pagination */}
           {rows.length > 0 && (
-            <div className="flex items-center justify-between border-t border-slate-100 px-6 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-6 py-3">
               <span className="text-xs text-slate-400">
                 {pageFrom}–{pageTo} of {total} events
               </span>

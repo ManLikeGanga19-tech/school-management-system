@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { asArray } from "@/lib/utils/asArray";
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -150,6 +151,10 @@ export default function SecretaryAuditPage() {
     const timer = setInterval(() => void load(true), 20000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error]);
 
   function handleApply() {
     void load();

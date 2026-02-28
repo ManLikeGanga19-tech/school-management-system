@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from uuid import UUID
 
@@ -8,6 +8,7 @@ from app.core.dependencies import get_tenant, get_current_user, require_permissi
 from app.api.v1.finance import service
 from app.api.v1.finance.schemas import (
     FinancePolicyUpsert, FinancePolicyOut,
+    FinanceStructurePolicyUpsert, FinanceStructurePolicyOut,
     FeeCategoryCreate, FeeCategoryOut,
     FeeItemCreate, FeeItemOut,
     FeeStructureCreate, FeeStructureUpdate, FeeStructureOut, FeeStructureItemUpsert, FeeStructureItemAdd, FeeStructureItemOut, FeeStructureWithItemsOut,
@@ -44,6 +45,72 @@ def upsert_policy(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.get(
+    "/structure-policies",
+    response_model=list[FinanceStructurePolicyOut],
+    dependencies=[Depends(require_permission("finance.policy.view"))],
+)
+def list_structure_policies(
+    fee_structure_id: UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    return service.list_fee_structure_policies(
+        db,
+        tenant_id=tenant.id,
+        fee_structure_id=fee_structure_id,
+    )
+
+
+@router.put(
+    "/structure-policies",
+    response_model=FinanceStructurePolicyOut,
+    dependencies=[Depends(require_permission("finance.policy.manage"))],
+)
+def upsert_structure_policy(
+    payload: FinanceStructurePolicyUpsert,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    row = service.upsert_fee_structure_policy(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        fee_structure_id=payload.fee_structure_id,
+        fee_item_id=payload.fee_item_id,
+        allow_partial_enrollment=payload.allow_partial_enrollment,
+        min_percent_to_enroll=payload.min_percent_to_enroll,
+        min_amount_to_enroll=payload.min_amount_to_enroll,
+    )
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete(
+    "/structure-policies",
+    dependencies=[Depends(require_permission("finance.policy.manage"))],
+)
+def delete_structure_policy(
+    fee_structure_id: UUID = Query(...),
+    fee_item_id: UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    service.delete_fee_structure_policy(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        fee_structure_id=fee_structure_id,
+        fee_item_id=fee_item_id,
+    )
+    db.commit()
+    return {"ok": True}
 
 
 # -------------------------
@@ -128,7 +195,15 @@ def create_fee_structure(
     tenant=Depends(get_tenant),
     user=Depends(get_current_user),
 ):
-    row = service.create_fee_structure(db, tenant_id=tenant.id, actor_user_id=user.id, class_code=payload.class_code, name=payload.name, is_active=payload.is_active)
+    row = service.create_fee_structure(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        class_code=payload.class_code,
+        term_code=payload.term_code,
+        name=payload.name,
+        is_active=payload.is_active,
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -264,6 +339,7 @@ def get_structure(
         return FeeStructureWithItemsOut(
             id=s.id,
             class_code=s.class_code,
+            term_code=s.term_code,
             name=s.name,
             is_active=s.is_active,
             items=items,
@@ -376,7 +452,10 @@ def generate_fees_invoice(
             actor_user_id=user.id,
             enrollment_id=payload.enrollment_id,
             class_code=payload.class_code,
+            term_code=payload.term_code,
             scholarship_id=payload.scholarship_id,
+            scholarship_amount=payload.scholarship_amount,
+            scholarship_reason=payload.scholarship_reason,
         )
         db.commit()
         db.refresh(inv)
@@ -444,6 +523,171 @@ def list_payments(
     _=Depends(get_current_user),
 ):
     return service.list_payments(db, tenant_id=tenant.id, enrollment_id=enrollment_id)
+
+
+# -------------------------
+# Canonical documents (JSON + PDF)
+# -------------------------
+@router.get(
+    "/documents/invoices/{invoice_id}",
+    dependencies=[Depends(require_permission("finance.invoices.view"))],
+)
+def get_invoice_document(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    try:
+        payload = service.build_invoice_document(
+            db,
+            tenant_id=tenant.id,
+            invoice_id=invoice_id,
+        )
+        db.commit()
+        return payload
+    except ValueError as e:
+        db.rollback()
+        msg = str(e)
+        raise HTTPException(status_code=404 if "not found" in msg.lower() else 400, detail=msg)
+
+
+@router.get(
+    "/documents/invoices/{invoice_id}/pdf",
+    dependencies=[Depends(require_permission("finance.invoices.view"))],
+)
+def download_invoice_pdf(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    try:
+        payload = service.build_invoice_document(
+            db,
+            tenant_id=tenant.id,
+            invoice_id=invoice_id,
+        )
+        pdf = service.render_document_pdf(payload)
+        db.commit()
+        filename = f"{payload.get('document_no') or 'invoice'}.pdf"
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as e:
+        db.rollback()
+        msg = str(e)
+        raise HTTPException(status_code=404 if "not found" in msg.lower() else 400, detail=msg)
+
+
+@router.get(
+    "/documents/payments/{payment_id}",
+    dependencies=[Depends(require_permission("finance.payments.view"))],
+)
+def get_payment_document(
+    payment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    try:
+        payload = service.build_payment_receipt_document(
+            db,
+            tenant_id=tenant.id,
+            payment_id=payment_id,
+        )
+        db.commit()
+        return payload
+    except ValueError as e:
+        db.rollback()
+        msg = str(e)
+        raise HTTPException(status_code=404 if "not found" in msg.lower() else 400, detail=msg)
+
+
+@router.get(
+    "/documents/payments/{payment_id}/pdf",
+    dependencies=[Depends(require_permission("finance.payments.view"))],
+)
+def download_payment_pdf(
+    payment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    try:
+        payload = service.build_payment_receipt_document(
+            db,
+            tenant_id=tenant.id,
+            payment_id=payment_id,
+        )
+        pdf = service.render_document_pdf(payload)
+        db.commit()
+        filename = f"{payload.get('document_no') or 'receipt'}.pdf"
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as e:
+        db.rollback()
+        msg = str(e)
+        raise HTTPException(status_code=404 if "not found" in msg.lower() else 400, detail=msg)
+
+
+@router.get(
+    "/documents/fee-structures/{structure_id}",
+    dependencies=[Depends(require_permission("finance.fees.view"))],
+)
+def get_fee_structure_document(
+    structure_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    try:
+        payload = service.build_fee_structure_document(
+            db,
+            tenant_id=tenant.id,
+            structure_id=structure_id,
+        )
+        db.commit()
+        return payload
+    except ValueError as e:
+        db.rollback()
+        msg = str(e)
+        raise HTTPException(status_code=404 if "not found" in msg.lower() else 400, detail=msg)
+
+
+@router.get(
+    "/documents/fee-structures/{structure_id}/pdf",
+    dependencies=[Depends(require_permission("finance.fees.view"))],
+)
+def download_fee_structure_pdf(
+    structure_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    try:
+        payload = service.build_fee_structure_document(
+            db,
+            tenant_id=tenant.id,
+            structure_id=structure_id,
+        )
+        pdf = service.render_document_pdf(payload)
+        db.commit()
+        filename = f"{payload.get('document_no') or 'fee-structure'}.pdf"
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as e:
+        db.rollback()
+        msg = str(e)
+        raise HTTPException(status_code=404 if "not found" in msg.lower() else 400, detail=msg)
 
 
 # -------------------------

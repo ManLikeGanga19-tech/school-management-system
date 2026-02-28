@@ -68,14 +68,20 @@ import {
   Search,
   ShieldCheck,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 
 // ✅ Use centralized api.ts (handles auth headers + silent refresh on 401)
 import { api } from "@/lib/api";
+import {
+  buildDefaultTerms,
+  normalizeTerms,
+  termFromPayload,
+  type TenantTerm,
+} from "@/lib/school-setup/terms";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ADMISSION_NUMBER_START = 1000;
+const ADMISSION_NUMBER_START = 1;
 const PAGE_SIZE = 10;
 const MAX_SECRETARY_EDITS = 3;
 
@@ -108,6 +114,7 @@ type ActionType =
 type IntakeDraft = {
   student_name: string;
   admission_class: string;
+  admission_term: string;
   intake_date: string;
   date_of_birth: string;
   gender: string;
@@ -117,6 +124,10 @@ type IntakeDraft = {
   previous_school: string;
   assessment_no: string;
   nemis_no: string;
+  has_medical_conditions: boolean;
+  medical_conditions_details: string;
+  has_medication_in_school: boolean;
+  medication_in_school_details: string;
   notes: string;
   documents: {
     birth_certificate: boolean;
@@ -129,6 +140,7 @@ type IntakeDraft = {
 type ExistingStudentDraft = {
   student_name: string;
   admission_class: string;
+  admission_term: string;
   intake_date: string;
   date_of_birth: string;
   gender: string;
@@ -138,12 +150,17 @@ type ExistingStudentDraft = {
   previous_school: string;
   assessment_no: string;
   nemis_no: string;
+  has_medical_conditions: boolean;
+  medical_conditions_details: string;
+  has_medication_in_school: boolean;
+  medication_in_school_details: string;
   admission_number: string;
 };
 
 type UpdateDraft = {
   student_name: string;
   admission_class: string;
+  admission_term: string;
   intake_date: string;
   date_of_birth: string;
   gender: string;
@@ -153,6 +170,10 @@ type UpdateDraft = {
   previous_school: string;
   assessment_no: string;
   nemis_no: string;
+  has_medical_conditions: boolean;
+  medical_conditions_details: string;
+  has_medication_in_school: boolean;
+  medication_in_school_details: string;
   notes: string;
 };
 
@@ -165,6 +186,7 @@ const todayIso = new Date().toISOString().slice(0, 10);
 const INITIAL_DRAFT: IntakeDraft = {
   student_name: "",
   admission_class: "",
+  admission_term: "",
   intake_date: todayIso,
   date_of_birth: "",
   gender: "",
@@ -174,6 +196,10 @@ const INITIAL_DRAFT: IntakeDraft = {
   previous_school: "",
   assessment_no: "",
   nemis_no: "",
+  has_medical_conditions: false,
+  medical_conditions_details: "",
+  has_medication_in_school: false,
+  medication_in_school_details: "",
   notes: "",
   documents: {
     birth_certificate: false,
@@ -186,6 +212,7 @@ const INITIAL_DRAFT: IntakeDraft = {
 const INITIAL_EXISTING_STUDENT_DRAFT: ExistingStudentDraft = {
   student_name: "",
   admission_class: "",
+  admission_term: "",
   intake_date: todayIso,
   date_of_birth: "",
   gender: "",
@@ -195,12 +222,17 @@ const INITIAL_EXISTING_STUDENT_DRAFT: ExistingStudentDraft = {
   previous_school: "",
   assessment_no: "",
   nemis_no: "",
+  has_medical_conditions: false,
+  medical_conditions_details: "",
+  has_medication_in_school: false,
+  medication_in_school_details: "",
   admission_number: "",
 };
 
 const INITIAL_UPDATE_DRAFT: UpdateDraft = {
   student_name: "",
   admission_class: "",
+  admission_term: "",
   intake_date: "",
   date_of_birth: "",
   gender: "",
@@ -210,6 +242,10 @@ const INITIAL_UPDATE_DRAFT: UpdateDraft = {
   previous_school: "",
   assessment_no: "",
   nemis_no: "",
+  has_medical_conditions: false,
+  medical_conditions_details: "",
+  has_medication_in_school: false,
+  medication_in_school_details: "",
   notes: "",
 };
 
@@ -315,6 +351,33 @@ function isNonEmpty(value: string): boolean {
   return value.trim().length > 0;
 }
 
+function payloadString(
+  payload: Record<string, unknown>,
+  keys: string[]
+): string {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function payloadBoolean(
+  payload: Record<string, unknown>,
+  keys: string[]
+): boolean {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["true", "yes", "y", "1"].includes(normalized)) return true;
+      if (["false", "no", "n", "0"].includes(normalized)) return false;
+    }
+  }
+  return false;
+}
+
 function isInterviewFeePaidFromPayload(
   payload: Record<string, unknown>
 ): boolean | null {
@@ -342,6 +405,79 @@ function isInterviewFeePaidFromPayload(
   return null;
 }
 
+const INTERVIEW_INVOICE_TYPES = new Set(["INTERVIEW", "INTERVIEW_FEE"]);
+const PAID_INVOICE_STATUSES = new Set([
+  "PAID",
+  "SETTLED",
+  "SUCCESS",
+  "COMPLETED",
+  "FULLY_PAID",
+]);
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const n = Number(value.trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function invoiceRowsFromUnknown(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) {
+    return value.filter(
+      (row): row is Record<string, unknown> =>
+        Boolean(row) && typeof row === "object"
+    );
+  }
+  if (!value || typeof value !== "object") return [];
+
+  const obj = value as Record<string, unknown>;
+  const candidates = [obj.items, obj.results, obj.invoices, obj.data];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate.filter(
+        (row): row is Record<string, unknown> =>
+          Boolean(row) && typeof row === "object"
+      );
+    }
+  }
+
+  return [];
+}
+
+function isInterviewInvoiceRow(invoice: Record<string, unknown>): boolean {
+  const rawType = invoice.invoice_type ?? invoice.purpose ?? invoice.type;
+  if (typeof rawType !== "string" || !rawType.trim()) return true;
+  return INTERVIEW_INVOICE_TYPES.has(rawType.trim().toUpperCase());
+}
+
+function isSettledInvoice(invoice: Record<string, unknown>): boolean {
+  if (invoice.paid === true) return true;
+
+  const status = String(
+    invoice.status ?? invoice.payment_status ?? invoice.paymentStatus ?? ""
+  )
+    .trim()
+    .toUpperCase();
+  if (PAID_INVOICE_STATUSES.has(status)) return true;
+
+  const total = toFiniteNumber(invoice.total_amount);
+  const paid = toFiniteNumber(invoice.paid_amount);
+  const balance = toFiniteNumber(invoice.balance_amount);
+
+  if (total !== null && total > 0 && paid !== null && paid >= total) return true;
+  if (balance !== null && balance <= 0) return true;
+
+  return false;
+}
+
+function hasPaidInterviewInvoice(data: unknown): boolean {
+  return invoiceRowsFromUnknown(data)
+    .filter((inv) => isInterviewInvoiceRow(inv))
+    .some((inv) => isSettledInvoice(inv));
+}
+
 function buildInterviewFeePayHref(enrollmentId: string): string {
   const qs = new URLSearchParams({
     section: "invoices",
@@ -364,7 +500,7 @@ function nextAdmissionNumber(rows: EnrollmentRow[]): string {
       const match = String(raw).match(/(\d+)$/);
       return match ? parseInt(match[1], 10) : 0;
     })
-    .filter((n) => n >= ADMISSION_NUMBER_START);
+    .filter((n) => n > 0);
   const max =
     existing.length > 0
       ? Math.max(...existing)
@@ -377,12 +513,17 @@ function rowMatchesSearch(row: EnrollmentRow, query: string): boolean {
   const q = query.toLowerCase();
   const name = studentName(row.payload || {}).toLowerCase();
   const cls = studentClass(row.payload || {}).toLowerCase();
+  const term = termFromPayload(row.payload || {}).toLowerCase();
   const id = row.id.toLowerCase();
   const adm = String(
     row.admission_number ?? (row.payload as any)?.admission_number ?? ""
   ).toLowerCase();
   return (
-    name.includes(q) || cls.includes(q) || id.includes(q) || adm.includes(q)
+    name.includes(q) ||
+    cls.includes(q) ||
+    term.includes(q) ||
+    id.includes(q) ||
+    adm.includes(q)
   );
 }
 
@@ -607,6 +748,49 @@ function ClassSelect({
   );
 }
 
+function TermSelect({
+  value,
+  onChange,
+  terms,
+  loadingTerms,
+  placeholder = "Select term",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  terms: TenantTerm[];
+  loadingTerms: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <Select
+      value={value || "__none__"}
+      onValueChange={(v) => onChange(v === "__none__" ? "" : v)}
+      disabled={loadingTerms}
+    >
+      <SelectTrigger>
+        <SelectValue
+          placeholder={loadingTerms ? "Loading terms…" : placeholder}
+        />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__none__">
+          {loadingTerms ? "Loading…" : "Select a term"}
+        </SelectItem>
+        {terms.map((term) => (
+          <SelectItem key={term.id} value={term.code}>
+            {term.name}
+          </SelectItem>
+        ))}
+        {!loadingTerms && terms.length === 0 && (
+          <SelectItem value="__empty__" disabled>
+            No terms configured yet
+          </SelectItem>
+        )}
+      </SelectContent>
+    </Select>
+  );
+}
+
 // ─── Edit limit badge ─────────────────────────────────────────────────────────
 
 function EditLimitBadge({ count, locked }: { count: number; locked: boolean }) {
@@ -661,6 +845,7 @@ function DirectorOverrideDialog({
 
   const name = studentName(row.payload || {});
   const count = row.secretary_edit_count ?? 0;
+  const admissionNumber = row.admission_number ?? (row.payload as any)?.admission_number;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -685,9 +870,9 @@ function DirectorOverrideDialog({
               <EnrollmentStatusBadge status={row.status} />
             </div>
             <div className="flex items-center gap-3 text-xs text-slate-500">
-              {row.admission_number && (
+              {admissionNumber && (
                 <span className="font-mono font-semibold text-emerald-700">
-                  {row.admission_number}
+                  {admissionNumber}
                 </span>
               )}
               <span className="font-mono text-slate-400">
@@ -765,54 +950,42 @@ function InterviewFeeCell({
 }) {
   const fromPayload = isInterviewFeePaidFromPayload(payload);
   const [status, setStatus] = useState<"loading" | "paid" | "unpaid">(
-    fromPayload === true ? "paid" : fromPayload === false ? "unpaid" : "loading"
+    fromPayload === true ? "paid" : "loading"
   );
 
   useEffect(() => {
-    if (fromPayload !== null) return;
-
     let mounted = true;
+    setStatus(fromPayload === true ? "paid" : "loading");
 
     (async () => {
       try {
-        const data = await api.get<any[] | any>(
-          `/finance/invoices?enrollment_id=${enrollmentId}&invoice_type=INTERVIEW_FEE`,
-          { tenantRequired: true }
+        const qs = new URLSearchParams({
+          enrollment_id: enrollmentId,
+          invoice_type: "INTERVIEW",
+        });
+        const data = await api.get<unknown>(
+          `/finance/invoices?${qs.toString()}`,
+          { tenantRequired: true, noRedirect: true }
         );
 
         if (!mounted) return;
 
-        const PAID_STATUSES = ["PAID", "SETTLED", "SUCCESS", "COMPLETED"];
-        let paid = false;
-
-        const isInterviewInvoice = (inv: any) => {
-          const t = String(inv?.invoice_type ?? inv?.purpose ?? inv?.type ?? "").toUpperCase();
-          // If backend doesn’t return the type per item, assume list already filtered by invoice_type
-          return !t || t === "INTERVIEW_FEE";
-        };
-
-        const isPaidInvoice = (inv: any) => {
-          const statusStr = String(inv?.status ?? inv?.payment_status ?? "").toUpperCase();
-          return inv?.paid === true || PAID_STATUSES.includes(statusStr);
-        };
-
-        if (Array.isArray(data)) {
-          paid = data.some((inv: any) => isInterviewInvoice(inv) && isPaidInvoice(inv));
-        } else if (data && typeof data === "object") {
-          paid = isInterviewInvoice(data) && isPaidInvoice(data);
+        const paidFromInvoice = hasPaidInterviewInvoice(data);
+        if (paidFromInvoice || fromPayload === true) {
+          setStatus("paid");
+          return;
         }
-
-        setStatus(paid ? "paid" : "unpaid");
+        setStatus("unpaid");
       } catch {
-        if (mounted) setStatus("unpaid");
+        if (!mounted) return;
+        setStatus(fromPayload === true ? "paid" : "unpaid");
       }
     })();
 
     return () => {
       mounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enrollmentId]);
+  }, [enrollmentId, fromPayload]);
 
   if (status === "loading") {
     return (
@@ -855,6 +1028,7 @@ function StudentDetailDialog({
     { label: "Full Name", value: studentName(p) },
     { label: "Admission Number", value: admNum },
     { label: "Class", value: studentClass(p) || "—" },
+    { label: "Term", value: termFromPayload(p) || "—" },
     { label: "Intake Date", value: (p as any)?.intake_date || "—" },
     { label: "Date of Birth", value: (p as any)?.date_of_birth || "—" },
     { label: "Gender", value: (p as any)?.gender || "—" },
@@ -867,6 +1041,41 @@ function StudentDetailDialog({
     {
       label: "Enrollment Source",
       value: (p as any)?.enrollment_source || "INTAKE",
+    },
+    {
+      label: "Has Medical Condition",
+      value: payloadBoolean(p, [
+        "has_medical_conditions",
+        "has_underlying_medical_conditions",
+      ])
+        ? "Yes"
+        : "No",
+    },
+    {
+      label: "Medical Condition Details",
+      value:
+        payloadString(p, [
+          "medical_conditions_details",
+          "underlying_medical_conditions",
+          "medical_report",
+        ]) || "—",
+    },
+    {
+      label: "Medicine Kept In School",
+      value: payloadBoolean(p, [
+        "has_medication_in_school",
+        "medication_left_in_school",
+      ])
+        ? "Yes"
+        : "No",
+    },
+    {
+      label: "Medication Details",
+      value:
+        payloadString(p, [
+          "medication_in_school_details",
+          "medication_prescription_details",
+        ]) || "—",
     },
     { label: "Notes", value: (p as any)?.notes || "—" },
   ];
@@ -966,7 +1175,9 @@ function UpdateEnrollmentDialog({
   onSave,
   saving,
   classes,
+  terms,
   loadingClasses,
+  loadingTerms,
 }: {
   row: EnrollmentRow | null;
   open: boolean;
@@ -974,7 +1185,9 @@ function UpdateEnrollmentDialog({
   onSave: (id: string, draft: UpdateDraft) => Promise<void>;
   saving: boolean;
   classes: TenantClass[];
+  terms: TenantTerm[];
   loadingClasses: boolean;
+  loadingTerms: boolean;
 }) {
   const [draft, setDraft] = useState<UpdateDraft>(INITIAL_UPDATE_DRAFT);
 
@@ -986,6 +1199,9 @@ function UpdateEnrollmentDialog({
         admission_class: String(
           (p as any)?.admission_class ?? studentClass(p) ?? ""
         ),
+        admission_term: String(
+          (p as any)?.admission_term ?? termFromPayload(p) ?? ""
+        ),
         intake_date: String((p as any)?.intake_date ?? ""),
         date_of_birth: String((p as any)?.date_of_birth ?? ""),
         gender: String((p as any)?.gender ?? ""),
@@ -995,6 +1211,23 @@ function UpdateEnrollmentDialog({
         previous_school: String((p as any)?.previous_school ?? ""),
         assessment_no: String((p as any)?.assessment_no ?? ""),
         nemis_no: String((p as any)?.nemis_no ?? ""),
+        has_medical_conditions: payloadBoolean(p, [
+          "has_medical_conditions",
+          "has_underlying_medical_conditions",
+        ]),
+        medical_conditions_details: payloadString(p, [
+          "medical_conditions_details",
+          "underlying_medical_conditions",
+          "medical_report",
+        ]),
+        has_medication_in_school: payloadBoolean(p, [
+          "has_medication_in_school",
+          "medication_left_in_school",
+        ]),
+        medication_in_school_details: payloadString(p, [
+          "medication_in_school_details",
+          "medication_prescription_details",
+        ]),
         notes: String((p as any)?.notes ?? ""),
       });
     }
@@ -1068,6 +1301,20 @@ function UpdateEnrollmentDialog({
                 onChange={(e) =>
                   setDraft((p) => ({ ...p, intake_date: e.target.value }))
                 }
+              />
+            </FormField>
+
+            <FormField
+              label="Admission Term"
+              hint="Academic term this enrollment belongs to"
+            >
+              <TermSelect
+                value={draft.admission_term}
+                onChange={(v) =>
+                  setDraft((p) => ({ ...p, admission_term: v }))
+                }
+                terms={terms}
+                loadingTerms={loadingTerms}
               />
             </FormField>
 
@@ -1158,6 +1405,92 @@ function UpdateEnrollmentDialog({
                 }
               />
             </FormField>
+
+            <FormField label="Underlying Medical Condition">
+              <Select
+                value={draft.has_medical_conditions ? "YES" : "NO"}
+                onValueChange={(v) =>
+                  setDraft((p) => ({
+                    ...p,
+                    has_medical_conditions: v === "YES",
+                    medical_conditions_details:
+                      v === "YES" ? p.medical_conditions_details : "",
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select option" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NO">No</SelectItem>
+                  <SelectItem value="YES">Yes</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+
+            <FormField label="Medicine Left In School">
+              <Select
+                value={draft.has_medication_in_school ? "YES" : "NO"}
+                onValueChange={(v) =>
+                  setDraft((p) => ({
+                    ...p,
+                    has_medication_in_school: v === "YES",
+                    medication_in_school_details:
+                      v === "YES" ? p.medication_in_school_details : "",
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select option" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NO">No</SelectItem>
+                  <SelectItem value="YES">Yes</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+
+            {draft.has_medical_conditions && (
+              <div className="md:col-span-2">
+                <FormField
+                  label="Medical Condition Details"
+                  hint="Describe diagnosis, triggers, and emergency guidance."
+                >
+                  <Textarea
+                    value={draft.medical_conditions_details}
+                    rows={3}
+                    className="resize-none"
+                    onChange={(e) =>
+                      setDraft((p) => ({
+                        ...p,
+                        medical_conditions_details: e.target.value,
+                      }))
+                    }
+                  />
+                </FormField>
+              </div>
+            )}
+
+            {draft.has_medication_in_school && (
+              <div className="md:col-span-2">
+                <FormField
+                  label="Medication Details"
+                  hint="Medicine names, dosage schedule, and handling instructions."
+                >
+                  <Textarea
+                    value={draft.medication_in_school_details}
+                    rows={3}
+                    className="resize-none"
+                    onChange={(e) =>
+                      setDraft((p) => ({
+                        ...p,
+                        medication_in_school_details: e.target.value,
+                      }))
+                    }
+                  />
+                </FormField>
+              </div>
+            )}
 
             <div className="md:col-span-2">
               <FormField label="Notes">
@@ -1293,6 +1626,8 @@ function SecretaryEnrollmentsPageContent() {
   // ── Tenant classes ──
   const [tenantClasses, setTenantClasses] = useState<TenantClass[]>([]);
   const [loadingClasses, setLoadingClasses] = useState(true);
+  const [tenantTerms, setTenantTerms] = useState<TenantTerm[]>([]);
+  const [loadingTerms, setLoadingTerms] = useState(true);
 
   // ── Intake wizard ──
   const [step, setStep] = useState(1);
@@ -1321,6 +1656,7 @@ function SecretaryEnrollmentsPageContent() {
   const [studentsSearch, setStudentsSearch] = useState("");
   const [studentsClassFilter, setStudentsClassFilter] =
     useState("__all__");
+  const [studentsTermFilter, setStudentsTermFilter] = useState("__all__");
 
   // ── Standard dialogs ──
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -1413,6 +1749,32 @@ function SecretaryEnrollmentsPageContent() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    setLoadingTerms(true);
+    (async () => {
+      try {
+        const data = await api.get<unknown>("/tenants/terms", {
+          tenantRequired: true,
+          noRedirect: true,
+        });
+        if (!mounted) return;
+        const normalized = normalizeTerms(data);
+        setTenantTerms(
+          normalized.length > 0 ? normalized : buildDefaultTerms()
+        );
+      } catch {
+        if (!mounted) return;
+        setTenantTerms(buildDefaultTerms());
+      } finally {
+        if (mounted) setLoadingTerms(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   // ── Derived data ──────────────────────────────────────────────────────────
 
   const studentRows = useMemo(
@@ -1455,6 +1817,15 @@ function SecretaryEnrollmentsPageContent() {
     return Array.from(s).sort();
   }, [studentRows]);
 
+  const uniqueTerms = useMemo(() => {
+    const s = new Set<string>();
+    studentRows.forEach((r) => {
+      const term = termFromPayload(r.payload || {});
+      if (term) s.add(term);
+    });
+    return Array.from(s).sort();
+  }, [studentRows]);
+
   const filteredStudents = useMemo(
     () =>
       studentRows.filter((r) => {
@@ -1462,9 +1833,12 @@ function SecretaryEnrollmentsPageContent() {
         const mc =
           studentsClassFilter === "__all__" ||
           studentClass(r.payload || {}) === studentsClassFilter;
-        return ms && mc;
+        const mt =
+          studentsTermFilter === "__all__" ||
+          termFromPayload(r.payload || {}) === studentsTermFilter;
+        return ms && mc && mt;
       }),
-    [studentRows, studentsSearch, studentsClassFilter]
+    [studentRows, studentsSearch, studentsClassFilter, studentsTermFilter]
   );
 
   // ── Pagination ────────────────────────────────────────────────────────────
@@ -1531,6 +1905,7 @@ function SecretaryEnrollmentsPageContent() {
     const payload: any = {
       student_name: draft.student_name.trim(),
       admission_class: draft.admission_class.trim(),
+      admission_term: draft.admission_term.trim() || null,
       intake_date: draft.intake_date || null,
       date_of_birth: draft.date_of_birth,
       gender: draft.gender || null,
@@ -1540,6 +1915,14 @@ function SecretaryEnrollmentsPageContent() {
       previous_school: draft.previous_school.trim() || null,
       assessment_no: draft.assessment_no.trim() || null,
       nemis_no: draft.nemis_no.trim() || null,
+      has_medical_conditions: draft.has_medical_conditions,
+      medical_conditions_details: draft.has_medical_conditions
+        ? draft.medical_conditions_details.trim() || null
+        : null,
+      has_medication_in_school: draft.has_medication_in_school,
+      medication_in_school_details: draft.has_medication_in_school
+        ? draft.medication_in_school_details.trim() || null
+        : null,
       notes: draft.notes.trim() || null,
       documents: draft.documents,
       currency: "KES",
@@ -1549,7 +1932,7 @@ function SecretaryEnrollmentsPageContent() {
     try {
       const data = await api.post<any>(
         "/enrollments/",
-        { action: "create", payload },
+        { payload },
         { tenantRequired: true }
       );
       const createdId = String(data?.enrollment?.id || "");
@@ -1586,12 +1969,12 @@ function SecretaryEnrollmentsPageContent() {
     setCreatingExistingStudent(true);
     try {
       const data = await api.post<any>(
-         "/enrollments/",
+        "/enrollments/",
         {
-          action: "create",
           payload: {
             student_name: existingStudentDraft.student_name.trim(),
             admission_class: existingStudentDraft.admission_class.trim(),
+            admission_term: existingStudentDraft.admission_term.trim() || null,
             intake_date: existingStudentDraft.intake_date || null,
             date_of_birth: existingStudentDraft.date_of_birth || null,
             gender: existingStudentDraft.gender || null,
@@ -1601,6 +1984,14 @@ function SecretaryEnrollmentsPageContent() {
             previous_school: existingStudentDraft.previous_school.trim() || null,
             assessment_no: existingStudentDraft.assessment_no.trim() || null,
             nemis_no: existingStudentDraft.nemis_no.trim() || null,
+            has_medical_conditions: existingStudentDraft.has_medical_conditions,
+            medical_conditions_details: existingStudentDraft.has_medical_conditions
+              ? existingStudentDraft.medical_conditions_details.trim() || null
+              : null,
+            has_medication_in_school: existingStudentDraft.has_medication_in_school,
+            medication_in_school_details: existingStudentDraft.has_medication_in_school
+              ? existingStudentDraft.medication_in_school_details.trim() || null
+              : null,
             admission_number: existingStudentDraft.admission_number.trim() || null,
             enrollment_source: "EXISTING_STUDENT",
             currency: "KES",
@@ -1650,15 +2041,37 @@ function SecretaryEnrollmentsPageContent() {
     const autoAdm = isEnroll ? nextAdmissionNumber(rows) : undefined;
 
     try {
-      await api.post<any>(
-         "/enrollments/",
-        {
-          enrollment_id: enrollmentId,
-          action: act,
-          ...(isEnroll && { admission_number: autoAdm }),
-        },
-        { tenantRequired: true }
-      );
+      if (act === "submit") {
+        await api.post<any>(
+          `/enrollments/${enrollmentId}/submit`,
+          undefined,
+          { tenantRequired: true }
+        );
+      } else if (act === "approve") {
+        await api.post<any>(
+          `/enrollments/${enrollmentId}/approve`,
+          undefined,
+          { tenantRequired: true }
+        );
+      } else if (act === "enroll") {
+        await api.post<any>(
+          `/enrollments/${enrollmentId}/enroll`,
+          { admission_number: autoAdm },
+          { tenantRequired: true }
+        );
+      } else if (act === "transfer_request") {
+        await api.post<any>(
+          `/enrollments/${enrollmentId}/transfer/request`,
+          undefined,
+          { tenantRequired: true }
+        );
+      } else if (act === "transfer_approve") {
+        await api.post<any>(
+          `/enrollments/${enrollmentId}/transfer/approve`,
+          undefined,
+          { tenantRequired: true }
+        );
+      }
 
       toast.success(
         isEnroll
@@ -1683,12 +2096,8 @@ function SecretaryEnrollmentsPageContent() {
     setSubmitting(true);
     try {
       await api.post<any>(
-        "/enrollments/",
-        {
-          enrollment_id: rejectTargetId,
-          action: "reject",
-          reason: rejectText.trim(),
-        },
+        `/enrollments/${rejectTargetId}/reject`,
+        { reason: rejectText.trim() },
         { tenantRequired: true }
       );
 
@@ -1714,6 +2123,7 @@ function SecretaryEnrollmentsPageContent() {
           payload: {
             student_name: d.student_name.trim(),
             admission_class: d.admission_class.trim(),
+            admission_term: d.admission_term.trim() || null,
             intake_date: d.intake_date || null,
             date_of_birth: d.date_of_birth || null,
             gender: d.gender || null,
@@ -1723,6 +2133,14 @@ function SecretaryEnrollmentsPageContent() {
             previous_school: d.previous_school.trim() || null,
             assessment_no: d.assessment_no.trim() || null,
             nemis_no: d.nemis_no.trim() || null,
+            has_medical_conditions: d.has_medical_conditions,
+            medical_conditions_details: d.has_medical_conditions
+              ? d.medical_conditions_details.trim() || null
+              : null,
+            has_medication_in_school: d.has_medication_in_school,
+            medication_in_school_details: d.has_medication_in_school
+              ? d.medication_in_school_details.trim() || null
+              : null,
             notes: d.notes.trim() || null,
           },
         },
@@ -1851,7 +2269,10 @@ function SecretaryEnrollmentsPageContent() {
           row={updateTargetRow} open={updateOpen}
           onClose={() => { setUpdateOpen(false); setUpdateTargetRow(null); }}
           onSave={saveUpdate} saving={updateSaving}
-          classes={tenantClasses} loadingClasses={loadingClasses}
+          classes={tenantClasses}
+          terms={tenantTerms}
+          loadingClasses={loadingClasses}
+          loadingTerms={loadingTerms}
         />
 
         <StudentDetailDialog
@@ -2031,6 +2452,14 @@ function SecretaryEnrollmentsPageContent() {
                             onChange={(v) => setDraft((p) => ({ ...p, admission_class: v }))}
                             classes={tenantClasses} loadingClasses={loadingClasses} />
                         </FormField>
+                        <FormField label="Admission Term" hint="Academic term for this intake">
+                          <TermSelect
+                            value={draft.admission_term}
+                            onChange={(v) => setDraft((p) => ({ ...p, admission_term: v }))}
+                            terms={tenantTerms}
+                            loadingTerms={loadingTerms}
+                          />
+                        </FormField>
                         <FormField label="Intake Date" required hint="Date of registration / application">
                           <Input type="date" value={draft.intake_date}
                             onChange={(e) => setDraft((p) => ({ ...p, intake_date: e.target.value }))} />
@@ -2071,6 +2500,94 @@ function SecretaryEnrollmentsPageContent() {
                           <Input placeholder="e.g. Sunshine Academy" value={draft.previous_school}
                             onChange={(e) => setDraft((p) => ({ ...p, previous_school: e.target.value }))} />
                         </FormField>
+
+                        <FormField label="Underlying Medical Conditions">
+                          <Select
+                            value={draft.has_medical_conditions ? "YES" : "NO"}
+                            onValueChange={(v) =>
+                              setDraft((p) => ({
+                                ...p,
+                                has_medical_conditions: v === "YES",
+                                medical_conditions_details:
+                                  v === "YES" ? p.medical_conditions_details : "",
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select option" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="NO">No</SelectItem>
+                              <SelectItem value="YES">Yes</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </FormField>
+
+                        <FormField label="Medicine Left In School">
+                          <Select
+                            value={draft.has_medication_in_school ? "YES" : "NO"}
+                            onValueChange={(v) =>
+                              setDraft((p) => ({
+                                ...p,
+                                has_medication_in_school: v === "YES",
+                                medication_in_school_details:
+                                  v === "YES" ? p.medication_in_school_details : "",
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select option" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="NO">No</SelectItem>
+                              <SelectItem value="YES">Yes</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </FormField>
+
+                        {draft.has_medical_conditions && (
+                          <div className="md:col-span-2">
+                            <FormField
+                              label="Medical Condition Details"
+                              hint="Diagnosis, triggers, and emergency response notes."
+                            >
+                              <Textarea
+                                placeholder="e.g. Asthma — carry inhaler. Avoid heavy dust exposure."
+                                value={draft.medical_conditions_details}
+                                onChange={(e) =>
+                                  setDraft((p) => ({
+                                    ...p,
+                                    medical_conditions_details: e.target.value,
+                                  }))
+                                }
+                                className="resize-none"
+                                rows={3}
+                              />
+                            </FormField>
+                          </div>
+                        )}
+
+                        {draft.has_medication_in_school && (
+                          <div className="md:col-span-2">
+                            <FormField
+                              label="Medication Details"
+                              hint="Medication names, dosage, and handling instructions."
+                            >
+                              <Textarea
+                                placeholder="e.g. Salbutamol inhaler — 2 puffs when needed, kept with nurse."
+                                value={draft.medication_in_school_details}
+                                onChange={(e) =>
+                                  setDraft((p) => ({
+                                    ...p,
+                                    medication_in_school_details: e.target.value,
+                                  }))
+                                }
+                                className="resize-none"
+                                rows={3}
+                              />
+                            </FormField>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2132,11 +2649,26 @@ function SecretaryEnrollmentsPageContent() {
                           <div className="grid grid-cols-2 gap-x-6 gap-y-3 p-4 text-sm">
                             <div><span className="text-slate-400">Full Name:</span> <span className="font-medium">{draft.student_name || "—"}</span></div>
                             <div><span className="text-slate-400">Class:</span> <span className="font-medium">{draft.admission_class || "—"}</span></div>
+                            <div><span className="text-slate-400">Term:</span> <span className="font-medium">{draft.admission_term || "—"}</span></div>
                             <div><span className="text-slate-400">Intake Date:</span> <span className="font-medium">{draft.intake_date || "—"}</span></div>
                             <div><span className="text-slate-400">Date of Birth:</span> <span className="font-medium">{draft.date_of_birth || "—"}</span></div>
                             <div><span className="text-slate-400">Gender:</span> <span className="font-medium">{draft.gender || "Not specified"}</span></div>
                             <div><span className="text-slate-400">Guardian:</span> <span className="font-medium">{draft.guardian_name || "—"}</span></div>
                             <div><span className="text-slate-400">Phone:</span> <span className="font-medium">{draft.guardian_phone || "—"}</span></div>
+                            <div><span className="text-slate-400">Medical Condition:</span> <span className="font-medium">{draft.has_medical_conditions ? "Yes" : "No"}</span></div>
+                            <div><span className="text-slate-400">Medicine In School:</span> <span className="font-medium">{draft.has_medication_in_school ? "Yes" : "No"}</span></div>
+                            {draft.has_medical_conditions && (
+                              <div className="col-span-2">
+                                <span className="text-slate-400">Medical Details:</span>{" "}
+                                <span className="font-medium">{draft.medical_conditions_details || "—"}</span>
+                              </div>
+                            )}
+                            {draft.has_medication_in_school && (
+                              <div className="col-span-2">
+                                <span className="text-slate-400">Medication Details:</span>{" "}
+                                <span className="font-medium">{draft.medication_in_school_details || "—"}</span>
+                              </div>
+                            )}
                             {draft.guardian_email && <div><span className="text-slate-400">Email:</span> <span className="font-medium">{draft.guardian_email}</span></div>}
                             {draft.previous_school && <div><span className="text-slate-400">Prev. School:</span> <span className="font-medium">{draft.previous_school}</span></div>}
                             {draft.assessment_no && <div><span className="text-slate-400">Assessment No.:</span> <span className="font-mono font-medium">{draft.assessment_no}</span></div>}
@@ -2159,7 +2691,7 @@ function SecretaryEnrollmentsPageContent() {
                         <div className="rounded-xl border border-slate-100 p-4">
                           <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
                             💡 When this student is marked as <strong>Enrolled</strong>, an Admission Number will be
-                            auto-generated starting from <strong>{formatAdmissionNumber(ADMISSION_NUMBER_START)}</strong>.
+                            auto-generated using the next available number in your existing sequence.
                           </div>
                           <FormField label="Fee Structure (Optional)" hint="Link a fee structure to automatically generate a fees invoice.">
                             <Select value={selectedFeeStructureId || "__none__"}
@@ -2234,6 +2766,7 @@ function SecretaryEnrollmentsPageContent() {
                     <TableRow className="bg-slate-50">
                       <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
+                      <TableHead className="text-xs">Term</TableHead>
                       <TableHead className="text-xs">Status</TableHead>
                       <TableHead className="text-xs">Student ID</TableHead>
                       <TableHead className="text-xs w-[160px]">Interview Fee</TableHead>
@@ -2255,6 +2788,11 @@ function SecretaryEnrollmentsPageContent() {
                           <TableCell className="text-sm font-medium">{studentName(row.payload || {})}</TableCell>
                           <TableCell>
                             <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-mono text-xs text-slate-500">
+                              {termFromPayload(row.payload || {}) || "—"}
+                            </span>
                           </TableCell>
                           <TableCell><EnrollmentStatusBadge status={row.status} /></TableCell>
                           <TableCell className="font-mono text-xs text-slate-400">{row.id}</TableCell>
@@ -2313,7 +2851,7 @@ function SecretaryEnrollmentsPageContent() {
                     })}
 
                     {!loading && filteredWorkflow.length === 0 && (
-                      <EmptyRow colSpan={7}
+                      <EmptyRow colSpan={8}
                         message={workflowSearch ? "No results match your search." : "No workflow items found (non-enrolled)."} />
                     )}
                   </TableBody>
@@ -2344,6 +2882,7 @@ function SecretaryEnrollmentsPageContent() {
                     <TableRow className="bg-slate-50">
                       <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
+                      <TableHead className="text-xs">Term</TableHead>
                       <TableHead className="text-xs">Status</TableHead>
                       <TableHead className="text-xs">Intake Date</TableHead>
                       <TableHead className="text-xs">Admission No.</TableHead>
@@ -2362,6 +2901,11 @@ function SecretaryEnrollmentsPageContent() {
                           <TableCell className="text-sm font-medium">{studentName(row.payload || {})}</TableCell>
                           <TableCell>
                             <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-mono text-xs text-slate-500">
+                              {termFromPayload(row.payload || {}) || "—"}
+                            </span>
                           </TableCell>
                           <TableCell><EnrollmentStatusBadge status={row.status} /></TableCell>
                           <TableCell className="text-xs text-slate-500">{intakeDate || "—"}</TableCell>
@@ -2382,7 +2926,7 @@ function SecretaryEnrollmentsPageContent() {
                       );
                     })}
                     {!loading && filteredQueue.length === 0 && (
-                      <EmptyRow colSpan={7}
+                      <EmptyRow colSpan={8}
                         message={queueSearch ? "No results match your search." : "No enrollments found."} />
                     )}
                   </TableBody>
@@ -2418,6 +2962,19 @@ function SecretaryEnrollmentsPageContent() {
                     <ClassSelect value={existingStudentDraft.admission_class}
                       onChange={(v) => setExistingStudentDraft((p) => ({ ...p, admission_class: v }))}
                       classes={tenantClasses} loadingClasses={loadingClasses} />
+                  </FormField>
+                  <FormField label="Admission Term" hint="Academic term for this student">
+                    <TermSelect
+                      value={existingStudentDraft.admission_term}
+                      onChange={(v) =>
+                        setExistingStudentDraft((p) => ({
+                          ...p,
+                          admission_term: v,
+                        }))
+                      }
+                      terms={tenantTerms}
+                      loadingTerms={loadingTerms}
+                    />
                   </FormField>
                   <FormField label="Intake Date" hint="Date student was originally registered">
                     <Input type="date" value={existingStudentDraft.intake_date}
@@ -2466,6 +3023,90 @@ function SecretaryEnrollmentsPageContent() {
                     <Input placeholder="Optional" value={existingStudentDraft.nemis_no}
                       onChange={(e) => setExistingStudentDraft((p) => ({ ...p, nemis_no: e.target.value }))} />
                   </FormField>
+                  <FormField label="Underlying Medical Conditions">
+                    <Select
+                      value={existingStudentDraft.has_medical_conditions ? "YES" : "NO"}
+                      onValueChange={(v) =>
+                        setExistingStudentDraft((p) => ({
+                          ...p,
+                          has_medical_conditions: v === "YES",
+                          medical_conditions_details:
+                            v === "YES" ? p.medical_conditions_details : "",
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select option" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NO">No</SelectItem>
+                        <SelectItem value="YES">Yes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <FormField label="Medicine Left In School">
+                    <Select
+                      value={existingStudentDraft.has_medication_in_school ? "YES" : "NO"}
+                      onValueChange={(v) =>
+                        setExistingStudentDraft((p) => ({
+                          ...p,
+                          has_medication_in_school: v === "YES",
+                          medication_in_school_details:
+                            v === "YES" ? p.medication_in_school_details : "",
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select option" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NO">No</SelectItem>
+                        <SelectItem value="YES">Yes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  {existingStudentDraft.has_medical_conditions && (
+                    <div className="lg:col-span-3">
+                      <FormField
+                        label="Medical Condition Details"
+                        hint="Diagnosis, triggers, and emergency handling guidance."
+                      >
+                        <Textarea
+                          placeholder="Describe underlying medical conditions"
+                          value={existingStudentDraft.medical_conditions_details}
+                          onChange={(e) =>
+                            setExistingStudentDraft((p) => ({
+                              ...p,
+                              medical_conditions_details: e.target.value,
+                            }))
+                          }
+                          className="resize-none"
+                          rows={3}
+                        />
+                      </FormField>
+                    </div>
+                  )}
+                  {existingStudentDraft.has_medication_in_school && (
+                    <div className="lg:col-span-3">
+                      <FormField
+                        label="Medication Details"
+                        hint="Medication names, dosage plan, and where it is stored."
+                      >
+                        <Textarea
+                          placeholder="Describe school medication prescription details"
+                          value={existingStudentDraft.medication_in_school_details}
+                          onChange={(e) =>
+                            setExistingStudentDraft((p) => ({
+                              ...p,
+                              medication_in_school_details: e.target.value,
+                            }))
+                          }
+                          className="resize-none"
+                          rows={3}
+                        />
+                      </FormField>
+                    </div>
+                  )}
                 </div>
                 <div className="mt-5 flex gap-2">
                   <Button onClick={createExistingStudentEnrollment} disabled={creatingExistingStudent}
@@ -2507,6 +3148,19 @@ function SecretaryEnrollmentsPageContent() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <Select value={studentsTermFilter} onValueChange={setStudentsTermFilter}>
+                      <SelectTrigger className="h-8 w-[160px] text-xs">
+                        <SelectValue placeholder="Filter by term" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">All Terms</SelectItem>
+                        {uniqueTerms.map((term) => (
+                          <SelectItem key={term} value={term}>
+                            {term}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 whitespace-nowrap">
                       {filteredStudents.length} enrolled
                     </span>
@@ -2521,6 +3175,7 @@ function SecretaryEnrollmentsPageContent() {
                       <TableHead className="text-xs">Student Name</TableHead>
                       <TableHead className="text-xs">Adm. No.</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
+                      <TableHead className="text-xs">Term</TableHead>
                       <TableHead className="text-xs">Intake Date</TableHead>
                       <TableHead className="text-xs">Status</TableHead>
                       <TableHead className="text-xs">Record ID</TableHead>
@@ -2542,6 +3197,11 @@ function SecretaryEnrollmentsPageContent() {
                           <TableCell className="pt-3">
                             <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
                           </TableCell>
+                          <TableCell className="pt-3">
+                            <span className="font-mono text-xs text-slate-500">
+                              {termFromPayload(row.payload || {}) || "—"}
+                            </span>
+                          </TableCell>
                           <TableCell className="text-xs text-slate-500 pt-3">{intakeDate || "—"}</TableCell>
                           <TableCell className="pt-3"><EnrollmentStatusBadge status={row.status} /></TableCell>
                           <TableCell className="font-mono text-xs text-slate-400 pt-3">{row.id}</TableCell>
@@ -2559,10 +3219,15 @@ function SecretaryEnrollmentsPageContent() {
                     })}
 
                     {!loading && filteredStudents.length === 0 && (
-                      <EmptyRow colSpan={7}
-                        message={studentsSearch || studentsClassFilter !== "__all__"
+                      <EmptyRow colSpan={8}
+                        message={
+                          studentsSearch ||
+                          studentsClassFilter !== "__all__" ||
+                          studentsTermFilter !== "__all__"
                           ? "No students match your search or filter."
-                          : "No enrolled students found."} />
+                          : "No enrolled students found."
+                        }
+                      />
                     )}
                   </TableBody>
                 </Table>

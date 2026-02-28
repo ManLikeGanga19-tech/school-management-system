@@ -52,18 +52,21 @@ class FeeItemOut(ORMOutModel, FeeItemCreate):
 # -------------------------
 class FeeStructureCreate(BaseModel):
     class_code: str
+    term_code: str = "GENERAL"
     name: str
     is_active: bool = True
 
 
 class FeeStructureUpdate(BaseModel):
     class_code: Optional[str] = None
+    term_code: Optional[str] = None
     name: Optional[str] = None
     is_active: Optional[bool] = None
 
 
 class FeeStructureOut(ORMOutModel, FeeStructureCreate):
     id: UUID
+    structure_no: Optional[str] = None
 
 
 class FeeStructureItemUpsert(BaseModel):
@@ -138,6 +141,7 @@ class InvoiceCreate(BaseModel):
 class InvoiceOut(ORMOutModel):
     id: UUID
     tenant_id: UUID
+    invoice_no: Optional[str] = None
     invoice_type: str
     status: str
     enrollment_id: Optional[UUID] = None
@@ -153,7 +157,31 @@ class InvoiceOut(ORMOutModel):
 class GenerateFeesInvoiceRequest(BaseModel):
     enrollment_id: UUID
     class_code: str
+    term_code: Optional[str] = None
     scholarship_id: Optional[UUID] = None
+    scholarship_amount: Optional[Decimal] = None
+    scholarship_reason: Optional[str] = None
+
+
+# -------------------------
+# Structure-level / item-level policy
+# -------------------------
+class FinanceStructurePolicyUpsert(BaseModel):
+    fee_structure_id: UUID
+    fee_item_id: Optional[UUID] = None
+    allow_partial_enrollment: bool = False
+    min_percent_to_enroll: Optional[int] = Field(default=None, ge=0, le=100)
+    min_amount_to_enroll: Optional[Decimal] = None
+
+
+class FinanceStructurePolicyOut(ORMOutModel):
+    id: UUID
+    tenant_id: UUID
+    fee_structure_id: UUID
+    fee_item_id: Optional[UUID] = None
+    allow_partial_enrollment: bool
+    min_percent_to_enroll: Optional[int] = None
+    min_amount_to_enroll: Optional[Decimal] = None
 
 
 # -------------------------
@@ -174,6 +202,7 @@ class PaymentCreate(BaseModel):
 class PaymentOut(ORMOutModel):
     id: UUID
     tenant_id: UUID
+    receipt_no: Optional[str] = None
     provider: str
     reference: Optional[str] = None
     amount: Decimal
