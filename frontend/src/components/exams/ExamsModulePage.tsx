@@ -2,11 +2,27 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CalendarDays, CheckCircle2, ClipboardList, RefreshCw } from "lucide-react";
+import {
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  List,
+  RefreshCw,
+} from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import type { ExamSection } from "@/components/layout/nav-config";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -92,6 +108,12 @@ type MarksFilters = {
   subject_id: string;
 };
 
+type CalendarCell = {
+  iso: string;
+  date: Date;
+  inMonth: boolean;
+};
+
 const defaultExamForm: ExamForm = {
   name: "",
   term_id: "",
@@ -135,6 +157,7 @@ const defaultMarksFilters: MarksFilters = {
 
 const EXAM_STATUS_OPTIONS = ["SCHEDULED", "ONGOING", "COMPLETED", "CANCELLED"] as const;
 const EXAM_SECTIONS: ExamSection[] = ["setup", "timetable", "progress"];
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
 function normalizeSection(raw: string | null): ExamSection {
   if (!raw) return "setup";
@@ -180,6 +203,75 @@ function isDateInRange(exam: TenantExam, fromDate: string, toDate: string): bool
   return true;
 }
 
+function startOfMonthLocal(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function endOfMonthLocal(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function addDaysLocal(date: Date, days: number): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+function startOfWeekMonday(date: Date): Date {
+  const day = (date.getDay() + 6) % 7;
+  return addDaysLocal(date, -day);
+}
+
+function endOfWeekSunday(date: Date): Date {
+  const day = (date.getDay() + 6) % 7;
+  return addDaysLocal(date, 6 - day);
+}
+
+function toIsoDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function parseIsoDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const token = value.trim();
+  if (!token) return null;
+  const parsed = new Date(`${token}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+}
+
+function minDate(a: Date, b: Date): Date {
+  return a.getTime() <= b.getTime() ? a : b;
+}
+
+function maxDate(a: Date, b: Date): Date {
+  return a.getTime() >= b.getTime() ? a : b;
+}
+
+function examChipLabel(row: TenantExam): string {
+  const time = formatTimeRange(row.start_time, row.end_time);
+  const prefix = time === "—" ? "" : `${time} `;
+  return `${prefix}${row.class_code} ${row.name}`.trim();
+}
+
+function examSortByTimeAndName(a: TenantExam, b: TenantExam): number {
+  const byTime = (a.start_time || "").localeCompare(b.start_time || "");
+  if (byTime !== 0) return byTime;
+  return a.name.localeCompare(b.name);
+}
+
+function formatCalendarDayLabel(isoDate: string): string {
+  const parsed = parseIsoDate(isoDate);
+  if (!parsed) return isoDate;
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(parsed);
+}
+
 export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePageProps) {
   const searchParams = useSearchParams();
   const section = useMemo(
@@ -204,6 +296,14 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
   const [markForm, setMarkForm] = useState<MarkForm>(defaultMarkForm);
   const [timetableFilters, setTimetableFilters] = useState<TimetableFilters>(defaultTimetableFilters);
   const [marksFilters, setMarksFilters] = useState<MarksFilters>(defaultMarksFilters);
+  const [timetableViewMode, setTimetableViewMode] = useState<"table" | "calendar">("table");
+  const [timetableCalendarMonth, setTimetableCalendarMonth] = useState<Date>(() =>
+    startOfMonthLocal(new Date())
+  );
+  const [calendarDialogOpen, setCalendarDialogOpen] = useState(false);
+  const [calendarDialogMode, setCalendarDialogMode] = useState<"entry" | "empty">("empty");
+  const [calendarDialogDateIso, setCalendarDialogDateIso] = useState<string>("");
+  const [calendarDialogEntry, setCalendarDialogEntry] = useState<TenantExam | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -348,6 +448,83 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
     });
   }, [examRows, timetableFilters]);
 
+  const timetableCalendarCells = useMemo<CalendarCell[]>(() => {
+    const monthStart = startOfMonthLocal(timetableCalendarMonth);
+    const monthEnd = endOfMonthLocal(timetableCalendarMonth);
+    const gridStart = startOfWeekMonday(monthStart);
+    const gridEnd = endOfWeekSunday(monthEnd);
+
+    const cells: CalendarCell[] = [];
+    for (let cursor = gridStart; cursor.getTime() <= gridEnd.getTime(); cursor = addDaysLocal(cursor, 1)) {
+      cells.push({
+        iso: toIsoDateKey(cursor),
+        date: new Date(cursor.getTime()),
+        inMonth: cursor.getMonth() === monthStart.getMonth(),
+      });
+    }
+    return cells;
+  }, [timetableCalendarMonth]);
+
+  const timetableByDay = useMemo(() => {
+    if (timetableCalendarCells.length === 0) return {} as Record<string, TenantExam[]>;
+
+    const gridStart = timetableCalendarCells[0].date;
+    const gridEnd = timetableCalendarCells[timetableCalendarCells.length - 1].date;
+    const map: Record<string, TenantExam[]> = {};
+
+    for (const row of filteredTimetableRows) {
+      const examStart = parseIsoDate(row.start_date);
+      const examEnd = parseIsoDate(row.end_date) || examStart;
+      if (!examStart || !examEnd) continue;
+
+      const rangeStart = maxDate(examStart, gridStart);
+      const rangeEnd = minDate(examEnd, gridEnd);
+      if (rangeStart.getTime() > rangeEnd.getTime()) continue;
+
+      let cursor = rangeStart;
+      let guard = 0;
+      while (cursor.getTime() <= rangeEnd.getTime() && guard < 370) {
+        const key = toIsoDateKey(cursor);
+        if (!map[key]) map[key] = [];
+        map[key].push(row);
+        cursor = addDaysLocal(cursor, 1);
+        guard += 1;
+      }
+    }
+
+    for (const key of Object.keys(map)) {
+      map[key].sort(examSortByTimeAndName);
+    }
+
+    return map;
+  }, [filteredTimetableRows, timetableCalendarCells]);
+
+  const timetableMonthLabel = useMemo(() => {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "long",
+      year: "numeric",
+    }).format(timetableCalendarMonth);
+  }, [timetableCalendarMonth]);
+
+  const calendarDialogDayLabel = useMemo(
+    () => formatCalendarDayLabel(calendarDialogDateIso),
+    [calendarDialogDateIso]
+  );
+
+  function openEmptyDayDialog(isoDate: string) {
+    setCalendarDialogMode("empty");
+    setCalendarDialogDateIso(isoDate);
+    setCalendarDialogEntry(null);
+    setCalendarDialogOpen(true);
+  }
+
+  function openEntryDialog(isoDate: string, row: TenantExam) {
+    setCalendarDialogMode("entry");
+    setCalendarDialogDateIso(isoDate);
+    setCalendarDialogEntry(row);
+    setCalendarDialogOpen(true);
+  }
+
   const filteredMarksRows = useMemo(() => {
     return markRows.filter((row) => {
       if (marksFilters.term_id && row.term_id !== marksFilters.term_id) return false;
@@ -478,6 +655,12 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
     } finally {
       setUpdatingExamId(null);
     }
+  }
+
+  async function markDialogEntryDone() {
+    if (!calendarDialogEntry || calendarDialogEntry.status === "COMPLETED") return;
+    await updateExamStatus(calendarDialogEntry.id, "COMPLETED");
+    setCalendarDialogOpen(false);
   }
 
   async function saveMark() {
@@ -781,7 +964,7 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
             </p>
           </div>
           <div className="p-4 sm:p-6">
-            <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
               <div className="space-y-1.5">
                 <Label className="text-xs">Term</Label>
                 <Select
@@ -874,91 +1057,248 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
                   }
                 />
               </div>
+              <div className="flex items-end gap-2">
+                <Button
+                  variant={timetableViewMode === "table" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setTimetableViewMode("table")}
+                >
+                  <List className="h-3.5 w-3.5" />
+                  Table
+                </Button>
+                <Button
+                  variant={timetableViewMode === "calendar" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setTimetableViewMode("calendar")}
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  Calendar
+                </Button>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() =>
+                    setTimetableFilters({
+                      term_id: "",
+                      class_code: "",
+                      status: "",
+                      date_from: "",
+                      date_to: "",
+                    })
+                  }
+                >
+                  Reset Filters
+                </Button>
+              </div>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[900px]">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-slate-50">
-                    <TableHead className="text-xs">Exam</TableHead>
-                    <TableHead className="text-xs">Term</TableHead>
-                    <TableHead className="text-xs">Class</TableHead>
-                    <TableHead className="text-xs">Subject</TableHead>
-                    <TableHead className="text-xs">Invigilator</TableHead>
-                    <TableHead className="text-xs">Date Window</TableHead>
-                    <TableHead className="text-xs">Time Window</TableHead>
-                    <TableHead className="text-xs">Status</TableHead>
-                    <TableHead className="text-xs text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {!loading &&
-                    filteredTimetableRows.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell className="text-sm font-medium text-slate-900">{row.name}</TableCell>
-                        <TableCell className="text-xs text-slate-600">
-                          {row.term_code || row.term_name || "—"}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-slate-600">{row.class_code}</TableCell>
-                        <TableCell className="text-sm text-slate-700">
-                          {row.subject_code ? `${row.subject_code} - ${row.subject_name || "Subject"}` : "General"}
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-700">
-                          {row.invigilator_name || "Not assigned"}
-                        </TableCell>
-                        <TableCell className="text-xs text-slate-600">
-                          {formatDateRange(row.start_date, row.end_date)}
-                        </TableCell>
-                        <TableCell className="text-xs text-slate-600">
-                          {formatTimeRange(row.start_time, row.end_time)}
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                              row.status === "COMPLETED"
-                                ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                                : row.status === "ONGOING"
-                                  ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
-                                  : row.status === "CANCELLED"
-                                    ? "bg-red-50 text-red-700 ring-1 ring-red-200"
-                                    : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
-                            }`}
-                          >
-                            {row.status}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {row.status !== "COMPLETED" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={updatingExamId === row.id}
-                              onClick={() => void updateExamStatus(row.id, "COMPLETED")}
+            {timetableViewMode === "table" && (
+              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[900px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="text-xs">Exam</TableHead>
+                      <TableHead className="text-xs">Term</TableHead>
+                      <TableHead className="text-xs">Class</TableHead>
+                      <TableHead className="text-xs">Subject</TableHead>
+                      <TableHead className="text-xs">Invigilator</TableHead>
+                      <TableHead className="text-xs">Date Window</TableHead>
+                      <TableHead className="text-xs">Time Window</TableHead>
+                      <TableHead className="text-xs">Status</TableHead>
+                      <TableHead className="text-xs text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {!loading &&
+                      filteredTimetableRows.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="text-sm font-medium text-slate-900">{row.name}</TableCell>
+                          <TableCell className="text-xs text-slate-600">
+                            {row.term_code || row.term_name || "—"}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-slate-600">{row.class_code}</TableCell>
+                          <TableCell className="text-sm text-slate-700">
+                            {row.subject_code ? `${row.subject_code} - ${row.subject_name || "Subject"}` : "General"}
+                          </TableCell>
+                          <TableCell className="text-sm text-slate-700">
+                            {row.invigilator_name || "Not assigned"}
+                          </TableCell>
+                          <TableCell className="text-xs text-slate-600">
+                            {formatDateRange(row.start_date, row.end_date)}
+                          </TableCell>
+                          <TableCell className="text-xs text-slate-600">
+                            {formatTimeRange(row.start_time, row.end_time)}
+                          </TableCell>
+                          <TableCell>
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                row.status === "COMPLETED"
+                                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                  : row.status === "ONGOING"
+                                    ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+                                    : row.status === "CANCELLED"
+                                      ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                                      : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                              }`}
                             >
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Mark Done
-                            </Button>
-                          )}
+                              {row.status}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {row.status !== "COMPLETED" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={updatingExamId === row.id}
+                                onClick={() => void updateExamStatus(row.id, "COMPLETED")}
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Mark Done
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    {!loading && filteredTimetableRows.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-400">
+                          No exams match the current timetable filters.
                         </TableCell>
                       </TableRow>
-                    ))}
-                  {!loading && filteredTimetableRows.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-400">
-                        No exams match the current timetable filters.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {loading && (
-                    <TableRow>
-                      <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-400">
-                        Loading timetable...
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                    )}
+                    {loading && (
+                      <TableRow>
+                        <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-400">
+                          Loading timetable...
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {timetableViewMode === "calendar" && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      onClick={() =>
+                        setTimetableCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+                      }
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      onClick={() =>
+                        setTimetableCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+                      }
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setTimetableCalendarMonth(startOfMonthLocal(new Date()))}
+                    >
+                      Today
+                    </Button>
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-900">{timetableMonthLabel}</h3>
+                  <div className="text-xs text-slate-500">{filteredTimetableRows.length} filtered exams</div>
+                </div>
+
+                <div className="grid grid-cols-7 gap-2">
+                  {WEEKDAY_LABELS.map((label) => (
+                    <div
+                      key={label}
+                      className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-center text-xs font-semibold text-slate-700"
+                    >
+                      {label}
+                    </div>
+                  ))}
+
+                  {timetableCalendarCells.map((cell) => {
+                    const dayExams = timetableByDay[cell.iso] || [];
+                    const visible = dayExams.slice(0, 3);
+                    const extra = Math.max(0, dayExams.length - visible.length);
+
+                    return (
+                      <div
+                        key={cell.iso}
+                        role={dayExams.length === 0 ? "button" : undefined}
+                        tabIndex={dayExams.length === 0 ? 0 : -1}
+                        onClick={() => {
+                          if (dayExams.length === 0) {
+                            openEmptyDayDialog(cell.iso);
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if ((event.key === "Enter" || event.key === " ") && dayExams.length === 0) {
+                            event.preventDefault();
+                            openEmptyDayDialog(cell.iso);
+                          }
+                        }}
+                        className={`min-h-28 rounded-lg border p-2 ${
+                          cell.inMonth
+                            ? "border-slate-200 bg-white"
+                            : "border-slate-100 bg-slate-50"
+                        } ${
+                          dayExams.length === 0
+                            ? "cursor-pointer hover:ring-1 hover:ring-blue-200"
+                            : ""
+                        }`}
+                      >
+                        <div className="mb-1 flex items-center justify-between">
+                          <span className={`text-xs font-semibold ${cell.inMonth ? "text-slate-800" : "text-slate-400"}`}>
+                            {cell.date.getDate()}
+                          </span>
+                          {dayExams.length > 0 && (
+                            <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                              {dayExams.length}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-1">
+                          {visible.map((row) => (
+                            <button
+                              type="button"
+                              key={`${cell.iso}-${row.id}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openEntryDialog(cell.iso, row);
+                              }}
+                              className={`truncate rounded px-1.5 py-1 text-[10px] font-medium ${
+                                row.status === "COMPLETED"
+                                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                  : row.status === "ONGOING"
+                                    ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+                                    : row.status === "CANCELLED"
+                                      ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                                      : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                              } hover:brightness-95`}
+                              title={`${row.name} (${formatDateRange(row.start_date, row.end_date)})`}
+                            >
+                              {examChipLabel(row)}
+                            </button>
+                          ))}
+                          {extra > 0 && (
+                            <div className="text-[10px] font-medium text-slate-500">+{extra} more</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         )}
@@ -1281,6 +1621,122 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
           </div>
         </div>
         )}
+
+        <Dialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen}>
+          <DialogContent className="sm:max-w-xl">
+            {calendarDialogMode === "entry" && calendarDialogEntry ? (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-slate-900">
+                    <CalendarDays className="h-4 w-4 text-blue-600" />
+                    {calendarDialogEntry.name}
+                  </DialogTitle>
+                  <DialogDescription>
+                    Timetable entry for {calendarDialogDayLabel}. Review the full exam schedule details below.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">Term</div>
+                    <div className="font-medium text-slate-800">
+                      {calendarDialogEntry.term_code || calendarDialogEntry.term_name || "—"}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">Class</div>
+                    <div className="font-mono font-medium text-slate-800">{calendarDialogEntry.class_code}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">Subject</div>
+                    <div className="font-medium text-slate-800">
+                      {calendarDialogEntry.subject_code
+                        ? `${calendarDialogEntry.subject_code} - ${calendarDialogEntry.subject_name || "Subject"}`
+                        : "General"}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">Invigilator</div>
+                    <div className="font-medium text-slate-800">{calendarDialogEntry.invigilator_name || "Not assigned"}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">Date Window</div>
+                    <div className="font-medium text-slate-800">
+                      {formatDateRange(calendarDialogEntry.start_date, calendarDialogEntry.end_date)}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">Time Window</div>
+                    <div className="font-medium text-slate-800">
+                      {formatTimeRange(calendarDialogEntry.start_time, calendarDialogEntry.end_time)}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">Status</div>
+                    <div>
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                          calendarDialogEntry.status === "COMPLETED"
+                            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                            : calendarDialogEntry.status === "ONGOING"
+                              ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+                              : calendarDialogEntry.status === "CANCELLED"
+                                ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                                : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                        }`}
+                      >
+                        {calendarDialogEntry.status}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">Location</div>
+                    <div className="font-medium text-slate-800">{calendarDialogEntry.location || "—"}</div>
+                  </div>
+                </div>
+
+                {calendarDialogEntry.notes && (
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <div className="text-xs text-slate-500">Notes</div>
+                    <div className="mt-1 text-sm text-slate-700">{calendarDialogEntry.notes}</div>
+                  </div>
+                )}
+
+                <DialogFooter>
+                  {calendarDialogEntry.status !== "COMPLETED" && (
+                    <Button
+                      disabled={updatingExamId === calendarDialogEntry.id}
+                      onClick={() => void markDialogEntryDone()}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Mark Done
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={() => setCalendarDialogOpen(false)}>
+                    Close
+                  </Button>
+                </DialogFooter>
+              </>
+            ) : (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-slate-900">No Event For This Day</DialogTitle>
+                  <DialogDescription>
+                    {calendarDialogDayLabel}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                  No exam timetable entry is scheduled for this day.
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setCalendarDialogOpen(false)}>
+                    Close
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
 
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 shadow-sm">
           <div className="flex items-start gap-2">

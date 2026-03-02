@@ -1799,6 +1799,62 @@ def _document_lines(payload: dict[str, Any]) -> list[str]:
             if not isinstance(row, dict):
                 continue
             lines.append(f"{idx}. {row.get('fee_item_code')} {row.get('fee_item_name')}: {row.get('amount')}")
+    elif dtype == "TIMETABLE":
+        lines.extend(
+            [
+                f"School: {payload.get('tenant_name') or ''}",
+                f"Generated: {payload.get('generated_at') or datetime.now(timezone.utc).isoformat()}",
+                "",
+            ]
+        )
+
+        filters = payload.get("filters")
+        if isinstance(filters, dict):
+            filter_tokens: list[str] = []
+            for label, key in (
+                ("Term", "term"),
+                ("Class", "class_code"),
+                ("Day", "day_of_week"),
+                ("Type", "slot_type"),
+                ("Status", "status"),
+                ("Search", "search"),
+            ):
+                raw = filters.get(key)
+                if raw is None:
+                    continue
+                token = str(raw).strip()
+                if not token:
+                    continue
+                filter_tokens.append(f"{label}: {token}")
+            if filter_tokens:
+                lines.append("Filters: " + " | ".join(filter_tokens))
+                lines.append("")
+
+        lines.append("Entries:")
+        entries = payload.get("entries") or []
+        if isinstance(entries, list) and entries:
+            for idx, row in enumerate(entries, start=1):
+                if not isinstance(row, dict):
+                    continue
+                day = str(row.get("day_of_week") or "")
+                time_range = str(row.get("time_range") or "")
+                class_code = str(row.get("class_code") or "")
+                slot_type = str(row.get("slot_type") or "")
+                title = str(row.get("title") or "")
+                subject = str(row.get("subject") or "")
+                teacher = str(row.get("teacher") or "")
+                term = str(row.get("term") or "")
+
+                line = (
+                    f"{idx}. {day} {time_range} | {class_code} | {slot_type} | {title}"
+                )
+                lines.append(line)
+                if subject or teacher or term:
+                    lines.append(
+                        f"    Subject: {subject or '-'} | Teacher: {teacher or '-'} | Term: {term or '-'}"
+                    )
+        else:
+            lines.append("No timetable entries found for the selected filters.")
 
     lines.extend(
         [

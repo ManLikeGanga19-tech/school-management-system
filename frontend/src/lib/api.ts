@@ -38,7 +38,7 @@ export type ApiOptions = RequestInit & {
    * true  → tenant endpoint: sends tenant token + X-Tenant-Slug/ID headers.
    * false → SaaS endpoint:   sends SaaS token, no tenant headers.
    *
-   * Defaults to true if stored mode === "tenant", false otherwise.
+   * Defaults to endpoint-aware inference with stored mode as first signal.
    * Always set this explicitly on subscription/finance calls.
    */
   tenantRequired?: boolean;
@@ -65,19 +65,56 @@ export class ApiError extends Error {
 
 // ─── Silent refresh (de-duplicated) ──────────────────────────────────────────
 
-let _refreshPromise: Promise<boolean> | null = null;
+type RefreshMode = "tenant" | "saas";
+
+const _refreshPromises: Record<RefreshMode, Promise<boolean> | null> = {
+  tenant: null,
+  saas: null,
+};
+
+function normalizeApiPath(path: string): string {
+  return path.replace(/^\/+/, "").replace(/^api\/v1\/?/i, "");
+}
+
+function inferTenantRequired(path: string, explicit: boolean | undefined): boolean {
+  if (typeof explicit === "boolean") return explicit;
+
+  const normalized = normalizeApiPath(path);
+  const storedMode = getStored("mode");
+  if (storedMode === "tenant") return true;
+  if (storedMode === "saas") return false;
+
+  if (
+    normalized.startsWith("admin/") ||
+    normalized.startsWith("auth/login/saas") ||
+    normalized.startsWith("auth/refresh/saas") ||
+    normalized.startsWith("auth/me/saas")
+  ) {
+    return false;
+  }
+
+  if (normalized.startsWith("tenants/")) return true;
+  return true;
+}
+
+function resolveRequestMode(path: string, opts?: ApiOptions): RefreshMode {
+  const tenantRequired = inferTenantRequired(path, opts?.tenantRequired);
+  return tenantRequired ? "tenant" : "saas";
+}
 
 /**
  * Attempt a silent token refresh via the Next.js /api/auth/refresh proxy.
  * Multiple concurrent 401 responses share a single refresh attempt.
  * Returns true on success, false if the refresh token is also expired.
  */
-async function silentRefresh(): Promise<boolean> {
-  if (_refreshPromise) return _refreshPromise;
+async function silentRefresh(mode: RefreshMode): Promise<boolean> {
+  if (_refreshPromises[mode]) return _refreshPromises[mode] as Promise<boolean>;
 
-  _refreshPromise = (async () => {
+  const refreshPath = mode === "saas" ? "/api/auth/saas/refresh" : "/api/auth/refresh";
+
+  _refreshPromises[mode] = (async () => {
     try {
-      const res = await fetch(joinUrl(API_BASE, "/auth/refresh"), {
+      const res = await fetch(refreshPath, {
         method: "POST",
         cache: "no-store",
         credentials: "include",
@@ -87,11 +124,13 @@ async function silentRefresh(): Promise<boolean> {
       return false;
     } finally {
       // Reset after a short window so the next genuine expiry can retry
-      setTimeout(() => { _refreshPromise = null; }, 5_000);
+      setTimeout(() => {
+        _refreshPromises[mode] = null;
+      }, 5_000);
     }
   })();
 
-  return _refreshPromise;
+  return _refreshPromises[mode] as Promise<boolean>;
 }
 
 /**
@@ -114,8 +153,28 @@ function getStored(name: keyof typeof keys): string | null {
   return typeof val === "string" && val.trim() ? val : null;
 }
 
-function hasJsonBody(opts?: ApiOptions): boolean {
-  return opts?.body !== undefined && opts?.body !== null;
+function isFormDataBody(body: unknown): body is FormData {
+  return typeof FormData !== "undefined" && body instanceof FormData;
+}
+
+function shouldSetJsonContentType(opts?: ApiOptions): boolean {
+  const body = opts?.body;
+  if (body === undefined || body === null) return false;
+  if (isFormDataBody(body)) return false;
+  if (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) return false;
+  if (typeof Blob !== "undefined" && body instanceof Blob) return false;
+  if (typeof ArrayBuffer !== "undefined" && body instanceof ArrayBuffer) return false;
+  return true;
+}
+
+function serializeBody(body: unknown): BodyInit | undefined {
+  if (body === undefined || body === null) return undefined;
+  if (isFormDataBody(body)) return body;
+  if (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) return body;
+  if (typeof Blob !== "undefined" && body instanceof Blob) return body;
+  if (typeof ArrayBuffer !== "undefined" && body instanceof ArrayBuffer) return body;
+  if (typeof body === "string") return body;
+  return JSON.stringify(body);
 }
 
 /**
@@ -153,11 +212,10 @@ function pickToken(tenantRequired: boolean): string {
   throw new ApiError(401, "Not authenticated. Please log in and try again.");
 }
 
-function buildHeaders(opts?: ApiOptions): Headers {
+function buildHeaders(path: string, opts?: ApiOptions): Headers {
   const headers = new Headers(opts?.headers ?? {});
 
-  const storedMode     = getStored("mode");         // "tenant" | "saas" | null
-  const tenantRequired = opts?.tenantRequired ?? (storedMode === "tenant");
+  const tenantRequired = inferTenantRequired(path, opts?.tenantRequired);
 
   const token = pickToken(tenantRequired);
   headers.set("Authorization", `Bearer ${token}`);
@@ -176,7 +234,7 @@ function buildHeaders(opts?: ApiOptions): Headers {
     if (tenantId)   headers.set("X-Tenant-ID",   tenantId);
   }
 
-  if (hasJsonBody(opts) && !headers.has("Content-Type")) {
+  if (shouldSetJsonContentType(opts) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -192,11 +250,12 @@ function buildHeaders(opts?: ApiOptions): Headers {
 export async function apiFetch<T>(path: string, opts?: ApiOptions): Promise<T> {
   const url = joinUrl(API_BASE, path);
   const { noRedirect, ...fetchOpts } = opts ?? {};
+  const requestMode = resolveRequestMode(path, opts);
 
   // Build headers — may throw ApiError for auth/config problems before the request
   let headers: Headers;
   try {
-    headers = buildHeaders(opts);
+    headers = buildHeaders(path, opts);
   } catch (err: any) {
     throw err instanceof ApiError
       ? err
@@ -215,12 +274,12 @@ export async function apiFetch<T>(path: string, opts?: ApiOptions): Promise<T> {
 
   // ── Silent refresh on 401 ─────────────────────────────────────────────────
   if (res.status === 401) {
-    const refreshed = await silentRefresh();
+    const refreshed = await silentRefresh(requestMode);
 
     if (refreshed) {
       // Rebuild headers — storage.get() now returns the new token written by refresh
       try {
-        headers = buildHeaders(opts);
+        headers = buildHeaders(path, opts);
       } catch {
         // If headers still can't be built after refresh, fall through to redirect
       }
@@ -257,10 +316,11 @@ export async function apiFetch<T>(path: string, opts?: ApiOptions): Promise<T> {
 export async function apiFetchRaw(path: string, opts?: ApiOptions): Promise<Response> {
   const url = joinUrl(API_BASE, path);
   const { noRedirect, ...fetchOpts } = opts ?? {};
+  const requestMode = resolveRequestMode(path, opts);
 
   let headers: Headers;
   try {
-    headers = buildHeaders(opts);
+    headers = buildHeaders(path, opts);
   } catch (err: any) {
     throw err instanceof ApiError
       ? err
@@ -278,10 +338,10 @@ export async function apiFetchRaw(path: string, opts?: ApiOptions): Promise<Resp
   let res = await doFetch();
 
   if (res.status === 401) {
-    const refreshed = await silentRefresh();
+    const refreshed = await silentRefresh(requestMode);
     if (refreshed) {
       try {
-        headers = buildHeaders(opts);
+        headers = buildHeaders(path, opts);
       } catch {
         // no-op: request below will still return 401 and be handled.
       }
@@ -327,27 +387,27 @@ export const api = {
     apiFetch<T>(path, {
       ...opts,
       method: "POST",
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: serializeBody(body),
     }),
 
   put: <T = unknown>(path: string, body?: unknown, opts?: ApiOptions) =>
     apiFetch<T>(path, {
       ...opts,
       method: "PUT",
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: serializeBody(body),
     }),
 
   patch: <T = unknown>(path: string, body?: unknown, opts?: ApiOptions) =>
     apiFetch<T>(path, {
       ...opts,
       method: "PATCH",
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: serializeBody(body),
     }),
 
   delete: <T = unknown>(path: string, body?: unknown, opts?: ApiOptions) =>
     apiFetch<T>(path, {
       ...opts,
       method: "DELETE",
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: serializeBody(body),
     }),
 };

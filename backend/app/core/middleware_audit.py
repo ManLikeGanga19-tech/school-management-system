@@ -8,8 +8,9 @@ from uuid import UUID
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, engine
 from app.core.audit import log_event
 
 logger = logging.getLogger(__name__)
@@ -24,11 +25,14 @@ def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
 
 _AUDIT_QUEUE_MAXSIZE = _env_int("AUDIT_QUEUE_MAXSIZE", 2000, 100, 20000)
 _AUDIT_WORKERS = _env_int("AUDIT_WORKERS", 1, 1, 4)
+_AUDIT_POOL_RESERVE = _env_int("AUDIT_POOL_RESERVE", 4, 1, 20)
 _AUDIT_DROPPED_LOG_EVERY = 100
+_AUDIT_PRESSURE_LOG_EVERY = 50
 
 _audit_queue: asyncio.Queue[dict] | None = None
 _audit_init_lock = threading.Lock()
 _audit_dropped_count = 0
+_audit_pressure_skipped_count = 0
 
 
 def _as_uuid(value) -> UUID | None:
@@ -42,10 +46,63 @@ def _as_uuid(value) -> UUID | None:
         return None
 
 
-def _write_audit_event(event: dict) -> None:
+def _pool_snapshot() -> tuple[int, int] | None:
+    pool = getattr(engine, "pool", None)
+    if pool is None:
+        return None
+    try:
+        checked_out = int(pool.checkedout())  # QueuePool API
+        pool_size = int(pool.size())  # QueuePool API
+        max_overflow = int(getattr(pool, "_max_overflow", 0))
+        max_total = max(1, pool_size + max_overflow)
+        return checked_out, max_total
+    except Exception:
+        return None
+
+
+def _audit_pool_is_saturated(*, reserve_connections: int = 1) -> bool:
+    snap = _pool_snapshot()
+    if snap is None:
+        return False
+    checked_out, max_total = snap
+    threshold = max(1, max_total - max(0, reserve_connections))
+    return checked_out >= threshold
+
+
+def _log_audit_pressure_skip(reason: str) -> None:
+    global _audit_pressure_skipped_count
+    _audit_pressure_skipped_count += 1
+    if (
+        _audit_pressure_skipped_count == 1
+        or _audit_pressure_skipped_count % _AUDIT_PRESSURE_LOG_EVERY == 0
+    ):
+        snap = _pool_snapshot()
+        if snap is None:
+            logger.warning(
+                "Audit write skipped (%s). skipped_count=%s",
+                reason,
+                _audit_pressure_skipped_count,
+            )
+        else:
+            checked_out, max_total = snap
+            logger.warning(
+                "Audit write skipped (%s). skipped_count=%s pool=%s/%s",
+                reason,
+                _audit_pressure_skipped_count,
+                checked_out,
+                max_total,
+            )
+
+
+def _write_audit_event(event: dict) -> bool:
     tenant_id = _as_uuid(event.get("tenant_id"))
     if tenant_id is None:
-        return
+        return False
+
+    # Keep request flow resilient: do not compete for last DB connections.
+    if _audit_pool_is_saturated(reserve_connections=_AUDIT_POOL_RESERVE):
+        _log_audit_pressure_skip("pool_saturated")
+        return False
 
     actor_user_id = _as_uuid(event.get("actor_user_id"))
     meta = event.get("meta")
@@ -65,6 +122,11 @@ def _write_audit_event(event: dict) -> None:
             meta=meta,
         )
         db.commit()
+        return True
+    except SATimeoutError:
+        db.rollback()
+        _log_audit_pressure_skip("pool_timeout")
+        return False
     except Exception:
         db.rollback()
         raise

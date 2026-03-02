@@ -1,4 +1,9 @@
 import { backendFetch } from "@/server/backend/client";
+import {
+  normalizeTenantNotificationPreviews,
+  parseTenantUnreadCount,
+  type TenantNotificationPreview,
+} from "@/lib/tenant-notifications";
 
 export type Resource<T> = {
   data: T | null;
@@ -109,6 +114,8 @@ export type DirectorDashboardData = {
   feeItems: Resource<FeeItem[]>;
   scholarships: Resource<Scholarship[]>;
   auditLogs: Resource<AuditRow[]>;
+  notifications: Resource<TenantNotificationPreview[]>;
+  notificationsUnreadCount: Resource<number>;
 };
 
 async function readJson<T>(res: Response): Promise<T | null> {
@@ -160,7 +167,7 @@ async function getResource<T>(path: string): Promise<Resource<T>> {
 export async function getDirectorDashboardData(): Promise<DirectorDashboardData> {
   // Use tenant-aggregated endpoints to reduce DB fan-out and improve dashboard
   // resilience under load.
-  const [me, dashboard, finance] = await Promise.all([
+  const [me, dashboard, finance, notificationsRaw, notificationsCountRaw] = await Promise.all([
     getResource<TenantMe>("/auth/me"),
     getResource<{
       summary?: TenantDashboardSummary;
@@ -177,6 +184,8 @@ export async function getDirectorDashboardData(): Promise<DirectorDashboardData>
       scholarships?: Scholarship[];
       enrollments?: EnrollmentRow[];
     }>("/tenants/director/finance"),
+    getResource<unknown>("/tenants/notifications?limit=5&offset=0"),
+    getResource<unknown>("/tenants/notifications/unread-count"),
   ]);
 
   const dashboardData = dashboard.data;
@@ -241,6 +250,23 @@ export async function getDirectorDashboardData(): Promise<DirectorDashboardData>
     error: financeData?.scholarships ? null : finance.error,
   };
 
+  const notificationsList = normalizeTenantNotificationPreviews(notificationsRaw.data).slice(0, 5);
+  const notifications: Resource<TenantNotificationPreview[]> = {
+    data: notificationsList,
+    error: notificationsRaw.error && notificationsList.length === 0 ? notificationsRaw.error : null,
+  };
+
+  const unreadCountFromEndpoint = parseTenantUnreadCount(notificationsCountRaw.data);
+  const unreadCountFallback = notificationsList.filter((item) => item.unread).length;
+  const unreadCount = unreadCountFromEndpoint ?? unreadCountFallback;
+  const notificationsUnreadCount: Resource<number> = {
+    data: unreadCount,
+    error:
+      notificationsCountRaw.error && unreadCountFromEndpoint === null
+        ? notificationsCountRaw.error
+        : null,
+  };
+
   return {
     me,
     summary,
@@ -252,5 +278,7 @@ export async function getDirectorDashboardData(): Promise<DirectorDashboardData>
     feeItems,
     scholarships,
     auditLogs,
+    notifications,
+    notificationsUnreadCount,
   };
 }

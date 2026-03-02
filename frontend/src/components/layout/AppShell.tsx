@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   BadgeDollarSign,
@@ -29,6 +29,7 @@ import {
   ScrollText,
   Settings2,
   ShieldCheck,
+  LogOut,
   Menu,
   UserCog,
   UserRoundPlus,
@@ -39,9 +40,19 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/sonner";
-import { api } from "@/lib/api";
+import { api, apiFetchRaw } from "@/lib/api";
+import { logout as authLogout } from "@/lib/auth/auth";
+import { TENANT_BRANDING_UPDATED_EVENT } from "@/lib/tenant-branding";
 
 type AppNavLink = {
   href: string;
@@ -92,6 +103,11 @@ type NotificationPreview = {
   unread: boolean;
 };
 
+type CurrentUserPreview = {
+  email: string;
+  fullName: string;
+};
+
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -100,6 +116,30 @@ function asObject(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeCurrentUserPreview(value: unknown): CurrentUserPreview | null {
+  const root = asObject(value);
+  if (!root) return null;
+
+  const user = asObject(root.user) || root;
+  const email = asString(user.email);
+  const fullName = asString(user.full_name) || asString(user.fullName);
+
+  if (!email && !fullName) return null;
+  return {
+    email: email || "",
+    fullName: fullName || "",
+  };
+}
+
+function resolveSettingsHref(path: string): string {
+  const normalized = normalizePath(path || "/");
+  if (normalized.startsWith("/tenant/director")) return "/tenant/director/settings";
+  if (normalized.startsWith("/tenant/secretary")) return "/tenant/secretary/settings";
+  if (normalized.startsWith("/tenant/principal")) return "/tenant/principal/settings";
+  if (normalized.startsWith("/saas")) return "/saas/tenants";
+  return "/login";
 }
 
 function normalizeNotificationPreviews(value: unknown): NotificationPreview[] {
@@ -175,8 +215,15 @@ export function AppShell({
   const [expandedModuleKey, setExpandedModuleKey] = useState<string | null>(activeModuleKey);
   const [unreadCount, setUnreadCount] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [accountMenuOpenDesktop, setAccountMenuOpenDesktop] = useState(false);
+  const [accountMenuOpenMobile, setAccountMenuOpenMobile] = useState(false);
+  const [sidebarUserEmail, setSidebarUserEmail] = useState("Tenant user");
+  const [sidebarUserName, setSidebarUserName] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [sidebarBadgeUrl, setSidebarBadgeUrl] = useState<string | null>(null);
   const seenUnreadIdsRef = useRef<Set<string>>(new Set());
   const initializedRealtimeRef = useRef(false);
+  const settingsHref = useMemo(() => resolveSettingsHref(pathname || "/"), [pathname]);
 
   useEffect(() => {
     setExpandedModuleKey(activeModuleKey);
@@ -194,6 +241,154 @@ export function AppShell({
       document.body.style.overflow = originalOverflow;
     };
   }, [mobileNavOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSidebarUser() {
+      const path = pathname || "/";
+
+      if (path.startsWith("/tenant/")) {
+        if (!cancelled) {
+          setSidebarUserEmail("Tenant user");
+          setSidebarUserName("");
+        }
+        try {
+          const raw = await api.get<unknown>("/auth/me", {
+            tenantRequired: true,
+            noRedirect: true,
+          });
+          const parsed = normalizeCurrentUserPreview(raw);
+          if (!cancelled && parsed) {
+            setSidebarUserEmail(parsed.email || "Tenant user");
+            setSidebarUserName(parsed.fullName || "");
+          }
+        } catch {
+          // Keep fallback labels.
+        }
+        return;
+      }
+
+      if (!cancelled && path.startsWith("/saas")) {
+        setSidebarUserEmail("Super Admin");
+        setSidebarUserName("");
+      }
+    }
+
+    void loadSidebarUser();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  const handleLogout = useCallback(async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await authLogout();
+    } catch {
+      // Best effort logout; redirect anyway.
+    } finally {
+      setLoggingOut(false);
+      window.location.href = "/login";
+    }
+  }, [loggingOut]);
+
+  const revokeObjectUrl = useCallback((value: string | null) => {
+    if (!value || !value.startsWith("blob:")) return;
+    URL.revokeObjectURL(value);
+  }, []);
+
+  const replaceSidebarBadgeUrl = useCallback(
+    (next: string | null) => {
+      setSidebarBadgeUrl((prev) => {
+        if (prev && prev !== next) revokeObjectUrl(prev);
+        return next;
+      });
+    },
+    [revokeObjectUrl]
+  );
+
+  const loadSidebarBadge = useCallback(async () => {
+    const path = pathname || "/";
+    if (!path.startsWith("/tenant/")) {
+      replaceSidebarBadgeUrl(null);
+      return;
+    }
+
+    try {
+      const response = await apiFetchRaw("/tenants/settings/badge", {
+        method: "GET",
+        tenantRequired: true,
+        noRedirect: true,
+      });
+      const blob = await response.blob();
+      if (!blob || blob.size === 0) {
+        replaceSidebarBadgeUrl(null);
+        return;
+      }
+      replaceSidebarBadgeUrl(URL.createObjectURL(blob));
+    } catch {
+      replaceSidebarBadgeUrl(null);
+    }
+  }, [pathname, replaceSidebarBadgeUrl]);
+
+  useEffect(() => {
+    void loadSidebarBadge();
+  }, [loadSidebarBadge]);
+
+  useEffect(() => {
+    const handleBrandingUpdated = () => {
+      void loadSidebarBadge();
+    };
+    window.addEventListener(TENANT_BRANDING_UPDATED_EVENT, handleBrandingUpdated as EventListener);
+    return () => {
+      window.removeEventListener(TENANT_BRANDING_UPDATED_EVENT, handleBrandingUpdated as EventListener);
+    };
+  }, [loadSidebarBadge]);
+
+  useEffect(() => {
+    return () => {
+      revokeObjectUrl(sidebarBadgeUrl);
+    };
+  }, [sidebarBadgeUrl, revokeObjectUrl]);
+
+  useEffect(() => {
+    const refreshPath =
+      (pathname || "").startsWith("/saas") ? "/api/auth/saas/refresh" : "/api/auth/refresh";
+
+    let cancelled = false;
+    async function keepAlive() {
+      if (cancelled || document.visibilityState !== "visible") return;
+      try {
+        await fetch(refreshPath, {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+        });
+      } catch {
+        // Best-effort keep-alive: ignore transient network errors.
+      }
+    }
+
+    const timer = window.setInterval(() => {
+      void keepAlive();
+    }, 8 * 60 * 1000);
+
+    const onFocus = () => {
+      void keepAlive();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    void keepAlive();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [pathname]);
 
   const shouldLoadUnreadCount = useMemo(
     () =>
@@ -278,6 +473,103 @@ export function AppShell({
   const isPathActive  = (href: string) => parseHref(href).path === active.path;
   const isExactActive = (href: string) => parseHref(href).full === active.full;
   const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
+  const accountLabel = sidebarUserName || "Signed in user";
+
+  function renderSidebarFooter(options?: { mobile?: boolean }) {
+    const mobile = Boolean(options?.mobile);
+    const accountMenuOpen = mobile ? accountMenuOpenMobile : accountMenuOpenDesktop;
+    const setAccountMenuOpen = mobile ? setAccountMenuOpenMobile : setAccountMenuOpenDesktop;
+    return (
+      <div
+        className={cn("border-t border-blue-100 p-3", !mobile && "pt-2")}
+      >
+        <DropdownMenu open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="h-auto w-full items-center justify-between px-3 py-2">
+              <span className="min-w-0 text-left">
+                <span className="block text-[10px] uppercase tracking-wide text-slate-500">
+                  Account
+                </span>
+                <span className="block truncate text-sm font-medium text-slate-800">
+                  {sidebarUserEmail}
+                </span>
+              </span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 text-slate-500 transition-transform",
+                  accountMenuOpen ? "rotate-0" : "rotate-180"
+                )}
+              />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            side="top"
+            className="w-64"
+          >
+            <DropdownMenuLabel className="truncate">{accountLabel}</DropdownMenuLabel>
+            <div className="px-2 pb-1 text-xs text-slate-500">{sidebarUserEmail}</div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link
+                href={settingsHref}
+                onClick={() => {
+                  if (mobile) setMobileNavOpen(false);
+                }}
+                className="cursor-pointer"
+              >
+                <Settings2 className="h-4 w-4" />
+                Settings
+              </Link>
+            </DropdownMenuItem>
+            <div className="px-1 pt-1">
+              <Button
+                type="button"
+                variant="destructive"
+                className="h-8 w-full justify-start gap-2 px-2"
+                onClick={() => {
+                  if (mobile) setMobileNavOpen(false);
+                  void handleLogout();
+                }}
+                disabled={loggingOut}
+              >
+                <LogOut className="h-4 w-4" />
+                {loggingOut ? "Logging out..." : "Logout"}
+              </Button>
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  }
+
+  function renderShellBrand(options?: { mode?: "desktop" | "mobile-top" | "mobile-drawer" }) {
+    const mode = options?.mode || "desktop";
+    if (sidebarBadgeUrl) {
+      const containerClass =
+        mode === "mobile-top"
+          ? "flex h-10 items-center rounded-md border border-blue-100 bg-white px-2"
+          : "flex h-16 items-center justify-center rounded-lg border border-blue-100 bg-white px-2";
+      const imageClass =
+        mode === "mobile-top"
+          ? "h-8 w-auto max-w-[150px] object-contain"
+          : "h-14 w-auto max-w-[210px] object-contain";
+      return (
+        <div className={containerClass}>
+          <img src={sidebarBadgeUrl} alt={`${title} school badge`} className={imageClass} />
+        </div>
+      );
+    }
+
+    const titleClass =
+      mode === "desktop" ? "text-lg font-semibold text-blue-900" : "text-base font-semibold text-blue-900";
+    return (
+      <>
+        <div className="text-xs uppercase tracking-wide text-blue-700/80">Platform</div>
+        <div className={titleClass}>{title}</div>
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-blue-50/40">
@@ -295,8 +587,7 @@ export function AppShell({
         overflow-y-auto
       ">
         <div className="p-4">
-          <div className="text-xs uppercase tracking-wide text-blue-700/80">Platform</div>
-          <div className="text-lg font-semibold text-blue-900">{title}</div>
+          {renderShellBrand({ mode: "desktop" })}
         </div>
 
         <Separator />
@@ -368,7 +659,7 @@ export function AppShell({
                           className={cn(
                             "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs transition-colors",
                             childIsExactActive
-                              ? "bg-blue-50 font-medium text-blue-800"
+                              ? "bg-blue-100 font-medium text-blue-900"
                               : "text-muted-foreground hover:bg-blue-50 hover:text-blue-900"
                           )}
                         >
@@ -391,20 +682,13 @@ export function AppShell({
           })}
         </nav>
 
-        <div className="p-3">
-          <form action="/api/auth/logout" method="post">
-            <Button variant="outline" className="w-full">
-              Logout
-            </Button>
-          </form>
-        </div>
+        {renderSidebarFooter()}
       </aside>
 
       <div className="sticky top-0 z-40 border-b border-blue-100 bg-white/95 backdrop-blur md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <div>
-            <div className="text-xs uppercase tracking-wide text-blue-700/80">Platform</div>
-            <div className="text-base font-semibold text-blue-900">{title}</div>
+            {renderShellBrand({ mode: "mobile-top" })}
           </div>
           <Button
             type="button"
@@ -432,11 +716,12 @@ export function AppShell({
             onClick={() => setMobileNavOpen(false)}
             aria-label="Close navigation menu overlay"
           />
-          <aside className="fixed inset-y-0 left-0 z-50 w-[280px] max-w-[85vw] border-r border-blue-100 bg-white shadow-2xl">
+          <aside
+            className="fixed inset-y-0 left-0 z-50 w-[280px] max-w-[85vw] border-r border-blue-100 bg-white shadow-2xl"
+          >
             <div className="flex items-center justify-between px-4 py-3">
               <div>
-                <div className="text-xs uppercase tracking-wide text-blue-700/80">Platform</div>
-                <div className="text-base font-semibold text-blue-900">{title}</div>
+                {renderShellBrand({ mode: "mobile-drawer" })}
               </div>
               <Button
                 type="button"
@@ -518,7 +803,7 @@ export function AppShell({
                               className={cn(
                                 "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs transition-colors",
                                 childIsExactActive
-                                  ? "bg-blue-50 font-medium text-blue-800"
+                                  ? "bg-blue-100 font-medium text-blue-900"
                                   : "text-muted-foreground hover:bg-blue-50 hover:text-blue-900"
                               )}
                             >
@@ -540,19 +825,13 @@ export function AppShell({
                 );
               })}
             </nav>
-            <div className="border-t border-blue-100 p-3">
-              <form action="/api/auth/logout" method="post">
-                <Button variant="outline" className="w-full">
-                  Logout
-                </Button>
-              </form>
-            </div>
+            {renderSidebarFooter({ mobile: true })}
           </aside>
         </div>
       )}
 
 
-      <main className="md:ml-[260px] min-h-screen bg-gradient-to-b from-blue-50/30 to-white p-4 md:p-6">
+      <main className="min-h-screen bg-gradient-to-b from-blue-50/30 to-white p-4 md:ml-[260px] md:p-6">
         <div className="mx-auto w-full max-w-6xl">{children}</div>
       </main>
     </div>

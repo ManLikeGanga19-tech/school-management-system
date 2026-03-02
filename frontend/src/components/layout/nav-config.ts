@@ -7,8 +7,8 @@ export type FinanceSection =
   | "payments"
   | "receipts";
 export type EnrollmentSection = "intake" | "students";
-export type SchoolSetupSection = "terms" | "classes" | "subjects";
-export type StudentSection = "all" | "fee-balance";
+export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable";
+export type StudentSection = "all" | "fee-balance" | "clearance";
 export type HrSection = "staff" | "teachers" | "assets";
 export type ExamSection = "setup" | "timetable" | "progress";
 
@@ -44,6 +44,10 @@ export function directorExamsHref(section: ExamSection = "setup") {
   return `/tenant/director/exams?section=${section}`;
 }
 
+export function directorEventsHref() {
+  return "/tenant/director/events";
+}
+
 // ───────────────────────────────────────────────────────────────
 // Secretary paths remain under /tenant/secretary/*
 // ───────────────────────────────────────────────────────────────
@@ -74,6 +78,38 @@ export function secretaryNotificationsHref() {
 
 export function secretaryExamsHref(section: ExamSection = "setup") {
   return `/tenant/secretary/exams?section=${section}`;
+}
+
+export function secretaryEventsHref() {
+  return "/tenant/secretary/events";
+}
+
+// ───────────────────────────────────────────────────────────────
+// Principal / Head Teacher paths under /tenant/principal/*
+// ───────────────────────────────────────────────────────────────
+
+export function principalSchoolSetupHref(section: SchoolSetupSection) {
+  return `/tenant/principal/school-setup/${section}`;
+}
+
+export function principalStudentsHref(section: StudentSection) {
+  return `/tenant/principal/students/${section}`;
+}
+
+export function principalHrHref(section: HrSection) {
+  return `/tenant/principal/hr/${section}`;
+}
+
+export function principalNotificationsHref() {
+  return "/tenant/principal/notifications";
+}
+
+export function principalExamsHref(section: ExamSection = "setup") {
+  return `/tenant/principal/exams?section=${section}`;
+}
+
+export function principalEventsHref() {
+  return "/tenant/principal/events";
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -110,6 +146,11 @@ export const directorNav: AppNavItem[] = [
         label: "Student Fee Balance",
         icon: "WalletCards",
       },
+      {
+        href: directorStudentsHref("clearance"),
+        label: "Clearance",
+        icon: "ShieldCheck",
+      },
     ],
   },
   {
@@ -139,6 +180,11 @@ export const directorNav: AppNavItem[] = [
     ],
   },
   {
+    href: directorEventsHref(),
+    label: "Events",
+    icon: "CalendarDays",
+  },
+  {
     href: directorSchoolSetupHref("terms"),
     label: "School Setup",
     icon: "Settings2",
@@ -146,6 +192,7 @@ export const directorNav: AppNavItem[] = [
       { href: directorSchoolSetupHref("terms"), label: "Terms", icon: "CalendarDays" },
       { href: directorSchoolSetupHref("classes"), label: "Classes", icon: "School" },
       { href: directorSchoolSetupHref("subjects"), label: "Subjects", icon: "BookOpenText" },
+      { href: directorSchoolSetupHref("timetable"), label: "School Timetable", icon: "CalendarDays" },
     ],
   },
   {
@@ -191,6 +238,11 @@ export const secretaryNav: AppNavItem[] = [
         label: "Student Fee Balance",
         icon: "WalletCards",
       },
+      {
+        href: secretaryStudentsHref("clearance"),
+        label: "Clearance",
+        icon: "ShieldCheck",
+      },
     ],
   },
   {
@@ -219,6 +271,11 @@ export const secretaryNav: AppNavItem[] = [
     ],
   },
   {
+    href: secretaryEventsHref(),
+    label: "Events",
+    icon: "CalendarDays",
+  },
+  {
     href: secretarySchoolSetupHref("terms"),
     label: "School Setup",
     icon: "Settings2",
@@ -226,6 +283,7 @@ export const secretaryNav: AppNavItem[] = [
       { href: secretarySchoolSetupHref("terms"), label: "Terms", icon: "CalendarDays" },
       { href: secretarySchoolSetupHref("classes"), label: "Classes", icon: "School" },
       { href: secretarySchoolSetupHref("subjects"), label: "Subjects", icon: "BookOpenText" },
+      { href: secretarySchoolSetupHref("timetable"), label: "School Timetable", icon: "CalendarDays" },
     ],
   },
   {
@@ -246,4 +304,68 @@ export const secretaryNav: AppNavItem[] = [
   },
   { href: "/tenant/secretary/users", label: "Users", icon: "UserCog" },
   { href: "/tenant/secretary/audit", label: "Audit Logs", icon: "ScrollText" },
+];
+
+export const principalNav: AppNavItem[] = [
+  { href: "/tenant/principal/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
+  {
+    href: principalStudentsHref("all"),
+    label: "Students",
+    icon: "Users",
+    children: [
+      { href: principalStudentsHref("all"), label: "All Students", icon: "List" },
+    ],
+  },
+  {
+    href: principalExamsHref("setup"),
+    label: "Exams",
+    icon: "CalendarDays",
+    children: [
+      { href: principalExamsHref("setup"), label: "Exam Setup", icon: "FileSpreadsheet" },
+      { href: principalExamsHref("timetable"), label: "Exam Timetable", icon: "CalendarDays" },
+      {
+        href: principalExamsHref("progress"),
+        label: "Student Progress Report",
+        icon: "ClipboardCheck",
+      },
+    ],
+  },
+  {
+    href: principalEventsHref(),
+    label: "Events",
+    icon: "CalendarDays",
+  },
+  {
+    href: principalSchoolSetupHref("terms"),
+    label: "School Setup",
+    icon: "Settings2",
+    children: [
+      { href: principalSchoolSetupHref("terms"), label: "Terms", icon: "CalendarDays" },
+      { href: principalSchoolSetupHref("classes"), label: "Classes", icon: "School" },
+      { href: principalSchoolSetupHref("subjects"), label: "Subjects", icon: "BookOpenText" },
+      {
+        href: principalSchoolSetupHref("timetable"),
+        label: "School Timetable",
+        icon: "CalendarDays",
+      },
+    ],
+  },
+  {
+    href: principalHrHref("teachers"),
+    label: "Academic Staff",
+    icon: "BriefcaseBusiness",
+    children: [
+      {
+        href: principalHrHref("teachers"),
+        label: "Teacher Assignment",
+        icon: "Presentation",
+      },
+    ],
+  },
+  {
+    href: principalNotificationsHref(),
+    label: "Notifications",
+    icon: "Bell",
+    showUnreadBadge: true,
+  },
 ];

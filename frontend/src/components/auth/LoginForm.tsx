@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 
@@ -29,7 +28,6 @@ function getErrorMessage(data: any) {
 }
 
 export function LoginForm({ initialTenantSlug }: LoginFormProps) {
-  const router = useRouter();
   const [err, setErr] = useState<string | null>(null);
 
   const form = useForm<LoginValues>({
@@ -79,8 +77,16 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
       storage.set(keys.accessToken, String(data.access_token));
     }
 
-    // ✅ go to tenant area (server-side pages can route by role)
-    router.replace("/tenant/director/dashboard");
+    const query = new URLSearchParams(window.location.search);
+    const next = (query.get("next") || "").trim();
+    const safeNext = next.startsWith("/") ? next : "";
+    const serverRedirect =
+      typeof data?.redirect_to === "string" && data.redirect_to.startsWith("/")
+        ? data.redirect_to
+        : "/dashboard";
+
+    // Use hard navigation to guarantee fresh server render with newly-set auth cookies.
+    window.location.assign(safeNext || serverRedirect);
   }
 
   return (

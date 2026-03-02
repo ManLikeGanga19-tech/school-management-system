@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from uuid import UUID
+from types import SimpleNamespace
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -84,55 +85,63 @@ class TenantMiddleware(BaseHTTPMiddleware):
         tenant_slug_header = request.headers.get("x-tenant-slug")
         host = self._extract_host(request)
 
+        tenant = None
         db = SessionLocal()
         try:
-            tenant = None
-
-            try:
-                # 1) X-Tenant-ID
-                if tenant_id_header:
-                    try:
-                        tid = UUID(tenant_id_header)
-                    except Exception:
-                        return JSONResponse(
-                            {"detail": "Invalid X-Tenant-ID header (must be UUID)."},
-                            status_code=400,
-                        )
-                    tenant = db.query(Tenant).filter(Tenant.id == tid).first()
-
-                # 2) X-Tenant-Slug
-                if tenant is None and tenant_slug_header:
-                    tenant = (
-                        db.query(Tenant)
-                        .filter(Tenant.slug == tenant_slug_header.lower())
-                        .first()
+            # 1) X-Tenant-ID
+            if tenant_id_header:
+                try:
+                    tid = UUID(tenant_id_header)
+                except Exception:
+                    return JSONResponse(
+                        {"detail": "Invalid X-Tenant-ID header (must be UUID)."},
+                        status_code=400,
                     )
+                tenant = db.query(Tenant).filter(Tenant.id == tid).first()
 
-                # 3) Host-based resolution
-                if tenant is None and host:
-                    tenant = db.query(Tenant).filter(Tenant.primary_domain == host).first()
-
-                    if tenant is None and "." in host:
-                        slug = host.split(".")[0]
-                        tenant = db.query(Tenant).filter(Tenant.slug == slug).first()
-            except SQLAlchemyError:
-                return JSONResponse({"detail": "Database unavailable"}, status_code=503)
-
-            if tenant is None:
-                return JSONResponse(
-                    {
-                        "detail": "Tenant not resolved. Provide X-Tenant-ID / X-Tenant-Slug or use a mapped domain."
-                    },
-                    status_code=400,
+            # 2) X-Tenant-Slug
+            if tenant is None and tenant_slug_header:
+                tenant = (
+                    db.query(Tenant)
+                    .filter(Tenant.slug == tenant_slug_header.lower())
+                    .first()
                 )
 
-            if not tenant.is_active:
-                return JSONResponse({"detail": "Tenant is inactive."}, status_code=403)
+            # 3) Host-based resolution
+            if tenant is None and host:
+                tenant = db.query(Tenant).filter(Tenant.primary_domain == host).first()
 
-            request.state.tenant = tenant
-            request.state.tenant_id = tenant.id
-            request.state.tenant_slug = tenant.slug
-
-            return await call_next(request)
+                if tenant is None and "." in host:
+                    slug = host.split(".")[0]
+                    tenant = db.query(Tenant).filter(Tenant.slug == slug).first()
+        except SQLAlchemyError:
+            return JSONResponse({"detail": "Database unavailable"}, status_code=503)
         finally:
+            # IMPORTANT: release DB connection before request handler runs
+            # to avoid holding two sessions per request (middleware + endpoint).
             db.close()
+
+        if tenant is None:
+            return JSONResponse(
+                {
+                    "detail": "Tenant not resolved. Provide X-Tenant-ID / X-Tenant-Slug or use a mapped domain."
+                },
+                status_code=400,
+            )
+
+        if not tenant.is_active:
+            return JSONResponse({"detail": "Tenant is inactive."}, status_code=403)
+
+        # Store lightweight immutable context object (detached from SQLAlchemy session).
+        tenant_ctx = SimpleNamespace(
+            id=tenant.id,
+            slug=tenant.slug,
+            name=tenant.name,
+            is_active=tenant.is_active,
+        )
+
+        request.state.tenant = tenant_ctx
+        request.state.tenant_id = tenant_ctx.id
+        request.state.tenant_slug = tenant_ctx.slug
+
+        return await call_next(request)
