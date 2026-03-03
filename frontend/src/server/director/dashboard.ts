@@ -116,6 +116,7 @@ export type DirectorDashboardData = {
   auditLogs: Resource<AuditRow[]>;
   notifications: Resource<TenantNotificationPreview[]>;
   notificationsUnreadCount: Resource<number>;
+  notificationsTotalCount: Resource<number>;
 };
 
 async function readJson<T>(res: Response): Promise<T | null> {
@@ -184,7 +185,7 @@ export async function getDirectorDashboardData(): Promise<DirectorDashboardData>
       scholarships?: Scholarship[];
       enrollments?: EnrollmentRow[];
     }>("/tenants/director/finance"),
-    getResource<unknown>("/tenants/notifications?limit=5&offset=0"),
+    getResource<unknown>("/tenants/notifications?limit=500&offset=0"),
     getResource<unknown>("/tenants/notifications/unread-count"),
   ]);
 
@@ -250,7 +251,8 @@ export async function getDirectorDashboardData(): Promise<DirectorDashboardData>
     error: financeData?.scholarships ? null : finance.error,
   };
 
-  const notificationsList = normalizeTenantNotificationPreviews(notificationsRaw.data).slice(0, 5);
+  const allNotifications = normalizeTenantNotificationPreviews(notificationsRaw.data);
+  const notificationsList = allNotifications.slice(0, 2);
   const notifications: Resource<TenantNotificationPreview[]> = {
     data: notificationsList,
     error: notificationsRaw.error && notificationsList.length === 0 ? notificationsRaw.error : null,
@@ -267,6 +269,11 @@ export async function getDirectorDashboardData(): Promise<DirectorDashboardData>
         : null,
   };
 
+  const notificationsTotalCount: Resource<number> = {
+    data: allNotifications.length,
+    error: notificationsRaw.error && allNotifications.length === 0 ? notificationsRaw.error : null,
+  };
+
   return {
     me,
     summary,
@@ -280,5 +287,6 @@ export async function getDirectorDashboardData(): Promise<DirectorDashboardData>
     auditLogs,
     notifications,
     notificationsUnreadCount,
+    notificationsTotalCount,
   };
 }

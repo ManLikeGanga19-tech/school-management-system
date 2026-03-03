@@ -88,6 +88,17 @@ export type TeacherAssignment = {
   notes: string | null;
 };
 
+export type ClassTeacherAssignment = {
+  id: string;
+  staff_id: string;
+  staff_no: string;
+  staff_name: string;
+  class_code: string;
+  is_active: boolean;
+  assigned_at: string | null;
+  notes: string | null;
+};
+
 export type TenantAsset = {
   id: string;
   asset_code: string;
@@ -255,6 +266,34 @@ export function normalizeTeacherAssignments(input: unknown): TeacherAssignment[]
       if (classCmp !== 0) return classCmp;
       const subjectCmp = a.subject_code.localeCompare(b.subject_code);
       if (subjectCmp !== 0) return subjectCmp;
+      return a.staff_name.localeCompare(b.staff_name);
+    });
+}
+
+export function normalizeClassTeacherAssignments(input: unknown): ClassTeacherAssignment[] {
+  return asArray<unknown>(input)
+    .map((raw): ClassTeacherAssignment | null => {
+      const row = asObject(raw);
+      if (!row) return null;
+
+      const id = asString(row.id);
+      if (!id) return null;
+
+      return {
+        id,
+        staff_id: asString(row.staff_id),
+        staff_no: asString(row.staff_no),
+        staff_name: asString(row.staff_name) || "N/A",
+        class_code: asString(row.class_code).toUpperCase(),
+        is_active: asBoolean(row.is_active, true),
+        assigned_at: asString(row.assigned_at) || null,
+        notes: asString(row.notes) || null,
+      };
+    })
+    .filter((row): row is ClassTeacherAssignment => Boolean(row))
+    .sort((a, b) => {
+      const classCmp = a.class_code.localeCompare(b.class_code);
+      if (classCmp !== 0) return classCmp;
       return a.staff_name.localeCompare(b.staff_name);
     });
 }

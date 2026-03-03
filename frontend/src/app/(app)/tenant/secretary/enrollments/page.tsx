@@ -97,6 +97,22 @@ type EnrollmentRow = {
   secretary_edit_locked?: boolean;
 };
 
+type EnrollmentPageResponse = {
+  items: EnrollmentRow[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+type EnrollmentPageQuery = {
+  page: number;
+  search?: string;
+  statusIn?: string[];
+  statusNotIn?: string[];
+  classCode?: string;
+  termCode?: string;
+};
+
 type TenantClass = {
   id: string;
   name: string;
@@ -508,25 +524,6 @@ function nextAdmissionNumber(rows: EnrollmentRow[]): string {
   return formatAdmissionNumber(max + 1);
 }
 
-function rowMatchesSearch(row: EnrollmentRow, query: string): boolean {
-  if (!query.trim()) return true;
-  const q = query.toLowerCase();
-  const name = studentName(row.payload || {}).toLowerCase();
-  const cls = studentClass(row.payload || {}).toLowerCase();
-  const term = termFromPayload(row.payload || {}).toLowerCase();
-  const id = row.id.toLowerCase();
-  const adm = String(
-    row.admission_number ?? (row.payload as any)?.admission_number ?? ""
-  ).toLowerCase();
-  return (
-    name.includes(q) ||
-    cls.includes(q) ||
-    term.includes(q) ||
-    id.includes(q) ||
-    adm.includes(q)
-  );
-}
-
 function statusToSuggestedActions(s: string): ActionType[] {
   switch (s) {
     case "DRAFT":
@@ -544,15 +541,56 @@ function statusToSuggestedActions(s: string): ActionType[] {
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
-function usePagination<T>(items: T[], pageSize = PAGE_SIZE) {
-  const [page, setPage] = useState(1);
-  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const slice = items.slice((safePage - 1) * pageSize, safePage * pageSize);
-  useEffect(() => {
-    setPage(1);
-  }, [items.length]);
-  return { page: safePage, setPage, totalPages, slice };
+const EMPTY_ENROLLMENT_PAGE: EnrollmentPageResponse = {
+  items: [],
+  total: 0,
+  limit: PAGE_SIZE,
+  offset: 0,
+};
+
+function normalizeEnrollmentPage(value: unknown): EnrollmentPageResponse {
+  const raw = (value ?? {}) as Partial<EnrollmentPageResponse>;
+  const total =
+    typeof raw.total === "number" && Number.isFinite(raw.total) && raw.total >= 0
+      ? Math.trunc(raw.total)
+      : 0;
+  const limit =
+    typeof raw.limit === "number" && Number.isFinite(raw.limit) && raw.limit > 0
+      ? Math.trunc(raw.limit)
+      : PAGE_SIZE;
+  const offset =
+    typeof raw.offset === "number" && Number.isFinite(raw.offset) && raw.offset >= 0
+      ? Math.trunc(raw.offset)
+      : 0;
+  return {
+    items: Array.isArray(raw.items) ? (raw.items as EnrollmentRow[]) : [],
+    total,
+    limit,
+    offset,
+  };
+}
+
+function buildEnrollmentPagedPath(query: EnrollmentPageQuery): string {
+  const params = new URLSearchParams();
+  params.set("limit", String(PAGE_SIZE));
+  params.set("offset", String(Math.max(0, (query.page - 1) * PAGE_SIZE)));
+
+  const search = query.search?.trim();
+  if (search) params.set("search", search);
+  if (query.statusIn && query.statusIn.length > 0) {
+    params.set("status_in", query.statusIn.join(","));
+  }
+  if (query.statusNotIn && query.statusNotIn.length > 0) {
+    params.set("status_not_in", query.statusNotIn.join(","));
+  }
+  if (query.classCode) params.set("class_code", query.classCode);
+  if (query.termCode) params.set("term_code", query.termCode);
+
+  return `/enrollments/paged?${params.toString()}`;
+}
+
+function totalPagesFor(total: number): number {
+  return Math.max(1, Math.ceil(Math.max(0, total) / PAGE_SIZE));
 }
 
 // ─── Shared UI components ─────────────────────────────────────────────────────
@@ -1658,6 +1696,22 @@ function SecretaryEnrollmentsPageContent() {
     useState("__all__");
   const [studentsTermFilter, setStudentsTermFilter] = useState("__all__");
 
+  // ── Server-side pagination state ──
+  const [workflowPage, setWorkflowPage] = useState(1);
+  const [queuePage, setQueuePage] = useState(1);
+  const [studentsPage, setStudentsPage] = useState(1);
+
+  const [workflowPageData, setWorkflowPageData] =
+    useState<EnrollmentPageResponse>(EMPTY_ENROLLMENT_PAGE);
+  const [queuePageData, setQueuePageData] =
+    useState<EnrollmentPageResponse>(EMPTY_ENROLLMENT_PAGE);
+  const [studentsPageData, setStudentsPageData] =
+    useState<EnrollmentPageResponse>(EMPTY_ENROLLMENT_PAGE);
+
+  const [workflowLoading, setWorkflowLoading] = useState(true);
+  const [queueLoading, setQueueLoading] = useState(true);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+
   // ── Standard dialogs ──
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectTargetId, setRejectTargetId] = useState("");
@@ -1708,6 +1762,122 @@ function SecretaryEnrollmentsPageContent() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const fetchEnrollmentPage = useCallback(
+    async (query: EnrollmentPageQuery): Promise<EnrollmentPageResponse> => {
+      const data = await api.get<EnrollmentPageResponse>(
+        buildEnrollmentPagedPath(query),
+        { tenantRequired: true }
+      );
+      return normalizeEnrollmentPage(data);
+    },
+    []
+  );
+
+  const loadWorkflowPage = useCallback(async () => {
+    setWorkflowLoading(true);
+    try {
+      const pageData = await fetchEnrollmentPage({
+        page: workflowPage,
+        search: workflowSearch,
+        statusNotIn: ["ENROLLED", "ENROLLED_PARTIAL"],
+      });
+      setWorkflowPageData(pageData);
+      const maxPage = totalPagesFor(pageData.total);
+      if (workflowPage > maxPage) setWorkflowPage(maxPage);
+    } catch (err: any) {
+      setWorkflowPageData(EMPTY_ENROLLMENT_PAGE);
+      toast.error(
+        typeof err?.message === "string"
+          ? err.message
+          : "Failed to load workflow records."
+      );
+    } finally {
+      setWorkflowLoading(false);
+    }
+  }, [fetchEnrollmentPage, workflowPage, workflowSearch]);
+
+  const loadQueuePage = useCallback(async () => {
+    setQueueLoading(true);
+    try {
+      const pageData = await fetchEnrollmentPage({
+        page: queuePage,
+        search: queueSearch,
+      });
+      setQueuePageData(pageData);
+      const maxPage = totalPagesFor(pageData.total);
+      if (queuePage > maxPage) setQueuePage(maxPage);
+    } catch (err: any) {
+      setQueuePageData(EMPTY_ENROLLMENT_PAGE);
+      toast.error(
+        typeof err?.message === "string"
+          ? err.message
+          : "Failed to load enrollment queue."
+      );
+    } finally {
+      setQueueLoading(false);
+    }
+  }, [fetchEnrollmentPage, queuePage, queueSearch]);
+
+  const loadStudentsPage = useCallback(async () => {
+    setStudentsLoading(true);
+    try {
+      const pageData = await fetchEnrollmentPage({
+        page: studentsPage,
+        search: studentsSearch,
+        statusIn: ["ENROLLED", "ENROLLED_PARTIAL"],
+        classCode:
+          studentsClassFilter !== "__all__" ? studentsClassFilter : undefined,
+        termCode: studentsTermFilter !== "__all__" ? studentsTermFilter : undefined,
+      });
+      setStudentsPageData(pageData);
+      const maxPage = totalPagesFor(pageData.total);
+      if (studentsPage > maxPage) setStudentsPage(maxPage);
+    } catch (err: any) {
+      setStudentsPageData(EMPTY_ENROLLMENT_PAGE);
+      toast.error(
+        typeof err?.message === "string"
+          ? err.message
+          : "Failed to load enrolled students."
+      );
+    } finally {
+      setStudentsLoading(false);
+    }
+  }, [
+    fetchEnrollmentPage,
+    studentsPage,
+    studentsSearch,
+    studentsClassFilter,
+    studentsTermFilter,
+  ]);
+
+  const reloadPagedTables = useCallback(async () => {
+    await Promise.all([loadWorkflowPage(), loadQueuePage(), loadStudentsPage()]);
+  }, [loadQueuePage, loadStudentsPage, loadWorkflowPage]);
+
+  useEffect(() => {
+    setWorkflowPage(1);
+  }, [workflowSearch]);
+
+  useEffect(() => {
+    setQueuePage(1);
+  }, [queueSearch]);
+
+  useEffect(() => {
+    setStudentsPage(1);
+  }, [studentsSearch, studentsClassFilter, studentsTermFilter]);
+
+  useEffect(() => {
+    void loadWorkflowPage();
+  }, [loadWorkflowPage]);
+
+  useEffect(() => {
+    void loadQueuePage();
+  }, [loadQueuePage]);
+
+  useEffect(() => {
+    void loadStudentsPage();
+  }, [loadStudentsPage]);
 
   useEffect(() => {
     let mounted = true;
@@ -1787,27 +1957,6 @@ function SecretaryEnrollmentsPageContent() {
     [rows]
   );
 
-  const actionableRows = useMemo(
-    () =>
-      rows.filter(
-        (r) =>
-          !["ENROLLED", "ENROLLED_PARTIAL"].includes(
-            String(r.status || "").toUpperCase()
-          )
-      ),
-    [rows]
-  );
-
-  const filteredWorkflow = useMemo(
-    () => actionableRows.filter((r) => rowMatchesSearch(r, workflowSearch)),
-    [actionableRows, workflowSearch]
-  );
-
-  const filteredQueue = useMemo(
-    () => rows.filter((r) => rowMatchesSearch(r, queueSearch)),
-    [rows, queueSearch]
-  );
-
   const uniqueClasses = useMemo(() => {
     const s = new Set<string>();
     studentRows.forEach((r) => {
@@ -1826,26 +1975,14 @@ function SecretaryEnrollmentsPageContent() {
     return Array.from(s).sort();
   }, [studentRows]);
 
-  const filteredStudents = useMemo(
-    () =>
-      studentRows.filter((r) => {
-        const ms = rowMatchesSearch(r, studentsSearch);
-        const mc =
-          studentsClassFilter === "__all__" ||
-          studentClass(r.payload || {}) === studentsClassFilter;
-        const mt =
-          studentsTermFilter === "__all__" ||
-          termFromPayload(r.payload || {}) === studentsTermFilter;
-        return ms && mc && mt;
-      }),
-    [studentRows, studentsSearch, studentsClassFilter, studentsTermFilter]
-  );
-
   // ── Pagination ────────────────────────────────────────────────────────────
+  const workflowRows = workflowPageData.items;
+  const queueRows = queuePageData.items;
+  const studentsRows = studentsPageData.items;
 
-  const workflowPag = usePagination(filteredWorkflow);
-  const queuePag = usePagination(filteredQueue);
-  const studentsPag = usePagination(filteredStudents);
+  const workflowTotalPages = totalPagesFor(workflowPageData.total);
+  const queueTotalPages = totalPagesFor(queuePageData.total);
+  const studentsTotalPages = totalPagesFor(studentsPageData.total);
 
   // ── Wizard helpers ────────────────────────────────────────────────────────
 
@@ -1944,7 +2081,7 @@ function SecretaryEnrollmentsPageContent() {
           ? `Enrollment created — ID: ${createdId}`
           : "Enrollment created successfully."
       );
-      await load();
+      await Promise.all([load(), reloadPagedTables()]);
     } catch (err: any) {
       toast.error(
         typeof err?.message === "string"
@@ -2013,7 +2150,7 @@ function SecretaryEnrollmentsPageContent() {
           ? `Existing student created — ID: ${createdId}`
           : "Existing student intake created."
       );
-      await load();
+      await Promise.all([load(), reloadPagedTables()]);
     } catch (err: any) {
       toast.error(
         typeof err?.message === "string"
@@ -2078,7 +2215,7 @@ function SecretaryEnrollmentsPageContent() {
           ? `Enrollment complete. Admission number: ${autoAdm}`
           : `Action "${actionConfig[act].label}" completed.`
       );
-      await load();
+      await Promise.all([load(), reloadPagedTables()]);
     } catch (err: any) {
       toast.error(
         typeof err?.message === "string"
@@ -2102,7 +2239,7 @@ function SecretaryEnrollmentsPageContent() {
       );
 
       toast.success("Intake rejected successfully.");
-      await load();
+      await Promise.all([load(), reloadPagedTables()]);
     } catch (err: any) {
       toast.error(
         typeof err?.message === "string"
@@ -2150,7 +2287,7 @@ function SecretaryEnrollmentsPageContent() {
       toast.success("Student record updated successfully.");
       setUpdateOpen(false);
       setUpdateTargetRow(null);
-      await load();
+      await Promise.all([load(), reloadPagedTables()]);
     } catch (err: any) {
       toast.error(
         typeof err?.message === "string"
@@ -2179,7 +2316,7 @@ function SecretaryEnrollmentsPageContent() {
       );
       setOverrideOpen(false);
       setOverrideRow(null);
-      await load();
+      await Promise.all([load(), reloadPagedTables()]);
     } catch (err: any) {
       toast.error(
         typeof err?.message === "string"
@@ -2755,7 +2892,7 @@ function SecretaryEnrollmentsPageContent() {
                   <div className="text-xs text-slate-400 whitespace-nowrap">
                     {submitting
                       ? <span className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Running…</span>
-                      : `${filteredWorkflow.length} records`}
+                      : `${workflowPageData.total} records`}
                   </div>
                 </div>
               </div>
@@ -2775,7 +2912,7 @@ function SecretaryEnrollmentsPageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {!loading && workflowPag.slice.map((row) => {
+                    {!workflowLoading && workflowRows.map((row) => {
                       const statusUpper = String(row.status || "").toUpperCase();
                       const suggested = statusToSuggestedActions(statusUpper);
 
@@ -2850,7 +2987,7 @@ function SecretaryEnrollmentsPageContent() {
                       );
                     })}
 
-                    {!loading && filteredWorkflow.length === 0 && (
+                    {!workflowLoading && workflowRows.length === 0 && (
                       <EmptyRow colSpan={8}
                         message={workflowSearch ? "No results match your search." : "No workflow items found (non-enrolled)."} />
                     )}
@@ -2859,8 +2996,11 @@ function SecretaryEnrollmentsPageContent() {
               </div>
 
               <PaginationControls
-                page={workflowPag.page} totalPages={workflowPag.totalPages}
-                setPage={workflowPag.setPage} totalItems={filteredWorkflow.length} label="workflow items"
+                page={workflowPage}
+                totalPages={workflowTotalPages}
+                setPage={setWorkflowPage}
+                totalItems={workflowPageData.total}
+                label="workflow items"
               />
             </div>
 
@@ -2873,7 +3013,9 @@ function SecretaryEnrollmentsPageContent() {
                 </div>
                 <div className="flex items-center gap-3">
                   <SearchInput value={queueSearch} onChange={setQueueSearch} placeholder="Search student, class, ID…" />
-                  <span className="text-xs text-slate-400 whitespace-nowrap">{filteredQueue.length} records</span>
+                  <span className="text-xs text-slate-400 whitespace-nowrap">
+                    {queuePageData.total} records
+                  </span>
                 </div>
               </div>
               <div className="overflow-hidden">
@@ -2891,7 +3033,7 @@ function SecretaryEnrollmentsPageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {!loading && queuePag.slice.map((row) => {
+                    {!queueLoading && queueRows.map((row) => {
                       const admNum = row.admission_number ?? (row.payload as any)?.admission_number;
                       const intakeDate = (row.payload as any)?.intake_date;
                       return (
@@ -2925,7 +3067,7 @@ function SecretaryEnrollmentsPageContent() {
                         </TableRow>
                       );
                     })}
-                    {!loading && filteredQueue.length === 0 && (
+                    {!queueLoading && queueRows.length === 0 && (
                       <EmptyRow colSpan={8}
                         message={queueSearch ? "No results match your search." : "No enrollments found."} />
                     )}
@@ -2933,8 +3075,11 @@ function SecretaryEnrollmentsPageContent() {
                 </Table>
               </div>
               <PaginationControls
-                page={queuePag.page} totalPages={queuePag.totalPages}
-                setPage={queuePag.setPage} totalItems={filteredQueue.length} label="records"
+                page={queuePage}
+                totalPages={queueTotalPages}
+                setPage={setQueuePage}
+                totalItems={queuePageData.total}
+                label="records"
               />
             </div>
           </div>
@@ -3162,7 +3307,7 @@ function SecretaryEnrollmentsPageContent() {
                       </SelectContent>
                     </Select>
                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 whitespace-nowrap">
-                      {filteredStudents.length} enrolled
+                      {studentsPageData.total} enrolled
                     </span>
                   </div>
                 </div>
@@ -3183,7 +3328,7 @@ function SecretaryEnrollmentsPageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {!loading && studentsPag.slice.map((row) => {
+                    {!studentsLoading && studentsRows.map((row) => {
                       const admNum = row.admission_number ?? (row.payload as any)?.admission_number;
                       const intakeDate = (row.payload as any)?.intake_date;
                       return (
@@ -3218,7 +3363,7 @@ function SecretaryEnrollmentsPageContent() {
                       );
                     })}
 
-                    {!loading && filteredStudents.length === 0 && (
+                    {!studentsLoading && studentsRows.length === 0 && (
                       <EmptyRow colSpan={8}
                         message={
                           studentsSearch ||
@@ -3234,8 +3379,11 @@ function SecretaryEnrollmentsPageContent() {
               </div>
 
               <PaginationControls
-                page={studentsPag.page} totalPages={studentsPag.totalPages}
-                setPage={studentsPag.setPage} totalItems={filteredStudents.length} label="students"
+                page={studentsPage}
+                totalPages={studentsTotalPages}
+                setPage={setStudentsPage}
+                totalItems={studentsPageData.total}
+                label="students"
               />
             </div>
           </div>

@@ -248,6 +248,135 @@ def list_enrollments(
     return rows
 
 
+def _normalize_status_list(values: list[str] | tuple[str, ...] | None) -> list[str]:
+    out: list[str] = []
+    for raw in values or []:
+        code = str(raw or "").strip().upper()
+        if code and code not in out:
+            out.append(code)
+    return out
+
+
+def list_enrollments_paged(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    limit: int = 100,
+    offset: int = 0,
+    status: str | None = None,
+    status_in: list[str] | tuple[str, ...] | None = None,
+    status_not_in: list[str] | tuple[str, ...] | None = None,
+    search: str | None = None,
+    class_code: str | None = None,
+    term_code: str | None = None,
+) -> tuple[list[Enrollment], int]:
+    """
+    Tenant-scoped, server-side paginated enrollment listing.
+
+    Supports deterministic ordering and optional status/search/class/term filters.
+    """
+    q = select(Enrollment).where(Enrollment.tenant_id == tenant_id)
+
+    if status:
+        q = q.where(sa.func.upper(Enrollment.status) == status.strip().upper())
+
+    include_statuses = _normalize_status_list(status_in)
+    if include_statuses:
+        q = q.where(sa.func.upper(Enrollment.status).in_(include_statuses))
+
+    exclude_statuses = _normalize_status_list(status_not_in)
+    if exclude_statuses:
+        q = q.where(sa.not_(sa.func.upper(Enrollment.status).in_(exclude_statuses)))
+
+    class_expr = sa.func.lower(
+        sa.func.coalesce(
+            Enrollment.payload["admission_class"].astext,
+            Enrollment.payload["class_code"].astext,
+            Enrollment.payload["classCode"].astext,
+            Enrollment.payload["grade"].astext,
+            "",
+        )
+    )
+    term_expr = sa.func.lower(
+        sa.func.coalesce(
+            Enrollment.payload["admission_term"].astext,
+            Enrollment.payload["term_code"].astext,
+            Enrollment.payload["termCode"].astext,
+            Enrollment.payload["term"].astext,
+            "",
+        )
+    )
+
+    normalized_class = str(class_code or "").strip().lower()
+    if normalized_class:
+        q = q.where(class_expr == normalized_class)
+
+    normalized_term = str(term_code or "").strip().lower()
+    if normalized_term:
+        q = q.where(term_expr == normalized_term)
+
+    normalized_search = str(search or "").strip().lower()
+    if normalized_search:
+        like = f"%{normalized_search}%"
+        name_expr = sa.func.lower(
+            sa.func.coalesce(
+                Enrollment.payload["student_name"].astext,
+                Enrollment.payload["studentName"].astext,
+                Enrollment.payload["full_name"].astext,
+                Enrollment.payload["fullName"].astext,
+                Enrollment.payload["name"].astext,
+                "",
+            )
+        )
+        admission_expr = sa.func.lower(
+            sa.func.coalesce(
+                Enrollment.payload["admission_number"].astext,
+                "",
+            )
+        )
+        id_expr = sa.func.lower(sa.cast(Enrollment.id, sa.String))
+        q = q.where(
+            sa.or_(
+                name_expr.like(like),
+                class_expr.like(like),
+                term_expr.like(like),
+                admission_expr.like(like),
+                id_expr.like(like),
+            )
+        )
+
+    count_stmt = select(sa.func.count()).select_from(q.order_by(None).subquery())
+    total = int(db.execute(count_stmt).scalar_one() or 0)
+
+    rows = (
+        db.execute(
+            q.order_by(Enrollment.created_at.desc(), Enrollment.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+
+    try:
+        adm_map = _load_admission_number_map(db, tenant_id=tenant_id)
+    except Exception:
+        adm_map = {}
+
+    for row in rows:
+        rid = str(getattr(row, "id", "") or "")
+        payload = getattr(row, "payload", None)
+        payload_adm = (
+            str((payload or {}).get("admission_number") or "").strip()
+            if isinstance(payload, dict)
+            else ""
+        )
+        admission_number = adm_map.get(rid) or payload_adm or None
+        setattr(row, "admission_number", admission_number)
+
+    return rows, total
+
+
 def get_enrollment(
     db: Session,
     *,

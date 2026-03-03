@@ -98,3 +98,10 @@ class EnrollmentOut(BaseModel):
     updated_by: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+class EnrollmentPageOut(BaseModel):
+    items: list[EnrollmentOut]
+    total: int
+    limit: int
+    offset: int

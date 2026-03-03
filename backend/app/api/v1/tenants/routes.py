@@ -31,6 +31,7 @@ from app.models.rbac import (
     UserPermissionOverride,
 )
 from app.utils.hashing import hash_password, verify_password
+from app.api.v1.support import service as support_service
 
 router = APIRouter()
 
@@ -381,6 +382,31 @@ class TeacherAssignmentCreateIn(BaseModel):
 class TeacherAssignmentUpdateIn(BaseModel):
     staff_id: Optional[str] = None
     subject_id: Optional[str] = None
+    class_code: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    is_active: Optional[bool] = None
+
+
+class ClassTeacherAssignmentOut(BaseModel):
+    id: str
+    staff_id: str
+    staff_no: str
+    staff_name: str
+    class_code: str
+    is_active: bool = True
+    assigned_at: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ClassTeacherAssignmentCreateIn(BaseModel):
+    staff_id: str
+    class_code: str = Field(..., min_length=1, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    is_active: bool = True
+
+
+class ClassTeacherAssignmentUpdateIn(BaseModel):
+    staff_id: Optional[str] = None
     class_code: Optional[str] = Field(default=None, min_length=1, max_length=80)
     notes: Optional[str] = Field(default=None, max_length=500)
     is_active: Optional[bool] = None
@@ -1024,6 +1050,10 @@ TENANT_ASSET_TABLE_CANDIDATES = ("core.school_assets", "school_assets")
 TEACHER_ASSIGNMENT_TABLE_CANDIDATES = (
     "core.teacher_subject_assignments",
     "teacher_subject_assignments",
+)
+CLASS_TEACHER_ASSIGNMENT_TABLE_CANDIDATES = (
+    "core.class_teacher_assignments",
+    "class_teacher_assignments",
 )
 ASSET_ASSIGNMENT_TABLE_CANDIDATES = (
     "core.asset_assignments",
@@ -5732,6 +5762,52 @@ def _validate_primary_subject_id(
     return parsed_subject_id
 
 
+def _load_assignable_teaching_staff_row(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    staff_id: UUID,
+) -> dict[str, Any]:
+    staff_table, staff_cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_STAFF_TABLE_CANDIDATES,
+    )
+    if not staff_table:
+        raise HTTPException(
+            status_code=503,
+            detail="Staff registry storage is unavailable",
+        )
+
+    sep_status_expr = (
+        "separation_status"
+        if "separation_status" in staff_cols
+        else "CAST(NULL AS TEXT) AS separation_status"
+    )
+    staff_row = db.execute(
+        sa.text(
+            f"""
+            SELECT id, staff_no, first_name, last_name, staff_type,
+                   COALESCE(is_active, true) AS is_active,
+                   {sep_status_expr}
+            FROM {staff_table}
+            WHERE id = :staff_id AND tenant_id = :tenant_id
+            LIMIT 1
+            """
+        ),
+        {"staff_id": str(staff_id), "tenant_id": str(tenant_id)},
+    ).mappings().first()
+    if not staff_row:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    if _normalize_staff_type(str(staff_row.get("staff_type") or "TEACHING")) != "TEACHING":
+        raise HTTPException(status_code=400, detail="Only teaching staff can be assigned")
+    if not bool(staff_row.get("is_active", True)):
+        raise HTTPException(status_code=400, detail="Cannot assign an inactive teacher")
+    if _normalize_separation_status(_text_or_none(staff_row.get("separation_status"), upper=True)) is not None:
+        raise HTTPException(status_code=400, detail="Cannot assign a teacher who has left staff")
+
+    return dict(staff_row)
+
+
 def _deactivate_teacher_assignments_for_staff(
     db: Session,
     *,
@@ -5742,22 +5818,43 @@ def _deactivate_teacher_assignments_for_staff(
         db,
         candidates=TEACHER_ASSIGNMENT_TABLE_CANDIDATES,
     )
-    if not assignment_ref:
-        return 0
+    total_updated = 0
 
-    updated = db.execute(
-        sa.text(
-            f"""
-            UPDATE {assignment_ref}
-            SET is_active = false
-            WHERE tenant_id = :tenant_id
-              AND staff_id = :staff_id
-              AND COALESCE(is_active, true) = true
-            """
-        ),
-        {"tenant_id": str(tenant_id), "staff_id": str(staff_id)},
+    if assignment_ref:
+        updated = db.execute(
+            sa.text(
+                f"""
+                UPDATE {assignment_ref}
+                SET is_active = false
+                WHERE tenant_id = :tenant_id
+                  AND staff_id = :staff_id
+                  AND COALESCE(is_active, true) = true
+                """
+            ),
+            {"tenant_id": str(tenant_id), "staff_id": str(staff_id)},
+        )
+        total_updated += int(updated.rowcount or 0)
+
+    class_assignment_ref, _ = _resolve_existing_table(
+        db,
+        candidates=CLASS_TEACHER_ASSIGNMENT_TABLE_CANDIDATES,
     )
-    return int(updated.rowcount or 0)
+    if class_assignment_ref:
+        class_updated = db.execute(
+            sa.text(
+                f"""
+                UPDATE {class_assignment_ref}
+                SET is_active = false
+                WHERE tenant_id = :tenant_id
+                  AND staff_id = :staff_id
+                  AND COALESCE(is_active, true) = true
+                """
+            ),
+            {"tenant_id": str(tenant_id), "staff_id": str(staff_id)},
+        )
+        total_updated += int(class_updated.rowcount or 0)
+
+    return total_updated
 
 
 def _deactivate_stale_teacher_assignments_for_subject_class(
@@ -5811,6 +5908,73 @@ def _deactivate_stale_teacher_assignments_for_subject_class(
     params: dict[str, Any] = {
         "tenant_id": str(tenant_id),
         "subject_id": str(subject_id),
+        "class_code": _normalize_code(class_code),
+    }
+    if exclude_assignment_id is not None:
+        where_parts.append("a.id <> :exclude_assignment_id")
+        params["exclude_assignment_id"] = str(exclude_assignment_id)
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {assignment_table} a
+            SET is_active = false
+            WHERE {" AND ".join(where_parts)}
+            """
+        ),
+        params,
+    )
+    return int(updated.rowcount or 0)
+
+
+def _deactivate_stale_class_teacher_assignments_for_class(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    assignment_table: str,
+    class_code: str,
+    exclude_assignment_id: UUID | None = None,
+) -> int:
+    staff_ref, staff_cols = _resolve_existing_table(
+        db,
+        candidates=TENANT_STAFF_TABLE_CANDIDATES,
+    )
+    if not staff_ref:
+        return 0
+
+    separated_expr = (
+        "(s.separation_status IS NOT NULL AND BTRIM(s.separation_status) <> '')"
+        if "separation_status" in staff_cols
+        else "false"
+    )
+
+    where_parts = [
+        "a.tenant_id = :tenant_id",
+        "UPPER(a.class_code) = :class_code",
+        "COALESCE(a.is_active, true) = true",
+        f"""
+        (
+            NOT EXISTS (
+                SELECT 1
+                FROM {staff_ref} s
+                WHERE s.id = a.staff_id
+                  AND s.tenant_id = :tenant_id
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM {staff_ref} s
+                WHERE s.id = a.staff_id
+                  AND s.tenant_id = :tenant_id
+                  AND (
+                      COALESCE(s.is_active, true) = false
+                      OR {separated_expr}
+                  )
+            )
+        )
+        """,
+    ]
+    params: dict[str, Any] = {
+        "tenant_id": str(tenant_id),
         "class_code": _normalize_code(class_code),
     }
     if exclude_assignment_id is not None:
@@ -8174,6 +8338,367 @@ def delete_teacher_assignment(
 
 
 @router.get(
+    "/hr/class-teacher-assignments",
+    response_model=list[ClassTeacherAssignmentOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def list_class_teacher_assignments(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    class_code: Optional[str] = Query(default=None),
+    staff_id: Optional[str] = Query(default=None),
+    include_inactive: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    assignment_ref, _ = _resolve_existing_table(db, candidates=CLASS_TEACHER_ASSIGNMENT_TABLE_CANDIDATES)
+    staff_ref, _ = _resolve_existing_table(db, candidates=TENANT_STAFF_TABLE_CANDIDATES)
+    if not assignment_ref or not staff_ref:
+        return []
+
+    parsed_staff_id = _parse_uuid(staff_id, field="staff_id") if staff_id else None
+
+    rows = db.execute(
+        sa.text(
+            f"""
+            SELECT a.id, a.staff_id, a.class_code, COALESCE(a.is_active, true) AS is_active,
+                   CAST(a.assigned_at AS TEXT) AS assigned_at, a.notes,
+                   s.staff_no, s.first_name, s.last_name
+            FROM {assignment_ref} a
+            JOIN {staff_ref} s ON s.id = a.staff_id
+            WHERE a.tenant_id = :tenant_id
+              {"AND UPPER(a.class_code) = :class_code" if class_code else ""}
+              {"AND a.staff_id = :staff_id" if parsed_staff_id else ""}
+              {"" if include_inactive else "AND COALESCE(a.is_active, true) = true"}
+            ORDER BY a.class_code ASC, s.last_name ASC, s.first_name ASC, a.assigned_at DESC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        {
+            "tenant_id": str(tenant.id),
+            "class_code": _normalize_code(class_code) if class_code else None,
+            "staff_id": str(parsed_staff_id) if parsed_staff_id else None,
+            "limit": int(limit),
+            "offset": int(offset),
+        },
+    ).mappings().all()
+
+    return [
+        ClassTeacherAssignmentOut(
+            id=str(r.get("id") or ""),
+            staff_id=str(r.get("staff_id") or ""),
+            staff_no=str(r.get("staff_no") or ""),
+            staff_name=_staff_full_name(r.get("first_name"), r.get("last_name")),
+            class_code=str(r.get("class_code") or ""),
+            is_active=bool(r.get("is_active", True)),
+            assigned_at=(str(r.get("assigned_at")) if r.get("assigned_at") else None),
+            notes=(str(r.get("notes")) if r.get("notes") else None),
+        )
+        for r in rows
+    ]
+
+
+@router.post(
+    "/hr/class-teacher-assignments",
+    response_model=ClassTeacherAssignmentOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def create_class_teacher_assignment(
+    payload: ClassTeacherAssignmentCreateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    normalized_class_code = _normalize_code(payload.class_code)
+    if not normalized_class_code:
+        raise HTTPException(status_code=400, detail="class_code is required")
+    _ensure_tenant_class_exists(db, tenant_id=tenant.id, class_code=normalized_class_code)
+
+    staff_uuid = _parse_uuid(payload.staff_id, field="staff_id")
+    staff_row = _load_assignable_teaching_staff_row(
+        db,
+        tenant_id=tenant.id,
+        staff_id=staff_uuid,
+    )
+
+    assignment_table = None
+    existing_row = None
+    if bool(payload.is_active):
+        existing_result, assignment_table = _execute_on_first_table(
+            db,
+            table_candidates=CLASS_TEACHER_ASSIGNMENT_TABLE_CANDIDATES,
+            sql_template="""
+                SELECT id, staff_id, COALESCE(is_active, true) AS is_active,
+                       CAST(assigned_at AS TEXT) AS assigned_at, notes
+                FROM {table}
+                WHERE tenant_id = :tenant_id
+                  AND UPPER(class_code) = :class_code
+                  AND COALESCE(is_active, true) = true
+                LIMIT 1
+            """,
+            params={
+                "tenant_id": str(tenant.id),
+                "class_code": normalized_class_code,
+            },
+        )
+        existing_row = existing_result.mappings().first()
+        if existing_row and str(existing_row.get("staff_id") or "") != str(staff_uuid):
+            cleaned = _deactivate_stale_class_teacher_assignments_for_class(
+                db,
+                tenant_id=tenant.id,
+                assignment_table=assignment_table,
+                class_code=normalized_class_code,
+            )
+            if cleaned > 0:
+                existing_row = db.execute(
+                    sa.text(
+                        f"""
+                        SELECT id, staff_id, COALESCE(is_active, true) AS is_active,
+                               CAST(assigned_at AS TEXT) AS assigned_at, notes
+                        FROM {assignment_table}
+                        WHERE tenant_id = :tenant_id
+                          AND UPPER(class_code) = :class_code
+                          AND COALESCE(is_active, true) = true
+                        LIMIT 1
+                        """
+                    ),
+                    {
+                        "tenant_id": str(tenant.id),
+                        "class_code": normalized_class_code,
+                    },
+                ).mappings().first()
+
+        if existing_row and str(existing_row.get("staff_id") or "") != str(staff_uuid):
+            raise HTTPException(
+                status_code=409,
+                detail="This class is already assigned to another active class teacher",
+            )
+        if existing_row and str(existing_row.get("staff_id") or "") == str(staff_uuid):
+            return ClassTeacherAssignmentOut(
+                id=str(existing_row.get("id") or ""),
+                staff_id=str(staff_uuid),
+                staff_no=str(staff_row.get("staff_no") or ""),
+                staff_name=_staff_full_name(staff_row.get("first_name"), staff_row.get("last_name")),
+                class_code=normalized_class_code,
+                is_active=True,
+                assigned_at=(str(existing_row.get("assigned_at")) if existing_row.get("assigned_at") else None),
+                notes=(str(existing_row.get("notes")) if existing_row.get("notes") else None),
+            )
+    if not assignment_table:
+        _, assignment_table = _execute_on_first_table(
+            db,
+            table_candidates=CLASS_TEACHER_ASSIGNMENT_TABLE_CANDIDATES,
+            sql_template="SELECT 1 FROM {table} WHERE 1=1 LIMIT 1",
+            params={},
+        )
+
+    created = db.execute(
+        sa.text(
+            f"""
+            INSERT INTO {assignment_table} (
+                id, tenant_id, staff_id, class_code, notes, is_active, assigned_by
+            )
+            VALUES (
+                :id, :tenant_id, :staff_id, :class_code, :notes, :is_active, :assigned_by
+            )
+            RETURNING id, CAST(assigned_at AS TEXT) AS assigned_at, COALESCE(is_active, true) AS is_active, notes
+            """
+        ),
+        {
+            "id": str(uuid4()),
+            "tenant_id": str(tenant.id),
+            "staff_id": str(staff_uuid),
+            "class_code": normalized_class_code,
+            "notes": _text_or_none(payload.notes),
+            "is_active": bool(payload.is_active),
+            "assigned_by": str(getattr(_user, "id", "") or "") or None,
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create class teacher assignment")
+
+    return ClassTeacherAssignmentOut(
+        id=str(created.get("id") or ""),
+        staff_id=str(staff_uuid),
+        staff_no=str(staff_row.get("staff_no") or ""),
+        staff_name=_staff_full_name(staff_row.get("first_name"), staff_row.get("last_name")),
+        class_code=normalized_class_code,
+        is_active=bool(created.get("is_active", True)),
+        assigned_at=(str(created.get("assigned_at")) if created.get("assigned_at") else None),
+        notes=(str(created.get("notes")) if created.get("notes") else None),
+    )
+
+
+@router.put(
+    "/hr/class-teacher-assignments/{assignment_id}",
+    response_model=ClassTeacherAssignmentOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def update_class_teacher_assignment(
+    assignment_id: UUID,
+    payload: ClassTeacherAssignmentUpdateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    select_result, assignment_table = _execute_on_first_table(
+        db,
+        table_candidates=CLASS_TEACHER_ASSIGNMENT_TABLE_CANDIDATES,
+        sql_template="""
+            SELECT id, staff_id, class_code, COALESCE(is_active, true) AS is_active, notes
+            FROM {table}
+            WHERE id = :assignment_id AND tenant_id = :tenant_id
+            LIMIT 1
+        """,
+        params={"assignment_id": str(assignment_id), "tenant_id": str(tenant.id)},
+    )
+    current = select_result.mappings().first()
+    if not current:
+        raise HTTPException(status_code=404, detail="Class teacher assignment not found")
+
+    staff_uuid = _parse_uuid(payload.staff_id, field="staff_id") if payload.staff_id else _parse_uuid(
+        current.get("staff_id"), field="staff_id"
+    )
+    class_code = _normalize_code(payload.class_code) if payload.class_code is not None else _normalize_code(
+        str(current.get("class_code") or "")
+    )
+    is_active = bool(payload.is_active) if payload.is_active is not None else bool(current.get("is_active", True))
+    notes = _text_or_none(payload.notes) if payload.notes is not None else current.get("notes")
+
+    _ensure_tenant_class_exists(db, tenant_id=tenant.id, class_code=class_code)
+    staff_row = _load_assignable_teaching_staff_row(
+        db,
+        tenant_id=tenant.id,
+        staff_id=staff_uuid,
+    )
+
+    dup = None
+    if is_active:
+        dup = db.execute(
+            sa.text(
+                f"""
+                SELECT id
+                FROM {assignment_table}
+                WHERE tenant_id = :tenant_id
+                  AND UPPER(class_code) = :class_code
+                  AND COALESCE(is_active, true) = true
+                  AND id <> :assignment_id
+                LIMIT 1
+                """
+            ),
+            {
+                "tenant_id": str(tenant.id),
+                "class_code": class_code,
+                "assignment_id": str(assignment_id),
+            },
+        ).first()
+        if dup:
+            cleaned = _deactivate_stale_class_teacher_assignments_for_class(
+                db,
+                tenant_id=tenant.id,
+                assignment_table=assignment_table,
+                class_code=class_code,
+                exclude_assignment_id=assignment_id,
+            )
+            if cleaned > 0:
+                dup = db.execute(
+                    sa.text(
+                        f"""
+                        SELECT id
+                        FROM {assignment_table}
+                        WHERE tenant_id = :tenant_id
+                          AND UPPER(class_code) = :class_code
+                          AND COALESCE(is_active, true) = true
+                          AND id <> :assignment_id
+                        LIMIT 1
+                        """
+                    ),
+                    {
+                        "tenant_id": str(tenant.id),
+                        "class_code": class_code,
+                        "assignment_id": str(assignment_id),
+                    },
+                ).first()
+
+    if dup and is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="This class is already assigned to another active class teacher",
+        )
+
+    updated = db.execute(
+        sa.text(
+            f"""
+            UPDATE {assignment_table}
+            SET staff_id = :staff_id,
+                class_code = :class_code,
+                is_active = :is_active,
+                notes = :notes
+            WHERE id = :assignment_id AND tenant_id = :tenant_id
+            RETURNING id, CAST(assigned_at AS TEXT) AS assigned_at, COALESCE(is_active, true) AS is_active, notes
+            """
+        ),
+        {
+            "assignment_id": str(assignment_id),
+            "tenant_id": str(tenant.id),
+            "staff_id": str(staff_uuid),
+            "class_code": class_code,
+            "is_active": is_active,
+            "notes": notes,
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Class teacher assignment not found")
+
+    return ClassTeacherAssignmentOut(
+        id=str(updated.get("id") or ""),
+        staff_id=str(staff_uuid),
+        staff_no=str(staff_row.get("staff_no") or ""),
+        staff_name=_staff_full_name(staff_row.get("first_name"), staff_row.get("last_name")),
+        class_code=class_code,
+        is_active=bool(updated.get("is_active", True)),
+        assigned_at=(str(updated.get("assigned_at")) if updated.get("assigned_at") else None),
+        notes=(str(updated.get("notes")) if updated.get("notes") else None),
+    )
+
+
+@router.delete(
+    "/hr/class-teacher-assignments/{assignment_id}",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def delete_class_teacher_assignment(
+    assignment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    assignment_ref, _ = _resolve_existing_table(db, candidates=CLASS_TEACHER_ASSIGNMENT_TABLE_CANDIDATES)
+    if not assignment_ref:
+        raise HTTPException(status_code=503, detail="Class teacher assignment storage is unavailable")
+
+    deleted = db.execute(
+        sa.text(
+            f"""
+            DELETE FROM {assignment_ref}
+            WHERE id = :assignment_id
+              AND tenant_id = :tenant_id
+            """
+        ),
+        {"assignment_id": str(assignment_id), "tenant_id": str(tenant.id)},
+    )
+    if not (deleted.rowcount or 0):
+        raise HTTPException(status_code=404, detail="Class teacher assignment not found")
+
+    db.commit()
+    return {"ok": True, "deleted_id": str(assignment_id)}
+
+
+@router.get(
     "/hr/asset-assignments",
     response_model=list[AssetAssignmentOut],
     dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
@@ -9201,10 +9726,59 @@ def _count_separated_teacher_notifications(
     return len(rows)
 
 
+def _list_support_reply_notifications(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    limit: int,
+    offset: int,
+) -> list[TenantNotificationOut]:
+    safe_limit = max(1, min(int(limit), 1000))
+    safe_offset = max(0, int(offset))
+    try:
+        rows = support_service.tenant_thread_for_notifications(
+            db,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            limit=safe_limit,
+            offset=safe_offset,
+        )
+    except Exception:
+        db.rollback()
+        return []
+
+    notifications: list[TenantNotificationOut] = []
+    for row in rows:
+        notification_id = str(row.get("id") or "").strip()
+        if not notification_id:
+            continue
+        created_at = str(row.get("created_at") or "").strip() or _now_utc().isoformat()
+        thread_id = str(row.get("thread_id") or "").strip()
+        title = str(row.get("title") or "").strip() or "Admin replied to your support request"
+        message = str(row.get("message") or "").strip() or "Open Contact Admin to view the reply."
+        notifications.append(
+            TenantNotificationOut(
+                id=notification_id,
+                type="SUPPORT_REPLY",
+                severity="info",
+                title=title,
+                message=message,
+                entity_type="support_thread",
+                entity_id=thread_id or None,
+                created_at=created_at,
+                due_at=None,
+                unread=True,
+            )
+        )
+    return notifications
+
+
 def _collect_tenant_notifications(
     db: Session,
     *,
     tenant_id: UUID,
+    user_id: UUID,
     limit: int,
 ) -> list[TenantNotificationOut]:
     fetch_limit = max(50, min(2000, int(limit)))
@@ -9221,6 +9795,12 @@ def _collect_tenant_notifications(
     ) + _list_transfer_approved_notifications(
         db,
         tenant_id=tenant_id,
+        limit=fetch_limit,
+        offset=0,
+    ) + _list_support_reply_notifications(
+        db,
+        tenant_id=tenant_id,
+        user_id=user_id,
         limit=fetch_limit,
         offset=0,
     )
@@ -9553,6 +10133,7 @@ def tenant_notifications_mark_all_read(
     notifications = _collect_tenant_notifications(
         db,
         tenant_id=tenant.id,
+        user_id=user_id,
         limit=2000,
     )
     notifications = _apply_notification_read_state(
@@ -9592,6 +10173,7 @@ def tenant_notifications(
     notifications = _collect_tenant_notifications(
         db,
         tenant_id=tenant.id,
+        user_id=user_id,
         limit=int(limit) + int(offset) + 100,
     )
     notifications = _apply_notification_read_state(
@@ -9618,6 +10200,7 @@ def tenant_notifications_unread_count(
     notifications = _collect_tenant_notifications(
         db,
         tenant_id=tenant.id,
+        user_id=user_id,
         limit=2000,
     )
     notifications = _apply_notification_read_state(
@@ -11990,6 +12573,7 @@ def principal_dashboard(
         notification_rows = _collect_tenant_notifications(
             db,
             tenant_id=tenant.id,
+            user_id=current_user_id,
             limit=500,
         )
         notification_rows = _apply_notification_read_state(

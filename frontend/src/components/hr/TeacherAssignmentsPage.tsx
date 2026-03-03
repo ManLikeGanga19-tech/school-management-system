@@ -26,10 +26,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import {
+  normalizeClassTeacherAssignments,
   normalizeClassOptions,
   normalizeStaff,
   normalizeSubjects,
   normalizeTeacherAssignments,
+  type ClassTeacherAssignment,
   type TeacherAssignment,
   type TenantClassOption,
   type TenantStaff,
@@ -58,6 +60,20 @@ const initialForm: AssignmentForm = {
   is_active: true,
 };
 
+type ClassTeacherForm = {
+  staff_id: string;
+  class_code: string;
+  notes: string;
+  is_active: boolean;
+};
+
+const initialClassTeacherForm: ClassTeacherForm = {
+  staff_id: "",
+  class_code: "",
+  notes: "",
+  is_active: true,
+};
+
 type SuggestedTeacher = {
   teacher: TenantStaff;
   subjectLoad: number;
@@ -70,26 +86,38 @@ export function TeacherAssignmentsPage({
   activeHref,
 }: TeacherAssignmentsPageProps) {
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
+  const [classTeacherAssignments, setClassTeacherAssignments] = useState<ClassTeacherAssignment[]>([]);
   const [teachers, setTeachers] = useState<TenantStaff[]>([]);
   const [subjects, setSubjects] = useState<TenantSubject[]>([]);
   const [classes, setClasses] = useState<TenantClassOption[]>([]);
 
   const [form, setForm] = useState<AssignmentForm>(initialForm);
+  const [classTeacherForm, setClassTeacherForm] = useState<ClassTeacherForm>(initialClassTeacherForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [classTeacherSaving, setClassTeacherSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [classTeacherUpdatingId, setClassTeacherUpdatingId] = useState<string | null>(null);
+  const [classTeacherDeletingId, setClassTeacherDeletingId] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
   const [classFilter, setClassFilter] = useState("__all__");
   const [subjectFilter, setSubjectFilter] = useState("__all__");
   const [statusFilter, setStatusFilter] = useState("__all__");
+  const [classTeacherQuery, setClassTeacherQuery] = useState("");
+  const [classTeacherClassFilter, setClassTeacherClassFilter] = useState("__all__");
+  const [classTeacherStatusFilter, setClassTeacherStatusFilter] = useState("__all__");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [assignmentsRaw, teachersRaw, subjectsRaw, classesRaw] = await Promise.all([
+      const [assignmentsRaw, classTeacherAssignmentsRaw, teachersRaw, subjectsRaw, classesRaw] = await Promise.all([
         api.get<unknown>("/tenants/hr/teacher-assignments?include_inactive=true&limit=500", {
+          tenantRequired: true,
+          noRedirect: true,
+        }),
+        api.get<unknown>("/tenants/hr/class-teacher-assignments?include_inactive=true&limit=500", {
           tenantRequired: true,
           noRedirect: true,
         }),
@@ -108,11 +136,13 @@ export function TeacherAssignmentsPage({
       ]);
 
       setAssignments(normalizeTeacherAssignments(assignmentsRaw));
+      setClassTeacherAssignments(normalizeClassTeacherAssignments(classTeacherAssignmentsRaw));
       setTeachers(normalizeStaff(teachersRaw).filter((row) => row.staff_type === "TEACHING"));
       setSubjects(normalizeSubjects(subjectsRaw));
       setClasses(normalizeClassOptions(classesRaw));
     } catch (err: any) {
       setAssignments([]);
+      setClassTeacherAssignments([]);
       setTeachers([]);
       setSubjects([]);
       setClasses([]);
@@ -151,6 +181,25 @@ export function TeacherAssignmentsPage({
       return searchMatch && classMatch && subjectMatch && statusMatch;
     });
   }, [assignments, classFilter, query, statusFilter, subjectFilter]);
+
+  const filteredClassTeacherRows = useMemo(() => {
+    const q = classTeacherQuery.trim().toLowerCase();
+    return classTeacherAssignments.filter((row) => {
+      const searchMatch =
+        !q ||
+        row.staff_name.toLowerCase().includes(q) ||
+        row.staff_no.toLowerCase().includes(q) ||
+        row.class_code.toLowerCase().includes(q);
+
+      const classMatch =
+        classTeacherClassFilter === "__all__" || row.class_code === classTeacherClassFilter;
+      const statusMatch =
+        classTeacherStatusFilter === "__all__" ||
+        (classTeacherStatusFilter === "ACTIVE" ? row.is_active : !row.is_active);
+
+      return searchMatch && classMatch && statusMatch;
+    });
+  }, [classTeacherAssignments, classTeacherClassFilter, classTeacherQuery, classTeacherStatusFilter]);
 
   const activeTeachersById = useMemo(
     () => new Map(teachers.map((teacher) => [teacher.id, teacher])),
@@ -228,6 +277,38 @@ export function TeacherAssignmentsPage({
     }
   }
 
+  async function createClassTeacherAssignment() {
+    if (!classTeacherForm.staff_id || !classTeacherForm.class_code) {
+      toast.error("Teacher and class are required.");
+      return;
+    }
+
+    setClassTeacherSaving(true);
+    try {
+      await api.post(
+        "/tenants/hr/class-teacher-assignments",
+        {
+          staff_id: classTeacherForm.staff_id,
+          class_code: classTeacherForm.class_code.trim().toUpperCase(),
+          notes: classTeacherForm.notes.trim() || null,
+          is_active: classTeacherForm.is_active,
+        },
+        { tenantRequired: true }
+      );
+      toast.success("Class teacher assignment saved.");
+      setClassTeacherForm(initialClassTeacherForm);
+      await load();
+    } catch (err: any) {
+      toast.error(
+        typeof err?.message === "string"
+          ? err.message
+          : "Failed to create class teacher assignment"
+      );
+    } finally {
+      setClassTeacherSaving(false);
+    }
+  }
+
   async function toggleAssignmentStatus(row: TeacherAssignment) {
     setUpdatingId(row.id);
     try {
@@ -246,6 +327,27 @@ export function TeacherAssignmentsPage({
       );
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  async function toggleClassTeacherAssignmentStatus(row: ClassTeacherAssignment) {
+    setClassTeacherUpdatingId(row.id);
+    try {
+      await api.put(
+        `/tenants/hr/class-teacher-assignments/${row.id}`,
+        { is_active: !row.is_active },
+        { tenantRequired: true }
+      );
+      toast.success(`Class teacher assignment ${row.is_active ? "deactivated" : "activated"}.`);
+      await load();
+    } catch (err: any) {
+      toast.error(
+        typeof err?.message === "string"
+          ? err.message
+          : "Failed to update class teacher assignment status"
+      );
+    } finally {
+      setClassTeacherUpdatingId(null);
     }
   }
 
@@ -274,6 +376,34 @@ export function TeacherAssignmentsPage({
       );
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function deleteClassTeacherAssignment(row: ClassTeacherAssignment) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Delete class teacher assignment for ${row.class_code} (${row.staff_name})?`
+      );
+      if (!confirmed) return;
+    }
+
+    setClassTeacherDeletingId(row.id);
+    try {
+      await api.delete(
+        `/tenants/hr/class-teacher-assignments/${row.id}`,
+        undefined,
+        { tenantRequired: true }
+      );
+      toast.success("Class teacher assignment deleted.");
+      await load();
+    } catch (err: any) {
+      toast.error(
+        typeof err?.message === "string"
+          ? err.message
+          : "Failed to delete class teacher assignment"
+      );
+    } finally {
+      setClassTeacherDeletingId(null);
     }
   }
 
@@ -454,6 +584,243 @@ export function TeacherAssignmentsPage({
               {saving ? "Saving..." : "Save Assignment"}
             </Button>
           </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-sm font-semibold text-slate-900">Assign Class Teacher</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              One class can only have one active class teacher assignment at a time.
+            </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Teacher *</Label>
+              <Select
+                value={classTeacherForm.staff_id || "__none__"}
+                onValueChange={(value) =>
+                  setClassTeacherForm((prev) => ({
+                    ...prev,
+                    staff_id: value === "__none__" ? "" : value,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select teacher" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Select teacher</SelectItem>
+                  {teachers.map((teacher) => (
+                    <SelectItem key={teacher.id} value={teacher.id}>
+                      {teacher.full_name} ({teacher.staff_no})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Class *</Label>
+              <Select
+                value={classTeacherForm.class_code || "__none__"}
+                onValueChange={(value) =>
+                  setClassTeacherForm((prev) => ({
+                    ...prev,
+                    class_code: value === "__none__" ? "" : value,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select class" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Select class</SelectItem>
+                  {classes.map((classRow) => (
+                    <SelectItem key={classRow.id} value={classRow.code}>
+                      {classRow.code} · {classRow.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Status</Label>
+              <Select
+                value={classTeacherForm.is_active ? "ACTIVE" : "INACTIVE"}
+                onValueChange={(value) =>
+                  setClassTeacherForm((prev) => ({
+                    ...prev,
+                    is_active: value === "ACTIVE",
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="INACTIVE">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="mt-3 space-y-1.5">
+            <Label className="text-xs">Notes</Label>
+            <Textarea
+              value={classTeacherForm.notes}
+              onChange={(e) =>
+                setClassTeacherForm((prev) => ({ ...prev, notes: e.target.value }))
+              }
+              placeholder="Optional class teacher note"
+            />
+          </div>
+
+          <div className="mt-4">
+            <Button onClick={() => void createClassTeacherAssignment()} disabled={classTeacherSaving}>
+              {classTeacherSaving ? "Saving..." : "Save Class Teacher Assignment"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-6 py-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-900">Class Teacher Assignments</h2>
+              <span className="text-xs text-slate-500">Total: {filteredClassTeacherRows.length}</span>
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={classTeacherQuery}
+                  onChange={(e) => setClassTeacherQuery(e.target.value)}
+                  className="pl-8"
+                  placeholder="Search teacher or class"
+                />
+              </div>
+
+              <Select value={classTeacherClassFilter} onValueChange={setClassTeacherClassFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All classes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All classes</SelectItem>
+                  {classes.map((classRow) => (
+                    <SelectItem key={classRow.id} value={classRow.code}>
+                      {classRow.code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={classTeacherStatusFilter} onValueChange={setClassTeacherStatusFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All statuses</SelectItem>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="INACTIVE">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-slate-50">
+                <TableHead className="text-xs">Class</TableHead>
+                <TableHead className="text-xs">Teacher</TableHead>
+                <TableHead className="text-xs">Status</TableHead>
+                <TableHead className="text-xs">Notes</TableHead>
+                <TableHead className="text-xs text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!loading &&
+                filteredClassTeacherRows.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="text-xs font-medium text-slate-900">{row.class_code}</TableCell>
+                    <TableCell className="text-xs text-slate-700">
+                      <div>{row.staff_name}</div>
+                      <div className="font-mono text-[11px] text-slate-500">{row.staff_no}</div>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const teacherOnStaff = activeTeachersById.has(row.staff_id);
+                        const effectiveActive = row.is_active && teacherOnStaff;
+                        return (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={
+                                effectiveActive
+                                  ? "inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
+                                  : "inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+                              }
+                            >
+                              {effectiveActive ? "Active" : "Inactive"}
+                            </span>
+                            {!teacherOnStaff && (
+                              <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                                Teacher no longer on staff
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell className="max-w-[280px] truncate text-xs text-slate-600">
+                      {row.notes || "N/A"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-wrap justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void toggleClassTeacherAssignmentStatus(row)}
+                          disabled={classTeacherUpdatingId === row.id || classTeacherDeletingId === row.id}
+                        >
+                          {classTeacherUpdatingId === row.id
+                            ? "Saving..."
+                            : row.is_active
+                              ? "Deactivate"
+                              : "Activate"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                          onClick={() => void deleteClassTeacherAssignment(row)}
+                          disabled={classTeacherDeletingId === row.id || classTeacherUpdatingId === row.id}
+                        >
+                          {classTeacherDeletingId === row.id ? "Deleting..." : "Delete"}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+
+              {!loading && filteredClassTeacherRows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                    No class teacher assignments found.
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {loading && (
+                <TableRow>
+                  <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                    Loading class teacher assignments...
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">

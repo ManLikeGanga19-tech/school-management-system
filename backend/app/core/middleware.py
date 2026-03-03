@@ -67,6 +67,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
             return True
         if path.startswith("/api/v1/admin/rbac"):
             return True
+        # Support inbox for SaaS operators (cross-tenant) must not require tenant headers
+        if path.startswith("/api/v1/support/admin"):
+            return True
 
         return False
 

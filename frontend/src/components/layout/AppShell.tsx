@@ -10,6 +10,7 @@ import {
   BookOpenText,
   BriefcaseBusiness,
   CalendarDays,
+  Headset,
   ChevronDown,
   ClipboardCheck,
   CreditCard,
@@ -53,6 +54,7 @@ import { toast } from "@/components/ui/sonner";
 import { api, apiFetchRaw } from "@/lib/api";
 import { logout as authLogout } from "@/lib/auth/auth";
 import { TENANT_BRANDING_UPDATED_EVENT } from "@/lib/tenant-branding";
+import { FloatingSupportWidget } from "@/components/support/FloatingSupportWidget";
 
 type AppNavLink = {
   href: string;
@@ -72,6 +74,7 @@ const NAV_ICON_REGISTRY: Record<string, LucideIcon> = {
   BookOpenText,
   BriefcaseBusiness,
   CalendarDays,
+  Headset,
   ClipboardCheck,
   CreditCard,
   FileSpreadsheet,
@@ -223,7 +226,45 @@ export function AppShell({
   const [sidebarBadgeUrl, setSidebarBadgeUrl] = useState<string | null>(null);
   const seenUnreadIdsRef = useRef<Set<string>>(new Set());
   const initializedRealtimeRef = useRef(false);
+  const lastNotificationSoundAtRef = useRef(0);
   const settingsHref = useMemo(() => resolveSettingsHref(pathname || "/"), [pathname]);
+  const supportWidgetEnabled = useMemo(() => {
+    const current = normalizePath(pathname || "/");
+    return current.startsWith("/tenant/director") || current.startsWith("/tenant/secretary");
+  }, [pathname]);
+  const supportWidgetPageHref = useMemo(() => {
+    const current = normalizePath(pathname || "/");
+    if (current.startsWith("/tenant/director")) return "/tenant/director/contact-admin";
+    if (current.startsWith("/tenant/secretary")) return "/tenant/secretary/contact-admin";
+    return "/tenant/director/contact-admin";
+  }, [pathname]);
+
+  const playNotificationPop = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const now = Date.now();
+    if (now - lastNotificationSoundAtRef.current < 1400) return;
+    lastNotificationSoundAtRef.current = now;
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(920, audioContext.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(640, audioContext.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.001, audioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.045, audioContext.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.18);
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.start();
+      osc.stop(audioContext.currentTime + 0.2);
+      window.setTimeout(() => {
+        void audioContext.close();
+      }, 260);
+    } catch {
+      // Ignore browser autoplay or audio-context restrictions.
+    }
+  }, []);
 
   useEffect(() => {
     setExpandedModuleKey(activeModuleKey);
@@ -437,6 +478,7 @@ export function AppShell({
             (row) => !seenUnreadIdsRef.current.has(row.id)
           );
           if (newUnread.length > 0) {
+            playNotificationPop();
             if (newUnread.length === 1) {
               const item = newUnread[0];
               toast.info(item.title, {
@@ -468,7 +510,7 @@ export function AppShell({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [shouldLoadUnreadCount]);
+  }, [playNotificationPop, shouldLoadUnreadCount]);
 
   const isPathActive  = (href: string) => parseHref(href).path === active.path;
   const isExactActive = (href: string) => parseHref(href).full === active.full;
@@ -834,6 +876,11 @@ export function AppShell({
       <main className="min-h-screen bg-gradient-to-b from-blue-50/30 to-white p-4 md:ml-[260px] md:p-6">
         <div className="mx-auto w-full max-w-6xl">{children}</div>
       </main>
+
+      <FloatingSupportWidget
+        enabled={supportWidgetEnabled}
+        pageHref={supportWidgetPageHref}
+      />
     </div>
   );
 }

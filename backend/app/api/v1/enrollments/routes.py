@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from uuid import UUID
 
@@ -12,6 +12,7 @@ from app.api.v1.enrollments.schemas import (
     EnrollmentRejectRequest,
     EnrollmentDirectorOverrideRequest,
     EnrollmentOut,
+    EnrollmentPageOut,
 )
 
 router = APIRouter()
@@ -26,6 +27,12 @@ def _get_or_404(db: Session, tenant_id, enrollment_id: UUID) -> object:
     if not row:
         raise HTTPException(status_code=404, detail="Enrollment not found.")
     return row
+
+
+def _parse_csv_param(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +73,49 @@ def list_enrollments(
     _=Depends(get_current_user),
 ):
     return service.list_enrollments(db, tenant_id=tenant.id, status=status)
+
+
+@router.get(
+    "/paged",
+    response_model=EnrollmentPageOut,
+    dependencies=[Depends(require_permission("enrollment.manage"))],
+    summary="List enrollments with server-side pagination and filters",
+)
+def list_enrollments_paged(
+    limit: int = Query(default=10, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    status: str | None = Query(default=None),
+    status_in: str | None = Query(
+        default=None,
+        description="Comma-separated statuses to include.",
+    ),
+    status_not_in: str | None = Query(
+        default=None,
+        description="Comma-separated statuses to exclude.",
+    ),
+    search: str | None = Query(
+        default=None,
+        description="Search student name, class, term, admission number, or ID.",
+    ),
+    class_code: str | None = Query(default=None),
+    term_code: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    rows, total = service.list_enrollments_paged(
+        db,
+        tenant_id=tenant.id,
+        limit=limit,
+        offset=offset,
+        status=status,
+        status_in=_parse_csv_param(status_in),
+        status_not_in=_parse_csv_param(status_not_in),
+        search=search,
+        class_code=class_code,
+        term_code=term_code,
+    )
+    return EnrollmentPageOut(items=rows, total=total, limit=limit, offset=offset)
 
 
 # ---------------------------------------------------------------------------
