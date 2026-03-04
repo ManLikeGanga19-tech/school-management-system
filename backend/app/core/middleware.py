@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 from types import SimpleNamespace
+import logging
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -12,6 +13,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.database import SessionLocal
 from app.models.tenant import Tenant
+
+logger = logging.getLogger(__name__)
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
@@ -48,6 +51,13 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/v1/auth/logout/saas"):
             return True
         if path.startswith("/api/v1/auth/me/saas"):
+            return True
+
+        # ✅ Tenant refresh/logout should rely on refresh token payload,
+        # not tenant headers/domain mapping.
+        if path.startswith("/api/v1/auth/refresh"):
+            return True
+        if path.startswith("/api/v1/auth/logout"):
             return True
 
         # ✅ SaaS / Super Admin endpoints do NOT require tenant
@@ -118,6 +128,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
                     slug = host.split(".")[0]
                     tenant = db.query(Tenant).filter(Tenant.slug == slug).first()
         except SQLAlchemyError:
+            logger.exception("Tenant middleware DB error on path=%s host=%s", path, host)
             return JSONResponse({"detail": "Database unavailable"}, status_code=503)
         finally:
             # IMPORTANT: release DB connection before request handler runs

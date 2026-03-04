@@ -1,0 +1,23 @@
+# backend/.dockerignore
+
+.git
+.gitignore
+.env
+.env.*
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+dist
+build
+.eggs
+*.egg-info
+node_modules
+*.sqlite3
+.DS_Store

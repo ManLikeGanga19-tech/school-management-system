@@ -1,3 +1,5 @@
+from pathlib import Path
+
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
     _HAS_PYDANTIC_SETTINGS = True
@@ -6,6 +8,9 @@ except Exception:  # pragma: no cover - compatibility fallback
 
     SettingsConfigDict = None  # type: ignore
     _HAS_PYDANTIC_SETTINGS = False
+
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_ENV_FILE = str(_BACKEND_DIR / ".env")
 
 
 class Settings(BaseSettings):
@@ -24,11 +29,23 @@ class Settings(BaseSettings):
     DB_POOL_RECYCLE_SEC: int = 1800
     DB_POOL_PRE_PING: bool = True
 
+    # Daraja (M-Pesa STK) integration
+    DARAJA_ENV: str = "sandbox"  # sandbox | production
+    DARAJA_CONSUMER_KEY: str = ""
+    DARAJA_CONSUMER_SECRET: str = ""
+    DARAJA_SHORTCODE: str = ""
+    DARAJA_PASSKEY: str = ""
+    DARAJA_CALLBACK_BASE_URL: str = ""
+    DARAJA_CALLBACK_TOKEN: str = ""
+    DARAJA_TIMEOUT_SEC: int = 30
+    DARAJA_USE_MOCK: bool = False
+    DARAJA_SANDBOX_FALLBACK_TO_MOCK: bool = False
+
     if _HAS_PYDANTIC_SETTINGS:
-        model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+        model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
     else:
         class Config:
-            env_file = ".env"
+            env_file = _ENV_FILE
             extra = "ignore"
 
 

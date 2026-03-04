@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.middleware import TenantMiddleware
 from app.core.middleware_audit import AuditMiddleware
+from app.core.database import engine
 
 app = FastAPI(title="School Management System API")
 
@@ -24,3 +25,16 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readyz():
+    # Lightweight readiness check that validates DB connectivity.
+    with engine.connect() as conn:
+        conn.exec_driver_sql("SELECT 1")
+    return {"status": "ready"}
