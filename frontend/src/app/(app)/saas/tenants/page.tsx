@@ -114,6 +114,13 @@ function avatarColor(id: string) {
   return palette[Math.abs(hash) % palette.length];
 }
 
+function formatBillingPlan(plan?: string | null): string {
+  const normalized = String(plan ?? "").trim().toLowerCase();
+  if (normalized === "per_term") return "Per Term";
+  if (normalized === "per_year" || normalized === "full_year") return "Per Year";
+  return String(plan ?? "");
+}
+
 const DEFAULT_PRINT_PROFILE: TenantPrintProfile = {
   tenant_id: "",
   logo_url: null,
@@ -165,7 +172,7 @@ export default function SaaSTenantsPage() {
   const [cSlug, setCSlug]                   = useState("");
   const [cSlugManual, setCSlugManual]       = useState(false);
   const [cDomain, setCDomain]               = useState("");
-  const [cPlan, setCPlan]                   = useState<string>("__none__");
+  const [cBillingPlan, setCBillingPlan]     = useState<string>("__none__");
   const [cAdminEmail, setCAdminEmail]       = useState("");
   const [creating, setCreating]             = useState(false);
 
@@ -175,7 +182,10 @@ export default function SaaSTenantsPage() {
   const [profileBusy, setProfileBusy] = useState(false);
   const [printProfile, setPrintProfile] = useState<TenantPrintProfile>(DEFAULT_PRINT_PROFILE);
 
-  const PLANS = ["Starter", "Basic", "Professional", "Enterprise"];
+  const BILLING_PLANS = [
+    { value: "per_term", label: "Per Term" },
+    { value: "per_year", label: "Per Year" },
+  ];
 
   function slugify(name: string) {
     return name.toLowerCase().trim()
@@ -196,7 +206,7 @@ export default function SaaSTenantsPage() {
 
   function resetCreateForm() {
     setCName(""); setCSlug(""); setCSlugManual(false);
-    setCDomain(""); setCPlan("__none__"); setCAdminEmail("");
+    setCDomain(""); setCBillingPlan("__none__"); setCAdminEmail("");
   }
 
   // ── Create ────────────────────────────────────────────────────────────────
@@ -205,7 +215,7 @@ export default function SaaSTenantsPage() {
     const name   = cName.trim();
     const slug   = cSlug.trim();
     const domain = cDomain.trim() || null;
-    const plan   = cPlan !== "__none__" ? cPlan : null;
+    const billingPlan = cBillingPlan !== "__none__" ? cBillingPlan : null;
     const admin  = cAdminEmail.trim() || null;
 
     if (!name) return toast.error("Institution name is required");
@@ -220,7 +230,7 @@ export default function SaaSTenantsPage() {
       await apiFetch("/admin/tenants", {
         method: "POST",
         tenantRequired: false,
-        body: JSON.stringify({ name, slug, primary_domain: domain, plan, admin_email: admin }),
+        body: JSON.stringify({ name, slug, primary_domain: domain, plan: billingPlan, admin_email: admin }),
         headers: { "Content-Type": "application/json" },
       } as any);
       toast.success(`Tenant "${name}" created`);
@@ -417,12 +427,12 @@ export default function SaaSTenantsPage() {
               <p className="text-xs text-slate-400">Optional. Used for custom domain routing.</p>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Subscription Plan</Label>
-              <Select value={cPlan} onValueChange={setCPlan}>
+              <Label className="text-xs font-medium text-slate-600">Initial Billing Plan</Label>
+              <Select value={cBillingPlan} onValueChange={setCBillingPlan}>
                 <SelectTrigger><SelectValue placeholder="No plan assigned" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">No plan (assign later)</SelectItem>
-                  {PLANS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  {BILLING_PLANS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -788,7 +798,7 @@ export default function SaaSTenantsPage() {
                   <TableHead className="text-xs">Institution</TableHead>
                   <TableHead className="text-xs">Slug</TableHead>
                   <TableHead className="text-xs">Domain</TableHead>
-                  <TableHead className="text-xs">Plan</TableHead>
+                  <TableHead className="text-xs">Billing Plan</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Created</TableHead>
                   <TableHead className="w-56 text-xs">Actions</TableHead>
@@ -880,11 +890,11 @@ export default function SaaSTenantsPage() {
                       )}
                     </TableCell>
 
-                    {/* Plan */}
+                    {/* Billing plan */}
                     <TableCell className="py-3">
                       {t.plan ? (
                         <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
-                          {t.plan}
+                          {formatBillingPlan(t.plan)}
                         </span>
                       ) : (
                         <span className="text-xs text-slate-300">—</span>
