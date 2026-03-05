@@ -20,6 +20,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 RUN npm run build
+RUN npm prune --omit=dev
 
 
 FROM node:22-alpine AS runner
@@ -32,9 +33,11 @@ ENV NODE_ENV=production \
 
 RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
 
+COPY --from=builder --chown=nextjs:nextjs /app/package.json ./package.json
+COPY --from=builder --chown=nextjs:nextjs /app/next.config.ts ./next.config.ts
+COPY --from=builder --chown=nextjs:nextjs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
-COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nextjs /app/.next ./.next
 
 EXPOSE 3000
 
@@ -43,4 +46,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=5 \
 
 USER nextjs
 
-CMD ["node", "server.js"]
+CMD ["node_modules/.bin/next", "start", "-p", "3000", "-H", "0.0.0.0"]
