@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required=(PRODUCTION_SSH_HOST PRODUCTION_SSH_USER PRODUCTION_ENV_FILE GHCR_USERNAME GHCR_TOKEN)
+          required=(PRODUCTION_SSH_HOST PRODUCTION_SSH_USER PRODUCTION_SSH_PRIVATE_KEY PRODUCTION_ENV_FILE GHCR_USERNAME GHCR_TOKEN)
           for key in "${required[@]}"; do
             if [ -z "${!key:-}" ]; then
               echo "Missing required secret: ${key}"
@@ -112,6 +112,19 @@ jobs:
           DEPLOY_PATH="${PRODUCTION_DEPLOY_PATH:-/opt/school-erp-production}"
           ssh "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" "mkdir -p '${DEPLOY_PATH}'"
           scp docker-compose.yml docker-compose.prod.yml .deploy.env "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}:${DEPLOY_PATH}/"
+
+      - name: Verify remote deploy bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOY_PATH="${PRODUCTION_DEPLOY_PATH:-/opt/school-erp-production}"
+          ssh "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" "
+            set -euo pipefail
+            ls -la '${DEPLOY_PATH}'
+            test -f '${DEPLOY_PATH}/docker-compose.yml'
+            test -f '${DEPLOY_PATH}/docker-compose.prod.yml'
+            test -f '${DEPLOY_PATH}/.deploy.env'
+          "
 
       - name: Deploy on production host
         shell: bash
