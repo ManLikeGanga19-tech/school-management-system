@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Pie, PieChart, Cell } from "recharts";
 import {
@@ -564,7 +564,7 @@ function SectionCard({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function TenantFinancePage() {
+function TenantFinancePageContent() {
   const searchParams = useSearchParams();
   const section = useMemo(
     () => normalizeSection(searchParams.get("section")),
@@ -2617,5 +2617,22 @@ export default function TenantFinancePage() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+export default function TenantFinancePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            <p className="text-sm text-slate-500">Loading finance…</p>
+          </div>
+        </div>
+      }
+    >
+      <TenantFinancePageContent />
+    </Suspense>
   );
 }
