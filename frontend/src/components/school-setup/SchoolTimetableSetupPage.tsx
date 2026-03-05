@@ -712,7 +712,7 @@ export function SchoolTimetableSetupPage({
     const classLabel =
       classFilter !== "__all__"
         ? classFilter
-        : gridRows.length > 0
+        : filteredEntries.length > 0
           ? "All classes"
           : "N/A";
 

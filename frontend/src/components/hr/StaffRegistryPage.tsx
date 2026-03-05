@@ -155,14 +155,14 @@ function toEditForm(row: TenantStaff): StaffEditForm {
 }
 
 function normalizeRolesPayload(input: unknown): TenantRoleOption[] {
-  const rawRows = Array.isArray(input)
+  const rawRows: unknown[] = Array.isArray(input)
     ? input
     : input && typeof input === "object" && Array.isArray((input as any).roles)
       ? (input as any).roles
       : [];
 
   return rawRows
-    .map((raw): TenantRoleOption | null => {
+    .map((raw: unknown): TenantRoleOption | null => {
       const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
       if (!row) return null;
 
@@ -179,8 +179,8 @@ function normalizeRolesPayload(input: unknown): TenantRoleOption[] {
 
       return { id, code, name, description };
     })
-    .filter((row): row is TenantRoleOption => Boolean(row))
-    .sort((a, b) => a.code.localeCompare(b.code));
+    .filter((row: TenantRoleOption | null): row is TenantRoleOption => Boolean(row))
+    .sort((a: TenantRoleOption, b: TenantRoleOption) => a.code.localeCompare(b.code));
 }
 
 function roleDisplay(roles: TenantRoleOption[], roleCode: string | null | undefined): string {
