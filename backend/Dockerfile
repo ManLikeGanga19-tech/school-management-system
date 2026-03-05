@@ -4,6 +4,7 @@ FROM python:3.12-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
@@ -29,6 +30,7 @@ FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
     PATH="/opt/venv/bin:${PATH}"
 
 WORKDIR /app
