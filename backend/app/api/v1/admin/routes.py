@@ -335,36 +335,33 @@ def update_tenant_print_profile(
         )
 
 
-@router.post("/tenants")
+@router.post("/tenants", response_model=TenantRow, status_code=201)
 def create_tenant_endpoint(
+    payload: CreateTenantRequest,
     db: Session = Depends(get_db),
     _=Depends(require_permission_saas("tenants.create")),
-    name: str                   = Body(...),
-    slug: str                   = Body(...),
-    primary_domain: Optional[str] = Body(default=None),
-    plan: Optional[str]         = Body(default=None),
 ):
-    if not re.match(r"^[a-z0-9-]+$", slug):
+    if not re.match(r"^[a-z0-9-]+$", payload.slug):
         raise HTTPException(
             status_code=422,
             detail="slug must be lowercase letters, numbers, and hyphens only",
         )
     try:
-        tenant = service.create_tenant(db, name=name, slug=slug, primary_domain=primary_domain, plan=plan)
+        tenant = service.create_tenant_with_optional_admin(
+            db,
+            name=payload.name,
+            slug=payload.slug,
+            primary_domain=payload.primary_domain,
+            plan=payload.plan,
+            admin_email=payload.admin_email,
+        )
     except ValueError as exc:
         code = 409 if "already exists" in str(exc) else 422
         raise HTTPException(status_code=code, detail=str(exc))
 
     _metrics_cache.invalidate()
     _recent_cache.invalidate()
-    return {
-        "id":             str(tenant.id),
-        "slug":           tenant.slug,
-        "name":           tenant.name,
-        "primary_domain": tenant.primary_domain,
-        "is_active":      tenant.is_active,
-        "created_at":     tenant.created_at,
-    }
+    return tenant
 
 
 @router.post("/tenants/{tenant_id}/suspend")

@@ -7,6 +7,7 @@ from uuid import uuid4
 from datetime import date
 from decimal import Decimal
 from sqlalchemy.orm import Session
+from app.api.v1.admin import routes as admin_routes
 
 from fastapi.testclient import TestClient
 from app.main import app
@@ -24,26 +25,39 @@ from app.core.dependencies import SAAS_TENANT_MARKER
 # Fixtures
 # ========================================================================
 
+def _reset_core_schema() -> None:
+    with engine.begin() as conn:
+        conn.exec_driver_sql("DROP SCHEMA IF EXISTS core CASCADE")
+        conn.exec_driver_sql("CREATE SCHEMA core")
+
+
+def _invalidate_admin_caches() -> None:
+    for cache_name in ("_metrics_cache", "_recent_cache", "_daraja_connectivity_cache"):
+        cache_obj = getattr(admin_routes, cache_name, None)
+        if cache_obj is not None and hasattr(cache_obj, "invalidate"):
+            cache_obj.invalidate()
+
+
 @pytest.fixture(scope="function")
 def setup_db():
-    """Create fresh database for each test"""
+    """Create fresh core schema for each test."""
+    _reset_core_schema()
     Base.metadata.create_all(bind=engine)
+    _invalidate_admin_caches()
     yield
-    Base.metadata.drop_all(bind=engine)
+    _invalidate_admin_caches()
+    _reset_core_schema()
 
 
 @pytest.fixture
 def db_session(setup_db):
-    """Get database session"""
-    connection = engine.connect()
-    transaction = connection.begin()
-    session = Session(bind=connection)
-    
+    """Get isolated DB session for each test."""
+    session = Session(bind=engine)
+
     yield session
-    
+
+    session.rollback()
     session.close()
-    transaction.rollback()
-    connection.close()
 
 
 @pytest.fixture
@@ -249,14 +263,14 @@ class TestCreateTenant:
             json={
                 "name": "Premium School",
                 "slug": "premium-school",
-                "plan": "Professional",
+                "plan": "per_term",
             },
             headers={"Authorization": f"Bearer {token}"}
         )
         
         assert response.status_code == 201
         data = response.json()
-        assert data["plan"] == "Professional"
+        assert data["plan"] == "per_term"
     
     def test_create_tenant_invalid_slug(self, client, db_session):
         """Test creating a tenant with invalid slug"""
@@ -430,8 +444,8 @@ class TestSubscriptions:
             "/api/v1/admin/subscriptions",
             json={
                 "tenant_id": str(tenant.id),
-                "plan": "Starter",
-                "billing_cycle": "per_term",
+                "billing_plan": "per_term",
+                "amount_kes": 5000,
                 "discount_percent": 0.0,
             },
             headers={"Authorization": f"Bearer {token}"}
@@ -439,10 +453,11 @@ class TestSubscriptions:
         
         assert response.status_code == 201
         data = response.json()
-        assert data["plan"] == "Starter"
+        assert data["billing_plan"] == "per_term"
+        assert data["plan"] == "per_term"
         assert data["billing_cycle"] == "per_term"
         assert data["status"] == "trialing"  # First subscription is trialing
-        assert data["amount_kes"] == 5000.0  # Starter base price
+        assert data["amount_kes"] == 5000.0
     
     def test_create_subscription_with_discount(self, client, db_session):
         """Test creating subscription with discount"""
@@ -462,8 +477,8 @@ class TestSubscriptions:
             "/api/v1/admin/subscriptions",
             json={
                 "tenant_id": str(tenant.id),
-                "plan": "Basic",
-                "billing_cycle": "per_term",
+                "billing_plan": "per_term",
+                "amount_kes": 12000,
                 "discount_percent": 10.0,
             },
             headers={"Authorization": f"Bearer {token}"}
@@ -471,8 +486,8 @@ class TestSubscriptions:
         
         assert response.status_code == 201
         data = response.json()
-        # Basic = 12000, with 10% discount = 10800
-        assert data["amount_kes"] == 10800.0
+        assert data["amount_kes"] == 12000.0
+        assert data["discount_percent"] == 10.0
     
     def test_update_subscription(self, client, db_session):
         """Test updating a subscription"""
@@ -507,7 +522,7 @@ class TestSubscriptions:
             f"/api/v1/admin/subscriptions/{sub.id}",
             json={
                 "status": "active",
-                "plan": "Professional",
+                "billing_plan": "per_year",
             },
             headers={"Authorization": f"Bearer {token}"}
         )
@@ -515,7 +530,9 @@ class TestSubscriptions:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "active"
-        assert data["plan"] == "Professional"
+        assert data["billing_plan"] == "per_year"
+        assert data["plan"] == "per_year"
+        assert data["billing_cycle"] == "full_year"
     
     def test_delete_subscription(self, client, db_session):
         """Test deleting (canceling) a subscription"""
