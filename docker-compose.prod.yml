@@ -16,7 +16,7 @@ services:
   backend:
     build: null
     image: ${BACKEND_IMAGE:-ghcr.io/manlikeganga19-tech/school-management-system-backend:${IMAGE_TAG:-main}}
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    command: ["uvicorn", "app.main:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
     volumes: []
     restart: unless-stopped
     cpus: "1.00"

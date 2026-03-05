@@ -53,7 +53,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
     command: >
-      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      uvicorn app.main:app --app-dir /app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
