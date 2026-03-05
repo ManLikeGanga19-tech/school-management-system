@@ -1,0 +1,39 @@
+# docker-compose.prod.yml
+
+services:
+  postgres:
+    volumes: []
+    restart: unless-stopped
+    cpus: "0.75"
+    mem_limit: "768m"
+
+  redis:
+    volumes: []
+    restart: unless-stopped
+    cpus: "0.50"
+    mem_limit: "512m"
+
+  backend:
+    build: null
+    image: ${BACKEND_IMAGE:-ghcr.io/manlikeganga19-tech/school-management-system-backend:${IMAGE_TAG:-main}}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    volumes: []
+    restart: unless-stopped
+    cpus: "1.00"
+    mem_limit: "1g"
+
+  frontend:
+    build: null
+    image: ${FRONTEND_IMAGE:-ghcr.io/manlikeganga19-tech/school-management-system-frontend:${IMAGE_TAG:-main}}
+    command: ["node", "server.js"]
+    volumes: []
+    restart: unless-stopped
+    cpus: "1.00"
+    mem_limit: "768m"
+
+  nginx:
+    build: null
+    image: ${NGINX_IMAGE:-ghcr.io/manlikeganga19-tech/school-management-system-nginx:${IMAGE_TAG:-main}}
+    restart: unless-stopped
+    cpus: "0.50"
+    mem_limit: "256m"

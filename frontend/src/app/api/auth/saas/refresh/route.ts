@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { backendFetch } from "@/server/backend/client";
 import { setSaasAccessToken, setSaasRefreshToken } from "@/lib/auth/cookies";
 
 function extractCookieValue(setCookie: string | null, cookieName: string) {
@@ -10,9 +11,6 @@ function extractCookieValue(setCookie: string | null, cookieName: string) {
 }
 
 export async function POST() {
-  const BACKEND =
-    (process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000/api/v1").replace(/\/+$/g, "");
-
   const saasRefresh = (await cookies()).get("sms_saas_refresh")?.value;
   if (!saasRefresh) {
     return NextResponse.json({ detail: "Missing refresh token" }, { status: 401 });
@@ -20,7 +18,7 @@ export async function POST() {
 
   let res: Response;
   try {
-    res = await fetch(`${BACKEND}/auth/refresh/saas`, {
+    res = await backendFetch("/api/v1/auth/refresh/saas", {
       method: "POST",
       headers: {
         Cookie: `sms_refresh=${saasRefresh}`,
@@ -28,6 +26,17 @@ export async function POST() {
       },
       cache: "no-store",
     });
+    // Backward compatibility: some older backend branches exposed /auth/saas/refresh.
+    if (res.status === 404) {
+      res = await backendFetch("/api/v1/auth/saas/refresh", {
+        method: "POST",
+        headers: {
+          Cookie: `sms_refresh=${saasRefresh}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
+    }
   } catch {
     return NextResponse.json(
       { detail: "SaaS refresh service unavailable. Please try again." },
