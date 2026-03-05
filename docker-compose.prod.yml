@@ -25,7 +25,7 @@ services:
   frontend:
     build: null
     image: ${FRONTEND_IMAGE:-ghcr.io/manlikeganga19-tech/school-management-system-frontend:${IMAGE_TAG:-main}}
-    command: ["node", "server.js"]
+    command: ["node_modules/.bin/next", "start", "-p", "3000", "-H", "0.0.0.0"]
     volumes: []
     restart: unless-stopped
     cpus: "1.00"
