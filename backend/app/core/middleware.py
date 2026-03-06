@@ -50,6 +50,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
         # Docs / OpenAPI
         if path in {"/docs", "/openapi.json", "/redoc"}:
             return True
+        # Infra health endpoints must bypass tenant resolution
+        if path in {"/healthz", "/readyz"}:
+            return True
 
         # ✅ SaaS auth endpoints do NOT require tenant
         if path.startswith("/api/v1/auth/login/saas"):
