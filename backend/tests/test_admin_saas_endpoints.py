@@ -3,11 +3,12 @@ Tests for SaaS admin endpoints
 """
 
 import os
+import re
 import pytest
 from uuid import uuid4
 from datetime import date
 from decimal import Decimal
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import Session, sessionmaker
 from app.api.v1.admin import routes as admin_routes
@@ -35,9 +36,23 @@ def _resolve_test_database_url() -> str:
         return explicit_url
     if os.getenv("CI", "").lower() == "true":
         return settings.DATABASE_URL
-    raise RuntimeError(
-        "TEST_DATABASE_URL is required for local test runs to avoid mutating the development database."
-    )
+    # Local fallback: derive a dedicated test DB URL from app DATABASE_URL.
+    base_url = make_url(settings.DATABASE_URL)
+    base_db_name = (base_url.database or "").strip()
+    if not base_db_name:
+        raise RuntimeError(
+            "DATABASE_URL has no database name. Set TEST_DATABASE_URL explicitly."
+        )
+
+    if "test" in base_db_name.lower():
+        return settings.DATABASE_URL
+
+    if base_db_name.endswith("_db"):
+        test_db_name = f"{base_db_name[:-3]}_test_db"
+    else:
+        test_db_name = f"{base_db_name}_test"
+
+    return base_url.set(database=test_db_name).render_as_string(hide_password=False)
 
 
 def _assert_safe_test_database_url(url: str) -> None:
@@ -48,6 +63,46 @@ def _assert_safe_test_database_url(url: str) -> None:
         raise RuntimeError(
             f"Unsafe TEST_DATABASE_URL database '{database_name}'. Use a dedicated test database name containing 'test'."
         )
+
+
+def _ensure_test_database_exists(url: str) -> None:
+    """
+    Best-effort local bootstrap for PostgreSQL test database.
+    CI environments already provide an isolated DB and skip this path.
+    """
+    if os.getenv("CI", "").lower() == "true":
+        return
+
+    parsed = make_url(url)
+    db_name = (parsed.database or "").strip()
+    if not db_name:
+        raise RuntimeError("TEST_DATABASE_URL must include a database name.")
+    if not re.fullmatch(r"[A-Za-z0-9_]+", db_name):
+        raise RuntimeError(
+            f"Unsafe test database name '{db_name}'. Use only letters, numbers, underscore."
+        )
+
+    backend = parsed.get_backend_name()
+    if backend not in {"postgresql", "postgresql+psycopg", "postgresql+psycopg2"}:
+        return
+
+    admin_db = os.getenv("TEST_DATABASE_ADMIN_DB", "postgres")
+    admin_url = parsed.set(database=admin_db)
+    admin_engine = create_engine(
+        admin_url.render_as_string(hide_password=False),
+        pool_pre_ping=True,
+        isolation_level="AUTOCOMMIT",
+    )
+    try:
+        with admin_engine.connect() as conn:
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :name"),
+                {"name": db_name},
+            ).scalar()
+            if not exists:
+                conn.exec_driver_sql(f'CREATE DATABASE "{db_name}"')
+    finally:
+        admin_engine.dispose()
 
 
 TEST_DATABASE_URL = _resolve_test_database_url()
@@ -76,6 +131,7 @@ def _invalidate_admin_caches() -> None:
 @pytest.fixture(scope="function")
 def setup_db():
     """Create fresh core schema for each test."""
+    _ensure_test_database_exists(TEST_DATABASE_URL)
     _reset_core_schema()
     Base.metadata.create_all(bind=TEST_ENGINE)
     _invalidate_admin_caches()
