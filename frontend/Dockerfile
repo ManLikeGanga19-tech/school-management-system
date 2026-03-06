@@ -39,6 +39,11 @@ COPY --from=builder --chown=nextjs:nextjs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 COPY --from=builder --chown=nextjs:nextjs /app/.next ./.next
 
+# Ensure standalone runtime can serve Next static/public assets.
+RUN mkdir -p /app/.next/standalone/.next && \
+    cp -R /app/.next/static /app/.next/standalone/.next/static && \
+    cp -R /app/public /app/.next/standalone/public
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=5 \

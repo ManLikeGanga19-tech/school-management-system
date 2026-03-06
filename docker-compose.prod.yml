@@ -103,7 +103,6 @@ services:
       BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://nginx/api/v1}
       BACKEND_FETCH_TIMEOUT_MS: "${BACKEND_FETCH_TIMEOUT_MS:-20000}"
       AUTH_LOGIN_TIMEOUT_MS: "${AUTH_LOGIN_TIMEOUT_MS:-60000}"
-    command: ["node", ".next/standalone/server.js"]
     ports:
       - "${FRONTEND_PORT:-127.0.0.1:3000}:3000"
     depends_on:

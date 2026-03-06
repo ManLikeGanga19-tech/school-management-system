@@ -2,16 +2,20 @@
 Tests for SaaS admin endpoints
 """
 
+import os
 import pytest
 from uuid import uuid4
 from datetime import date
 from decimal import Decimal
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.engine.url import make_url
+from sqlalchemy.orm import Session, sessionmaker
 from app.api.v1.admin import routes as admin_routes
 
 from fastapi.testclient import TestClient
 from app.main import app
-from app.core.database import get_db, Base, engine
+from app.core.config import settings
+from app.core.database import get_db, Base
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.membership import UserTenant
@@ -22,11 +26,42 @@ from app.core.dependencies import SAAS_TENANT_MARKER
 
 
 # ========================================================================
+# Test database wiring (isolated from developer/staging databases)
+# ========================================================================
+
+def _resolve_test_database_url() -> str:
+    explicit_url = os.getenv("TEST_DATABASE_URL")
+    if explicit_url:
+        return explicit_url
+    if os.getenv("CI", "").lower() == "true":
+        return settings.DATABASE_URL
+    raise RuntimeError(
+        "TEST_DATABASE_URL is required for local test runs to avoid mutating the development database."
+    )
+
+
+def _assert_safe_test_database_url(url: str) -> None:
+    if os.getenv("CI", "").lower() == "true":
+        return
+    database_name = (make_url(url).database or "").lower()
+    if "test" not in database_name:
+        raise RuntimeError(
+            f"Unsafe TEST_DATABASE_URL database '{database_name}'. Use a dedicated test database name containing 'test'."
+        )
+
+
+TEST_DATABASE_URL = _resolve_test_database_url()
+_assert_safe_test_database_url(TEST_DATABASE_URL)
+TEST_ENGINE = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+TestSessionLocal = sessionmaker(bind=TEST_ENGINE, autocommit=False, autoflush=False)
+
+
+# ========================================================================
 # Fixtures
 # ========================================================================
 
 def _reset_core_schema() -> None:
-    with engine.begin() as conn:
+    with TEST_ENGINE.begin() as conn:
         conn.exec_driver_sql("DROP SCHEMA IF EXISTS core CASCADE")
         conn.exec_driver_sql("CREATE SCHEMA core")
 
@@ -42,7 +77,7 @@ def _invalidate_admin_caches() -> None:
 def setup_db():
     """Create fresh core schema for each test."""
     _reset_core_schema()
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=TEST_ENGINE)
     _invalidate_admin_caches()
     yield
     _invalidate_admin_caches()
@@ -52,7 +87,7 @@ def setup_db():
 @pytest.fixture
 def db_session(setup_db):
     """Get isolated DB session for each test."""
-    session = Session(bind=engine)
+    session = TestSessionLocal()
 
     yield session
 
