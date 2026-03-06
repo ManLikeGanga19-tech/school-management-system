@@ -51,7 +51,7 @@ COPY --from=builder /app/alambic /app/alambic
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl --fail http://127.0.0.1:8000/healthz || exit 1
+  CMD curl --fail http://127.0.0.1:8000/readyz || exit 1
 
 USER appuser
 

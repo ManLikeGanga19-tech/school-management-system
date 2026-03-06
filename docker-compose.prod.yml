@@ -13,10 +13,18 @@ services:
     cpus: "0.50"
     mem_limit: "512m"
 
+  db-migrate:
+    build: null
+    image: ${BACKEND_IMAGE:-ghcr.io/manlikeganga19-tech/school-management-system-backend:${IMAGE_TAG:-main}}
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    restart: "no"
+    cpus: "0.50"
+    mem_limit: "512m"
+
   backend:
     build: null
     image: ${BACKEND_IMAGE:-ghcr.io/manlikeganga19-tech/school-management-system-backend:${IMAGE_TAG:-main}}
-    command: ["uvicorn", "app.main:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    command: ["python", "-m", "uvicorn", "app.main:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
     volumes: []
     restart: unless-stopped
     cpus: "1.00"

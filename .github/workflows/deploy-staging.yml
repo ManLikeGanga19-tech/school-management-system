@@ -141,8 +141,11 @@ jobs:
             mv -f .deploy.env .env
             echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin
             docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml pull
+            docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d postgres redis
+            docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps db-migrate
             docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
             docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml ps
+            docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml logs --tail=120 backend frontend nginx || true
             NGINX_PORT=\$(grep -E '^NGINX_HTTP_PORT=' .env | tail -n 1 | cut -d'=' -f2 | tr -d '[:space:]' || true)
             if [ -z \"\${NGINX_PORT}\" ]; then NGINX_PORT=80; fi
             curl -fsS \"http://127.0.0.1:\${NGINX_PORT}/nginx-healthz\" >/dev/null
