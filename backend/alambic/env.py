@@ -40,6 +40,17 @@ def _iter_local_venv_dirs(backend_dir: Path) -> list[Path]:
     return candidates
 
 
+def _selected_local_venv_dir(backend_dir: Path) -> Path | None:
+    """
+    Select exactly one local venv directory.
+
+    This prevents mixing packages from different virtual environments
+    (e.g. both .venv and venv), which can cause driver/import drift.
+    """
+    candidates = _iter_local_venv_dirs(backend_dir)
+    return candidates[0] if candidates else None
+
+
 def _maybe_reexec_into_local_venv() -> None:
     """
     If this env.py is loaded by a system Alembic executable, re-exec into the
@@ -49,15 +60,14 @@ def _maybe_reexec_into_local_venv() -> None:
         return
 
     backend_dir = Path(__file__).resolve().parents[1]
+    venv_dir = _selected_local_venv_dir(backend_dir)
     target_python = None
-    for venv_dir in _iter_local_venv_dirs(backend_dir):
+    if venv_dir is not None:
         venv_candidates = (
             venv_dir / "bin" / "python",
             venv_dir / "Scripts" / "python.exe",
         )
         target_python = next((p for p in venv_candidates if p.exists()), None)
-        if target_python is not None:
-            break
     if target_python is None:
         return
 
@@ -83,15 +93,18 @@ def _prepend_local_venv_site_packages() -> None:
     """
     backend_dir = Path(__file__).resolve().parents[1]
     site_packages: list[Path] = []
-    for venv_dir in _iter_local_venv_dirs(backend_dir):
-        # Linux/WSL virtualenv layout
-        lib_dir = venv_dir / "lib"
-        if lib_dir.exists():
-            site_packages.extend(sorted(lib_dir.glob("python*/site-packages")))
-        # Windows virtualenv layout
-        win_site = venv_dir / "Lib" / "site-packages"
-        if win_site.exists():
-            site_packages.append(win_site)
+    venv_dir = _selected_local_venv_dir(backend_dir)
+    if venv_dir is None:
+        return
+
+    # Linux/WSL virtualenv layout
+    lib_dir = venv_dir / "lib"
+    if lib_dir.exists():
+        site_packages.extend(sorted(lib_dir.glob("python*/site-packages")))
+    # Windows virtualenv layout
+    win_site = venv_dir / "Lib" / "site-packages"
+    if win_site.exists():
+        site_packages.append(win_site)
 
     # Insert in reverse so the first discovered path ends up first in sys.path
     for sp in reversed(site_packages):

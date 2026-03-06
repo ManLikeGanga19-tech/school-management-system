@@ -162,6 +162,13 @@ class TenantMiddleware(BaseHTTPMiddleware):
             db.close()
 
         if tenant is None:
+            if tenant_slug_header:
+                return JSONResponse(
+                    {
+                        "detail": f"Tenant '{tenant_slug_header.lower()}' not found or inactive. Create/activate the tenant first."
+                    },
+                    status_code=400,
+                )
             return JSONResponse(
                 {
                     "detail": "Tenant not resolved. Provide X-Tenant-ID / X-Tenant-Slug or use a mapped domain."

@@ -50,7 +50,7 @@ services:
       - path: ./.env
         required: false
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
     command: ["python", "-m", "alembic", "upgrade", "head"]
     depends_on:
       postgres:
@@ -68,7 +68,7 @@ services:
       - path: ./.env
         required: false
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
     command: ["python", "-m", "uvicorn", "app.main:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
     ports:
       - "${BACKEND_PORT:-127.0.0.1:8000}:8000"
