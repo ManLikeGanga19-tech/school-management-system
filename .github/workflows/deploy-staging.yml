@@ -2,8 +2,6 @@
 name: Deploy Staging
 
 on:
-  push:
-    branches: [staging]
   workflow_run:
     workflows: ["CI"]
     branches: [staging]
@@ -33,7 +31,6 @@ jobs:
     environment: staging
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'staging')
     permissions:
       contents: read
