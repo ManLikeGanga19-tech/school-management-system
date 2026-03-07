@@ -25,7 +25,19 @@ export const COOKIE_TENANT_SLUG  = "sms_tenant_slug";
 export const COOKIE_SAAS_ACCESS  = "sms_saas_access";
 export const COOKIE_SAAS_REFRESH = "sms_saas_refresh";
 
-const IS_SECURE = process.env.NODE_ENV === "production";
+function parseOptionalBool(value: string | undefined): boolean | null {
+  if (value == null) return null;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return null;
+}
+
+const IS_SECURE = (() => {
+  const fromEnv = parseOptionalBool(process.env.COOKIE_SECURE);
+  if (fromEnv !== null) return fromEnv;
+  return process.env.NODE_ENV === "production";
+})();
 
 const ACCESS_MAX_AGE  = 60 * 60;           // 1 hour
 const REFRESH_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
