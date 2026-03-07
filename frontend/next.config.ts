@@ -66,6 +66,7 @@ try {
 const nextConfig: NextConfig = {
   reactCompiler: true,
   distDir,
+  output: "standalone",
 };
 
 export default nextConfig;

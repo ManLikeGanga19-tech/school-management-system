@@ -4,6 +4,53 @@ from logging.config import fileConfig
 from pathlib import Path
 
 
+def _iter_local_venv_dirs(backend_dir: Path) -> list[Path]:
+    """
+    Return local venv directories in priority order.
+
+    Priority:
+      1) active VIRTUAL_ENV if it points inside this backend repo
+      2) backend/.venv
+      3) backend/venv
+    """
+    candidates: list[Path] = []
+    active_env = os.getenv("VIRTUAL_ENV")
+    if active_env:
+        active_path = Path(active_env).expanduser()
+        try:
+            resolved_active = active_path.resolve()
+            if backend_dir == resolved_active or backend_dir in resolved_active.parents:
+                candidates.append(resolved_active)
+        except Exception:
+            if str(backend_dir) in str(active_path):
+                candidates.append(active_path)
+
+    for name in (".venv", "venv"):
+        venv_path = backend_dir / name
+        if not venv_path.exists():
+            continue
+        try:
+            if any(venv_path.resolve() == existing.resolve() for existing in candidates):
+                continue
+        except Exception:
+            if any(str(venv_path) == str(existing) for existing in candidates):
+                continue
+        candidates.append(venv_path)
+
+    return candidates
+
+
+def _selected_local_venv_dir(backend_dir: Path) -> Path | None:
+    """
+    Select exactly one local venv directory.
+
+    This prevents mixing packages from different virtual environments
+    (e.g. both .venv and venv), which can cause driver/import drift.
+    """
+    candidates = _iter_local_venv_dirs(backend_dir)
+    return candidates[0] if candidates else None
+
+
 def _maybe_reexec_into_local_venv() -> None:
     """
     If this env.py is loaded by a system Alembic executable, re-exec into the
@@ -13,11 +60,14 @@ def _maybe_reexec_into_local_venv() -> None:
         return
 
     backend_dir = Path(__file__).resolve().parents[1]
-    candidates = (
-        backend_dir / "venv" / "bin" / "python",
-        backend_dir / "venv" / "Scripts" / "python.exe",
-    )
-    target_python = next((p for p in candidates if p.exists()), None)
+    venv_dir = _selected_local_venv_dir(backend_dir)
+    target_python = None
+    if venv_dir is not None:
+        venv_candidates = (
+            venv_dir / "bin" / "python",
+            venv_dir / "Scripts" / "python.exe",
+        )
+        target_python = next((p for p in venv_candidates if p.exists()), None)
     if target_python is None:
         return
 
@@ -42,11 +92,11 @@ def _prepend_local_venv_site_packages() -> None:
     `/usr/bin/alembic` entrypoint is invoked from system Python.
     """
     backend_dir = Path(__file__).resolve().parents[1]
-    venv_dir = backend_dir / "venv"
-    if not venv_dir.exists():
+    site_packages: list[Path] = []
+    venv_dir = _selected_local_venv_dir(backend_dir)
+    if venv_dir is None:
         return
 
-    site_packages: list[Path] = []
     # Linux/WSL virtualenv layout
     lib_dir = venv_dir / "lib"
     if lib_dir.exists():

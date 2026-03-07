@@ -1,7 +1,33 @@
 import { cookies } from "next/headers";
 
-const BACKEND_BASE_URL =
-  (process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000/api/v1").replace(/\/+$/g, "");
+function normalizeBase(value: string | undefined | null): string | null {
+  const v = String(value || "").trim();
+  if (!v) return null;
+  return v.replace(/\/+$/g, "");
+}
+
+function unique(values: Array<string | null>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (!value) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+function backendBaseCandidates(): string[] {
+  return unique([
+    normalizeBase(process.env.BACKEND_BASE_URL),
+    normalizeBase(process.env.NEXT_PUBLIC_API_BASE_URL),
+    "http://127.0.0.1:8000/api/v1",
+    "http://localhost:8000/api/v1",
+    "http://127.0.0.1:8080/api/v1",
+    "http://localhost:8080/api/v1",
+  ]);
+}
 
 function joinUrl(base: string, path: string) {
   if (/^https?:\/\//i.test(path)) return path;
@@ -46,7 +72,6 @@ function createTimeoutController(timeoutMs: number) {
 }
 
 export async function backendFetch(path: string, init?: RequestInit) {
-  const url = joinUrl(BACKEND_BASE_URL, path);
   const headers = new Headers(init?.headers || {});
 
   const tenantHeaders = await getTenantHeaders();
@@ -80,33 +105,42 @@ export async function backendFetch(path: string, init?: RequestInit) {
     cache: "no-store",
   };
 
-  // If caller already provided a signal, respect it directly.
-  if (reqInit.signal) {
-    return fetch(url, reqInit);
-  }
-
-  // One retry for GET on timeout to reduce transient dashboard flakiness.
+  const bases = backendBaseCandidates();
   const method = String(reqInit.method || "GET").toUpperCase();
   const maxAttempts = method === "GET" ? 2 : 1;
 
   let lastErr: unknown = null;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const timeoutMs =
-      attempt === 1 ? DEFAULT_TIMEOUT_MS : Math.round(DEFAULT_TIMEOUT_MS * 1.5);
-    const timeout = createTimeoutController(timeoutMs);
-    try {
-      return await fetch(url, { ...reqInit, signal: timeout.signal });
-    } catch (err: any) {
-      lastErr = err;
-      const isAbort = err?.name === "AbortError";
-      if (!isAbort || attempt >= maxAttempts) {
-        throw err;
+  for (const base of bases) {
+    const url = joinUrl(base, path);
+
+    // If caller already provided a signal, respect it directly.
+    if (reqInit.signal) {
+      try {
+        return await fetch(url, reqInit);
+      } catch (err) {
+        lastErr = err;
+        continue;
       }
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    } finally {
-      timeout.clear();
+    }
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const timeoutMs =
+        attempt === 1 ? DEFAULT_TIMEOUT_MS : Math.round(DEFAULT_TIMEOUT_MS * 1.5);
+      const timeout = createTimeoutController(timeoutMs);
+      try {
+        return await fetch(url, { ...reqInit, signal: timeout.signal });
+      } catch (err: any) {
+        lastErr = err;
+        const isAbort = err?.name === "AbortError";
+        if (!isAbort || attempt >= maxAttempts) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      } finally {
+        timeout.clear();
+      }
     }
   }
 
-  throw lastErr;
+  throw lastErr ?? new Error("Unable to reach backend");
 }

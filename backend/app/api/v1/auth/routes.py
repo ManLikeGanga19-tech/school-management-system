@@ -1,4 +1,5 @@
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response, Cookie, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -53,20 +54,29 @@ def login(
 def refresh(
     response: Response,
     db: Session = Depends(get_db),
-    tenant=Depends(get_tenant),
     sms_refresh: Optional[str] = Cookie(default=None),
 ):
     if not sms_refresh:
         raise HTTPException(status_code=401, detail="Missing refresh token")
 
     try:
+        payload = decode_token(sms_refresh)
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        tenant_id_raw = payload.get("tenant_id")
+        if not tenant_id_raw or tenant_id_raw == SAAS_TENANT_MARKER:
+            raise HTTPException(status_code=401, detail="Invalid tenant refresh token")
+        tenant_id = UUID(str(tenant_id_raw))
+
         access, new_refresh = service.refresh(
             db,
-            tenant_id=tenant.id,
+            tenant_id=tenant_id,
             refresh_token=sms_refresh,
         )
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     response.set_cookie(
         key=REFRESH_COOKIE,
@@ -84,15 +94,21 @@ def refresh(
 def logout(
     response: Response,
     db: Session = Depends(get_db),
-    tenant=Depends(get_tenant),
     sms_refresh: Optional[str] = Cookie(default=None),
 ):
     if sms_refresh:
-        service.logout(
-            db,
-            tenant_id=tenant.id,
-            refresh_token=sms_refresh,
-        )
+        try:
+            payload = decode_token(sms_refresh)
+            tenant_id_raw = payload.get("tenant_id")
+            if payload.get("type") == "refresh" and tenant_id_raw and tenant_id_raw != SAAS_TENANT_MARKER:
+                service.logout(
+                    db,
+                    tenant_id=UUID(str(tenant_id_raw)),
+                    refresh_token=sms_refresh,
+                )
+        except Exception:
+            # Logout should be best-effort and always clear cookie client-side.
+            pass
 
     response.delete_cookie(
         key=REFRESH_COOKIE,

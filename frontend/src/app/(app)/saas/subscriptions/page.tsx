@@ -59,7 +59,6 @@ import {
   AlertTriangle,
   CalendarDays,
   Calendar,
-  Building2,
   Pencil,
   Trash2,
   BadgePercent,
@@ -68,7 +67,7 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type BillingCycle = "per_term" | "full_year";
+type BillingPlan = "per_term" | "per_year";
 type SubStatus    = "active" | "trialing" | "past_due" | "cancelled" | "paused";
 
 type SubscriptionRow = {
@@ -76,8 +75,10 @@ type SubscriptionRow = {
   tenant_id: string;
   tenant_name?: string;
   tenant_slug?: string;
-  plan: string;
-  billing_cycle: BillingCycle;
+  billing_plan?: BillingPlan | null;
+  /** Backward-compatible mirrors from older API payloads */
+  plan?: string | null;
+  billing_cycle?: "per_term" | "full_year" | null;
   status: SubStatus;
   amount_kes: number;
   discount_percent?: number | null;
@@ -100,20 +101,8 @@ type TenantOption = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PLANS   = ["Starter", "Basic", "Professional", "Enterprise"];
+const BILLING_PLANS: BillingPlan[] = ["per_term", "per_year"];
 const STATUSES: SubStatus[] = ["active", "trialing", "past_due", "cancelled", "paused"];
-
-/**
- * Base pricing per plan per term (KES).
- * Full-year = term price × 3 × (1 - discount).
- * Adjust these to match your actual pricing.
- */
-const BASE_TERM_PRICE: Record<string, number> = {
-  Starter:      5_000,
-  Basic:        12_000,
-  Professional: 25_000,
-  Enterprise:   50_000,
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -162,18 +151,21 @@ function statusDot(s: SubStatus) {
   }[s];
 }
 
-function billingLabel(cycle: BillingCycle) {
-  return cycle === "per_term" ? "Per Term" : "Full Year";
+function resolveBillingPlan(row: SubscriptionRow): BillingPlan {
+  const direct = String(row.billing_plan ?? "").trim().toLowerCase();
+  if (direct === "per_term" || direct === "per_year") return direct;
+  const legacyCycle = String(row.billing_cycle ?? "").trim().toLowerCase();
+  if (legacyCycle === "full_year") return "per_year";
+  if (legacyCycle === "per_term") return "per_term";
+  return "per_term";
 }
 
-function billingIcon(cycle: BillingCycle) {
-  return cycle === "per_term" ? CalendarDays : Calendar;
+function billingLabel(plan: BillingPlan) {
+  return plan === "per_term" ? "Per Term" : "Per Year";
 }
 
-function computeAmount(plan: string, cycle: BillingCycle, discount: number): number {
-  const termBase = BASE_TERM_PRICE[plan] ?? 0;
-  if (cycle === "per_term") return Math.round(termBase * (1 - discount / 100));
-  return Math.round(termBase * 3 * (1 - discount / 100));
+function billingIcon(plan: BillingPlan) {
+  return plan === "per_term" ? CalendarDays : Calendar;
 }
 
 function avatarColor(id: string) {
@@ -191,7 +183,7 @@ function avatarColor(id: string) {
 
 /**
  * TODO: GET /api/v1/admin/subscriptions
- * Query params: status?, tenant_id?, plan?, billing_cycle?
+ * Query params: status?, tenant_id?, billing_plan?
  * Returns: SubscriptionRow[]
  */
 async function fetchSubscriptions(params: Record<string, string>): Promise<SubscriptionRow[]> {
@@ -203,7 +195,7 @@ async function fetchSubscriptions(params: Record<string, string>): Promise<Subsc
 
 /**
  * TODO: POST /api/v1/admin/subscriptions
- * Body: { tenant_id, plan, billing_cycle, discount_percent?, notes?, period_start? }
+ * Body: { tenant_id, billing_plan, amount_kes, discount_percent?, notes?, period_start? }
  * Returns: SubscriptionRow
  */
 async function createSubscription(body: object): Promise<void> {
@@ -216,7 +208,7 @@ async function createSubscription(body: object): Promise<void> {
 
 /**
  * TODO: PATCH /api/v1/admin/subscriptions/:id
- * Body: { plan?, billing_cycle?, status?, discount_percent?, notes? }
+ * Body: { billing_plan?, amount_kes?, status?, discount_percent?, notes? }
  * Returns: SubscriptionRow
  */
 async function updateSubscription(id: string, body: object): Promise<void> {
@@ -246,16 +238,15 @@ export default function SaaSSubscriptionsPage() {
 
   // Filters
   const [filterStatus,  setFilterStatus]  = useState<string>("all");
-  const [filterPlan,    setFilterPlan]    = useState<string>("all");
-  const [filterCycle,   setFilterCycle]   = useState<string>("all");
+  const [filterBillingPlan, setFilterBillingPlan] = useState<string>("all");
   const [filterTenant,  setFilterTenant]  = useState<string>("all");
   const [q, setQ]                         = useState("");
 
   // Create dialog
   const [createOpen, setCreateOpen]     = useState(false);
   const [cTenant, setCTenant]           = useState("");
-  const [cPlan, setCPlan]               = useState("Basic");
-  const [cCycle, setCCycle]             = useState<BillingCycle>("per_term");
+  const [cBillingPlan, setCBillingPlan] = useState<BillingPlan>("per_term");
+  const [cAmount, setCAmount]           = useState("");
   const [cDiscount, setCDiscount]       = useState("0");
   const [cNotes, setCNotes]             = useState("");
   const [cPeriodStart, setCPeriodStart] = useState("");
@@ -264,8 +255,8 @@ export default function SaaSSubscriptionsPage() {
   // Edit dialog
   const [editOpen, setEditOpen]   = useState(false);
   const [editRow, setEditRow]     = useState<SubscriptionRow | null>(null);
-  const [ePlan, setEPlan]         = useState("");
-  const [eCycle, setECycle]       = useState<BillingCycle>("per_term");
+  const [eBillingPlan, setEBillingPlan] = useState<BillingPlan>("per_term");
+  const [eAmount, setEAmount]     = useState("");
   const [eStatus, setEStatus]     = useState<SubStatus>("active");
   const [eDiscount, setEDiscount] = useState("0");
   const [eNotes, setENotes]       = useState("");
@@ -291,8 +282,7 @@ export default function SaaSSubscriptionsPage() {
     try {
       const params: Record<string, string> = {};
       if (filterStatus !== "all")  params.status        = filterStatus;
-      if (filterPlan   !== "all")  params.plan           = filterPlan;
-      if (filterCycle  !== "all")  params.billing_cycle  = filterCycle;
+      if (filterBillingPlan !== "all") params.billing_plan = filterBillingPlan;
       if (filterTenant !== "all")  params.tenant_id      = filterTenant;
 
       const data = await fetchSubscriptions(params);
@@ -314,19 +304,20 @@ export default function SaaSSubscriptionsPage() {
 
   async function handleCreate() {
     if (!cTenant) return toast.error("Select a tenant");
+    if (!cAmount || Number(cAmount) <= 0) return toast.error("Enter a valid amount");
     setCreating(true);
     try {
       await createSubscription({
-        tenant_id:       cTenant,
-        plan:            cPlan,
-        billing_cycle:   cCycle,
+        tenant_id:        cTenant,
+        billing_plan:     cBillingPlan,
+        amount_kes:       Number(cAmount),
         discount_percent: Number(cDiscount) || 0,
-        notes:           cNotes.trim() || null,
-        period_start:    cPeriodStart || null,
+        notes:            cNotes.trim() || null,
+        period_start:     cPeriodStart || null,
       });
       toast.success("Subscription created");
       setCreateOpen(false);
-      setCTenant(""); setCPlan("Basic"); setCCycle("per_term");
+      setCTenant(""); setCBillingPlan("per_term"); setCAmount("");
       setCDiscount("0"); setCNotes(""); setCPeriodStart("");
       await load(true);
     } catch (e: any) {
@@ -340,8 +331,8 @@ export default function SaaSSubscriptionsPage() {
 
   function openEdit(row: SubscriptionRow) {
     setEditRow(row);
-    setEPlan(row.plan);
-    setECycle(row.billing_cycle);
+    setEBillingPlan(resolveBillingPlan(row));
+    setEAmount(String(row.amount_kes ?? ""));
     setEStatus(row.status);
     setEDiscount(String(row.discount_percent ?? 0));
     setENotes(row.notes ?? "");
@@ -350,11 +341,15 @@ export default function SaaSSubscriptionsPage() {
 
   async function handleSaveEdit() {
     if (!editRow) return;
+    if (!eAmount || Number(eAmount) <= 0) {
+      toast.error("Enter a valid amount");
+      return;
+    }
     setSaving(true);
     try {
       await updateSubscription(editRow.id, {
-        plan:             ePlan,
-        billing_cycle:    eCycle,
+        billing_plan:     eBillingPlan,
+        amount_kes:       Number(eAmount),
         status:           eStatus,
         discount_percent: Number(eDiscount) || 0,
         notes:            eNotes.trim() || null,
@@ -391,31 +386,23 @@ export default function SaaSSubscriptionsPage() {
       !term ||
       (r.tenant_name ?? "").toLowerCase().includes(term) ||
       (r.tenant_slug ?? "").toLowerCase().includes(term) ||
-      r.plan.toLowerCase().includes(term)
+      billingLabel(resolveBillingPlan(r)).toLowerCase().includes(term)
     );
   }, [rows, q]);
 
   const activeCount   = rows.filter((r) => r.status === "active").length;
   const pastDueCount  = rows.filter((r) => r.status === "past_due").length;
   const trialCount    = rows.filter((r) => r.status === "trialing").length;
-  const termCount     = rows.filter((r) => r.billing_cycle === "per_term").length;
-  const yearCount     = rows.filter((r) => r.billing_cycle === "full_year").length;
+  const termCount     = rows.filter((r) => resolveBillingPlan(r) === "per_term").length;
+  const yearCount     = rows.filter((r) => resolveBillingPlan(r) === "per_year").length;
   const totalMrr      = rows
     .filter((r) => r.status === "active")
     .reduce((sum, r) => {
-      const monthly = r.billing_cycle === "per_term"
+      const monthly = resolveBillingPlan(r) === "per_term"
         ? r.amount_kes / 4          // ~4 months per term
         : r.amount_kes / 12;
       return sum + monthly;
     }, 0);
-
-  // Preview amount for create dialog
-  const previewAmount = computeAmount(cPlan, cCycle, Number(cDiscount) || 0);
-
-  // Preview amount for edit dialog
-  const editPreviewAmount = editRow
-    ? computeAmount(ePlan, eCycle, Number(eDiscount) || 0)
-    : 0;
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -428,7 +415,7 @@ export default function SaaSSubscriptionsPage() {
           <DialogHeader>
             <DialogTitle>New Subscription</DialogTitle>
             <DialogDescription>
-              Assign a billing plan and payment cycle to a tenant institution.
+              Assign a billing plan and manual price to a tenant institution.
             </DialogDescription>
           </DialogHeader>
 
@@ -457,50 +444,35 @@ export default function SaaSSubscriptionsPage() {
               </Select>
             </div>
 
-            {/* Plan */}
+            {/* Billing plan */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Plan</Label>
-              <Select value={cPlan} onValueChange={setCPlan}>
+              <Label className="text-xs font-medium text-slate-600">Billing Plan</Label>
+              <Select value={cBillingPlan} onValueChange={(value: BillingPlan) => setCBillingPlan(value)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {PLANS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  {BILLING_PLANS.map((plan) => (
+                    <SelectItem key={plan} value={plan}>{billingLabel(plan)}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Billing cycle — two-card selector */}
+            {/* Amount */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Billing Cycle</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {(["per_term", "full_year"] as BillingCycle[]).map((cycle) => {
-                  const Icon = billingIcon(cycle);
-                  const isSelected = cCycle === cycle;
-                  return (
-                    <button
-                      key={cycle}
-                      type="button"
-                      onClick={() => setCCycle(cycle)}
-                      className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition ${
-                        isSelected
-                          ? "border-blue-200 bg-blue-50"
-                          : "border-slate-200 bg-white hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <Icon className={`h-4 w-4 ${isSelected ? "text-blue-600" : "text-slate-400"}`} />
-                        <span className={`text-sm font-semibold ${isSelected ? "text-blue-800" : "text-slate-700"}`}>
-                          {billingLabel(cycle)}
-                        </span>
-                      </div>
-                      <span className="text-xs text-slate-400">
-                        {cycle === "per_term"
-                          ? "3 payments/year · billed each school term"
-                          : "1 payment/year · billed upfront annually"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <Label className="text-xs font-medium text-slate-600">
+                Amount (KES) <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                type="number"
+                min="1"
+                step="0.01"
+                placeholder="e.g. 15000"
+                value={cAmount}
+                onChange={(e) => setCAmount(e.target.value)}
+              />
+              <p className="text-xs text-slate-400">
+                Price is manually controlled by SaaS admin. No hardcoded pricing is applied.
+              </p>
             </div>
 
             {/* Discount */}
@@ -518,31 +490,9 @@ export default function SaaSSubscriptionsPage() {
                   className="w-24"
                 />
                 <span className="text-xs text-slate-400">
-                  % off — typically 10–20% for full-year
+                  Optional metadata for negotiated discounts.
                 </span>
               </div>
-            </div>
-
-            {/* Amount preview */}
-            <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-medium text-blue-600">Amount to Bill</div>
-                  <div className="text-xs text-blue-400">
-                    {cCycle === "per_term" ? "per school term" : "per year (upfront)"}
-                  </div>
-                </div>
-                <div className="text-2xl font-bold text-blue-900">
-                  {formatKes(previewAmount)}
-                </div>
-              </div>
-              {Number(cDiscount) > 0 && (
-                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-blue-500">
-                  <BadgePercent className="h-3 w-3" />
-                  {cDiscount}% discount applied — base was{" "}
-                  {formatKes(computeAmount(cPlan, cCycle, 0))}
-                </div>
-              )}
             </div>
 
             {/* Period start */}
@@ -571,7 +521,7 @@ export default function SaaSSubscriptionsPage() {
             <Separator />
             <p className="text-xs text-slate-400">
               Calls <code className="rounded bg-slate-100 px-1">POST /api/v1/admin/subscriptions</code>.
-              Implement billing logic in your Python backend.
+              Billing plan is <code className="rounded bg-slate-100 px-1">per_term</code> or <code className="rounded bg-slate-100 px-1">per_year</code>.
             </p>
           </div>
 
@@ -581,7 +531,7 @@ export default function SaaSSubscriptionsPage() {
             </Button>
             <Button
               onClick={() => void handleCreate()}
-              disabled={creating || !cTenant}
+              disabled={creating || !cTenant || Number(cAmount) <= 0}
               className="bg-blue-600 hover:bg-blue-700"
             >
               {creating ? (
@@ -611,50 +561,31 @@ export default function SaaSSubscriptionsPage() {
 
           <div className="space-y-4 py-1">
 
-            {/* Plan */}
+            {/* Billing plan */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Plan</Label>
-              <Select value={ePlan} onValueChange={setEPlan}>
+              <Label className="text-xs font-medium text-slate-600">Billing Plan</Label>
+              <Select value={eBillingPlan} onValueChange={(value: BillingPlan) => setEBillingPlan(value)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {PLANS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  {BILLING_PLANS.map((plan) => (
+                    <SelectItem key={plan} value={plan}>{billingLabel(plan)}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Billing cycle */}
+            {/* Amount */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Billing Cycle</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {(["per_term", "full_year"] as BillingCycle[]).map((cycle) => {
-                  const Icon = billingIcon(cycle);
-                  const isSelected = eCycle === cycle;
-                  return (
-                    <button
-                      key={cycle}
-                      type="button"
-                      onClick={() => setECycle(cycle)}
-                      className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition ${
-                        isSelected
-                          ? "border-blue-200 bg-blue-50"
-                          : "border-slate-200 bg-white hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <Icon className={`h-4 w-4 ${isSelected ? "text-blue-600" : "text-slate-400"}`} />
-                        <span className={`text-sm font-semibold ${isSelected ? "text-blue-800" : "text-slate-700"}`}>
-                          {billingLabel(cycle)}
-                        </span>
-                      </div>
-                      <span className="text-xs text-slate-400">
-                        {cycle === "per_term"
-                          ? "3 payments/year"
-                          : "1 payment/year"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <Label className="text-xs font-medium text-slate-600">
+                Amount (KES) <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                type="number"
+                min="1"
+                step="0.01"
+                value={eAmount}
+                onChange={(e) => setEAmount(e.target.value)}
+              />
             </div>
 
             {/* Status */}
@@ -687,17 +618,16 @@ export default function SaaSSubscriptionsPage() {
               />
             </div>
 
-            {/* Amount preview */}
             <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-xs font-medium text-blue-600">New Billing Amount</div>
+                  <div className="text-xs font-medium text-blue-600">Billing Plan</div>
                   <div className="text-xs text-blue-400">
-                    {eCycle === "per_term" ? "per school term" : "per year (upfront)"}
+                    {billingLabel(eBillingPlan)}
                   </div>
                 </div>
                 <div className="text-2xl font-bold text-blue-900">
-                  {formatKes(editPreviewAmount)}
+                  {formatKes(Number(eAmount) || 0)}
                 </div>
               </div>
             </div>
@@ -763,7 +693,7 @@ export default function SaaSSubscriptionsPage() {
               </div>
               <h1 className="text-xl font-bold">Subscription Management</h1>
               <p className="mt-0.5 text-sm text-blue-100">
-                Manage per-term and full-year billing plans across all tenant institutions
+                Manage tenant billing plans (per term or per year) and manual pricing
               </p>
             </div>
             <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-4 sm:gap-3">
@@ -804,7 +734,7 @@ export default function SaaSSubscriptionsPage() {
           {[
             { label: "Active Subs",    value: activeCount,         color: "border-emerald-100 bg-emerald-50 text-emerald-900 text-emerald-400" },
             { label: "Per Term",       value: termCount,           color: "border-blue-100 bg-blue-50 text-blue-900 text-blue-400" },
-            { label: "Full Year",      value: yearCount,           color: "border-purple-100 bg-purple-50 text-purple-900 text-purple-400" },
+            { label: "Per Year",       value: yearCount,           color: "border-purple-100 bg-purple-50 text-purple-900 text-purple-400" },
             { label: "Past Due",       value: pastDueCount,        color: pastDueCount > 0 ? "border-red-100 bg-red-50 text-red-900 text-red-400" : "border-slate-100 bg-slate-50 text-slate-900 text-slate-400" },
             { label: "Est. MRR",       value: formatKes(totalMrr), color: "border-amber-100 bg-amber-50 text-amber-900 text-amber-400" },
           ].map((item) => {
@@ -818,21 +748,21 @@ export default function SaaSSubscriptionsPage() {
           })}
         </div>
 
-        {/* Billing cycle breakdown */}
+        {/* Billing plan breakdown */}
         <div className="grid gap-4 sm:grid-cols-2">
-          {(["per_term", "full_year"] as BillingCycle[]).map((cycle) => {
-            const subs    = rows.filter((r) => r.billing_cycle === cycle && r.status === "active");
+          {BILLING_PLANS.map((plan) => {
+            const subs = rows.filter((r) => resolveBillingPlan(r) === plan && r.status === "active");
             const revenue = subs.reduce((s, r) => s + r.amount_kes, 0);
-            const Icon    = billingIcon(cycle);
+            const Icon = billingIcon(plan);
             return (
-              <div key={cycle} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div key={plan} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
                   <Icon className="h-6 w-6" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-slate-900">{billingLabel(cycle)}</div>
+                  <div className="text-sm font-semibold text-slate-900">{billingLabel(plan)}</div>
                   <div className="text-xs text-slate-400 mt-0.5">
-                    {cycle === "per_term"
+                    {plan === "per_term"
                       ? "Invoiced each school term (3× per year)"
                       : "Single upfront annual payment"}
                   </div>
@@ -867,7 +797,7 @@ export default function SaaSSubscriptionsPage() {
               <div className="relative w-full sm:w-auto">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <Input
-                  placeholder="Search tenant, plan…"
+                  placeholder="Search tenant, billing plan…"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   className="h-8 w-full pl-8 text-xs sm:w-44"
@@ -883,22 +813,13 @@ export default function SaaSSubscriptionsPage() {
                 </SelectContent>
               </Select>
 
-              {/* Cycle filter */}
-              <Select value={filterCycle} onValueChange={setFilterCycle}>
-                <SelectTrigger className="h-8 w-full text-xs sm:w-32"><SelectValue placeholder="Cycle" /></SelectTrigger>
+              {/* Billing plan filter */}
+              <Select value={filterBillingPlan} onValueChange={setFilterBillingPlan}>
+                <SelectTrigger className="h-8 w-full text-xs sm:w-36"><SelectValue placeholder="Billing plan" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All cycles</SelectItem>
+                  <SelectItem value="all">All billing plans</SelectItem>
                   <SelectItem value="per_term">Per Term</SelectItem>
-                  <SelectItem value="full_year">Full Year</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Plan filter */}
-              <Select value={filterPlan} onValueChange={setFilterPlan}>
-                <SelectTrigger className="h-8 w-full text-xs sm:w-32"><SelectValue placeholder="Plan" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All plans</SelectItem>
-                  {PLANS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  <SelectItem value="per_year">Per Year</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -921,8 +842,7 @@ export default function SaaSSubscriptionsPage() {
                 <TableRow className="bg-slate-50 hover:bg-slate-50">
                   <TableHead className="w-10 text-xs" />
                   <TableHead className="text-xs">Institution</TableHead>
-                  <TableHead className="text-xs">Plan</TableHead>
-                  <TableHead className="text-xs">Cycle</TableHead>
+                  <TableHead className="text-xs">Billing Plan</TableHead>
                   <TableHead className="text-xs">Amount</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Period End</TableHead>
@@ -932,7 +852,7 @@ export default function SaaSSubscriptionsPage() {
               <TableBody>
                 {loading && Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={8} className="px-5 py-3">
+                    <TableCell colSpan={7} className="px-5 py-3">
                       <Skeleton className="h-10 w-full rounded-xl" />
                     </TableCell>
                   </TableRow>
@@ -940,7 +860,7 @@ export default function SaaSSubscriptionsPage() {
 
                 {!loading && filteredRows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-12 text-center">
+                    <TableCell colSpan={7} className="py-12 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <CreditCard className="h-7 w-7 text-slate-200" />
                         <p className="text-sm text-slate-400">
@@ -988,21 +908,15 @@ export default function SaaSSubscriptionsPage() {
                         </TooltipProvider>
                       </TableCell>
 
-                      {/* Plan */}
-                      <TableCell className="py-3">
-                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
-                          {r.plan}
-                        </span>
-                      </TableCell>
-
-                      {/* Billing cycle */}
+                      {/* Billing plan */}
                       <TableCell className="py-3">
                         {(() => {
-                          const Icon = billingIcon(r.billing_cycle);
+                          const plan = resolveBillingPlan(r);
+                          const Icon = billingIcon(plan);
                           return (
-                            <span className="inline-flex items-center gap-1 text-xs text-slate-600">
-                              <Icon className="h-3.5 w-3.5 text-slate-400" />
-                              {billingLabel(r.billing_cycle)}
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
+                              <Icon className="h-3.5 w-3.5 text-blue-500" />
+                              {billingLabel(plan)}
                             </span>
                           );
                         })()}
@@ -1088,7 +1002,7 @@ export default function SaaSSubscriptionsPage() {
               </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                 <Calendar className="h-3.5 w-3.5 text-purple-400" />
-                {yearCount} full-year
+                {yearCount} per-year
               </span>
               <span className="flex items-center gap-1.5 text-xs font-medium text-amber-700 sm:ml-auto">
                 <TrendingUp className="h-3.5 w-3.5" />

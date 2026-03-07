@@ -1,6 +1,7 @@
 # app/core/database.py
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import settings
 
 try:
@@ -35,6 +36,24 @@ engine = create_engine(
 )
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+
+def database_status() -> tuple[bool, str]:
+    """
+    Lightweight DB bootstrap status check.
+
+    Returns:
+      (True, "ready") when DB is reachable and core.tenants exists.
+      (False, "...") with a machine-readable reason otherwise.
+    """
+    try:
+        with engine.connect() as conn:
+            tenants_table = conn.execute(text("SELECT to_regclass('core.tenants')")).scalar()
+        if tenants_table:
+            return True, "ready"
+        return False, "schema_missing"
+    except SQLAlchemyError:
+        return False, "database_unavailable"
 
 
 def get_db():

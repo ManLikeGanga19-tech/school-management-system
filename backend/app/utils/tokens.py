@@ -9,14 +9,34 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def create_access_token(*, sub: str, tenant_id: str, roles: list[str], permissions: list[str]) -> str:
+def create_access_token(
+    *,
+    sub: str | None = None,
+    subject: str | None = None,
+    tenant_id: str,
+    roles: list[str],
+    permissions: list[str],
+    token_type: str = "access",
+) -> str:
+    """
+    Create an access token.
+
+    Backward compatibility:
+    - `subject` is accepted as an alias for `sub` (older callers/tests).
+    - `token_type` is accepted and defaults to `access`.
+    """
+    token_subject = (sub or subject or "").strip()
+    if not token_subject:
+        raise ValueError("Token subject is required")
+
+    normalized_type = token_type.strip().lower() or "access"
     exp = _now_utc() + timedelta(minutes=settings.JWT_ACCESS_TTL_MIN)
     payload = {
-        "sub": sub,
+        "sub": token_subject,
         "tenant_id": tenant_id,
         "roles": roles,
         "permissions": permissions,
-        "type": "access",
+        "type": normalized_type,
         "exp": exp,
         "iat": _now_utc(),
     }
