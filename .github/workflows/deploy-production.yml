@@ -36,20 +36,21 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     permissions:
       contents: read
+      packages: read
     env:
       PRODUCTION_SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
       PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
       PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
       PRODUCTION_DEPLOY_PATH: ${{ secrets.PRODUCTION_DEPLOY_PATH }}
       PRODUCTION_ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.repository_owner }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || github.token }}
     steps:
       - name: Validate production secrets
         shell: bash
         run: |
           set -euo pipefail
-          required=(PRODUCTION_SSH_HOST PRODUCTION_SSH_USER PRODUCTION_SSH_PRIVATE_KEY PRODUCTION_ENV_FILE GHCR_USERNAME GHCR_TOKEN)
+          required=(PRODUCTION_SSH_HOST PRODUCTION_SSH_USER PRODUCTION_SSH_PRIVATE_KEY PRODUCTION_ENV_FILE)
           for key in "${required[@]}"; do
             if [ -z "${!key:-}" ]; then
               echo "Missing required secret: ${key}"

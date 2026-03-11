@@ -36,20 +36,21 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'staging')
     permissions:
       contents: read
+      packages: read
     env:
       STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
       STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
       STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
       STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
       STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.repository_owner }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || github.token }}
     steps:
       - name: Validate staging secrets
         shell: bash
         run: |
           set -euo pipefail
-          required=(STAGING_SSH_HOST STAGING_SSH_USER STAGING_SSH_PRIVATE_KEY STAGING_ENV_FILE GHCR_USERNAME GHCR_TOKEN)
+          required=(STAGING_SSH_HOST STAGING_SSH_USER STAGING_SSH_PRIVATE_KEY STAGING_ENV_FILE)
           for key in "${required[@]}"; do
             if [ -z "${!key:-}" ]; then
               echo "Missing required secret: ${key}"
