@@ -22,6 +22,7 @@
 //   - credentials: "include" for refresh-token cookie rotation
 
 import { storage, keys } from "./storage";
+import { resolveAdminPortalUrl, resolvePortalContext } from "./platform-host";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const LOCAL_API_BASE = "http://127.0.0.1:8000/api/v1";
@@ -201,12 +202,22 @@ async function silentRefresh(mode: RefreshMode): Promise<boolean> {
  * Redirect to /login, preserving the current path in ?next=
  * so the user lands back where they were after re-authenticating.
  */
-function redirectToLogin() {
+function redirectToLogin(mode: RefreshMode) {
   if (typeof window === "undefined") return;
-  const next = encodeURIComponent(
-    window.location.pathname + window.location.search
-  );
-  window.location.href = `/login?next=${next}`;
+  const portal = resolvePortalContext(window.location.hostname);
+  const next = encodeURIComponent(window.location.pathname + window.location.search);
+
+  if (mode === "saas" || portal.kind === "admin") {
+    window.location.href = resolveAdminPortalUrl(`/saas/login?next=${next}`) ?? `/saas/login?next=${next}`;
+    return;
+  }
+
+  if (portal.kind === "tenant") {
+    window.location.href = `/login?next=${next}`;
+    return;
+  }
+
+  window.location.href = "/";
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -353,7 +364,7 @@ export async function apiFetch<T>(path: string, opts?: ApiOptions): Promise<T> {
     if (res.status === 401) {
       const body = await res.json().catch(() => ({}));
       const msg  = body?.detail ?? "Session expired. Please log in again.";
-      if (!noRedirect) redirectToLogin();
+      if (!noRedirect) redirectToLogin(requestMode);
       throw new ApiError(401, msg, body);
     }
   }
@@ -420,7 +431,7 @@ export async function apiFetchRaw(path: string, opts?: ApiOptions): Promise<Resp
         body = {};
       }
       const msg = body?.detail ?? "Session expired. Please log in again.";
-      if (!noRedirect) redirectToLogin();
+      if (!noRedirect) redirectToLogin(requestMode);
       throw new ApiError(401, msg, body);
     }
   }

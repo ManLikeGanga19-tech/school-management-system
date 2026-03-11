@@ -43,7 +43,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
     """
 
     def _extract_host(self, request: Request) -> str:
-        host = request.headers.get("host", "")
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+        host = host.split(",")[0].strip()
         return host.split(":")[0].lower()
 
     def _is_public_path(self, path: str) -> bool:
@@ -90,6 +91,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
             return True
         # Support inbox for SaaS operators (cross-tenant) must not require tenant headers
         if path.startswith("/api/v1/support/admin"):
+            return True
+        if path.startswith("/api/v1/public"):
             return True
 
         return False

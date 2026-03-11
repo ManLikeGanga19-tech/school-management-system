@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { backendFetch } from "@/server/backend/client";
+import { headers } from "next/headers";
 import {
   setAccessToken,
   setRefreshToken,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/auth/cookies";
 import { decodeAccess } from "@/lib/auth/jwt";
 import { resolveTenantDashboard } from "@/lib/auth/tenant-dashboard";
+import { resolvePortalContext } from "@/lib/platform-host";
 
 function extractCookieValue(setCookie: string | null, cookieName: string) {
   if (!setCookie) return null;
@@ -69,12 +71,23 @@ async function requestTenantLogin(
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
 
-  const tenant_slug = (body?.tenant_slug as string | undefined)?.trim().toLowerCase();
+  const hdrs = await headers();
+  const portal = resolvePortalContext(hdrs.get("x-forwarded-host") ?? hdrs.get("host"));
+
+  const tenant_slug =
+    (body?.tenant_slug as string | undefined)?.trim().toLowerCase() ||
+    (portal.kind === "tenant" ? portal.tenantSlug || undefined : undefined);
   const email = (body?.email as string | undefined)?.trim().toLowerCase();
   const password = (body?.password as string | undefined) || "";
 
   if (!tenant_slug) {
-    return NextResponse.json({ detail: "Missing tenant_slug" }, { status: 400 });
+    return NextResponse.json(
+      {
+        detail:
+          "School login is only available on a mapped school domain such as novel-school.shulehq.co.ke.",
+      },
+      { status: 400 }
+    );
   }
 
   if (!email || !password) {

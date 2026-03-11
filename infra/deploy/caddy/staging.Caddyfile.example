@@ -2,7 +2,7 @@
     email ops@example.com
 }
 
-staging.shulehq.co.ke {
+staging.shulehq.co.ke, admin.staging.shulehq.co.ke, novel-school.staging.shulehq.co.ke {
     encode zstd gzip
 
     log {

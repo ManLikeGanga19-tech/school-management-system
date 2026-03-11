@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import { storage, keys } from "@/lib/storage"; // ✅ add this
 
 type LoginValues = {
-  tenant_slug: string;
   email: string;
   password: string;
 };
@@ -32,7 +31,6 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
 
   const form = useForm<LoginValues>({
     defaultValues: {
-      tenant_slug: (initialTenantSlug || "").trim().toLowerCase(),
       email: "",
       password: "",
     },
@@ -43,18 +41,12 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
   async function onSubmit(values: LoginValues) {
     setErr(null);
 
-    const tenant_slug = values.tenant_slug.trim().toLowerCase();
-    if (!tenant_slug) {
-      setErr("Please enter your school/tenant code (tenant slug).");
-      return;
-    }
-
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({
-        tenant_slug,
+        tenant_slug: (initialTenantSlug || "").trim().toLowerCase(),
         email: values.email.trim().toLowerCase(),
         password: values.password,
       }),
@@ -71,7 +63,9 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
     storage.remove(keys.saasAccessToken);
     storage.remove(keys.tenantId);
     storage.set(keys.mode, "tenant");
-    storage.set(keys.tenantSlug, tenant_slug);
+    if (initialTenantSlug) {
+      storage.set(keys.tenantSlug, initialTenantSlug);
+    }
 
     // Optional: if your /api/auth/login ever returns access_token, store it
     // (won't break anything if absent)
@@ -95,23 +89,17 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
     <Card className="w-full max-w-md">
       <CardHeader>
         <CardTitle>Sign in</CardTitle>
-        <CardDescription>Enter your school code then sign in.</CardDescription>
+        <CardDescription>
+          {initialTenantSlug
+            ? `Sign in to ${initialTenantSlug}.`
+            : "Sign in through your school's mapped subdomain."}
+        </CardDescription>
       </CardHeader>
 
       <CardContent>
         {err && <div className="mb-3 text-sm text-red-600">{err}</div>}
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label>School Code (Tenant)</Label>
-            <Input
-              placeholder="e.g. demo-school"
-              autoCapitalize="none"
-              autoCorrect="off"
-              {...form.register("tenant_slug", { required: true })}
-            />
-          </div>
-
           <div className="space-y-2">
             <Label>Email</Label>
             <Input

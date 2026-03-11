@@ -17,5 +17,5 @@ export default async function DashboardLandingPage() {
     redirect("/saas/dashboard");
   }
 
-  redirect("/choose-tenant");
+  redirect("/login");
 }
