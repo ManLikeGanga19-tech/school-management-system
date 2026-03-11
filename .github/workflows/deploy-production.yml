@@ -1,5 +1,7 @@
 # .github/workflows/deploy-production.yml
-name: Deploy Production
+name: Deploy Production (main only)
+
+run-name: Deploy Production (${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }})
 
 on:
   workflow_run:
