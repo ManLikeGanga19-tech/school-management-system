@@ -28,6 +28,7 @@ export function middleware(req: NextRequest) {
   const isSaasLogin = pathname === SAAS_LOGIN;
   const isChooseTenant = pathname.startsWith("/choose-tenant");
   const isLandingPage = pathname === "/";
+  const isProspectAuthRoute = pathname === "/sign-in" || pathname === "/create-access";
 
   const tenantAccess = req.cookies.get("sms_access")?.value || "";
   const saasAccess = req.cookies.get("sms_saas_access")?.value || "";
@@ -105,6 +106,10 @@ export function middleware(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);
+  }
+
+  if (isProspectAuthRoute) {
+    return NextResponse.next();
   }
 
   if (isSaasLogin || isSaasRoute) {
