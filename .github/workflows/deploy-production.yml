@@ -107,10 +107,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
-          printf "%s\n" "${PRODUCTION_SSH_PRIVATE_KEY}" | tr -d '\r' > ~/.ssh/deploy_key
+          printf "%s" "${PRODUCTION_SSH_PRIVATE_KEY}" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
-            echo "Invalid PRODUCTION_SSH_PRIVATE_KEY. Store the full private key in OpenSSH format, not the public key or a .ppk file."
+            # Also accept a base64-encoded OpenSSH private key to avoid multiline secret corruption.
+            if printf "%s" "${PRODUCTION_SSH_PRIVATE_KEY}" | tr -d '\r\n\t ' | base64 -d > ~/.ssh/deploy_key 2>/dev/null; then
+              chmod 600 ~/.ssh/deploy_key
+            fi
+          fi
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+            echo "Invalid PRODUCTION_SSH_PRIVATE_KEY. Store the full private key in OpenSSH format or as a base64-encoded OpenSSH private key."
             exit 1
           fi
 
