@@ -208,7 +208,9 @@ function redirectToLogin(mode: RefreshMode) {
   const next = encodeURIComponent(window.location.pathname + window.location.search);
 
   if (mode === "saas" || portal.kind === "admin") {
-    window.location.href = resolveAdminPortalUrl(`/saas/login?next=${next}`) ?? `/saas/login?next=${next}`;
+    window.location.href =
+      resolveAdminPortalUrl(`/saas/login?next=${next}`, window.location.hostname) ??
+      `/saas/login?next=${next}`;
     return;
   }
 

@@ -16,6 +16,8 @@ export default async function Home() {
   const portal = resolvePortalContext(hdrs.get("x-forwarded-host") ?? hdrs.get("host"));
   const tenantAccess = c.get("sms_access")?.value;
   const saasAccess = c.get("sms_saas_access")?.value;
+  const publicHost = portal.publicHost || "shulehq.co.ke";
+  const adminHost = portal.adminHost || `admin.${publicHost}`;
 
   if (portal.kind === "admin") {
     redirect(saasAccess ? "/saas/dashboard" : "/saas/login");
@@ -25,5 +27,5 @@ export default async function Home() {
     redirect(tenantAccess ? "/dashboard" : "/login");
   }
 
-  return <PublicSite />;
+  return <PublicSite adminHost={adminHost} tenantBaseHost={publicHost} />;
 }

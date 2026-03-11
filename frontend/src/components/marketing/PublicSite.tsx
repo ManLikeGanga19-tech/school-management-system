@@ -128,9 +128,13 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function PublicSite() {
-  const adminHost = process.env.NEXT_PUBLIC_ADMIN_HOST || "admin.shulehq.co.ke";
-  const tenantBaseHost = process.env.NEXT_PUBLIC_TENANT_BASE_HOST || "shulehq.co.ke";
+export function PublicSite({
+  adminHost = "admin.shulehq.co.ke",
+  tenantBaseHost = "shulehq.co.ke",
+}: {
+  adminHost?: string;
+  tenantBaseHost?: string;
+}) {
   const tenantExampleHost = `novel-school.${tenantBaseHost}`;
 
   return (
