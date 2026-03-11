@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { Building2, ShieldCheck, Waypoints } from "lucide-react";
 
@@ -79,12 +80,33 @@ export function ProspectAccessPage({ mode }: { mode: "register" | "login" }) {
             </div>
           </div>
 
-          <ProspectAccessCard mode={mode} />
+          <Suspense fallback={<ProspectAccessCardFallback />}>
+            <ProspectAccessCard mode={mode} />
+          </Suspense>
         </div>
       </section>
 
       <PublicFooter />
       <CookieConsentBanner />
     </main>
+  );
+}
+
+function ProspectAccessCardFallback() {
+  return (
+    <div className="w-full rounded-[1.9rem] border border-slate-200/80 bg-white/94 p-8 shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
+      <div className="space-y-4">
+        <div className="h-5 w-32 rounded-full bg-slate-200" />
+        <div className="h-9 w-3/4 rounded-2xl bg-slate-200" />
+        <div className="h-4 w-full rounded-full bg-slate-100" />
+        <div className="h-4 w-5/6 rounded-full bg-slate-100" />
+        <div className="grid gap-3 pt-2">
+          <div className="h-12 rounded-full bg-slate-100" />
+          <div className="h-12 rounded-full bg-slate-100" />
+          <div className="h-12 rounded-2xl bg-slate-100" />
+          <div className="h-12 rounded-2xl bg-slate-100" />
+        </div>
+      </div>
+    </div>
   );
 }
