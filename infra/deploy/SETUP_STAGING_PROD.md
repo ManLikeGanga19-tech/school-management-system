@@ -106,11 +106,17 @@ Create records:
   - Value: `shulehq.co.ke`
 
 If staging and production are on the same VM:
-- keep production `NGINX_HTTP_PORT=80`
-- set staging `NGINX_HTTP_PORT=8081`
-- use a host reverse proxy (Nginx/Caddy) to route:
+- keep both compose nginx listeners on loopback only
+- assign different loopback ports, for example:
+  - staging `NGINX_HTTP_PORT=127.0.0.1:8081`
+  - production `NGINX_HTTP_PORT=127.0.0.1:8082`
+- use a host reverse proxy (recommended: Caddy) to route:
   - `staging.shulehq.co.ke` -> `127.0.0.1:8081`
-  - `shulehq.co.ke` -> `127.0.0.1:80`
+  - `shulehq.co.ke` -> `127.0.0.1:8082`
+
+If staging and production are on separate VMs:
+- standardize each environment on `NGINX_HTTP_PORT=127.0.0.1:8081`
+- terminate TLS on the host and reverse proxy to that loopback listener
 
 Verify DNS:
 
@@ -135,21 +141,33 @@ sudo ufw allow 443/tcp
 Note:
 - For staging/production env files, bind backend/frontend/postgres/redis to `127.0.0.1:*`
   so they are not publicly reachable.
-- Keep only Nginx bound publicly on port `80` (and `443` at host TLS layer).
+- Keep compose nginx bound to loopback only.
+- Let the host TLS proxy own public `80` and `443`.
 
 ## 6) TLS for domains (required before live traffic)
 
-You have two standard options:
+Recommended architecture:
 
-1. Host-level Nginx/Caddy in front of app container
-- Terminates TLS on `443`
-- Proxies traffic to `127.0.0.1:80` (compose nginx)
+1. Install Caddy on the host
+2. Keep compose nginx private on loopback
+3. Reverse proxy public traffic through Caddy to the app edge
 
-2. Certbot on host Nginx
-- Request cert for:
-  - `shulehq.co.ke`
-  - `staging.shulehq.co.ke`
-- Auto-renew enabled
+Example Caddyfiles:
+- `infra/deploy/caddy/staging.Caddyfile.example`
+- `infra/deploy/caddy/production.Caddyfile.example`
+
+Minimal flow:
+
+```bash
+ssh root@<staging_host> "apt-get update && apt-get install -y caddy"
+scp infra/deploy/caddy/staging.Caddyfile.example root@<staging_host>:/etc/caddy/Caddyfile
+ssh root@<staging_host> "caddy validate --config /etc/caddy/Caddyfile && systemctl restart caddy"
+```
+
+Runtime expectations:
+- Caddy listens on `0.0.0.0:80` and `0.0.0.0:443`
+- compose nginx listens on `127.0.0.1:8081`
+- `COOKIE_SECURE=true` in the environment file after TLS is active
 
 Minimum TLS check after setup:
 
@@ -177,7 +195,7 @@ Option B: manually run workflow:
 Checks:
 - Workflow succeeded (CI + Deploy Staging)
 - Host app up:
-  - `http://staging.shulehq.co.ke/nginx-healthz` -> `ok`
+  - `https://staging.shulehq.co.ke/nginx-healthz` -> `ok`
 - UI loads:
   - `https://staging.shulehq.co.ke` (after TLS)
 - API health:

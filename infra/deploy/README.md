@@ -50,6 +50,8 @@ Production:
 Use these templates:
 - `infra/deploy/staging.env.example`
 - `infra/deploy/production.env.example`
+- `infra/deploy/caddy/staging.Caddyfile.example`
+- `infra/deploy/caddy/production.Caddyfile.example`
 - End-to-end setup checklist:
   - `infra/deploy/SETUP_STAGING_PROD.md`
 
@@ -71,7 +73,15 @@ The deploy workflows append image pinning and domain values automatically:
 4. Configure DNS:
    - `staging.shulehq.co.ke` -> staging host IP
    - `shulehq.co.ke` -> production host IP
-5. Configure TLS termination on host/load balancer.
+5. Configure host-level TLS termination.
+   - Recommended: `Caddy` on the host.
+   - Bind compose nginx to loopback only with `NGINX_HTTP_PORT=127.0.0.1:8081`.
+   - Reverse proxy:
+     - `staging.shulehq.co.ke` -> `127.0.0.1:8081`
+     - `shulehq.co.ke` -> `127.0.0.1:8081` on the production host
+   - If staging and production share one host, assign distinct loopback ports
+     such as `127.0.0.1:8081` and `127.0.0.1:8082`.
+6. Keep `COOKIE_SECURE=true` anywhere TLS is active.
 
 ## Rollback
 
