@@ -55,10 +55,20 @@ jobs:
             fi
           done
 
+      - name: Validate staging deploy ref
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "staging" ]; then
+            echo "Manual staging deploys must run from the staging branch. Selected ref: ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'staging' }}
 
       - name: Resolve deploy tag
         id: tag
@@ -72,7 +82,7 @@ jobs:
             DEPLOY_TAG="${{ github.event.workflow_run.head_sha }}"
             DEPLOY_TAG="${DEPLOY_TAG::7}"
           else
-            DEPLOY_TAG="${GITHUB_SHA::7}"
+            DEPLOY_TAG="$(git rev-parse --short=7 HEAD)"
           fi
           echo "value=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
 
