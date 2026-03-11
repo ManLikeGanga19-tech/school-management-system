@@ -30,8 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'staging')
+      (github.event_name == 'workflow_dispatch' && github.ref_name == 'staging') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'staging')
     permissions:
       contents: read
     env:
@@ -54,16 +54,6 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Validate staging deploy ref
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${GITHUB_REF_NAME}" != "staging" ]; then
-            echo "Manual staging deploys must run from the staging branch. Selected ref: ${GITHUB_REF_NAME}"
-            exit 1
-          fi
 
       - name: Checkout
         uses: actions/checkout@v4
