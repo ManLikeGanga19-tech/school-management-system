@@ -102,10 +102,17 @@ jobs:
             echo "COOKIE_SECURE=true"
           } >> .deploy.env
 
-      - name: Setup SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+      - name: Prepare production SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf "%s\n" "${PRODUCTION_SSH_PRIVATE_KEY}" | tr -d '\r' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+            echo "Invalid PRODUCTION_SSH_PRIVATE_KEY. Store the full private key in OpenSSH format, not the public key or a .ppk file."
+            exit 1
+          fi
 
       - name: Trust production host key
         shell: bash
@@ -118,15 +125,15 @@ jobs:
         run: |
           set -euo pipefail
           DEPLOY_PATH="${PRODUCTION_DEPLOY_PATH:-/opt/school-erp-production}"
-          ssh "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" "mkdir -p '${DEPLOY_PATH}'"
-          scp docker-compose.prod.yml .deploy.env "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}:${DEPLOY_PATH}/"
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" "mkdir -p '${DEPLOY_PATH}'"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes docker-compose.prod.yml .deploy.env "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}:${DEPLOY_PATH}/"
 
       - name: Verify remote deploy bundle
         shell: bash
         run: |
           set -euo pipefail
           DEPLOY_PATH="${PRODUCTION_DEPLOY_PATH:-/opt/school-erp-production}"
-          ssh "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" "
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" "
             set -euo pipefail
             ls -la '${DEPLOY_PATH}'
             test -f '${DEPLOY_PATH}/docker-compose.prod.yml'
@@ -138,7 +145,7 @@ jobs:
         run: |
           set -euo pipefail
           DEPLOY_PATH="${PRODUCTION_DEPLOY_PATH:-/opt/school-erp-production}"
-          ssh "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" "
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" "
             set -euo pipefail
             cd '${DEPLOY_PATH}'
             mv -f .deploy.env .env
