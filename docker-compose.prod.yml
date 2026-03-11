@@ -124,6 +124,11 @@ services:
   nginx:
     image: ${NGINX_IMAGE:-ghcr.io/manlikeganga19-tech/school-management-system-nginx:${IMAGE_TAG:-main}}
     container_name: sms-nginx
+    env_file:
+      - path: ./.env
+        required: false
+    environment:
+      NEXT_STATIC_CACHE_CONTROL: ${NEXT_STATIC_CACHE_CONTROL:-public,max-age=31536000,immutable}
     ports:
       - "${NGINX_HTTP_PORT:-80}:80"
     depends_on:

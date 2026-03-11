@@ -137,6 +137,8 @@ services:
       dockerfile: Dockerfile
     image: school-erp-nginx:dev
     container_name: sms-nginx
+    environment:
+      NEXT_STATIC_CACHE_CONTROL: ${NEXT_STATIC_CACHE_CONTROL:-no-store,max-age=0,must-revalidate}
     ports:
       - "${NGINX_HTTP_PORT:-8080}:80"
     depends_on:
