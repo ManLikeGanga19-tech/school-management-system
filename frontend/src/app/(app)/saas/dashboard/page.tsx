@@ -3,6 +3,12 @@
 import RequireAuth from "@/components/RequireAuth";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
+import {
+  DashboardModuleCard,
+  DashboardSectionLabel,
+  DashboardStatCard,
+  dashboardBadgeClasses,
+} from "@/components/dashboard/dashboard-primitives";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import {
@@ -151,141 +157,15 @@ function timeAgo(iso?: string) {
 
 function avatarColor(id: string) {
   const palette = [
-    "bg-blue-100 text-blue-700",
-    "bg-emerald-100 text-emerald-700",
-    "bg-amber-100 text-amber-700",
-    "bg-purple-100 text-purple-700",
-    "bg-rose-100 text-rose-700",
+    "bg-[#f3ddd0] text-[#a14b29]",
+    "bg-[#dce9eb] text-[#173f49]",
+    "bg-[#dbece2] text-[#20644f]",
+    "bg-[#f3e5c8] text-[#8b5a17]",
+    "bg-[#f2dbd5] text-[#a24d35]",
   ];
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
   return palette[Math.abs(hash) % palette.length];
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-  sub,
-  icon: Icon,
-  color,
-  loading,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: "blue" | "emerald" | "amber" | "slate" | "purple" | "red";
-  loading?: boolean;
-}) {
-  const p = {
-    blue: {
-      wrap: "border-blue-100 bg-blue-50",
-      icon: "bg-blue-100 text-blue-600",
-      val: "text-blue-900",
-      sub: "text-blue-400",
-    },
-    emerald: {
-      wrap: "border-emerald-100 bg-emerald-50",
-      icon: "bg-emerald-100 text-emerald-600",
-      val: "text-emerald-900",
-      sub: "text-emerald-400",
-    },
-    amber: {
-      wrap: "border-amber-100 bg-amber-50",
-      icon: "bg-amber-100 text-amber-600",
-      val: "text-amber-900",
-      sub: "text-amber-400",
-    },
-    slate: {
-      wrap: "border-slate-100 bg-slate-50",
-      icon: "bg-slate-100 text-slate-500",
-      val: "text-slate-900",
-      sub: "text-slate-400",
-    },
-    purple: {
-      wrap: "border-purple-100 bg-purple-50",
-      icon: "bg-purple-100 text-purple-600",
-      val: "text-purple-900",
-      sub: "text-purple-400",
-    },
-    red: {
-      wrap: "border-red-100 bg-red-50",
-      icon: "bg-red-100 text-red-600",
-      val: "text-red-900",
-      sub: "text-red-400",
-    },
-  }[color];
-
-  return (
-    <div className={`rounded-2xl border p-5 shadow-sm ${p.wrap}`}>
-      <div className={`inline-flex rounded-xl p-2.5 ${p.icon}`}>
-        <Icon className="h-5 w-5" />
-      </div>
-      {loading ? (
-        <Skeleton className="mt-4 h-8 w-28" />
-      ) : (
-        <div className={`mt-4 text-2xl font-bold tracking-tight ${p.val}`}>{value}</div>
-      )}
-      <div className="mt-0.5 text-sm font-medium text-slate-600">{label}</div>
-      {sub && <div className={`mt-0.5 text-xs ${p.sub}`}>{sub}</div>}
-    </div>
-  );
-}
-
-function ModuleCard({
-  href,
-  icon: Icon,
-  iconColor,
-  title,
-  description,
-  badge,
-  badgeColor,
-}: {
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-  iconColor: string;
-  title: string;
-  description: string;
-  badge?: string;
-  badgeColor?: "blue" | "emerald" | "amber" | "slate" | "purple" | "red";
-}) {
-  const badgeColors = {
-    blue: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
-    emerald: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-    amber: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
-    slate: "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
-    purple: "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
-    red: "bg-red-50 text-red-700 ring-1 ring-red-200",
-  };
-
-  return (
-    <a
-      href={href}
-      className="group flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md"
-    >
-      <div className="flex items-start justify-between">
-        <div className={`inline-flex rounded-xl p-2.5 transition group-hover:opacity-90 ${iconColor}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-        {badge && badgeColor && (
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badgeColors[badgeColor]}`}>
-            {badge}
-          </span>
-        )}
-      </div>
-      <div>
-        <div className="flex items-center gap-1 text-sm font-semibold text-slate-900 transition group-hover:text-blue-700">
-          {title}
-          <span className="translate-x-0 opacity-0 transition-all group-hover:translate-x-1 group-hover:opacity-100">
-            →
-          </span>
-        </div>
-        <p className="mt-1 text-xs leading-relaxed text-slate-400">{description}</p>
-      </div>
-    </a>
-  );
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -438,7 +318,7 @@ export default function SaaSDashboardPage() {
       <AppShell title="Super Admin" nav={saasNav}>
         <div className="space-y-5">
           {/* ── Header ── */}
-          <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-6 text-white shadow-sm">
+          <div className="dashboard-hero rounded-[2rem] p-6 text-white">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="mb-2 flex items-center gap-2">
@@ -446,13 +326,13 @@ export default function SaaSDashboardPage() {
                     <ShieldCheck className="h-3 w-3" />
                     Super Admin
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-blue-100">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-white/80">
                     <Globe className="h-3 w-3" />
                     Platform Level
                   </span>
                 </div>
                 <h1 className="text-2xl font-bold">SaaS Control Centre</h1>
-                <p className="mt-0.5 text-sm text-blue-100">
+                <p className="mt-0.5 text-sm text-white/80">
                   Platform-wide overview — tenants, subscriptions, revenue &amp; system health
                 </p>
               </div>
@@ -470,14 +350,14 @@ export default function SaaSDashboardPage() {
                       ) : (
                         <div className="text-lg font-bold text-white sm:text-xl">{item.value}</div>
                       )}
-                      <div className="text-xs text-blue-200">{item.label}</div>
+                      <div className="text-xs text-white/65">{item.label}</div>
                     </div>
                   ))}
                 </div>
 
                 <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-3">
                   {lastUpdated && (
-                    <span className="text-xs text-blue-200">
+                    <span className="text-xs text-white/65">
                       Updated {timeAgo(lastUpdated.toISOString())}
                     </span>
                   )}
@@ -638,9 +518,9 @@ export default function SaaSDashboardPage() {
 
           {/* ── Revenue KPIs ── */}
           <div>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">Revenue</h2>
+            <DashboardSectionLabel>Revenue</DashboardSectionLabel>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard
+              <DashboardStatCard
                 label="Monthly Recurring Revenue"
                 value={metrics ? formatKes(metrics.revenue.mrr) : "—"}
                 sub={
@@ -649,31 +529,31 @@ export default function SaaSDashboardPage() {
                     : "Loading metrics…"
                 }
                 icon={TrendingUp}
-                color="emerald"
+                tone="accent"
                 loading={kpiLoading}
               />
-              <StatCard
+              <DashboardStatCard
                 label="Annual Run Rate"
                 value={metrics ? formatKes(metrics.revenue.arr) : "—"}
                 sub="ARR based on current MRR"
                 icon={CreditCard}
-                color="blue"
+                tone="secondary"
                 loading={kpiLoading}
               />
-              <StatCard
+              <DashboardStatCard
                 label="Active Subscriptions"
                 value={metrics?.subscriptions.active ?? "—"}
                 sub={metrics ? `${metrics.subscriptions.trialing} trialling` : ""}
                 icon={CheckCircle}
-                color="emerald"
+                tone="sage"
                 loading={kpiLoading}
               />
-              <StatCard
+              <DashboardStatCard
                 label="Past Due"
                 value={metrics?.subscriptions.past_due ?? "—"}
                 sub={metrics ? `${metrics.subscriptions.cancelled} cancelled` : ""}
                 icon={AlertTriangle}
-                color={pastDueCount > 0 ? "red" : "slate"}
+                tone={pastDueCount > 0 ? "danger" : "neutral"}
                 loading={kpiLoading}
               />
             </div>
@@ -681,40 +561,38 @@ export default function SaaSDashboardPage() {
 
           {/* ── Tenant KPIs ── */}
           <div>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
-              Tenants &amp; Users
-            </h2>
+            <DashboardSectionLabel>Tenants &amp; Users</DashboardSectionLabel>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard
+              <DashboardStatCard
                 label="Total Tenants"
                 value={summary?.total_tenants ?? "—"}
                 sub={`${activeRate}% active`}
                 icon={Building2}
-                color="blue"
+                tone="secondary"
                 loading={initialLoading && !summary}
               />
-              <StatCard
+              <DashboardStatCard
                 label="Active Tenants"
                 value={summary?.active_tenants ?? "—"}
                 sub={metrics ? `${metrics.tenants.new_this_month} new this month` : ""}
                 icon={Activity}
-                color="emerald"
+                tone="sage"
                 loading={initialLoading && !summary}
               />
-              <StatCard
+              <DashboardStatCard
                 label="Inactive Tenants"
                 value={summary?.inactive_tenants ?? "—"}
                 sub={metrics ? `${metrics.tenants.churned_this_month} churned this month` : ""}
                 icon={XCircle}
-                color={summary && summary.inactive_tenants > 0 ? "amber" : "slate"}
+                tone={summary && summary.inactive_tenants > 0 ? "warning" : "neutral"}
                 loading={initialLoading && !summary}
               />
-              <StatCard
+              <DashboardStatCard
                 label="Total Users (All Tenants)"
                 value={metrics?.tenants.total_users_across_tenants ?? "—"}
                 sub="Across all tenants"
                 icon={Users}
-                color="purple"
+                tone="accent"
                 loading={kpiLoading}
               />
             </div>
@@ -722,35 +600,33 @@ export default function SaaSDashboardPage() {
 
           {/* ── System stats ── */}
           <div>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
-              Platform Data
-            </h2>
+            <DashboardSectionLabel>Platform Data</DashboardSectionLabel>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
               {[
                 {
                   label: "Enrollments",
                   value: metrics?.system.total_enrollments ?? "—",
-                  color: "border-blue-100 bg-blue-50 text-blue-900 text-blue-400",
+                  color: "border-[#cedfe1] bg-[#e9f1f2] text-[#173f49] text-[#41636d]",
                 },
                 {
                   label: "Invoices",
                   value: metrics?.system.total_invoices ?? "—",
-                  color: "border-emerald-100 bg-emerald-50 text-emerald-900 text-emerald-400",
+                  color: "border-[#d8e8df] bg-[#edf6f0] text-[#1f604d] text-[#4f7a68]",
                 },
                 {
                   label: "Audit Events",
                   value: metrics?.system.total_audit_events ?? "—",
-                  color: "border-slate-100 bg-slate-50 text-slate-900 text-slate-400",
+                  color: "border-[#e1d5c2] bg-[#f7f3ec] text-[#21323a] text-[#6b7580]",
                 },
                 {
                   label: "Permissions",
                   value: metrics?.system.total_permissions ?? "—",
-                  color: "border-purple-100 bg-purple-50 text-purple-900 text-purple-400",
+                  color: "border-[#ebd3c3] bg-[#f7e7dc] text-[#743116] text-[#9c5a37]",
                 },
                 {
                   label: "Roles",
                   value: metrics?.system.total_roles ?? "—",
-                  color: "border-amber-100 bg-amber-50 text-amber-900 text-amber-400",
+                  color: "border-[#ead9bb] bg-[#f8efdf] text-[#7a4d12] text-[#9c6a28]",
                 },
               ].map((item) => {
                 const [border, bg, textVal, textSub] = item.color.split(" ");
@@ -771,8 +647,8 @@ export default function SaaSDashboardPage() {
           {/* ── Subscription plan breakdown + Recent tenants ── */}
           <div className="grid gap-5 lg:grid-cols-2">
             {/* Subscription plans */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 px-6 py-4">
+            <div className="dashboard-surface rounded-[1.75rem]">
+              <div className="border-b border-[#eadfce] px-6 py-4">
                 <div className="flex items-center gap-2">
                   <Layers className="h-4 w-4 text-slate-400" />
                   <div>
@@ -817,9 +693,9 @@ export default function SaaSDashboardPage() {
                               </span>
                             </div>
                           </div>
-                          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                          <div className="h-2 w-full overflow-hidden rounded-full bg-[#eee4d7]">
                             <div
-                              className="h-full rounded-full bg-blue-500 transition-all"
+                              className="h-full rounded-full bg-[#173f49] transition-all"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
@@ -832,8 +708,8 @@ export default function SaaSDashboardPage() {
             </div>
 
             {/* Recent tenants */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+            <div className="dashboard-surface rounded-[1.75rem]">
+              <div className="flex items-center justify-between border-b border-[#eadfce] px-6 py-4">
                 <div className="flex items-center gap-2">
                   <Building2 className="h-4 w-4 text-slate-400" />
                   <div>
@@ -841,12 +717,12 @@ export default function SaaSDashboardPage() {
                     <p className="mt-0.5 text-xs text-slate-400">Latest onboarded institutions</p>
                   </div>
                 </div>
-                <a href="/saas/tenants" className="text-xs font-medium text-blue-600 hover:underline">
+                <a href="/saas/tenants" className="text-xs font-medium text-[#173f49] hover:underline">
                   View all →
                 </a>
               </div>
 
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-[#efe4d2]">
                 {tenants.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 py-8 text-center">
                     <Building2 className="h-8 w-8 text-slate-200" />
@@ -858,7 +734,7 @@ export default function SaaSDashboardPage() {
                   </div>
                 ) : (
                   tenants.slice(0, 6).map((t) => (
-                    <div key={t.id} className="flex items-center gap-3 px-6 py-3 hover:bg-slate-50">
+                    <div key={t.id} className="flex items-center gap-3 px-6 py-3 hover:bg-[#faf5ee]">
                       <div
                         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${avatarColor(
                           t.id
@@ -871,7 +747,7 @@ export default function SaaSDashboardPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-slate-900 truncate">{t.name}</span>
                           {t.plan && (
-                            <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-600">
+                            <span className={dashboardBadgeClasses("secondary")}>
                               {t.plan}
                             </span>
                           )}
@@ -911,8 +787,8 @@ export default function SaaSDashboardPage() {
           </div>
 
           {/* ── Recent payments ── */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+            <div className="dashboard-surface rounded-[1.75rem]">
+              <div className="flex items-center justify-between border-b border-[#eadfce] px-6 py-4">
               <div className="flex items-center gap-2">
                 <HandCoins className="h-4 w-4 text-slate-400" />
                 <div>
@@ -922,12 +798,12 @@ export default function SaaSDashboardPage() {
                   </p>
                 </div>
               </div>
-              <a href="/saas/payment-history" className="text-xs font-medium text-blue-600 hover:underline">
+              <a href="/saas/payment-history" className="text-xs font-medium text-[#173f49] hover:underline">
                 View all →
               </a>
             </div>
 
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-[#efe4d2]">
               {recentPayments.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-8 text-center">
                   <HandCoins className="h-8 w-8 text-slate-200" />
@@ -978,88 +854,88 @@ export default function SaaSDashboardPage() {
 
           {/* ── Module quick links ── */}
           <div>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">Admin Modules</h2>
+            <DashboardSectionLabel>Admin Modules</DashboardSectionLabel>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <ModuleCard
+              <DashboardModuleCard
                 href="/saas/rollout"
                 icon={Rocket}
-                iconColor="bg-orange-50 text-orange-600"
                 title="Rollout Desk"
                 description="Review demo, enquiry, and school-visit requests coming from the public onboarding site."
                 badge="Prospect intake"
-                badgeColor="amber"
+                tone="accent"
+                badgeTone="warning"
               />
-              <ModuleCard
+              <DashboardModuleCard
                 href="/saas/tenants"
                 icon={Building2}
-                iconColor="bg-blue-50 text-blue-600"
                 title="Tenants"
                 description="Onboard, configure, activate or suspend tenant institutions across the platform."
                 badge={`${summary?.total_tenants ?? 0} total`}
-                badgeColor="blue"
+                tone="secondary"
+                badgeTone="secondary"
               />
-              <ModuleCard
+              <DashboardModuleCard
                 href="/saas/subscriptions"
                 icon={CreditCard}
-                iconColor="bg-emerald-50 text-emerald-600"
                 title="Subscriptions"
                 description="Manage billing plans, payment status, trial periods, and renewal schedules."
                 badge={pastDueCount > 0 ? `${pastDueCount} past due` : "Up to date"}
-                badgeColor={pastDueCount > 0 ? "red" : "emerald"}
+                tone="sage"
+                badgeTone={pastDueCount > 0 ? "danger" : "sage"}
               />
-              <ModuleCard
+              <DashboardModuleCard
                 href="/saas/payment-history"
                 icon={HandCoins}
-                iconColor="bg-cyan-50 text-cyan-600"
                 title="Payment History"
                 description="Review all tenant subscription payments with audit-friendly timestamps and term labels."
                 badge={recentPayments.length > 0 ? `${recentPayments.length} recent` : "No recent"}
-                badgeColor={recentPayments.length > 0 ? "blue" : "slate"}
+                tone="secondary"
+                badgeTone={recentPayments.length > 0 ? "secondary" : "neutral"}
               />
-              <ModuleCard
+              <DashboardModuleCard
                 href="/saas/academic-calendar"
                 icon={CalendarDays}
-                iconColor="bg-indigo-50 text-indigo-600"
                 title="Academic Calendar"
                 description="Define national term windows and apply them to tenant schools for per-term billing consistency."
                 badge="Term billing"
-                badgeColor="purple"
+                tone="warning"
+                badgeTone="warning"
               />
-              <ModuleCard
+              <DashboardModuleCard
                 href="/saas/rbac/permissions"
                 icon={ShieldCheck}
-                iconColor="bg-purple-50 text-purple-600"
                 title="Permissions"
                 description="Define system-wide permission codes available to all tenant roles and overrides."
                 badge={metrics ? `${metrics.system.total_permissions} defined` : undefined}
-                badgeColor="purple"
+                tone="accent"
+                badgeTone="accent"
               />
-              <ModuleCard
+              <DashboardModuleCard
                 href="/saas/rbac/roles"
                 icon={Layers}
-                iconColor="bg-amber-50 text-amber-600"
                 title="Roles"
                 description="Create and manage global role templates that tenant directors can assign to users."
                 badge={metrics ? `${metrics.system.total_roles} roles` : undefined}
-                badgeColor="amber"
+                tone="warning"
+                badgeTone="warning"
               />
-              <ModuleCard
+              <DashboardModuleCard
                 href="/saas/audit"
                 icon={ClipboardList}
-                iconColor="bg-slate-100 text-slate-600"
                 title="Audit Logs"
                 description="Platform-wide audit trail across all tenants, actions, and system events."
                 badge={metrics ? `${metrics.system.total_audit_events} events` : undefined}
-                badgeColor="slate"
+                tone="neutral"
+                badgeTone="neutral"
               />
-              <ModuleCard
+              <DashboardModuleCard
                 href="/saas/users"
                 icon={Users}
-                iconColor="bg-rose-50 text-rose-600"
                 title="Platform Users"
                 description="View and manage all user accounts across every tenant on the platform."
                 badge={metrics ? `${metrics.tenants.total_users_across_tenants} users` : undefined}
-                badgeColor="slate"
+                tone="secondary"
+                badgeTone="neutral"
               />
             </div>
           </div>

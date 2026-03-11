@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Literal, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response, status
 from jose import JWTError
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import and_, select
@@ -54,6 +54,13 @@ class ProspectRegisterRequest(BaseModel):
 class ProspectLoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+
+
+class ProspectGoogleOAuthRequest(BaseModel):
+    email: EmailStr
+    full_name: str = Field(min_length=1, max_length=120)
+    organization_name: Optional[str] = Field(default=None, max_length=160)
+    provider_subject: str = Field(min_length=1, max_length=255)
 
 
 class ProspectRequestCreate(BaseModel):
@@ -136,6 +143,17 @@ def _account_out(account: ProspectAccount) -> ProspectAccountOut:
         job_title=account.job_title,
         is_active=bool(account.is_active),
     )
+
+
+def _expected_public_oauth_secret() -> str:
+    configured = (settings.PUBLIC_OAUTH_SHARED_SECRET or "").strip()
+    if configured:
+        return configured
+
+    if settings.APP_ENV.strip().lower() in {"dev", "local", "development", "test"}:
+        return "dev-public-oauth-bridge-secret"
+
+    return ""
 
 
 def _normalize_requested_domain(value: Optional[str]) -> Optional[str]:
@@ -279,6 +297,63 @@ def login(
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not verify_password(payload.password, account.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    access, refresh = _issue_tokens(db, account=account)
+    _set_refresh_cookie(response, refresh)
+
+    return ProspectAuthResponse(access_token=access, account=_account_out(account))
+
+
+@router.post("/auth/oauth/google", response_model=ProspectAuthResponse)
+def google_oauth_login(
+    payload: ProspectGoogleOAuthRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    x_public_oauth_secret: Optional[str] = Header(default=None),
+):
+    expected_secret = _expected_public_oauth_secret()
+    if not expected_secret:
+        raise HTTPException(status_code=503, detail="Public OAuth bridge is not configured")
+    if (x_public_oauth_secret or "").strip() != expected_secret:
+        raise HTTPException(status_code=403, detail="Invalid OAuth bridge secret")
+
+    email = _normalize_email(str(payload.email))
+    full_name = payload.full_name.strip()
+    organization_name = (
+        _normalize_optional_string(payload.organization_name)
+        or "Organization pending confirmation"
+    )
+
+    account = db.execute(
+        select(ProspectAccount).where(ProspectAccount.email == email)
+    ).scalar_one_or_none()
+    if account is None:
+        account = ProspectAccount(
+            id=uuid4(),
+            email=email,
+            password_hash=hash_password(
+                f"google-oauth::{payload.provider_subject.strip()}::{uuid4()}"
+            ),
+            full_name=full_name,
+            organization_name=organization_name,
+            phone=None,
+            job_title=None,
+            is_active=True,
+        )
+        db.add(account)
+        db.flush()
+    elif not account.is_active:
+        raise HTTPException(status_code=403, detail="Prospect account is inactive")
+    else:
+        changed = False
+        if not (account.full_name or "").strip():
+            account.full_name = full_name
+            changed = True
+        if not (account.organization_name or "").strip():
+            account.organization_name = organization_name
+            changed = True
+        if changed:
+            db.flush()
 
     access, refresh = _issue_tokens(db, account=account)
     _set_refresh_cookie(response, refresh)

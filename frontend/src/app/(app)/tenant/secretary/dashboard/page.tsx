@@ -5,6 +5,11 @@ import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
 import { AppShell } from "@/components/layout/AppShell";
 import { secretaryNav } from "@/components/layout/nav-config";
 import {
+  DashboardSectionLabel,
+  DashboardStatCard,
+  dashboardBadgeClasses,
+} from "@/components/dashboard/dashboard-primitives";
+import {
   Table,
   TableBody,
   TableCell,
@@ -65,7 +70,7 @@ type DashboardResponse = {
 // ─── Chart config ─────────────────────────────────────────────────────────────
 
 const enrollmentChartConfig = {
-  count: { label: "Enrollments", color: "#3b82f6" },
+  count: { label: "Enrollments", color: "#b9512d" },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -117,42 +122,7 @@ function timeAgo(dateString: string) {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
-      {children}
-    </h2>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  sub,
-  icon: Icon,
-  color,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: "blue" | "emerald" | "amber" | "slate" | "red";
-}) {
-  const p = {
-    blue:    { wrap: "border-blue-100 bg-blue-50",       icon: "bg-blue-100 text-blue-600",       val: "text-blue-900",    sub: "text-blue-400" },
-    emerald: { wrap: "border-emerald-100 bg-emerald-50", icon: "bg-emerald-100 text-emerald-600", val: "text-emerald-900", sub: "text-emerald-400" },
-    amber:   { wrap: "border-amber-100 bg-amber-50",     icon: "bg-amber-100 text-amber-600",     val: "text-amber-900",   sub: "text-amber-400" },
-    slate:   { wrap: "border-slate-100 bg-slate-50",     icon: "bg-slate-100 text-slate-500",     val: "text-slate-900",   sub: "text-slate-400" },
-    red:     { wrap: "border-red-100 bg-red-50",         icon: "bg-red-100 text-red-600",         val: "text-red-900",     sub: "text-red-400" },
-  }[color];
-
-  return (
-    <div className={`rounded-2xl border p-5 shadow-sm ${p.wrap}`}>
-      <div className={`inline-flex rounded-xl p-2.5 ${p.icon}`}>
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className={`mt-4 text-2xl font-bold tracking-tight ${p.val}`}>{value}</div>
-      <div className="mt-0.5 text-sm font-medium text-slate-600">{label}</div>
-      {sub && <div className={`mt-0.5 text-xs ${p.sub}`}>{sub}</div>}
-    </div>
+    <DashboardSectionLabel className="mb-3">{children}</DashboardSectionLabel>
   );
 }
 
@@ -170,8 +140,8 @@ function SectionCard({
   icon?: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+    <div className="dashboard-surface overflow-hidden rounded-[1.6rem]">
+      <div className="flex flex-col gap-3 border-b border-[#eadfce] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex items-center gap-2">
           {Icon && <Icon className="h-4 w-4 text-slate-400" />}
           <div>
@@ -190,11 +160,11 @@ function EnrollmentStatusBadge({ status }: { status: string }) {
   const s = status.toUpperCase();
   const styles: Record<string, string> = {
     ENROLLED:           "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-    APPROVED:           "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+    APPROVED:           "bg-[#e9f1f2] text-[#173f49] ring-1 ring-[#cedfe1]",
     SUBMITTED:          "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
     DRAFT:              "bg-slate-100 text-slate-500 ring-1 ring-slate-200",
     REJECTED:           "bg-red-50 text-red-600 ring-1 ring-red-200",
-    TRANSFER_REQUESTED: "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
+    TRANSFER_REQUESTED: "bg-[#f7e7dc] text-[#93411f] ring-1 ring-[#ebd3c3]",
   };
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[s] ?? "bg-slate-100 text-slate-600 ring-1 ring-slate-200"}`}>
@@ -317,7 +287,7 @@ export default function SecretaryDashboardPage() {
       <div className="space-y-5">
 
         {/* ── Hero header ── */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 via-blue-600 to-blue-500 p-4 text-white shadow-sm sm:p-6">
+        <div className="dashboard-hero rounded-[2rem] p-4 text-white sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -335,7 +305,7 @@ export default function SecretaryDashboardPage() {
                 </span>
               </div>
               <h1 className="text-2xl font-bold">Operations Dashboard</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
+              <p className="mt-0.5 text-sm text-white/80">
                 {data?.me?.tenant?.name
                   ? `${data.me.tenant.name} · Enrollments, users & school operations`
                   : "Enrollment management, user activity & school operations"}
@@ -351,13 +321,13 @@ export default function SecretaryDashboardPage() {
                 ].map((item) => (
                   <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 backdrop-blur sm:px-4">
                     <div className="text-xl font-bold text-white">{item.value}</div>
-                    <div className="text-xs text-blue-200">{item.label}</div>
+                    <div className="text-xs text-white/65">{item.label}</div>
                   </div>
                 ))}
               </div>
               <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                 {lastUpdated && (
-                  <span className="text-xs text-blue-200">
+                  <span className="text-xs text-white/65">
                     Updated {timeAgo(lastUpdated.toISOString())}
                   </span>
                 )}
@@ -394,39 +364,39 @@ export default function SecretaryDashboardPage() {
         <div className="grid gap-5 xl:grid-cols-3">
           <div className="xl:col-span-2">
             <div className="grid gap-4 sm:grid-cols-2">
-              <StatCard
+              <DashboardStatCard
                 label="Active Users"
                 value={loading ? "—" : `${activeUsers} / ${users.length}`}
                 sub={users.length > 0
                   ? `${Math.round((activeUsers / users.length) * 100)}% active`
                   : "No users yet"}
                 icon={Users}
-                color="blue"
+                tone="secondary"
               />
-              <StatCard
+              <DashboardStatCard
                 label="Total Enrollments"
                 value={loading ? "—" : enrollments.length}
                 sub={pendingEnrollments > 0
                   ? `${pendingEnrollments} pending review`
                   : "All up to date"}
                 icon={GraduationCap}
-                color="emerald"
+                tone="sage"
               />
-              <StatCard
+              <DashboardStatCard
                 label="Outstanding Balance"
                 value={loading ? "—" : formatKes(outstandingBalance)}
                 sub="Contact director for full finance report"
                 icon={AlertTriangle}
-                color={outstandingBalance > 0 ? "amber" : "emerald"}
+                tone={outstandingBalance > 0 ? "warning" : "sage"}
               />
-              <StatCard
+              <DashboardStatCard
                 label="Audit Events"
                 value={loading ? "—" : (data?.summary?.total_audit_logs ?? audit.length)}
                 sub={audit.length > 0
                   ? `Last: ${timeAgo(audit[0]?.created_at)}`
                   : "No events yet"}
                 icon={Activity}
-                color="slate"
+                tone="neutral"
               />
             </div>
           </div>
@@ -485,7 +455,7 @@ export default function SecretaryDashboardPage() {
               icon={UserCheck}
               action={
                 users.length > 0 ? (
-                  <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-600 ring-1 ring-blue-100">
+                  <span className={dashboardBadgeClasses("secondary")}>
                     {activeUsers} active
                   </span>
                 ) : undefined
@@ -544,11 +514,11 @@ export default function SecretaryDashboardPage() {
               icon={FileText}
               action={
                 pendingEnrollments > 0 ? (
-                  <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+                  <span className={dashboardBadgeClasses("warning")}>
                     {pendingEnrollments} pending
                   </span>
                 ) : enrollments.length > 0 ? (
-                  <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                  <span className={dashboardBadgeClasses("sage")}>
                     All reviewed
                   </span>
                 ) : undefined
@@ -616,7 +586,7 @@ export default function SecretaryDashboardPage() {
                     {audit.slice(0, 8).map((entry) => (
                       <TableRow key={entry.id} className="hover:bg-slate-50">
                         <TableCell>
-                          <span className="rounded-md bg-blue-50 px-1.5 py-0.5 font-mono text-xs text-blue-700">
+                          <span className="rounded-md bg-[#dce9eb] px-1.5 py-0.5 font-mono text-xs text-[#173f49]">
                             {entry.action}
                           </span>
                         </TableCell>
@@ -643,8 +613,8 @@ export default function SecretaryDashboardPage() {
         {healthKeys.length > 0 && (
           <>
             <SectionLabel>System Health</SectionLabel>
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-4 sm:px-6">
+            <div className="dashboard-surface overflow-hidden rounded-[1.6rem]">
+              <div className="flex items-center gap-2 border-b border-[#eadfce] px-4 py-4 sm:px-6">
                 <Activity className="h-4 w-4 text-slate-400" />
                 <div>
                   <h2 className="text-sm font-semibold text-slate-900">Live Service Status</h2>

@@ -529,7 +529,7 @@ export function AppShell({
     const setAccountMenuOpen = mobile ? setAccountMenuOpenMobile : setAccountMenuOpenDesktop;
     return (
       <div
-        className={cn("border-t border-blue-100 p-3", !mobile && "pt-2")}
+        className={cn("border-t border-[#e1d4c0] p-3", !mobile && "pt-2")}
       >
         <DropdownMenu open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
           <DropdownMenuTrigger asChild>
@@ -596,8 +596,8 @@ export function AppShell({
     if (sidebarBadgeUrl) {
       const containerClass =
         mode === "mobile-top"
-          ? "flex h-10 items-center rounded-md border border-blue-100 bg-white px-2"
-          : "flex h-16 items-center justify-center rounded-lg border border-blue-100 bg-white px-2";
+          ? "flex h-10 items-center rounded-md border border-[#e1d4c0] bg-white/90 px-2 backdrop-blur"
+          : "flex h-16 items-center justify-center rounded-lg border border-[#e1d4c0] bg-white/90 px-2 backdrop-blur";
       const imageClass =
         mode === "mobile-top"
           ? "h-8 w-auto max-w-[150px] object-contain"
@@ -610,17 +610,19 @@ export function AppShell({
     }
 
     const titleClass =
-      mode === "desktop" ? "text-lg font-semibold text-blue-900" : "text-base font-semibold text-blue-900";
+      mode === "desktop"
+        ? "text-lg font-semibold text-[#132129]"
+        : "text-base font-semibold text-[#132129]";
     return (
       <>
-        <div className="text-xs uppercase tracking-wide text-blue-700/80">Platform</div>
+        <div className="text-xs uppercase tracking-wide text-[#7c4b24]">Platform</div>
         <div className={titleClass}>{title}</div>
       </>
     );
   }
 
   return (
-    <div className="min-h-screen bg-blue-50/40">
+    <div className="dashboard-app-bg min-h-screen">
       {/*
         ┌─ SIDEBAR (fixed) ──────────────────────────────────────────────────┐
         │  fixed + h-screen keeps it pinned while the page scrolls behind it │
@@ -631,7 +633,7 @@ export function AppShell({
         hidden md:flex md:flex-col
         fixed top-0 left-0 z-30
         h-screen w-[260px]
-        border-r border-blue-100 bg-white/90
+        border-r border-[#e1d4c0] bg-white/80 backdrop-blur-xl
         overflow-y-auto
       ">
         <div className="p-4">
@@ -658,8 +660,8 @@ export function AppShell({
                     className={cn(
                       "flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
                       itemIsActive
-                        ? "bg-blue-100 font-medium text-blue-900"
-                        : "text-muted-foreground hover:bg-blue-50 hover:text-blue-900"
+                        ? "bg-[#e4edef] font-medium text-[#173f49]"
+                        : "text-slate-600 hover:bg-[#f5ece1] hover:text-[#173f49]"
                     )}
                   >
                     <span className="relative inline-flex h-4 w-4 items-center justify-center">
@@ -707,8 +709,8 @@ export function AppShell({
                           className={cn(
                             "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs transition-colors",
                             childIsExactActive
-                              ? "bg-blue-100 font-medium text-blue-900"
-                              : "text-muted-foreground hover:bg-blue-50 hover:text-blue-900"
+                              ? "bg-[#e4edef] font-medium text-[#173f49]"
+                              : "text-slate-600 hover:bg-[#f5ece1] hover:text-[#173f49]"
                           )}
                         >
                           <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center">
@@ -733,7 +735,7 @@ export function AppShell({
         {renderSidebarFooter()}
       </aside>
 
-      <div className="sticky top-0 z-40 border-b border-blue-100 bg-white/95 backdrop-blur md:hidden">
+      <div className="sticky top-0 z-40 border-b border-[#e1d4c0] bg-white/92 backdrop-blur-xl md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <div>
             {renderShellBrand({ mode: "mobile-top" })}
@@ -765,7 +767,7 @@ export function AppShell({
             aria-label="Close navigation menu overlay"
           />
           <aside
-            className="fixed inset-y-0 left-0 z-50 w-[280px] max-w-[85vw] border-r border-blue-100 bg-white shadow-2xl"
+            className="fixed inset-y-0 left-0 z-50 w-[280px] max-w-[85vw] border-r border-[#e1d4c0] bg-white/95 shadow-2xl backdrop-blur-xl"
           >
             <div className="flex items-center justify-between px-4 py-3">
               <div>
@@ -801,8 +803,8 @@ export function AppShell({
                         className={cn(
                           "flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
                           itemIsActive
-                            ? "bg-blue-100 font-medium text-blue-900"
-                            : "text-muted-foreground hover:bg-blue-50 hover:text-blue-900"
+                            ? "bg-[#e4edef] font-medium text-[#173f49]"
+                            : "text-slate-600 hover:bg-[#f5ece1] hover:text-[#173f49]"
                         )}
                       >
                         <span className="relative inline-flex h-4 w-4 items-center justify-center">
@@ -851,8 +853,8 @@ export function AppShell({
                               className={cn(
                                 "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs transition-colors",
                                 childIsExactActive
-                                  ? "bg-blue-100 font-medium text-blue-900"
-                                  : "text-muted-foreground hover:bg-blue-50 hover:text-blue-900"
+                                  ? "bg-[#e4edef] font-medium text-[#173f49]"
+                                  : "text-slate-600 hover:bg-[#f5ece1] hover:text-[#173f49]"
                               )}
                             >
                               <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center">
@@ -879,7 +881,7 @@ export function AppShell({
       )}
 
 
-      <main className="min-h-screen bg-gradient-to-b from-blue-50/30 to-white p-4 md:ml-[260px] md:p-6">
+      <main className="min-h-screen bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(252,251,247,0.96))] p-4 md:ml-[260px] md:p-6">
         <div className="mx-auto w-full max-w-6xl">{children}</div>
       </main>
 

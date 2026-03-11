@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -7,14 +9,15 @@ import {
   ClipboardCheck,
   CreditCard,
   GraduationCap,
-  Link2,
-  School,
   ShieldCheck,
   Waypoints,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { CookieConsentBanner } from "@/components/marketing/CookieConsentBanner";
 import { ProspectEngagementPanel } from "@/components/marketing/ProspectEngagementPanel";
+import { PublicFooter } from "@/components/marketing/PublicFooter";
+import { PublicNavbar } from "@/components/marketing/PublicNavbar";
+import { Button } from "@/components/ui/button";
 
 type Stat = {
   label: string;
@@ -38,7 +41,7 @@ const stats: Stat[] = [
   {
     label: "Platform model",
     value: "Multi-tenant by design",
-    detail: "Shared control plane, isolated tenant operations, domain-aware routing.",
+    detail: "Shared control plane, isolated tenant workspaces, domain-aware routing.",
   },
   {
     label: "Operational span",
@@ -48,7 +51,7 @@ const stats: Stat[] = [
   {
     label: "Control posture",
     value: "Role- and policy-driven",
-    detail: "Tenant-level permissions, director overrides, traceable activity history.",
+    detail: "Tenant permissions, SaaS oversight, and traceable operational history.",
   },
 ];
 
@@ -94,29 +97,29 @@ const capabilities: Capability[] = [
 const rolloutSteps: RolloutStep[] = [
   {
     step: "01",
-    title: "Establish the operator layer",
+    title: "Qualify the institution",
     description:
-      "Super admin configures tenancy rules, plans, roles, and support guardrails before any school traffic is opened.",
+      "A prospect contact creates controlled access, declares the institution profile, and opens the right onboarding track.",
   },
   {
     step: "02",
-    title: "Provision each school cleanly",
+    title: "Assign the school workspace",
     description:
-      "Every tenant receives its own identity, domain mapping, user membership model, and operational defaults.",
+      "The SaaS team validates the requested subdomain, shapes the rollout plan, and provisions the tenant cleanly.",
   },
   {
     step: "03",
-    title: "Run daily work from one system",
+    title: "Activate daily operations",
     description:
-      "Directors, principals, and secretaries move inside the same governed workflows for finance, academics, and admin.",
+      "Directors, principals, and secretaries move into their own workspace while the control plane stays on the admin host.",
   },
 ];
 
-const securityPoints = [
-  "Loopback-only app edge behind host TLS termination",
-  "Cookie-secured auth flows for HTTPS environments",
-  "Audit-oriented workflows across SaaS and tenant scopes",
-  "Deployment model designed for immutable image rollouts",
+const navItems = [
+  { href: "#engage", label: "Request desk" },
+  { href: "#platform", label: "Platform" },
+  { href: "#security", label: "Security" },
+  { href: "#rollout", label: "Rollout" },
 ];
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -146,59 +149,26 @@ export function PublicSite({
         <div className="marketing-grid absolute inset-0 opacity-60" />
       </div>
 
-      <section className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 pb-16 pt-6 sm:px-8 lg:px-10">
-        <header className="hero-rise flex flex-col gap-4 rounded-[2rem] border border-white/60 bg-white/65 px-5 py-4 shadow-[0_20px_80px_rgba(15,23,42,0.08)] backdrop-blur md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex size-12 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg">
-              <School className="size-6" />
-            </div>
-            <div>
-              <div className="text-lg font-semibold tracking-tight">ShuleHQ</div>
-              <p className="text-sm text-slate-600">
-                Enterprise school operations platform for multi-campus and SaaS-managed delivery.
-              </p>
-            </div>
-          </div>
+      <section className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 pb-16 pt-4 sm:px-6 lg:px-10">
+        <PublicNavbar navItems={navItems} />
 
-          <nav className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-            <a className="transition hover:text-slate-950" href="#engage">
-              Request desk
-            </a>
-            <a className="transition hover:text-slate-950" href="#platform">
-              Platform
-            </a>
-            <a className="transition hover:text-slate-950" href="#security">
-              Security
-            </a>
-            <a className="transition hover:text-slate-950" href="#rollout">
-              Rollout
-            </a>
-          </nav>
-        </header>
-
-        <div className="grid flex-1 items-center gap-12 py-14 lg:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)] lg:py-20">
+        <div className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-[minmax(0,1.02fr)_minmax(20rem,0.98fr)] lg:py-18">
           <div className="space-y-8">
             <div className="hero-rise hero-delay-1 space-y-6">
-              <SectionLabel>Run schools with control, not patchwork</SectionLabel>
+              <SectionLabel>Run school rollout with control</SectionLabel>
               <div className="space-y-5">
-                <h1 className="max-w-4xl text-5xl font-semibold tracking-[-0.05em] text-balance text-slate-950 sm:text-6xl lg:text-7xl">
-                  One operating system for school groups, campus teams, and SaaS administration.
+                <h1 className="max-w-4xl text-4xl font-semibold tracking-[-0.05em] text-balance text-slate-950 sm:text-6xl lg:text-7xl">
+                  Public onboarding at the front, SaaS control in the admin plane, schools on their own subdomains.
                 </h1>
-                <p className="max-w-2xl text-lg leading-8 text-slate-700 sm:text-xl">
-                  ShuleHQ brings admissions, finance, academic operations, HR, support, and audit into a
-                  single tenant-aware platform. School teams sign in through their own subdomains while the
-                  platform team operates from a dedicated admin host.
+                <p className="max-w-2xl text-base leading-8 text-slate-700 sm:text-xl">
+                  ShuleHQ separates prospect intake, platform administration, and school operations so each part of the system lives on the right host with the right controls.
                 </p>
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row">
-                <Button
-                  asChild
-                  size="lg"
-                  className="rounded-full bg-[#b9512d] px-7 text-base text-white shadow-[0_16px_40px_rgba(185,81,45,0.3)] hover:bg-[#9f4525]"
-                >
-                  <Link href="#engage">
-                    Start rollout request
+                <Button asChild size="lg" className="rounded-full bg-[#b9512d] px-7 text-base text-white shadow-[0_16px_40px_rgba(185,81,45,0.3)] hover:bg-[#9f4525]">
+                  <Link href="/create-access">
+                    Create access and start
                     <ArrowRight className="size-4" />
                   </Link>
                 </Button>
@@ -227,25 +197,119 @@ export function PublicSite({
             </div>
           </div>
 
-          <div className="hero-rise hero-delay-3 relative">
-            <div className="absolute inset-x-8 top-6 h-full rounded-[2rem] bg-slate-950/8 blur-3xl" />
-            <div className="relative">
-              <ProspectEngagementPanel />
-            </div>
+          <div className="hero-rise hero-delay-3 space-y-4">
+            <article className="rounded-[2rem] border border-slate-200 bg-white/88 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.09)] backdrop-blur">
+              <SectionLabel>Access map</SectionLabel>
+              <div className="mt-5 space-y-4">
+                <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Public site</p>
+                  <p className="mt-2 text-base font-semibold text-slate-950">{tenantBaseHost}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Prospect access, rollout requests, demo planning, and implementation intake.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Admin host</p>
+                    <p className="mt-2 text-base font-semibold text-slate-950">{adminHost}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      SaaS dashboard, rollout oversight, tenant management, and platform operations.
+                    </p>
+                  </div>
+                  <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">School host</p>
+                    <p className="mt-2 text-base font-semibold text-slate-950">{tenantExampleHost}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Director, principal, and secretary workspaces isolated to each tenant.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article className="rounded-[2rem] border border-slate-200 bg-[#132129] p-6 text-white shadow-[0_24px_80px_rgba(15,23,42,0.14)]">
+              <SectionLabel>Delivery controls</SectionLabel>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {[
+                  "Host-separated routing for public, admin, and tenant entrypoints",
+                  "TLS at the edge with loopback-only application exposure behind the proxy",
+                  "Controlled prospect workspace before any rollout conversation starts",
+                  "Tenant provisioning aligned to requested school subdomain ownership",
+                ].map((item) => (
+                  <div key={item} className="rounded-[1.4rem] border border-white/10 bg-white/6 p-4 text-sm leading-6 text-slate-200">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </article>
           </div>
         </div>
       </section>
 
-      <section id="platform" className="relative border-y border-slate-200/70 bg-white/80 py-20 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-6 sm:px-8 lg:px-10">
+      <section id="engage" className="relative border-y border-slate-200/70 bg-white/75 py-20 backdrop-blur">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-start">
+            <div className="space-y-6">
+              <SectionLabel>Request desk</SectionLabel>
+              <div>
+                <h2 className="text-4xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-5xl">
+                  Start implementation from a dedicated onboarding section.
+                </h2>
+                <p className="mt-4 text-base leading-8 text-slate-600 sm:text-lg">
+                  This intake surface is intentionally separate from tenant login and SaaS administration. Institution contacts create prospect access first, then raise the right request for demo, enquiry, or school visit.
+                </p>
+              </div>
+
+              <div className="grid gap-4">
+                {[
+                  {
+                    title: "Create controlled prospect access",
+                    description:
+                      "One institution contact record anchors rollout requests, follow-up, and subdomain allocation without mixing public traffic into tenant auth.",
+                  },
+                  {
+                    title: "Request the right engagement path",
+                    description:
+                      "Demo, enquiry, and school-visit workflows stay on one operational record so the rollout team can move faster with less ambiguity.",
+                  },
+                  {
+                    title: "Promote cleanly into the tenant host",
+                    description:
+                      "Once approved, the school is activated on its own subdomain and operational users sign in there, not through the public site.",
+                  },
+                ].map((item, index) => (
+                  <article
+                    key={item.title}
+                    className="rounded-[1.75rem] border border-slate-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(247,242,232,0.78))] p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-sm font-semibold text-white">
+                        0{index + 1}
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold tracking-tight text-slate-950">{item.title}</h3>
+                        <p className="mt-2 text-sm leading-7 text-slate-600">{item.description}</p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <ProspectEngagementPanel />
+          </div>
+        </div>
+      </section>
+
+      <section id="platform" className="relative bg-white/88 py-20 backdrop-blur">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
           <div className="max-w-3xl">
             <SectionLabel>Platform coverage</SectionLabel>
             <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-5xl">
               Designed for real school operations, not disconnected modules.
             </h2>
             <p className="mt-5 text-lg leading-8 text-slate-600">
-              The platform is structured so that finance, academics, staffing, and support can operate from one
-              tenant-aware system without sacrificing operator oversight.
+              The platform is structured so that finance, academics, staffing, and support can operate from one tenant-aware system without sacrificing operator oversight.
             </p>
           </div>
 
@@ -267,16 +331,14 @@ export function PublicSite({
       </section>
 
       <section id="security" className="relative py-20">
-        <div className="mx-auto grid max-w-7xl gap-8 px-6 sm:px-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(20rem,1.1fr)] lg:px-10">
+        <div className="mx-auto grid max-w-7xl gap-8 px-4 sm:px-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(20rem,1.1fr)] lg:px-10">
           <div className="rounded-[2rem] border border-slate-200 bg-[#132129] p-8 text-white shadow-[0_24px_80px_rgba(15,23,42,0.14)]">
             <SectionLabel>Security posture</SectionLabel>
             <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-white">
               Infrastructure choices that respect school data.
             </h2>
             <p className="mt-5 text-base leading-7 text-slate-300">
-              The deployment model keeps databases, Redis, backend, and frontend bound privately while host-level
-              TLS terminates traffic at the edge. That reduces accidental exposure and keeps the public entry point
-              narrow.
+              The deployment model keeps databases, Redis, backend, and frontend bound privately while host-level TLS terminates traffic at the edge. That reduces accidental exposure and keeps the public entry point narrow.
             </p>
 
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -318,9 +380,9 @@ export function PublicSite({
         </div>
       </section>
 
-      <section className="relative pb-20">
-        <div className="mx-auto max-w-7xl px-6 sm:px-8 lg:px-10">
-          <div className="overflow-hidden rounded-[2.25rem] border border-slate-200 bg-[linear-gradient(135deg,#1f2937_0%,#0f172a_45%,#6a2d16_100%)] px-8 py-10 text-white shadow-[0_30px_100px_rgba(15,23,42,0.18)]">
+      <section className="relative pb-8">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
+          <div className="overflow-hidden rounded-[2.25rem] border border-slate-200 bg-[linear-gradient(135deg,#1f2937_0%,#0f172a_45%,#6a2d16_100%)] px-6 py-10 text-white shadow-[0_30px_100px_rgba(15,23,42,0.18)] sm:px-8">
             <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
               <div>
                 <SectionLabel>Next actions</SectionLabel>
@@ -328,35 +390,30 @@ export function PublicSite({
                   Keep the control plane, public onboarding, and school workspaces separated.
                 </h2>
                 <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-200">
-                  The public site handles prospect engagement. Platform operations stay on the admin host, and each
-                  school runs on its own tenant subdomain.
+                  The public site handles prospect engagement. Platform operations stay on the admin host, and each school runs on its own tenant subdomain.
                 </p>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-5">
-                  <div className="flex items-center gap-3">
-                    <ShieldCheck className="size-5 text-amber-200" />
-                    <div>
-                      <p className="text-sm font-semibold">Platform admin host</p>
-                      <p className="mt-1 text-sm text-slate-200">{adminHost}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-5">
-                  <div className="flex items-center gap-3">
-                    <Link2 className="size-5 text-cyan-200" />
-                    <div>
-                      <p className="text-sm font-semibold">Tenant workspace example</p>
-                      <p className="mt-1 text-sm text-slate-200">{tenantExampleHost}</p>
-                    </div>
-                  </div>
-                </div>
+                <Button asChild size="lg" className="rounded-full bg-white text-slate-950 hover:bg-slate-100">
+                  <Link href="/create-access">Create access</Link>
+                </Button>
+                <Button
+                  asChild
+                  size="lg"
+                  variant="outline"
+                  className="rounded-full border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                >
+                  <Link href="/sign-in">Sign in</Link>
+                </Button>
               </div>
             </div>
           </div>
         </div>
       </section>
+
+      <PublicFooter adminHost={adminHost} />
+      <CookieConsentBanner />
     </main>
   );
 }

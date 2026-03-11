@@ -63,6 +63,88 @@ The deploy workflows append image pinning and domain values automatically:
 - `FRONTEND_IMAGE`
 - `NGINX_IMAGE`
 
+The environment secret itself must still contain the full runtime contract, including:
+- `JWT_SECRET`
+- `DATABASE_URL`
+- `DOCKER_DATABASE_URL`
+- `POSTGRES_PASSWORD`
+- `REDIS_URL`
+- `CORS_ORIGINS`
+
+If those values are missing from `STAGING_ENV_FILE` or `PRODUCTION_ENV_FILE`, the backend will fail at startup even if Docker, DNS, and TLS are healthy.
+
+## Google OAuth
+
+Public prospect access can use Google sign-in on the marketing host. The backend stores those users in `core.prospect_accounts`, and request-desk submissions continue to land in `core.prospect_requests`.
+
+Set these values in the environment secret for each host:
+- `GOOGLE_OAUTH_CLIENT_ID`
+- `GOOGLE_OAUTH_CLIENT_SECRET`
+- `GOOGLE_OAUTH_REDIRECT_URI` (optional; leave blank to use the host default)
+- `PUBLIC_OAUTH_SHARED_SECRET`
+
+Recommended redirect URIs:
+- Production: `https://shulehq.co.ke/api/prospect/auth/google/callback`
+- Staging: `https://staging.shulehq.co.ke/api/prospect/auth/google/callback`
+
+Recommended Google Cloud authorized JavaScript origins:
+- `https://shulehq.co.ke`
+- `https://staging.shulehq.co.ke`
+
+Recommended Google Cloud redirect URIs:
+- `https://shulehq.co.ke/api/prospect/auth/google/callback`
+- `https://staging.shulehq.co.ke/api/prospect/auth/google/callback`
+
+Keep `PUBLIC_OAUTH_SHARED_SECRET` identical in:
+- frontend runtime env
+- backend runtime env
+
+That secret protects the frontend-to-backend OAuth bridge and should be a long random value, not a human password.
+
+## DBeaver Access
+
+Do not expose Postgres publicly. Use SSH tunnels from your workstation into each Docker host.
+
+Local development:
+- Host: `127.0.0.1`
+- Port: `5432`
+- Database: `school_manager_db`
+- User: `postgres`
+- Password: from `backend/.env`
+
+Staging tunnel:
+```bash
+ssh -L 15432:127.0.0.1:5432 deploy@209.38.254.52
+```
+
+Production tunnel:
+```bash
+ssh -L 25432:127.0.0.1:5432 deploy@209.38.248.164
+```
+
+DBeaver connection profiles:
+
+Staging:
+- Host: `127.0.0.1`
+- Port: `15432`
+- Database: `school_manager_db`
+- User: `postgres`
+- Password: the `POSTGRES_PASSWORD` value from `STAGING_ENV_FILE`
+
+Production:
+- Host: `127.0.0.1`
+- Port: `25432`
+- Database: `school_manager_db`
+- User: `postgres`
+- Password: the `POSTGRES_PASSWORD` value from `PRODUCTION_ENV_FILE`
+
+If you want host-managed tunnels directly inside DBeaver instead of terminal-managed tunnels, configure:
+- SSH Host: the server IP
+- SSH User: `deploy`
+- Local bind host: `127.0.0.1`
+- Remote host: `127.0.0.1`
+- Remote port: `5432`
+
 ## First-Time Host Setup
 
 1. Install Docker Engine + Docker Compose plugin on staging and production hosts.
