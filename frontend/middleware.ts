@@ -22,11 +22,12 @@ export function middleware(req: NextRequest) {
   const isTenantLogin = pathname === TENANT_LOGIN;
   const isSaasLogin = pathname === SAAS_LOGIN;
   const isChooseTenant = pathname.startsWith("/choose-tenant");
+  const isLandingPage = pathname === "/";
 
   const tenantAccess = req.cookies.get("sms_access")?.value || "";
   const saasAccess = req.cookies.get("sms_saas_access")?.value || "";
 
-  const isPublic = isTenantLogin || isSaasLogin || isChooseTenant;
+  const isPublic = isLandingPage || isTenantLogin || isSaasLogin || isChooseTenant;
 
   if (isPublic) {
     if (isSaasLogin && saasAccess) {
