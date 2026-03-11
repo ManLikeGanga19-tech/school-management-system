@@ -14,11 +14,13 @@ import {
   ShieldCheck,
   ClipboardList,
   CreditCard,
+  HandCoins,
   AlertTriangle,
   RefreshCw,
   Activity,
   Globe,
   Layers,
+  CalendarDays,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
@@ -68,6 +70,62 @@ type RecentTenant = {
   user_count?: number;
   created_at: string;
   last_activity?: string;
+};
+
+type SaaSPaymentRow = {
+  id: string;
+  tenant_id: string;
+  tenant_name: string;
+  tenant_slug: string;
+  amount_kes: number;
+  status: "pending" | "completed" | "failed" | "cancelled";
+  billing_plan: "per_term" | "per_year";
+  billing_term_label?: string | null;
+  paid_at?: string | null;
+  created_at: string;
+  mpesa_receipt?: string | null;
+};
+
+type DarajaPaymentsHealth = {
+  status: "ready" | "degraded";
+  ready: boolean;
+  mode: "sandbox" | "production";
+  use_mock: boolean;
+  sandbox_fallback_to_mock: boolean;
+  timeout_sec: number;
+  callback_url: string | null;
+  callback_token_protected: boolean;
+  missing_required: string[];
+  checked_at: string;
+};
+
+type DarajaDnsCheck = {
+  host: string;
+  ok: boolean;
+  addresses: string[];
+  latency_ms: number | null;
+  error: string | null;
+};
+
+type DarajaOauthCheck = {
+  attempted: boolean;
+  ok: boolean;
+  latency_ms: number | null;
+  error_type: string | null;
+  error: string | null;
+};
+
+type DarajaConnectivityCheck = {
+  status: "healthy" | "degraded" | "misconfigured";
+  mode: "sandbox" | "production";
+  base_url: string;
+  use_mock: boolean;
+  sandbox_fallback_to_mock: boolean;
+  missing_required: string[];
+  dns_checks: DarajaDnsCheck[];
+  oauth_check: DarajaOauthCheck;
+  recommendation: string;
+  checked_at: string;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -235,6 +293,10 @@ export default function SaaSDashboardPage() {
   const [summary, setSummary] = useState<SaaSSummary | null>(null);
   const [metrics, setMetrics] = useState<SaaSMetrics | null>(null);
   const [tenants, setTenants] = useState<RecentTenant[]>([]);
+  const [recentPayments, setRecentPayments] = useState<SaaSPaymentRow[]>([]);
+  const [darajaHealth, setDarajaHealth] = useState<DarajaPaymentsHealth | null>(null);
+  const [darajaConnectivity, setDarajaConnectivity] = useState<DarajaConnectivityCheck | null>(null);
+  const [darajaConnectivityLoading, setDarajaConnectivityLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // More production-safe loading states (no flicker, SWR style)
@@ -253,6 +315,29 @@ export default function SaaSDashboardPage() {
 
   const pastDueCount = metrics?.subscriptions?.past_due ?? 0;
 
+  const runDarajaConnectivityCheck = useCallback(async () => {
+    if (darajaConnectivityLoading) return;
+    setDarajaConnectivityLoading(true);
+    try {
+      const result = await apiFetch<DarajaConnectivityCheck>(
+        "/admin/saas/payments/health/connectivity?force=true",
+        { method: "GET", tenantRequired: false }
+      );
+      setDarajaConnectivity(result);
+      if (result.status === "healthy") {
+        toast.success("Daraja connectivity check passed.");
+      } else if (result.status === "misconfigured") {
+        toast.error("Daraja connectivity check: configuration missing.");
+      } else {
+        toast.error("Daraja connectivity check: upstream degraded.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to run Daraja connectivity check.");
+    } finally {
+      setDarajaConnectivityLoading(false);
+    }
+  }, [darajaConnectivityLoading]);
+
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = Boolean(opts?.silent);
 
@@ -268,10 +353,18 @@ export default function SaaSDashboardPage() {
 
     try {
       // Run requests concurrently; allow partial success (enterprise-grade resiliency)
-      const [summaryRes, metricsRes, tenantsRes] = await Promise.allSettled([
+      const [summaryRes, metricsRes, tenantsRes, recentPaymentsRes, darajaHealthRes] = await Promise.allSettled([
         apiFetch<SaaSSummary>("/admin/saas/summary", { method: "GET", tenantRequired: false }),
         apiFetch<SaaSMetrics>("/admin/saas/metrics", { method: "GET", tenantRequired: false }),
         apiFetch<{ tenants: RecentTenant[] }>("/admin/saas/tenants/recent", {
+          method: "GET",
+          tenantRequired: false,
+        }),
+        apiFetch<SaaSPaymentRow[]>("/admin/saas/payments/recent?limit=8", {
+          method: "GET",
+          tenantRequired: false,
+        }),
+        apiFetch<DarajaPaymentsHealth>("/admin/saas/payments/health", {
           method: "GET",
           tenantRequired: false,
         }),
@@ -299,6 +392,15 @@ export default function SaaSDashboardPage() {
         setTenants(tenantsRes.value?.tenants ?? []);
       } else {
         // silent degrade
+      }
+
+      if (recentPaymentsRes.status === "fulfilled") {
+        setRecentPayments(recentPaymentsRes.value ?? []);
+      }
+
+      // Daraja health (optional)
+      if (darajaHealthRes.status === "fulfilled") {
+        setDarajaHealth(darajaHealthRes.value);
       }
 
       setLastUpdated(new Date());
@@ -415,6 +517,121 @@ export default function SaaSDashboardPage() {
                   Review now →
                 </a>
               </span>
+            </div>
+          )}
+
+          {darajaHealth && (
+            <div
+              className={`rounded-xl border px-4 py-3 ${
+                darajaHealth.ready
+                  ? "border-emerald-200 bg-emerald-50"
+                  : "border-amber-200 bg-amber-50"
+              }`}
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-2">
+                  {darajaHealth.ready ? (
+                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  ) : (
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                  )}
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Daraja Payments Health</p>
+                    <p className="text-xs text-slate-600">
+                      Mode: <span className="font-medium uppercase">{darajaHealth.mode}</span> ·
+                      Mock: <span className="font-medium">{darajaHealth.use_mock ? "ON" : "OFF"}</span> ·
+                      Fallback:{" "}
+                      <span className="font-medium">
+                        {darajaHealth.sandbox_fallback_to_mock ? "ON" : "OFF"}
+                      </span>{" "}
+                      ·
+                      Timeout: <span className="font-medium">{darajaHealth.timeout_sec}s</span>
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Callback token: {darajaHealth.callback_token_protected ? "set" : "not set"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
+                      darajaHealth.ready
+                        ? "bg-emerald-100 text-emerald-700 ring-emerald-200"
+                        : "bg-amber-100 text-amber-700 ring-amber-200"
+                    }`}
+                  >
+                    {darajaHealth.ready ? "Ready" : "Config Needed"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void runDarajaConnectivityCheck()}
+                    disabled={darajaConnectivityLoading}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${darajaConnectivityLoading ? "animate-spin" : ""}`} />
+                    {darajaConnectivityLoading ? "Checking..." : "Run Connectivity Test"}
+                  </button>
+                </div>
+              </div>
+
+              {!darajaHealth.ready && darajaHealth.missing_required.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-amber-800">Missing vars:</span>
+                  {darajaHealth.missing_required.map((v) => (
+                    <span
+                      key={v}
+                      className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-amber-200"
+                    >
+                      {v}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {darajaConnectivity && (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                      {darajaConnectivity.status === "healthy" ? (
+                        <CheckCircle className="h-4 w-4 text-emerald-600" />
+                      ) : darajaConnectivity.status === "misconfigured" ? (
+                        <XCircle className="h-4 w-4 text-red-600" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      )}
+                      Connectivity Status: {darajaConnectivity.status.toUpperCase()}
+                    </div>
+                    <span className="text-xs text-slate-500">
+                      Checked {timeAgo(darajaConnectivity.checked_at)}
+                    </span>
+                  </div>
+
+                  <p className="mt-2 text-xs text-slate-600">{darajaConnectivity.recommendation}</p>
+
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <div className="rounded border border-slate-200 bg-slate-50 p-2">
+                      <p className="text-[11px] font-semibold uppercase text-slate-500">OAuth</p>
+                      <p className="mt-1 text-xs text-slate-700">
+                        {darajaConnectivity.oauth_check.attempted
+                          ? darajaConnectivity.oauth_check.ok
+                            ? `OK (${darajaConnectivity.oauth_check.latency_ms ?? 0} ms)`
+                            : `FAILED${darajaConnectivity.oauth_check.error ? `: ${darajaConnectivity.oauth_check.error}` : ""}`
+                          : "Not attempted"}
+                      </p>
+                    </div>
+                    <div className="rounded border border-slate-200 bg-slate-50 p-2">
+                      <p className="text-[11px] font-semibold uppercase text-slate-500">DNS</p>
+                      <div className="mt-1 space-y-1">
+                        {darajaConnectivity.dns_checks.map((item) => (
+                          <p key={item.host} className="text-xs text-slate-700">
+                            {item.host}: {item.ok ? `OK (${item.latency_ms ?? 0} ms)` : item.error || "Failed"}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -692,6 +909,72 @@ export default function SaaSDashboardPage() {
             </div>
           </div>
 
+          {/* ── Recent payments ── */}
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <div className="flex items-center gap-2">
+                <HandCoins className="h-4 w-4 text-slate-400" />
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-900">Recent Tenant Payments</h2>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Latest subscription payments with term/year context
+                  </p>
+                </div>
+              </div>
+              <a href="/saas/payment-history" className="text-xs font-medium text-blue-600 hover:underline">
+                View all →
+              </a>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {recentPayments.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-8 text-center">
+                  <HandCoins className="h-8 w-8 text-slate-200" />
+                  <p className="text-sm text-slate-400">{initialLoading ? "Loading…" : "No recent payments yet"}</p>
+                  <p className="text-xs text-slate-300 max-w-xs">
+                    Endpoint:{" "}
+                    <code className="rounded bg-slate-100 px-1">GET /api/v1/admin/saas/payments/recent</code>
+                  </p>
+                </div>
+              ) : (
+                recentPayments.map((p) => (
+                  <div key={p.id} className="flex flex-col gap-2 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-slate-900">{p.tenant_name}</span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                          {p.billing_term_label || (p.billing_plan === "per_year" ? "Per Year" : "Per Term")}
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
+                            p.status === "completed"
+                              ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                              : p.status === "pending"
+                              ? "bg-amber-50 text-amber-700 ring-amber-200"
+                              : "bg-red-50 text-red-700 ring-red-200"
+                          }`}
+                        >
+                          {p.status}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-xs text-slate-400">
+                        <span className="font-mono">{p.tenant_slug}</span>
+                        <span className="ml-2">
+                          {timeAgo(p.paid_at ?? p.created_at)} · {new Date(p.paid_at ?? p.created_at).toLocaleString("en-KE")}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-sm font-semibold text-slate-800">{formatKes(p.amount_kes)}</div>
+                      <div className="text-xs text-slate-400">{p.mpesa_receipt || "No receipt yet"}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
           {/* ── Module quick links ── */}
           <div>
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">Admin Modules</h2>
@@ -713,6 +996,24 @@ export default function SaaSDashboardPage() {
                 description="Manage billing plans, payment status, trial periods, and renewal schedules."
                 badge={pastDueCount > 0 ? `${pastDueCount} past due` : "Up to date"}
                 badgeColor={pastDueCount > 0 ? "red" : "emerald"}
+              />
+              <ModuleCard
+                href="/saas/payment-history"
+                icon={HandCoins}
+                iconColor="bg-cyan-50 text-cyan-600"
+                title="Payment History"
+                description="Review all tenant subscription payments with audit-friendly timestamps and term labels."
+                badge={recentPayments.length > 0 ? `${recentPayments.length} recent` : "No recent"}
+                badgeColor={recentPayments.length > 0 ? "blue" : "slate"}
+              />
+              <ModuleCard
+                href="/saas/academic-calendar"
+                icon={CalendarDays}
+                iconColor="bg-indigo-50 text-indigo-600"
+                title="Academic Calendar"
+                description="Define national term windows and apply them to tenant schools for per-term billing consistency."
+                badge="Term billing"
+                badgeColor="purple"
               />
               <ModuleCard
                 href="/saas/rbac/permissions"

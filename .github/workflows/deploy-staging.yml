@@ -1,0 +1,149 @@
+# .github/workflows/deploy-staging.yml
+name: Deploy Staging
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [staging]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Optional image tag for rollback (example: a1b2c3d)"
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
+env:
+  GHCR_ORG: manlikeganga19-tech
+  BACKEND_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-backend
+  FRONTEND_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-frontend
+  NGINX_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-nginx
+  STAGING_DOMAIN: staging.shulehq.co.ke
+
+jobs:
+  deploy:
+    name: Deploy to Staging Host
+    runs-on: ubuntu-latest
+    environment: staging
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'staging')
+    permissions:
+      contents: read
+    env:
+      STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+      STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+      STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+      STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
+      STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+    steps:
+      - name: Validate staging secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(STAGING_SSH_HOST STAGING_SSH_USER STAGING_SSH_PRIVATE_KEY STAGING_ENV_FILE GHCR_USERNAME GHCR_TOKEN)
+          for key in "${required[@]}"; do
+            if [ -z "${!key:-}" ]; then
+              echo "Missing required secret: ${key}"
+              exit 1
+            fi
+          done
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Resolve deploy tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOY_TAG=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
+            DEPLOY_TAG="${{ inputs.image_tag }}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            DEPLOY_TAG="${{ github.event.workflow_run.head_sha }}"
+            DEPLOY_TAG="${DEPLOY_TAG::7}"
+          else
+            DEPLOY_TAG="${GITHUB_SHA::7}"
+          fi
+          echo "value=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build runtime env file
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${STAGING_DEPLOY_PATH}" ]; then
+            STAGING_DEPLOY_PATH="/opt/school-erp-staging"
+            echo "STAGING_DEPLOY_PATH not provided. Falling back to ${STAGING_DEPLOY_PATH}"
+          fi
+          printf "%s\n" "${STAGING_ENV_FILE}" > .deploy.env
+          {
+            echo ""
+            echo "APP_ENV=staging"
+            echo "PROD_DOMAIN=${STAGING_DOMAIN}"
+            echo "IMAGE_TAG=${{ steps.tag.outputs.value }}"
+            echo "BACKEND_IMAGE=${BACKEND_IMAGE}:${{ steps.tag.outputs.value }}"
+            echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}:${{ steps.tag.outputs.value }}"
+            echo "NGINX_IMAGE=${NGINX_IMAGE}:${{ steps.tag.outputs.value }}"
+          } >> .deploy.env
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+
+      - name: Trust staging host key
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${STAGING_SSH_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Upload deploy bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOY_PATH="${STAGING_DEPLOY_PATH:-/opt/school-erp-staging}"
+          ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "mkdir -p '${DEPLOY_PATH}'"
+          scp docker-compose.prod.yml .deploy.env "${STAGING_SSH_USER}@${STAGING_SSH_HOST}:${DEPLOY_PATH}/"
+
+      - name: Verify remote deploy bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOY_PATH="${STAGING_DEPLOY_PATH:-/opt/school-erp-staging}"
+          ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "
+            set -euo pipefail
+            ls -la '${DEPLOY_PATH}'
+            test -f '${DEPLOY_PATH}/docker-compose.prod.yml'
+            test -f '${DEPLOY_PATH}/.deploy.env'
+          "
+
+      - name: Deploy on staging host
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOY_PATH="${STAGING_DEPLOY_PATH:-/opt/school-erp-staging}"
+          ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "
+            set -euo pipefail
+            cd '${DEPLOY_PATH}'
+            mv -f .deploy.env .env
+            echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin
+            docker compose --env-file .env -f docker-compose.prod.yml pull
+            docker compose --env-file .env -f docker-compose.prod.yml up -d postgres redis
+            docker compose --env-file .env -f docker-compose.prod.yml run --rm --no-deps db-migrate
+            docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
+            docker compose --env-file .env -f docker-compose.prod.yml ps
+            docker compose --env-file .env -f docker-compose.prod.yml logs --tail=120 backend frontend nginx || true
+            NGINX_BIND=\$(grep -E '^NGINX_HTTP_PORT=' .env | tail -n 1 | cut -d'=' -f2 | tr -d '[:space:]' || true)
+            if [ -z \"\${NGINX_BIND}\" ]; then NGINX_BIND=80; fi
+            NGINX_HEALTH_PORT=\"\${NGINX_BIND##*:}\"
+            curl -fsS \"http://127.0.0.1:\${NGINX_HEALTH_PORT}/nginx-healthz\" >/dev/null
+          "

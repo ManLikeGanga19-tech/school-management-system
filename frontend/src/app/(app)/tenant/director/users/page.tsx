@@ -307,9 +307,13 @@ export default function TenantUsersPage() {
         "/tenants/director/users/staff-candidates?limit=500",
         { tenantRequired: true, noRedirect: true }
       );
-      const rows = Array.isArray(data) ? data : Array.isArray((data as any)?.staff) ? (data as any).staff : [];
+      const rows: StaffCredentialCandidate[] = Array.isArray(data)
+        ? data
+        : Array.isArray((data as { staff?: StaffCredentialCandidate[] })?.staff)
+          ? ((data as { staff: StaffCredentialCandidate[] }).staff ?? [])
+          : [];
       const normalized = rows
-        .map((row) => ({
+        .map((row: StaffCredentialCandidate) => ({
           staff_id: String(row.staff_id || ""),
           staff_no: String(row.staff_no || ""),
           full_name: String(row.full_name || "").trim(),
@@ -319,7 +323,7 @@ export default function TenantUsersPage() {
           has_account: Boolean(row.has_account),
           user_id: row.user_id ? String(row.user_id) : null,
         }))
-        .filter((row) => row.staff_id && row.email);
+        .filter((row: StaffCredentialCandidate) => Boolean(row.staff_id && row.email));
       setStaffCandidates(normalized);
     } catch {
       setStaffCandidates([]);

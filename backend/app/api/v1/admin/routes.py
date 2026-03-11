@@ -20,6 +20,7 @@ from app.core.dependencies import (
 )
 
 from app.api.v1.admin import service
+from app.api.v1.payments import service as payments_service
 from app.api.v1.admin.schemas import (
     SaaSSummary,
     TenantDashboardSummary,
@@ -42,6 +43,12 @@ from datetime import date as _date
 from app.api.v1.admin.schemas import (
     SaaSMetricsResponse,
     RecentTenantsResponse,
+    SaaSPaymentHistoryRow,
+    SaaSPaymentHistoryResponse,
+    SaaSAcademicCalendarResponse,
+    SaaSAcademicCalendarUpsertRequest,
+    SaaSAcademicCalendarApplyRequest,
+    SaaSAcademicCalendarApplyResponse,
     TenantRow,
     TenantPrintProfileOut,
     TenantPrintProfileUpsert,
@@ -50,6 +57,8 @@ from app.api.v1.admin.schemas import (
     CreateSubscriptionRequest,
     UpdateSubscriptionRequest,
     PermissionRow,
+    DarajaPaymentsHealthResponse,
+    DarajaConnectivityCheckResponse,
 )
 
 router = APIRouter()
@@ -80,6 +89,7 @@ class _TTLCache:
 
 _metrics_cache = _TTLCache(ttl_seconds=60)
 _recent_cache  = _TTLCache(ttl_seconds=30)
+_daraja_connectivity_cache = _TTLCache(ttl_seconds=45)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -119,6 +129,113 @@ def saas_recent_tenants(
         return cached
     result = service.get_recent_tenants(db)
     _recent_cache.set(result)
+    return result
+
+
+@router.get("/saas/payments/recent", response_model=list[SaaSPaymentHistoryRow])
+def saas_recent_payments(
+    limit: int = Query(default=8, ge=1, le=50),
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    return service.list_saas_recent_payments(db, limit=limit)
+
+
+@router.get("/saas/payments/history", response_model=SaaSPaymentHistoryResponse)
+def saas_payment_history(
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    q: Optional[str] = Query(default=None),
+    tenant_id: Optional[UUID] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    date_from: Optional[_date] = Query(default=None),
+    date_to: Optional[_date] = Query(default=None),
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    try:
+        return service.list_saas_payment_history(
+            db,
+            limit=limit,
+            offset=offset,
+            q=q,
+            tenant_id=tenant_id,
+            status=status,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/saas/academic-calendar", response_model=SaaSAcademicCalendarResponse)
+def get_saas_academic_calendar(
+    academic_year: int = Query(default=_date.today().year, ge=2000, le=2100),
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    return service.list_saas_academic_calendar_terms(db, academic_year=academic_year)
+
+
+@router.put("/saas/academic-calendar", response_model=SaaSAcademicCalendarResponse)
+def upsert_saas_academic_calendar(
+    payload: SaaSAcademicCalendarUpsertRequest,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    try:
+        result = service.upsert_saas_academic_calendar_terms(
+            db,
+            academic_year=payload.academic_year,
+            terms=[t.model_dump() for t in payload.terms],
+        )
+        db.commit()
+        return result
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/saas/academic-calendar/apply", response_model=SaaSAcademicCalendarApplyResponse)
+def apply_saas_academic_calendar(
+    payload: SaaSAcademicCalendarApplyRequest,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    try:
+        result = service.apply_saas_academic_calendar_to_tenants(
+            db,
+            academic_year=payload.academic_year,
+            tenant_ids=payload.tenant_ids,
+            only_missing=payload.only_missing,
+        )
+        db.commit()
+        return result
+    except ValueError as exc:
+        db.rollback()
+        msg = str(exc)
+        status = 404 if "not found" in msg.lower() else 422
+        raise HTTPException(status_code=status, detail=msg)
+
+
+@router.get("/saas/payments/health", response_model=DarajaPaymentsHealthResponse)
+def saas_payments_health(
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    return payments_service.get_daraja_health()
+
+
+@router.get("/saas/payments/health/connectivity", response_model=DarajaConnectivityCheckResponse)
+def saas_payments_connectivity_check(
+    force: bool = Query(default=False),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    if not force:
+        cached = _daraja_connectivity_cache.get()
+        if cached is not None:
+            return cached
+    result = payments_service.get_daraja_connectivity_check()
+    _daraja_connectivity_cache.set(result)
     return result
 
 
@@ -218,36 +335,33 @@ def update_tenant_print_profile(
         )
 
 
-@router.post("/tenants")
+@router.post("/tenants", response_model=TenantRow, status_code=201)
 def create_tenant_endpoint(
+    payload: CreateTenantRequest,
     db: Session = Depends(get_db),
     _=Depends(require_permission_saas("tenants.create")),
-    name: str                   = Body(...),
-    slug: str                   = Body(...),
-    primary_domain: Optional[str] = Body(default=None),
-    plan: Optional[str]         = Body(default=None),
 ):
-    if not re.match(r"^[a-z0-9-]+$", slug):
+    if not re.match(r"^[a-z0-9-]+$", payload.slug):
         raise HTTPException(
             status_code=422,
             detail="slug must be lowercase letters, numbers, and hyphens only",
         )
     try:
-        tenant = service.create_tenant(db, name=name, slug=slug, primary_domain=primary_domain, plan=plan)
+        tenant = service.create_tenant_with_optional_admin(
+            db,
+            name=payload.name,
+            slug=payload.slug,
+            primary_domain=payload.primary_domain,
+            plan=payload.plan,
+            admin_email=payload.admin_email,
+        )
     except ValueError as exc:
         code = 409 if "already exists" in str(exc) else 422
         raise HTTPException(status_code=code, detail=str(exc))
 
     _metrics_cache.invalidate()
     _recent_cache.invalidate()
-    return {
-        "id":             str(tenant.id),
-        "slug":           tenant.slug,
-        "name":           tenant.name,
-        "primary_domain": tenant.primary_domain,
-        "is_active":      tenant.is_active,
-        "created_at":     tenant.created_at,
-    }
+    return tenant
 
 
 @router.post("/tenants/{tenant_id}/suspend")
@@ -337,13 +451,23 @@ def list_subscriptions(
     db: Session = Depends(get_db),
     _=Depends(require_permission_saas("subscriptions.manage")),
     status: Optional[str] = Query(default=None),
+    billing_plan: Optional[str] = Query(default=None),
+    # Backward-compatible query aliases.
     plan: Optional[str] = Query(default=None),
     billing_cycle: Optional[str] = Query(default=None),
     tenant_id: Optional[UUID] = Query(default=None),
 ):
-    return service.list_subscriptions(
-        db, status=status, plan=plan, billing_cycle=billing_cycle, tenant_id=tenant_id
-    )
+    try:
+        return service.list_subscriptions(
+            db,
+            status=status,
+            billing_plan=billing_plan,
+            plan=plan,
+            billing_cycle=billing_cycle,
+            tenant_id=tenant_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.post("/subscriptions", response_model=SubscriptionRow, status_code=201)
@@ -356,8 +480,8 @@ def create_subscription(
         sub_row = service.create_subscription(
             db,
             tenant_id=payload.tenant_id,
-            plan=payload.plan,
-            billing_cycle=payload.billing_cycle,
+            billing_plan=payload.billing_plan,
+            amount_kes=payload.amount_kes,
             discount_percent=payload.discount_percent,
             notes=payload.notes,
             period_start=payload.period_start,
@@ -384,7 +508,10 @@ def update_subscription(
     try:
         row = service.update_subscription(db, subscription_id, **kwargs)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        msg = str(exc)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=422, detail=msg)
 
     _metrics_cache.invalidate()
     return row

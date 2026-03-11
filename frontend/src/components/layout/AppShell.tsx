@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   BadgeDollarSign,
   Bell,
@@ -195,13 +195,17 @@ export function AppShell({
   activeHref?: string;
 }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const [browserSearch, setBrowserSearch] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setBrowserSearch(window.location.search || "");
+  }, [pathname]);
 
   const currentHref = useMemo(() => {
     if (activeHref && activeHref.trim()) return activeHref;
-    const qs = searchParams?.toString();
-    return `${normalizePath(pathname || "/")}${qs ? `?${qs}` : ""}`;
-  }, [activeHref, pathname, searchParams]);
+    return `${normalizePath(pathname || "/")}${browserSearch}`;
+  }, [activeHref, pathname, browserSearch]);
 
   const active = useMemo(() => parseHref(currentHref), [currentHref]);
 

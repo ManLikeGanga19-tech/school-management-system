@@ -13,7 +13,9 @@
 // 4. api.get / api.post / api.put / api.patch / api.delete convenience wrappers.
 //
 // Everything else is unchanged:
-//   - Direct browser → backend calls (API_BASE = http://127.0.0.1:8000)
+//   - API base comes from NEXT_PUBLIC_API_BASE_URL when set
+//   - Browser defaults to same-origin /api/v1 on non-local hosts
+//   - Browser blocks unsafe loopback/private API bases on public hosts
 //   - Token read from document.cookie / localStorage via storage.get()
 //   - Tenant vs SaaS mode selection via pickToken()
 //   - X-Tenant-Slug / X-Tenant-ID headers
@@ -21,8 +23,70 @@
 
 import { storage, keys } from "./storage";
 
-const API_BASE =
-  (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api/v1").replace(/\/+$/g, "");
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const LOCAL_API_BASE = "http://127.0.0.1:8000/api/v1";
+
+function normalizeBase(value: string | undefined | null): string | null {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/g, "");
+}
+
+function isIpv4Host(hostname: string): boolean {
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname);
+}
+
+function isPrivateIpv4(hostname: string): boolean {
+  if (!isIpv4Host(hostname)) return false;
+  if (hostname.startsWith("10.")) return true;
+  if (hostname.startsWith("192.168.")) return true;
+  return /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+}
+
+function isInternalHostname(hostname: string): boolean {
+  if (!hostname) return false;
+  if (isIpv4Host(hostname)) return false;
+  if (hostname.includes(":")) return false; // IPv6 / scoped formats
+  return !hostname.includes(".");
+}
+
+function isPrivateHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase();
+  if (!host) return false;
+  return LOOPBACK_HOSTS.has(host) || isPrivateIpv4(host) || isInternalHostname(host);
+}
+
+function shouldBlockPublicToPrivate(candidateBase: string): boolean {
+  if (typeof window === "undefined") return false;
+
+  let target: URL;
+  try {
+    target = new URL(candidateBase, window.location.origin);
+  } catch {
+    return false;
+  }
+
+  const originHost = window.location.hostname.toLowerCase();
+  const targetHost = target.hostname.toLowerCase();
+  if (!isPrivateHost(targetHost)) return false;
+  return !isPrivateHost(originHost);
+}
+
+function resolveApiBase(): string {
+  const configured = normalizeBase(process.env.NEXT_PUBLIC_API_BASE_URL);
+
+  // On non-local browser origins, default to same-origin API through nginx/proxy.
+  const runtimeDefault =
+    typeof window !== "undefined" && !isPrivateHost(window.location.hostname.toLowerCase())
+      ? "/api/v1"
+      : LOCAL_API_BASE;
+
+  const candidate = configured ?? runtimeDefault;
+  if (shouldBlockPublicToPrivate(candidate)) return "/api/v1";
+  return candidate;
+}
+
+const API_BASE = resolveApiBase();
 
 function joinUrl(base: string, path: string) {
   // Absolute URL passthrough

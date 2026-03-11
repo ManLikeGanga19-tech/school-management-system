@@ -4,14 +4,25 @@ from __future__ import annotations
 
 from uuid import UUID
 from types import SimpleNamespace
+import logging
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, database_status
 from app.models.tenant import Tenant
+
+logger = logging.getLogger(__name__)
+
+
+def _is_missing_relation_error(exc: ProgrammingError) -> bool:
+    orig = getattr(exc, "orig", None)
+    sqlstate = getattr(orig, "sqlstate", None)
+    if sqlstate == "42P01":
+        return True
+    return "does not exist" in str(exc).lower()
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
@@ -39,6 +50,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
         # Docs / OpenAPI
         if path in {"/docs", "/openapi.json", "/redoc"}:
             return True
+        # Infra health endpoints must bypass tenant resolution
+        if path in {"/healthz", "/readyz"}:
+            return True
 
         # ✅ SaaS auth endpoints do NOT require tenant
         if path.startswith("/api/v1/auth/login/saas"):
@@ -48,6 +62,13 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/v1/auth/logout/saas"):
             return True
         if path.startswith("/api/v1/auth/me/saas"):
+            return True
+
+        # ✅ Tenant refresh/logout should rely on refresh token payload,
+        # not tenant headers/domain mapping.
+        if path.startswith("/api/v1/auth/refresh"):
+            return True
+        if path.startswith("/api/v1/auth/logout"):
             return True
 
         # ✅ SaaS / Super Admin endpoints do NOT require tenant
@@ -117,7 +138,23 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 if tenant is None and "." in host:
                     slug = host.split(".")[0]
                     tenant = db.query(Tenant).filter(Tenant.slug == slug).first()
+        except ProgrammingError as exc:
+            if _is_missing_relation_error(exc):
+                logger.error(
+                    "Tenant middleware blocked because required tenant schema is missing on path=%s host=%s",
+                    path,
+                    host,
+                )
+                return JSONResponse(
+                    {
+                        "detail": "Database schema not initialized. Run migrations before serving tenant traffic."
+                    },
+                    status_code=503,
+                )
+            logger.exception("Tenant middleware DB error on path=%s host=%s", path, host)
+            return JSONResponse({"detail": "Database unavailable"}, status_code=503)
         except SQLAlchemyError:
+            logger.exception("Tenant middleware DB error on path=%s host=%s", path, host)
             return JSONResponse({"detail": "Database unavailable"}, status_code=503)
         finally:
             # IMPORTANT: release DB connection before request handler runs
@@ -125,6 +162,13 @@ class TenantMiddleware(BaseHTTPMiddleware):
             db.close()
 
         if tenant is None:
+            if tenant_slug_header:
+                return JSONResponse(
+                    {
+                        "detail": f"Tenant '{tenant_slug_header.lower()}' not found or inactive. Create/activate the tenant first."
+                    },
+                    status_code=400,
+                )
             return JSONResponse(
                 {
                     "detail": "Tenant not resolved. Provide X-Tenant-ID / X-Tenant-Slug or use a mapped domain."

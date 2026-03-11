@@ -1,3 +1,6 @@
+from pathlib import Path
+from functools import cached_property
+
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
     _HAS_PYDANTIC_SETTINGS = True
@@ -6,6 +9,9 @@ except Exception:  # pragma: no cover - compatibility fallback
 
     SettingsConfigDict = None  # type: ignore
     _HAS_PYDANTIC_SETTINGS = False
+
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_ENV_FILE = str(_BACKEND_DIR / ".env")
 
 
 class Settings(BaseSettings):
@@ -16,6 +22,10 @@ class Settings(BaseSettings):
     JWT_ACCESS_TTL_MIN: int = 15
     JWT_REFRESH_TTL_DAYS: int = 30
     TENANT_MODE: str = "domain"
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"
+    COOKIE_DOMAIN: str = ""
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # Conservative defaults for local/dev and safe production baseline.
     DB_POOL_SIZE: int = 10
@@ -24,12 +34,28 @@ class Settings(BaseSettings):
     DB_POOL_RECYCLE_SEC: int = 1800
     DB_POOL_PRE_PING: bool = True
 
+    # Daraja (M-Pesa STK) integration
+    DARAJA_ENV: str = "sandbox"  # sandbox | production
+    DARAJA_CONSUMER_KEY: str = ""
+    DARAJA_CONSUMER_SECRET: str = ""
+    DARAJA_SHORTCODE: str = ""
+    DARAJA_PASSKEY: str = ""
+    DARAJA_CALLBACK_BASE_URL: str = ""
+    DARAJA_CALLBACK_TOKEN: str = ""
+    DARAJA_TIMEOUT_SEC: int = 30
+    DARAJA_USE_MOCK: bool = False
+    DARAJA_SANDBOX_FALLBACK_TO_MOCK: bool = False
+
     if _HAS_PYDANTIC_SETTINGS:
-        model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+        model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
     else:
         class Config:
-            env_file = ".env"
+            env_file = _ENV_FILE
             extra = "ignore"
+
+    @cached_property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
 
 settings = Settings()

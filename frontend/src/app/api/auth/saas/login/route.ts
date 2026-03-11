@@ -4,6 +4,7 @@ import {
   setSaasAccessToken,
   setSaasRefreshToken,
 } from "@/lib/auth/cookies";
+import { backendFetch } from "@/server/backend/client";
 
 function extractCookieValue(setCookie: string | null, cookieName: string) {
   if (!setCookie) return null;
@@ -28,19 +29,22 @@ export async function POST(req: Request) {
   // ✅ Clear both modes to avoid cross-mode confusion
   await clearAllAuthCookies();
 
-  const BACKEND =
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.API_BASE_URL ||
-    "http://127.0.0.1:8000";
-
-  const res = await fetch(`${BACKEND}/api/v1/auth/login/saas`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ email, password }),
-  });
+  let res: Response;
+  try {
+    res = await backendFetch("/api/v1/auth/login/saas", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+      cache: "no-store",
+    });
+  } catch {
+    return NextResponse.json(
+      { detail: "SaaS login service unavailable. Please try again." },
+      { status: 502 }
+    );
+  }
 
   const data = await res.json().catch(() => ({} as any));
 

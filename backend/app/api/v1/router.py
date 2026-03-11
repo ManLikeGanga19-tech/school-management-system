@@ -8,6 +8,7 @@ from app.api.v1.enrollments.routes import router as enrollments_router
 from app.api.v1.finance.routes import router as finance_router
 from app.api.v1.admin.audit.routes import router as admin_audit_router
 from app.api.v1.support.routes import router as support_router
+from app.api.v1.payments.routes import router as payments_router
 
 api_router = APIRouter()
 
@@ -31,3 +32,4 @@ api_router.include_router(admin_router, prefix="/admin", tags=["admin"])
 api_router.include_router(enrollments_router, prefix="/enrollments", tags=["enrollments"])
 api_router.include_router(finance_router, prefix="/finance", tags=["finance"])
 api_router.include_router(support_router, prefix="/support", tags=["support"])
+api_router.include_router(payments_router, prefix="/payments", tags=["payments"])

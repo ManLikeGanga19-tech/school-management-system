@@ -179,6 +179,56 @@ function MetaCell({
   );
 }
 
+function AnimatedSuccessTick() {
+  return (
+    <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-emerald-50 ring-8 ring-emerald-100/80">
+      <svg className="h-16 w-16 text-emerald-600" viewBox="0 0 52 52" fill="none" aria-hidden>
+        <circle cx="26" cy="26" r="24" className="text-emerald-300" stroke="currentColor" strokeWidth="2" />
+        <circle
+          cx="26"
+          cy="26"
+          r="24"
+          className="success-circle"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          transform="rotate(-90 26 26)"
+        />
+        <path
+          d="M15 27l7 7 15-15"
+          className="success-check"
+          stroke="currentColor"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <style jsx>{`
+        .success-circle {
+          stroke-dasharray: 151;
+          stroke-dashoffset: 151;
+          animation: drawCircle 0.6s ease-out forwards;
+        }
+        .success-check {
+          stroke-dasharray: 38;
+          stroke-dashoffset: 38;
+          animation: drawCheck 0.35s 0.55s ease-out forwards;
+        }
+        @keyframes drawCircle {
+          to {
+            stroke-dashoffset: 0;
+          }
+        }
+        @keyframes drawCheck {
+          to {
+            stroke-dashoffset: 0;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DirectorSubscriptionsPage() {
@@ -196,6 +246,9 @@ export default function DirectorSubscriptionsPage() {
   const [checkoutId, setCheckoutId] = useState("");
   const [paying, setPaying] = useState(false);
   const [polling, setPolling] = useState(false);
+  const [paymentReceipt, setPaymentReceipt] = useState<string | null>(null);
+  const [paymentResultDesc, setPaymentResultDesc] = useState<string | null>(null);
+  const [paymentConfirmedAt, setPaymentConfirmedAt] = useState<string | null>(null);
 
   const SUB_ENDPOINT         = "/finance/subscription";
   const SUB_PAYMENTS_ENDPOINT = "/finance/subscription/payments";
@@ -242,6 +295,9 @@ export default function DirectorSubscriptionsPage() {
     setStep("form");
     setPhone("");
     setCheckoutId("");
+    setPaymentReceipt(null);
+    setPaymentResultDesc(null);
+    setPaymentConfirmedAt(null);
     setPayOpen(true);
   }
 
@@ -282,12 +338,22 @@ export default function DirectorSubscriptionsPage() {
       if (polling) return;
       setPolling(true);
       try {
-        const res = await apiFetch<{ status: string }>(
+        const res = await apiFetch<{ status: string; mpesa_receipt?: string | null; result_desc?: string | null }>(
           `${SUB_STATUS_ENDPOINT}?checkout_request_id=${encodeURIComponent(checkoutId)}`,
           { method: "GET", tenantRequired: true }
         );
-        if (res.status === "completed") { setStep("success"); clearInterval(interval); }
-        if (res.status === "failed")    { setStep("failed");  clearInterval(interval); }
+        if (res.status === "completed") {
+          setPaymentReceipt(res.mpesa_receipt ?? null);
+          setPaymentResultDesc(res.result_desc ?? null);
+          setPaymentConfirmedAt(new Date().toISOString());
+          setStep("success");
+          clearInterval(interval);
+        }
+        if (res.status === "failed") {
+          setPaymentResultDesc(res.result_desc ?? null);
+          setStep("failed");
+          clearInterval(interval);
+        }
       } catch { /* keep polling */ }
       finally { setPolling(false); }
     }, 5_000);
@@ -417,18 +483,42 @@ export default function DirectorSubscriptionsPage() {
           )}
 
           {step === "success" && (
-            <div className="flex flex-col items-center gap-4 py-8">
-              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100">
-                <CheckCircle className="h-10 w-10 text-emerald-600" />
-              </div>
-              <div className="text-center">
-                <div className="text-base font-semibold text-slate-800">Payment Received!</div>
-                <p className="mt-1 text-sm text-slate-500">
-                  {formatKes(nextAmt)} received successfully. Your subscription is up to date.
-                </p>
-              </div>
-              <div className="w-full rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-center text-xs text-emerald-600">
-                An M-Pesa confirmation SMS has been sent to your number.
+            <div className="py-4">
+              <div className="rounded-2xl border border-emerald-200 bg-gradient-to-b from-emerald-50 to-white p-5 shadow-sm">
+                <div className="flex flex-col items-center gap-4 text-center">
+                  <AnimatedSuccessTick />
+                  <div>
+                    <div className="text-lg font-semibold text-emerald-900">Payment Confirmed</div>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {formatKes(nextAmt)} received successfully. Your subscription is up to date.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-2 rounded-xl border border-emerald-100 bg-white p-3 text-xs sm:grid-cols-2">
+                  <div className="rounded-lg border border-slate-100 bg-slate-50 p-2">
+                    <div className="text-slate-400">Amount</div>
+                    <div className="font-semibold text-slate-800">{formatKes(nextAmt)}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50 p-2">
+                    <div className="text-slate-400">Phone</div>
+                    <div className="font-semibold text-slate-800">{normalisePhone(phone) || "—"}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50 p-2">
+                    <div className="text-slate-400">M-Pesa Receipt</div>
+                    <div className="font-semibold text-slate-800">{paymentReceipt || "Pending callback"}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50 p-2">
+                    <div className="text-slate-400">Confirmed At</div>
+                    <div className="font-semibold text-slate-800">{formatDateShort(paymentConfirmedAt)}</div>
+                  </div>
+                </div>
+
+                {paymentResultDesc && (
+                  <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-center text-xs text-emerald-700">
+                    {paymentResultDesc}
+                  </div>
+                )}
               </div>
             </div>
           )}

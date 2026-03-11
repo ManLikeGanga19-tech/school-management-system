@@ -21,11 +21,24 @@ export const COOKIE_ACCESS       = "sms_access";
 export const COOKIE_REFRESH      = "sms_refresh";
 export const COOKIE_TENANT_ID    = "sms_tenant_id";
 export const COOKIE_TENANT_SLUG  = "sms_tenant_slug";
+export const COOKIE_MODE         = "sms_mode";
 
 export const COOKIE_SAAS_ACCESS  = "sms_saas_access";
 export const COOKIE_SAAS_REFRESH = "sms_saas_refresh";
 
-const IS_SECURE = process.env.NODE_ENV === "production";
+function parseOptionalBool(value: string | undefined): boolean | null {
+  if (value == null) return null;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return null;
+}
+
+const IS_SECURE = (() => {
+  const fromEnv = parseOptionalBool(process.env.COOKIE_SECURE);
+  if (fromEnv !== null) return fromEnv;
+  return process.env.NODE_ENV === "production";
+})();
 
 const ACCESS_MAX_AGE  = 60 * 60;           // 1 hour
 const REFRESH_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
@@ -45,6 +58,17 @@ function accessCookieOptions(maxAge: number) {
 function refreshCookieOptions(maxAge: number) {
   return {
     httpOnly: true as const,    // ← UNCHANGED: refresh tokens stay protected
+    sameSite: "lax" as const,
+    secure: IS_SECURE,
+    path: "/",
+    maxAge,
+  };
+}
+
+/** Client-readable hints used for tenant resolution and mode selection. */
+function clientHintCookieOptions(maxAge: number) {
+  return {
+    httpOnly: false as const,
     sameSite: "lax" as const,
     secure: IS_SECURE,
     path: "/",
@@ -78,15 +102,23 @@ export async function setTenantContext(input: { tenant_id?: string; tenant_slug?
 
   if (input.tenant_id) {
     c.set(COOKIE_TENANT_ID, input.tenant_id, {
-      ...accessCookieOptions(REFRESH_MAX_AGE),
+      ...clientHintCookieOptions(REFRESH_MAX_AGE),
     });
+  } else {
+    c.delete(COOKIE_TENANT_ID);
   }
 
   if (input.tenant_slug) {
     c.set(COOKIE_TENANT_SLUG, input.tenant_slug, {
-      ...accessCookieOptions(REFRESH_MAX_AGE),
+      ...clientHintCookieOptions(REFRESH_MAX_AGE),
     });
+  } else {
+    c.delete(COOKIE_TENANT_SLUG);
   }
+}
+
+export async function setClientModeCookie(mode: "tenant" | "saas") {
+  (await cookies()).set(COOKIE_MODE, mode, clientHintCookieOptions(REFRESH_MAX_AGE));
 }
 
 export async function clearTenantAuthCookies() {
@@ -106,4 +138,5 @@ export async function clearSaasAuthCookies() {
 export async function clearAllAuthCookies() {
   await clearTenantAuthCookies();
   await clearSaasAuthCookies();
+  (await cookies()).delete(COOKIE_MODE);
 }

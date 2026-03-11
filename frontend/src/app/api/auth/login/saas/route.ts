@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { clearAllAuthCookies, setSaasAccessToken } from "@/lib/auth/cookies";
-
-const BACKEND_BASE_URL =
-  process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
+import { backendFetch } from "@/server/backend/client";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
@@ -10,13 +8,19 @@ export async function POST(req: Request) {
   // SaaS login must not depend on tenant cookies at all
   await clearAllAuthCookies();
 
-  // IMPORTANT: backend route is /api/v1/auth/login/saas
-  const res = await fetch(`${BACKEND_BASE_URL}/api/v1/auth/login/saas`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await backendFetch("/api/v1/auth/login/saas", {
+      method: "POST",
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+  } catch {
+    return NextResponse.json(
+      { detail: "SaaS login service unavailable. Please try again." },
+      { status: 502 }
+    );
+  }
 
   const data = await res.json().catch(() => ({}));
 
