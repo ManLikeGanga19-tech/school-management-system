@@ -210,7 +210,13 @@ jobs:
             echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin
             grep -E '^(NGINX_HTTP_PORT|NEXT_PUBLIC_API_BASE_URL|BACKEND_BASE_URL|COOKIE_SECURE)=' .env
             docker compose --env-file .env -f docker-compose.prod.yml pull
-            docker compose --env-file .env -f docker-compose.prod.yml up -d postgres redis
+            docker compose --env-file .env -f docker-compose.prod.yml up -d --wait postgres redis
+            POSTGRES_USER_VALUE=\${POSTGRES_USER:-postgres}
+            POSTGRES_PASSWORD_VALUE=\${POSTGRES_PASSWORD:-postgres}
+            POSTGRES_USER_SQL=\$(printf '%s' \"\${POSTGRES_USER_VALUE}\" | sed 's/\"/\"\"/g')
+            POSTGRES_PASSWORD_SQL=\$(printf '%s' \"\${POSTGRES_PASSWORD_VALUE}\" | sed \"s/'/''/g\")
+            docker exec -u postgres sms-postgres psql -v ON_ERROR_STOP=1 --dbname postgres \
+              -c \"ALTER ROLE \\\"\${POSTGRES_USER_SQL}\\\" WITH PASSWORD '\${POSTGRES_PASSWORD_SQL}';\"
             docker compose --env-file .env -f docker-compose.prod.yml run --rm --no-deps db-migrate
             docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
             docker compose --env-file .env -f docker-compose.prod.yml ps
