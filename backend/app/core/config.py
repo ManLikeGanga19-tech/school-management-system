@@ -1,4 +1,5 @@
 from pathlib import Path
+from functools import cached_property
 
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,6 +22,10 @@ class Settings(BaseSettings):
     JWT_ACCESS_TTL_MIN: int = 15
     JWT_REFRESH_TTL_DAYS: int = 30
     TENANT_MODE: str = "domain"
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"
+    COOKIE_DOMAIN: str = ""
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # Conservative defaults for local/dev and safe production baseline.
     DB_POOL_SIZE: int = 10
@@ -47,6 +52,10 @@ class Settings(BaseSettings):
         class Config:
             env_file = _ENV_FILE
             extra = "ignore"
+
+    @cached_property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
 
 settings = Settings()

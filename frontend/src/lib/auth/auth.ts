@@ -54,9 +54,12 @@ export async function login(params: {
   const { mode, password } = params;
   const email = normalizeEmail(params.email);
   const tenantSlug = normalizeTenantSlug(params.tenantSlug);
+  const tokenStorageKey = mode === "saas" ? keys.saasAccessToken : keys.accessToken;
 
   // Reset client session markers
   storage.remove(keys.accessToken);
+  storage.remove(keys.saasAccessToken);
+  storage.remove(keys.tenantId);
   storage.remove(keys.tenantSlug);
   storage.remove(keys.mode);
 
@@ -69,6 +72,9 @@ export async function login(params: {
       throw new Error("Tenant slug is required for tenant login.");
     }
     storage.set(keys.tenantSlug, tenantSlug);
+  } else {
+    storage.remove(keys.tenantSlug);
+    storage.remove(keys.tenantId);
   }
 
   const path = mode === "saas" ? "/api/auth/saas/login" : "/api/auth/login";
@@ -90,6 +96,8 @@ export async function login(params: {
   if (!res.ok) {
     // Cleanup on failed login
     storage.remove(keys.accessToken);
+    storage.remove(keys.saasAccessToken);
+    storage.remove(keys.tenantId);
     storage.remove(keys.tenantSlug);
     storage.remove(keys.mode);
 
@@ -98,7 +106,7 @@ export async function login(params: {
 
   // Optional: if your BFF returns access_token, keep it for legacy direct-backend calls.
   if (data?.access_token) {
-    storage.set(keys.accessToken, data.access_token);
+    storage.set(tokenStorageKey, data.access_token);
   }
 
   return data;
@@ -130,6 +138,8 @@ export async function logout() {
 
   // Clear client markers
   storage.remove(keys.accessToken);
+  storage.remove(keys.saasAccessToken);
+  storage.remove(keys.tenantId);
   storage.remove(keys.tenantSlug);
   storage.remove(keys.mode);
 }

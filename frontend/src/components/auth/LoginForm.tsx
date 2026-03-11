@@ -68,6 +68,8 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
     }
 
     // ✅ CRITICAL: persist tenant context for apiFetch tenantRequired calls
+    storage.remove(keys.saasAccessToken);
+    storage.remove(keys.tenantId);
     storage.set(keys.mode, "tenant");
     storage.set(keys.tenantSlug, tenant_slug);
 

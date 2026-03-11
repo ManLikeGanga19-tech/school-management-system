@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { clearAllAuthCookies, setTenantContext } from "@/lib/auth/cookies";
 
 export default function ChooseTenantPage() {
   async function setTenant(formData: FormData) {
@@ -13,13 +13,8 @@ export default function ChooseTenantPage() {
     const slug = String(formData.get("tenant_slug") || "").trim().toLowerCase();
     if (!slug) redirect("/choose-tenant");
 
-    const c = await cookies();
-
-    // set tenant context for tenant-users (director/secretary/teacher/parent)
-    c.set("sms_tenant_slug", slug, { path: "/", sameSite: "lax", secure: false });
-
-    // ensure we are NOT in saas mode
-    c.delete("sms_mode");
+    await clearAllAuthCookies();
+    await setTenantContext({ tenant_slug: slug });
 
     redirect("/login");
   }

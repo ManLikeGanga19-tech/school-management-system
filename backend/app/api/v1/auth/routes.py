@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from jose import JWTError
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.dependencies import get_tenant, get_current_user
 from app.api.v1.schemas import LoginRequest, TokenResponse, MeResponse
 from app.api.v1.auth import service
@@ -15,6 +16,33 @@ router = APIRouter()
 
 REFRESH_COOKIE = "sms_refresh"
 SAAS_TENANT_MARKER = "__saas__"
+
+
+def _refresh_cookie_options() -> dict[str, object]:
+    options: dict[str, object] = {
+        "key": REFRESH_COOKIE,
+        "httponly": True,
+        "secure": settings.COOKIE_SECURE,
+        "samesite": settings.COOKIE_SAMESITE,
+        "path": "/api/v1/auth",
+    }
+    if settings.COOKIE_DOMAIN:
+        options["domain"] = settings.COOKIE_DOMAIN
+    return options
+
+
+def _set_refresh_cookie(response: Response, value: str) -> None:
+    response.set_cookie(value=value, **_refresh_cookie_options())
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    options = {
+        "key": REFRESH_COOKIE,
+        "path": "/api/v1/auth",
+    }
+    if settings.COOKIE_DOMAIN:
+        options["domain"] = settings.COOKIE_DOMAIN
+    response.delete_cookie(**options)
 
 
 # -------------------------
@@ -38,14 +66,7 @@ def login(
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
-    response.set_cookie(
-        key=REFRESH_COOKIE,
-        value=refresh,
-        httponly=True,
-        secure=False,  # set True behind HTTPS in prod
-        samesite="lax",
-        path="/api/v1/auth",
-    )
+    _set_refresh_cookie(response, refresh)
 
     return TokenResponse(access_token=access)
 
@@ -78,14 +99,7 @@ def refresh(
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    response.set_cookie(
-        key=REFRESH_COOKIE,
-        value=new_refresh,
-        httponly=True,
-        secure=False,  # set True behind HTTPS in prod
-        samesite="lax",
-        path="/api/v1/auth",
-    )
+    _set_refresh_cookie(response, new_refresh)
 
     return TokenResponse(access_token=access)
 
@@ -110,10 +124,7 @@ def logout(
             # Logout should be best-effort and always clear cookie client-side.
             pass
 
-    response.delete_cookie(
-        key=REFRESH_COOKIE,
-        path="/api/v1/auth",
-    )
+    _clear_refresh_cookie(response)
 
     return {"ok": True}
 
@@ -166,14 +177,7 @@ def login_saas(
         raise HTTPException(status_code=401, detail=str(e))
 
     # Keep cookie path consistent with other auth endpoints
-    response.set_cookie(
-        key=REFRESH_COOKIE,
-        value=refresh,
-        httponly=True,
-        secure=False,  # set True behind HTTPS in prod
-        samesite="lax",
-        path="/api/v1/auth",
-    )
+    _set_refresh_cookie(response, refresh)
 
     return TokenResponse(access_token=access)
 
@@ -195,14 +199,7 @@ def refresh_saas(
     except Exception as e:
         raise HTTPException(status_code=401, detail=str(e))
 
-    response.set_cookie(
-        key=REFRESH_COOKIE,
-        value=new_refresh,
-        httponly=True,
-        secure=False,  # set True behind HTTPS in prod
-        samesite="lax",
-        path="/api/v1/auth",
-    )
+    _set_refresh_cookie(response, new_refresh)
 
     return TokenResponse(access_token=access)
 
@@ -216,10 +213,7 @@ def logout_saas(
     if sms_refresh:
         service.logout_saas(db, refresh_token=sms_refresh)
 
-    response.delete_cookie(
-        key=REFRESH_COOKIE,
-        path="/api/v1/auth",
-    )
+    _clear_refresh_cookie(response)
 
     return {"ok": True}
 

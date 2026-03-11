@@ -21,6 +21,7 @@ export const COOKIE_ACCESS       = "sms_access";
 export const COOKIE_REFRESH      = "sms_refresh";
 export const COOKIE_TENANT_ID    = "sms_tenant_id";
 export const COOKIE_TENANT_SLUG  = "sms_tenant_slug";
+export const COOKIE_MODE         = "sms_mode";
 
 export const COOKIE_SAAS_ACCESS  = "sms_saas_access";
 export const COOKIE_SAAS_REFRESH = "sms_saas_refresh";
@@ -64,6 +65,17 @@ function refreshCookieOptions(maxAge: number) {
   };
 }
 
+/** Client-readable hints used for tenant resolution and mode selection. */
+function clientHintCookieOptions(maxAge: number) {
+  return {
+    httpOnly: false as const,
+    sameSite: "lax" as const,
+    secure: IS_SECURE,
+    path: "/",
+    maxAge,
+  };
+}
+
 /** Tenant/school login access token */
 export async function setAccessToken(token: string) {
   (await cookies()).set(COOKIE_ACCESS, token, accessCookieOptions(ACCESS_MAX_AGE));
@@ -90,15 +102,23 @@ export async function setTenantContext(input: { tenant_id?: string; tenant_slug?
 
   if (input.tenant_id) {
     c.set(COOKIE_TENANT_ID, input.tenant_id, {
-      ...accessCookieOptions(REFRESH_MAX_AGE),
+      ...clientHintCookieOptions(REFRESH_MAX_AGE),
     });
+  } else {
+    c.delete(COOKIE_TENANT_ID);
   }
 
   if (input.tenant_slug) {
     c.set(COOKIE_TENANT_SLUG, input.tenant_slug, {
-      ...accessCookieOptions(REFRESH_MAX_AGE),
+      ...clientHintCookieOptions(REFRESH_MAX_AGE),
     });
+  } else {
+    c.delete(COOKIE_TENANT_SLUG);
   }
+}
+
+export async function setClientModeCookie(mode: "tenant" | "saas") {
+  (await cookies()).set(COOKIE_MODE, mode, clientHintCookieOptions(REFRESH_MAX_AGE));
 }
 
 export async function clearTenantAuthCookies() {
@@ -118,4 +138,5 @@ export async function clearSaasAuthCookies() {
 export async function clearAllAuthCookies() {
   await clearTenantAuthCookies();
   await clearSaasAuthCookies();
+  (await cookies()).delete(COOKIE_MODE);
 }

@@ -13,14 +13,16 @@ type Props = {
 export default function RequireAuth({ mode, children }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const tokenKey = mode === "saas" ? keys.saasAccessToken : keys.accessToken;
+  const loginPath = mode === "saas" ? "/saas/login" : "/login";
 
   useEffect(() => {
-    const token = storage.get(keys.accessToken);
+    const token = storage.get(tokenKey);
     const savedMode = storage.get(keys.mode);
 
     // No token or wrong mode → redirect immediately
     if (!token || savedMode !== mode) {
-      router.replace(mode === "saas" ? "/saas/login" : "/tenant/login");
+      router.replace(loginPath);
       return;
     }
 
@@ -31,12 +33,14 @@ export default function RequireAuth({ mode, children }: Props) {
       })
       .catch(() => {
         storage.remove(keys.accessToken);
+        storage.remove(keys.saasAccessToken);
+        storage.remove(keys.tenantId);
         storage.remove(keys.tenantSlug);
         storage.remove(keys.mode);
 
-        router.replace(mode === "saas" ? "/saas/login" : "/tenant/login");
+        router.replace(loginPath);
       });
-  }, [mode, router]);
+  }, [loginPath, mode, router, tokenKey]);
 
   if (loading) {
     return (
