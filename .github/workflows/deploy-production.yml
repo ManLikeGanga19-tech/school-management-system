@@ -30,8 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+      (github.event_name == 'workflow_dispatch' && github.ref_name == 'main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     permissions:
       contents: read
     env:
@@ -54,16 +54,6 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Validate production deploy ref
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${GITHUB_REF_NAME}" != "main" ]; then
-            echo "Manual production deploys must run from the main branch. Selected ref: ${GITHUB_REF_NAME}"
-            exit 1
-          fi
 
       - name: Checkout
         uses: actions/checkout@v4
