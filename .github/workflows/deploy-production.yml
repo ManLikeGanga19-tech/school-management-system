@@ -94,7 +94,7 @@ jobs:
             PRODUCTION_DEPLOY_PATH="/opt/school-erp-production"
             echo "PRODUCTION_DEPLOY_PATH not provided. Falling back to ${PRODUCTION_DEPLOY_PATH}"
           fi
-          printf "%s\n" "${PRODUCTION_ENV_FILE}" > .deploy.env
+          printf "%s\n" "${PRODUCTION_ENV_FILE}" | sed '/^\(APP_ENV\|PROD_DOMAIN\|IMAGE_TAG\|BACKEND_IMAGE\|FRONTEND_IMAGE\|NGINX_IMAGE\|NGINX_HTTP_PORT\|NEXT_PUBLIC_API_BASE_URL\|BACKEND_BASE_URL\|COOKIE_SECURE\)=/d' > .deploy.env
           {
             echo ""
             echo "APP_ENV=prod"
@@ -103,6 +103,10 @@ jobs:
             echo "BACKEND_IMAGE=${BACKEND_IMAGE}:${{ steps.tag.outputs.value }}"
             echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}:${{ steps.tag.outputs.value }}"
             echo "NGINX_IMAGE=${NGINX_IMAGE}:${{ steps.tag.outputs.value }}"
+            echo "NGINX_HTTP_PORT=127.0.0.1:8081"
+            echo "NEXT_PUBLIC_API_BASE_URL=/api/v1"
+            echo "BACKEND_BASE_URL=http://nginx/api/v1"
+            echo "COOKIE_SECURE=true"
           } >> .deploy.env
 
       - name: Setup SSH agent
@@ -146,6 +150,7 @@ jobs:
             cd '${DEPLOY_PATH}'
             mv -f .deploy.env .env
             echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin
+            grep -E '^(NGINX_HTTP_PORT|NEXT_PUBLIC_API_BASE_URL|BACKEND_BASE_URL|COOKIE_SECURE)=' .env
             docker compose --env-file .env -f docker-compose.prod.yml pull
             docker compose --env-file .env -f docker-compose.prod.yml up -d postgres redis
             docker compose --env-file .env -f docker-compose.prod.yml run --rm --no-deps db-migrate
