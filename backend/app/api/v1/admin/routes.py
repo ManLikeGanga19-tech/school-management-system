@@ -9,7 +9,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
+from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.core.dependencies import (
@@ -32,6 +33,7 @@ from app.api.v1.admin.schemas import (
 
 from app.models.tenant import Tenant
 from app.models.membership import UserTenant
+from app.models.prospect import ProspectRequest
 from app.models.rbac import (
     Role,
     Permission,
@@ -90,6 +92,42 @@ class _TTLCache:
 _metrics_cache = _TTLCache(ttl_seconds=60)
 _recent_cache  = _TTLCache(ttl_seconds=30)
 _daraja_connectivity_cache = _TTLCache(ttl_seconds=45)
+
+
+class RolloutRequestSummary(BaseModel):
+    total: int
+    new: int
+    contacting: int
+    scheduled: int
+    closed: int
+
+
+class RolloutRequestRow(BaseModel):
+    id: UUID
+    account_id: UUID
+    request_type: str
+    status: str
+    organization_name: str
+    contact_name: str
+    contact_email: str
+    contact_phone: Optional[str] = None
+    student_count: Optional[int] = None
+    preferred_contact_method: Optional[str] = None
+    preferred_contact_window: Optional[str] = None
+    requested_domain: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class RolloutRequestListResponse(BaseModel):
+    items: list[RolloutRequestRow]
+    total: int
+    counts: RolloutRequestSummary
+
+
+class RolloutRequestUpdate(BaseModel):
+    status: str = Field(pattern="^(NEW|CONTACTING|SCHEDULED|CLOSED)$")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -237,6 +275,130 @@ def saas_payments_connectivity_check(
     result = payments_service.get_daraja_connectivity_check()
     _daraja_connectivity_cache.set(result)
     return result
+
+
+@router.get("/saas/rollout/requests", response_model=RolloutRequestListResponse)
+def saas_rollout_requests(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    q: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    request_type: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    allowed_statuses = {"NEW", "CONTACTING", "SCHEDULED", "CLOSED"}
+    allowed_types = {"DEMO", "ENQUIRY", "SCHOOL_VISIT"}
+
+    normalized_status = status.strip().upper() if isinstance(status, str) and status.strip() else None
+    normalized_type = request_type.strip().upper() if isinstance(request_type, str) and request_type.strip() else None
+    if normalized_status and normalized_status not in allowed_statuses:
+        raise HTTPException(status_code=422, detail="Invalid rollout request status")
+    if normalized_type and normalized_type not in allowed_types:
+        raise HTTPException(status_code=422, detail="Invalid rollout request type")
+
+    filters = []
+    if normalized_status:
+        filters.append(ProspectRequest.status == normalized_status)
+    if normalized_type:
+        filters.append(ProspectRequest.request_type == normalized_type)
+    if q and q.strip():
+        needle = f"%{q.strip()}%"
+        filters.append(
+            or_(
+                ProspectRequest.organization_name.ilike(needle),
+                ProspectRequest.contact_name.ilike(needle),
+                ProspectRequest.contact_email.ilike(needle),
+                ProspectRequest.requested_domain.ilike(needle),
+                ProspectRequest.notes.ilike(needle),
+            )
+        )
+
+    base_query = select(ProspectRequest)
+    if filters:
+        base_query = base_query.where(and_(*filters))
+
+    rows = (
+        db.execute(
+            base_query.order_by(ProspectRequest.created_at.desc()).offset(offset).limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+
+    total_stmt = select(func.count()).select_from(ProspectRequest)
+    if filters:
+        total_stmt = total_stmt.where(and_(*filters))
+    total = int(db.execute(total_stmt).scalar_one() or 0)
+
+    grouped_stmt = select(ProspectRequest.status, func.count()).group_by(ProspectRequest.status)
+    grouped = db.execute(grouped_stmt).all()
+    counts_map = {str(key): int(value) for key, value in grouped}
+
+    def serialize(row: ProspectRequest) -> RolloutRequestRow:
+        return RolloutRequestRow(
+            id=row.id,
+            account_id=row.account_id,
+            request_type=row.request_type,
+            status=row.status,
+            organization_name=row.organization_name,
+            contact_name=row.contact_name,
+            contact_email=row.contact_email,
+            contact_phone=row.contact_phone,
+            student_count=row.student_count,
+            preferred_contact_method=row.preferred_contact_method,
+            preferred_contact_window=row.preferred_contact_window,
+            requested_domain=row.requested_domain,
+            notes=row.notes,
+            created_at=row.created_at.isoformat(),
+            updated_at=row.updated_at.isoformat(),
+        )
+
+    return RolloutRequestListResponse(
+        items=[serialize(row) for row in rows],
+        total=total,
+        counts=RolloutRequestSummary(
+            total=sum(counts_map.values()),
+            new=counts_map.get("NEW", 0),
+            contacting=counts_map.get("CONTACTING", 0),
+            scheduled=counts_map.get("SCHEDULED", 0),
+            closed=counts_map.get("CLOSED", 0),
+        ),
+    )
+
+
+@router.patch("/saas/rollout/requests/{request_id}", response_model=RolloutRequestRow)
+def update_rollout_request(
+    request_id: UUID,
+    payload: RolloutRequestUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    row = db.get(ProspectRequest, request_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Rollout request not found")
+
+    row.status = payload.status
+    db.commit()
+    db.refresh(row)
+
+    return RolloutRequestRow(
+        id=row.id,
+        account_id=row.account_id,
+        request_type=row.request_type,
+        status=row.status,
+        organization_name=row.organization_name,
+        contact_name=row.contact_name,
+        contact_email=row.contact_email,
+        contact_phone=row.contact_phone,
+        student_count=row.student_count,
+        preferred_contact_method=row.preferred_contact_method,
+        preferred_contact_window=row.preferred_contact_window,
+        requested_domain=row.requested_domain,
+        notes=row.notes,
+        created_at=row.created_at.isoformat(),
+        updated_at=row.updated_at.isoformat(),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

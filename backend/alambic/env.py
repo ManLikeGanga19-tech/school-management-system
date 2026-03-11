@@ -168,6 +168,7 @@ try:
         user,
         membership,
         auth,
+        prospect,
         audit_log,
         subscription,
         invoice,

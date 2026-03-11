@@ -25,6 +25,8 @@ export const COOKIE_MODE         = "sms_mode";
 
 export const COOKIE_SAAS_ACCESS  = "sms_saas_access";
 export const COOKIE_SAAS_REFRESH = "sms_saas_refresh";
+export const COOKIE_PUBLIC_ACCESS = "sms_public_access";
+export const COOKIE_PUBLIC_REFRESH = "sms_public_refresh";
 
 function parseOptionalBool(value: string | undefined): boolean | null {
   if (value == null) return null;
@@ -65,6 +67,17 @@ function refreshCookieOptions(maxAge: number) {
   };
 }
 
+/** Public prospect auth stays server-only: BFF routes read/write these cookies. */
+function serverOnlyAuthCookieOptions(maxAge: number) {
+  return {
+    httpOnly: true as const,
+    sameSite: "lax" as const,
+    secure: IS_SECURE,
+    path: "/",
+    maxAge,
+  };
+}
+
 /** Client-readable hints used for tenant resolution and mode selection. */
 function clientHintCookieOptions(maxAge: number) {
   return {
@@ -94,6 +107,14 @@ export async function setSaasAccessToken(token: string) {
 /** SaaS super admin refresh token */
 export async function setSaasRefreshToken(token: string) {
   (await cookies()).set(COOKIE_SAAS_REFRESH, token, refreshCookieOptions(REFRESH_MAX_AGE));
+}
+
+export async function setPublicAccessToken(token: string) {
+  (await cookies()).set(COOKIE_PUBLIC_ACCESS, token, serverOnlyAuthCookieOptions(ACCESS_MAX_AGE));
+}
+
+export async function setPublicRefreshToken(token: string) {
+  (await cookies()).set(COOKIE_PUBLIC_REFRESH, token, serverOnlyAuthCookieOptions(REFRESH_MAX_AGE));
 }
 
 /** Tenant context cookies — not sensitive, readable by JS */
@@ -135,8 +156,15 @@ export async function clearSaasAuthCookies() {
   c.delete(COOKIE_SAAS_REFRESH);
 }
 
+export async function clearPublicAuthCookies() {
+  const c = await cookies();
+  c.delete(COOKIE_PUBLIC_ACCESS);
+  c.delete(COOKIE_PUBLIC_REFRESH);
+}
+
 export async function clearAllAuthCookies() {
   await clearTenantAuthCookies();
   await clearSaasAuthCookies();
+  await clearPublicAuthCookies();
   (await cookies()).delete(COOKIE_MODE);
 }

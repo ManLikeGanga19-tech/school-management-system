@@ -3,18 +3,18 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
   BadgeCheck,
-  BookOpenCheck,
   Building2,
   ClipboardCheck,
   CreditCard,
   GraduationCap,
+  Link2,
   School,
   ShieldCheck,
-  Users2,
   Waypoints,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ProspectEngagementPanel } from "@/components/marketing/ProspectEngagementPanel";
 
 type Stat = {
   label: string;
@@ -129,6 +129,10 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 export function PublicSite() {
+  const adminHost = process.env.NEXT_PUBLIC_ADMIN_HOST || "admin.shulehq.co.ke";
+  const tenantBaseHost = process.env.NEXT_PUBLIC_TENANT_BASE_HOST || "shulehq.co.ke";
+  const tenantExampleHost = `novel-school.${tenantBaseHost}`;
+
   return (
     <main className="relative isolate overflow-hidden bg-[linear-gradient(180deg,#efe3c8_0%,#f7f2e8_34%,#fcfbf7_100%)] text-slate-900">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -153,6 +157,9 @@ export function PublicSite() {
           </div>
 
           <nav className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+            <a className="transition hover:text-slate-950" href="#engage">
+              Request desk
+            </a>
             <a className="transition hover:text-slate-950" href="#platform">
               Platform
             </a>
@@ -162,12 +169,6 @@ export function PublicSite() {
             <a className="transition hover:text-slate-950" href="#rollout">
               Rollout
             </a>
-            <Button asChild size="sm" variant="outline" className="rounded-full border-slate-300 bg-white/90">
-              <Link href="/choose-tenant">School login</Link>
-            </Button>
-            <Button asChild size="sm" className="rounded-full bg-slate-950 text-white hover:bg-slate-800">
-              <Link href="/saas/login">SaaS admin</Link>
-            </Button>
           </nav>
         </header>
 
@@ -181,7 +182,8 @@ export function PublicSite() {
                 </h1>
                 <p className="max-w-2xl text-lg leading-8 text-slate-700 sm:text-xl">
                   ShuleHQ brings admissions, finance, academic operations, HR, support, and audit into a
-                  single tenant-aware platform that can scale from one school to an entire network.
+                  single tenant-aware platform. School teams sign in through their own subdomains while the
+                  platform team operates from a dedicated admin host.
                 </p>
               </div>
 
@@ -191,8 +193,8 @@ export function PublicSite() {
                   size="lg"
                   className="rounded-full bg-[#b9512d] px-7 text-base text-white shadow-[0_16px_40px_rgba(185,81,45,0.3)] hover:bg-[#9f4525]"
                 >
-                  <Link href="/choose-tenant">
-                    Enter school workspace
+                  <Link href="#engage">
+                    Start rollout request
                     <ArrowRight className="size-4" />
                   </Link>
                 </Button>
@@ -202,7 +204,7 @@ export function PublicSite() {
                   variant="outline"
                   className="rounded-full border-slate-300 bg-white/85 px-7 text-base text-slate-900"
                 >
-                  <Link href="/saas/login">Open operator console</Link>
+                  <Link href="#platform">View platform coverage</Link>
                 </Button>
               </div>
             </div>
@@ -223,66 +225,8 @@ export function PublicSite() {
 
           <div className="hero-rise hero-delay-3 relative">
             <div className="absolute inset-x-8 top-6 h-full rounded-[2rem] bg-slate-950/8 blur-3xl" />
-            <div className="relative overflow-hidden rounded-[2rem] border border-slate-200/80 bg-slate-950 px-6 py-6 text-white shadow-[0_30px_90px_rgba(15,23,42,0.25)]">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium text-amber-300">Operator overview</p>
-                  <h2 className="mt-2 text-3xl font-semibold tracking-tight">ShuleHQ control plane</h2>
-                </div>
-                <div className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-200">
-                  live model
-                </div>
-              </div>
-
-              <div className="mt-8 grid gap-4">
-                <article className="rounded-[1.5rem] border border-white/10 bg-white/6 p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-2xl bg-[#163b44] p-3 text-[#9be2ee]">
-                        <Users2 className="size-5" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold">Tenant workforce</h3>
-                        <p className="text-sm text-slate-300">Role-driven access across director, principal, and secretary desks.</p>
-                      </div>
-                    </div>
-                    <span className="rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-semibold text-emerald-200">
-                      isolated
-                    </span>
-                  </div>
-                </article>
-
-                <article className="grid gap-4 rounded-[1.5rem] border border-white/10 bg-white/6 p-5 md:grid-cols-2">
-                  <div className="rounded-[1.25rem] bg-white/8 p-4">
-                    <BookOpenCheck className="size-5 text-amber-300" />
-                    <h3 className="mt-4 font-semibold">Academic cadence</h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">
-                      Terms, classes, exams, events, and timetable stay aligned inside one data model.
-                    </p>
-                  </div>
-                  <div className="rounded-[1.25rem] bg-white/8 p-4">
-                    <CreditCard className="size-5 text-cyan-300" />
-                    <h3 className="mt-4 font-semibold">Finance visibility</h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">
-                      Fee structures, collections, scholarships, and subscription controls remain auditable.
-                    </p>
-                  </div>
-                </article>
-
-                <article className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(135deg,rgba(185,81,45,0.26),rgba(30,41,59,0.2))] p-5">
-                  <div className="flex items-center gap-3">
-                    <ShieldCheck className="size-5 text-amber-200" />
-                    <h3 className="font-semibold">Security and governance</h3>
-                  </div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {securityPoints.map((item) => (
-                      <div key={item} className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-slate-100">
-                        {item}
-                      </div>
-                    ))}
-                  </div>
-                </article>
-              </div>
+            <div className="relative">
+              <ProspectEngagementPanel />
             </div>
           </div>
         </div>
@@ -377,30 +321,33 @@ export function PublicSite() {
               <div>
                 <SectionLabel>Next actions</SectionLabel>
                 <h2 className="mt-5 max-w-3xl text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
-                  Open the right doorway depending on whether you run the platform or a school.
+                  Keep the control plane, public onboarding, and school workspaces separated.
                 </h2>
                 <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-200">
-                  School teams continue through tenant login. Platform operators use the SaaS admin console to manage
-                  tenancy, subscriptions, permissions, support, and rollout.
+                  The public site handles prospect engagement. Platform operations stay on the admin host, and each
+                  school runs on its own tenant subdomain.
                 </p>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
-                <Button
-                  asChild
-                  size="lg"
-                  className="rounded-full bg-white px-7 text-slate-950 hover:bg-slate-100"
-                >
-                  <Link href="/choose-tenant">School login</Link>
-                </Button>
-                <Button
-                  asChild
-                  size="lg"
-                  variant="outline"
-                  className="rounded-full border-white/30 bg-white/10 px-7 text-white hover:bg-white/15"
-                >
-                  <Link href="/saas/login">SaaS admin login</Link>
-                </Button>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-5">
+                  <div className="flex items-center gap-3">
+                    <ShieldCheck className="size-5 text-amber-200" />
+                    <div>
+                      <p className="text-sm font-semibold">Platform admin host</p>
+                      <p className="mt-1 text-sm text-slate-200">{adminHost}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-5">
+                  <div className="flex items-center gap-3">
+                    <Link2 className="size-5 text-cyan-200" />
+                    <div>
+                      <p className="text-sm font-semibold">Tenant workspace example</p>
+                      <p className="mt-1 text-sm text-slate-200">{tenantExampleHost}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

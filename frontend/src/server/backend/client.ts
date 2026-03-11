@@ -1,4 +1,6 @@
-import { cookies } from "next/headers";
+import { cookies, headers as nextHeaders } from "next/headers";
+
+import { normalizeHostname, resolvePortalContext } from "@/lib/platform-host";
 
 function normalizeBase(value: string | undefined | null): string | null {
   const v = String(value || "").trim();
@@ -43,23 +45,40 @@ const DEFAULT_TIMEOUT_MS = (() => {
 
 async function getTenantHeaders() {
   const c = await cookies();
+  const hdrs = await nextHeaders();
   const tenantId = c.get("sms_tenant_id")?.value;
-  const tenantSlug = c.get("sms_tenant_slug")?.value;
+  let tenantSlug = c.get("sms_tenant_slug")?.value;
+  const host = normalizeHostname(hdrs.get("x-forwarded-host") ?? hdrs.get("host"));
+  const portal = resolvePortalContext(host);
 
   const headers: Record<string, string> = {};
+  if (host) headers["x-forwarded-host"] = host;
+  if (!tenantSlug && portal.kind === "tenant" && portal.tenantSlug) {
+    tenantSlug = portal.tenantSlug;
+  }
   if (tenantId) headers["x-tenant-id"] = tenantId;
   if (tenantSlug) headers["x-tenant-slug"] = tenantSlug;
   return headers;
 }
 
-async function getAuthHeader() {
-  const access = (await cookies()).get("sms_access")?.value;
+async function getAuthHeader(normalizedPath: string) {
+  const c = await cookies();
+  const access = normalizedPath.startsWith("public/")
+    ? c.get("sms_public_access")?.value
+    : c.get("sms_access")?.value;
   return access ? { Authorization: `Bearer ${access}` } : {};
 }
 
-async function getRefreshCookieHeader() {
-  const refresh = (await cookies()).get("sms_refresh")?.value;
-  return refresh ? { Cookie: `sms_refresh=${refresh}` } : {};
+async function getRefreshCookieHeader(normalizedPath: string) {
+  const c = await cookies();
+  const refreshName = normalizedPath.startsWith("public/auth/refresh")
+    ? "sms_public_refresh"
+    : "sms_refresh";
+  const backendCookieName = normalizedPath.startsWith("public/auth/refresh")
+    ? "sms_public_refresh"
+    : "sms_refresh";
+  const refresh = c.get(refreshName)?.value;
+  return refresh ? { Cookie: `${backendCookieName}=${refresh}` } : {};
 }
 
 function createTimeoutController(timeoutMs: number) {
@@ -73,9 +92,10 @@ function createTimeoutController(timeoutMs: number) {
 
 export async function backendFetch(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers || {});
+  const normalizedPath = path.replace(/^\/+/, "").replace(/^api\/v1\/?/i, "");
 
   const tenantHeaders = await getTenantHeaders();
-  const authHeader = await getAuthHeader();
+  const authHeader = await getAuthHeader(normalizedPath);
 
   // Do not override explicitly provided headers (critical for login with tenant switch).
   Object.entries(tenantHeaders).forEach(([k, v]) => {
@@ -87,9 +107,14 @@ export async function backendFetch(path: string, init?: RequestInit) {
   });
 
   // If this call targets the refresh endpoint, forward the refresh cookie
-  const normalizedPath = path.replace(/^\/+/, "").replace(/^api\/v1\/?/i, "");
   if (normalizedPath.startsWith("auth/refresh")) {
-    const refreshHdr = await getRefreshCookieHeader();
+    const refreshHdr = await getRefreshCookieHeader(normalizedPath);
+    Object.entries(refreshHdr).forEach(([k, v]) => {
+      if (!headers.has(k)) headers.set(k, v);
+    });
+  }
+  if (normalizedPath.startsWith("public/auth/refresh")) {
+    const refreshHdr = await getRefreshCookieHeader(normalizedPath);
     Object.entries(refreshHdr).forEach(([k, v]) => {
       if (!headers.has(k)) headers.set(k, v);
     });

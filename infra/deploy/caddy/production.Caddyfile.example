@@ -6,7 +6,7 @@ www.shulehq.co.ke {
     redir https://shulehq.co.ke{uri} permanent
 }
 
-shulehq.co.ke {
+shulehq.co.ke, admin.shulehq.co.ke, novel-school.shulehq.co.ke {
     encode zstd gzip
 
     log {

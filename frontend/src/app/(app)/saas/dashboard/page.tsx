@@ -21,6 +21,7 @@ import {
   Globe,
   Layers,
   CalendarDays,
+  Rocket,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
@@ -979,6 +980,15 @@ export default function SaaSDashboardPage() {
           <div>
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">Admin Modules</h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <ModuleCard
+                href="/saas/rollout"
+                icon={Rocket}
+                iconColor="bg-orange-50 text-orange-600"
+                title="Rollout Desk"
+                description="Review demo, enquiry, and school-visit requests coming from the public onboarding site."
+                badge="Prospect intake"
+                badgeColor="amber"
+              />
               <ModuleCard
                 href="/saas/tenants"
                 icon={Building2}

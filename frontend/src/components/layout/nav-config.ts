@@ -126,6 +126,7 @@ export function principalEventsHref() {
 
 export const saasNav: AppNavItem[] = [
   { href: "/saas/dashboard", label: "SaaS Summary", icon: "LayoutDashboard" },
+  { href: "/saas/rollout", label: "Rollout Desk", icon: "Rocket" },
   { href: "/saas/tenants", label: "Tenants", icon: "Building2" },
   { href: "/saas/subscriptions", label: "Subscriptions", icon: "CreditCard" },
   { href: "/saas/payment-history", label: "Payment History", icon: "HandCoins" },
