@@ -19,7 +19,10 @@ type FormValues = {
 export default function SaaSLoginPage() {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
-  const adminHost = process.env.NEXT_PUBLIC_ADMIN_HOST || "admin.shulehq.co.ke";
+  const adminHost =
+    typeof window !== "undefined"
+      ? window.location.host
+      : process.env.NEXT_PUBLIC_ADMIN_HOST || "admin.shulehq.co.ke";
 
   const {
     register,

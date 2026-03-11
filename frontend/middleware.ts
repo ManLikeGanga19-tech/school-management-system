@@ -109,7 +109,10 @@ export function middleware(req: NextRequest) {
 
   if (isSaasLogin || isSaasRoute) {
     const target =
-      resolveAdminPortalUrl(saasAccess ? SAAS_HOME : `${SAAS_LOGIN}?next=${encodeURIComponent(pathname)}`) ||
+      resolveAdminPortalUrl(
+        saasAccess ? SAAS_HOME : `${SAAS_LOGIN}?next=${encodeURIComponent(pathname)}`,
+        portal.hostname
+      ) ||
       (saasAccess ? SAAS_HOME : SAAS_LOGIN);
     return NextResponse.redirect(target);
   }
@@ -132,7 +135,7 @@ export function middleware(req: NextRequest) {
   }
 
   if (saasAccess) {
-    return NextResponse.redirect(resolveAdminPortalUrl(SAAS_HOME) || "/");
+    return NextResponse.redirect(resolveAdminPortalUrl(SAAS_HOME, portal.hostname) || "/");
   }
 
   const url = req.nextUrl.clone();

@@ -10,6 +10,8 @@ export type PortalContext = {
 };
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const PROD_PUBLIC_HOST = "shulehq.co.ke";
+const STAGING_PUBLIC_HOST = "staging.shulehq.co.ke";
 
 export function normalizeHostname(value: string | null | undefined): string {
   return String(value || "")
@@ -26,14 +28,37 @@ function configuredHost(name: "NEXT_PUBLIC_PUBLIC_HOST" | "NEXT_PUBLIC_ADMIN_HOS
   return normalized || null;
 }
 
+function inferPublicHost(hostname: string): string | null {
+  if (!hostname) return null;
+  if (hostname === PROD_PUBLIC_HOST || hostname === `www.${PROD_PUBLIC_HOST}`) {
+    return PROD_PUBLIC_HOST;
+  }
+  if (hostname === STAGING_PUBLIC_HOST) {
+    return STAGING_PUBLIC_HOST;
+  }
+  if (hostname.endsWith(`.${STAGING_PUBLIC_HOST}`)) {
+    return STAGING_PUBLIC_HOST;
+  }
+  if (hostname.endsWith(`.${PROD_PUBLIC_HOST}`)) {
+    return PROD_PUBLIC_HOST;
+  }
+  return null;
+}
+
+function inferAdminHost(hostname: string): string | null {
+  const publicHost = inferPublicHost(hostname);
+  if (!publicHost) return null;
+  return `admin.${publicHost}`;
+}
+
 export function isLocalHostname(hostname: string | null | undefined): boolean {
   return LOCAL_HOSTS.has(normalizeHostname(hostname));
 }
 
 export function resolvePortalContext(hostname: string | null | undefined): PortalContext {
   const normalized = normalizeHostname(hostname);
-  const publicHost = configuredHost("NEXT_PUBLIC_PUBLIC_HOST");
-  const adminHost = configuredHost("NEXT_PUBLIC_ADMIN_HOST");
+  const publicHost = configuredHost("NEXT_PUBLIC_PUBLIC_HOST") || inferPublicHost(normalized);
+  const adminHost = configuredHost("NEXT_PUBLIC_ADMIN_HOST") || inferAdminHost(normalized);
   const tenantBaseHost = configuredHost("NEXT_PUBLIC_TENANT_BASE_HOST") || publicHost;
 
   if (!normalized || isLocalHostname(normalized)) {
@@ -116,14 +141,14 @@ function buildAbsoluteUrl(hostname: string, path = "/"): string {
   return `${protocol}://${hostname}${normalizedPath}`;
 }
 
-export function resolveAdminPortalUrl(path = "/"): string | null {
-  const adminHost = configuredHost("NEXT_PUBLIC_ADMIN_HOST");
+export function resolveAdminPortalUrl(path = "/", currentHostname?: string | null): string | null {
+  const adminHost = configuredHost("NEXT_PUBLIC_ADMIN_HOST") || inferAdminHost(normalizeHostname(currentHostname));
   if (!adminHost) return null;
   return buildAbsoluteUrl(adminHost, path);
 }
 
-export function resolvePublicPortalUrl(path = "/"): string | null {
-  const publicHost = configuredHost("NEXT_PUBLIC_PUBLIC_HOST");
+export function resolvePublicPortalUrl(path = "/", currentHostname?: string | null): string | null {
+  const publicHost = configuredHost("NEXT_PUBLIC_PUBLIC_HOST") || inferPublicHost(normalizeHostname(currentHostname));
   if (!publicHost) return null;
   return buildAbsoluteUrl(publicHost, path);
 }
