@@ -7,6 +7,7 @@ import { Building2, LockKeyhole, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { toast } from "@/components/ui/sonner";
 
 import { login } from "@/lib/auth/auth";
@@ -122,9 +123,8 @@ export default function SaaSLoginPage() {
                   </div>
 
                   <div className="space-y-1">
-                    <Input
+                    <PasswordInput
                       placeholder="Password"
-                      type="password"
                       autoComplete="current-password"
                       {...register("password", {
                         required: "Password is required",

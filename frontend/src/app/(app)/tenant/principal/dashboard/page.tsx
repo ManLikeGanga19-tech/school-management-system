@@ -14,6 +14,11 @@ import {
 
 import { AppShell } from "@/components/layout/AppShell";
 import {
+  DashboardModuleCard,
+  DashboardSectionLabel,
+  DashboardStatCard,
+} from "@/components/dashboard/dashboard-primitives";
+import {
   principalEventsHref,
   principalExamsHref,
   principalHrHref,
@@ -45,54 +50,6 @@ function formatDate(value: string) {
     month: "short",
     year: "numeric",
   }).format(parsed);
-}
-
-function StatCard({
-  label,
-  value,
-  sub,
-  icon: Icon,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5 shadow-sm">
-      <div className="inline-flex rounded-xl bg-blue-100 p-2.5 text-blue-700">
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="mt-4 text-2xl font-bold tracking-tight text-blue-900">{value}</div>
-      <div className="mt-0.5 text-sm font-medium text-slate-700">{label}</div>
-      {sub && <div className="mt-0.5 text-xs text-blue-500">{sub}</div>}
-    </div>
-  );
-}
-
-function ModuleCard({
-  href,
-  title,
-  description,
-  icon: Icon,
-}: {
-  href: string;
-  title: string;
-  description: string;
-  icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <a
-      href={href}
-      className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md"
-    >
-      <div className="inline-flex rounded-xl bg-slate-100 p-2.5 text-slate-700 transition group-hover:bg-blue-50 group-hover:text-blue-700">
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="mt-3 text-sm font-semibold text-slate-900">{title}</div>
-      <p className="mt-1 text-xs leading-relaxed text-slate-500">{description}</p>
-    </a>
-  );
 }
 
 export default async function PrincipalDashboardPage() {
@@ -151,7 +108,7 @@ export default async function PrincipalDashboardPage() {
   return (
     <AppShell title="Principal" nav={principalNav} activeHref="/tenant/principal/dashboard">
       <div className="space-y-5">
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 to-blue-500 p-6 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-6 text-white">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium">
@@ -159,12 +116,12 @@ export default async function PrincipalDashboardPage() {
                 Principal / Head Teacher
               </div>
               <h1 className="text-2xl font-bold">{tenantName}</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
+              <p className="mt-0.5 text-sm text-white/80">
                 Academic leadership dashboard for learning delivery, assessments, and timetable quality.
               </p>
             </div>
             <div className="rounded-xl bg-white/10 px-3 py-2 text-right">
-              <div className="text-xs text-blue-100">Tenant</div>
+              <div className="text-xs text-white/70">Tenant</div>
               <div className="font-mono text-sm font-semibold text-white">{tenantSlug}</div>
             </div>
           </div>
@@ -183,87 +140,96 @@ export default async function PrincipalDashboardPage() {
         )}
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <StatCard label="Active Students" value={activeStudents} sub={`${enrollments.length} tracked`} icon={Users} />
-          <StatCard label="Upcoming Exams" value={upcomingExams.length} sub={`${exams.length} total`} icon={ClipboardList} />
-          <StatCard label="Upcoming Events" value={upcomingEvents.length} sub={`${events.length} total`} icon={CalendarDays} />
-          <StatCard
+          <DashboardStatCard label="Active Students" value={activeStudents} sub={`${enrollments.length} tracked`} icon={Users} tone="secondary" />
+          <DashboardStatCard label="Upcoming Exams" value={upcomingExams.length} sub={`${exams.length} total`} icon={ClipboardList} tone="warning" />
+          <DashboardStatCard label="Upcoming Events" value={upcomingEvents.length} sub={`${events.length} total`} icon={CalendarDays} tone="accent" />
+          <DashboardStatCard
             label="Teaching Assignments"
             value={activeTeacherAssignments}
             sub={`${teacherAssignments.length} mapped`}
             icon={Presentation}
+            tone="sage"
           />
-          <StatCard
+          <DashboardStatCard
             label="Unread Notifications"
             value={unreadNotifications}
             sub={`${activeTimetableEntries} timetable slots`}
             icon={BellRing}
+            tone="neutral"
           />
         </div>
 
         <div>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
-            Academic Modules
-          </h2>
+          <DashboardSectionLabel>Academic Modules</DashboardSectionLabel>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <ModuleCard
+            <DashboardModuleCard
               href={principalStudentsHref("all")}
               title="Student Directory"
               description="Search learners, review profiles, and inspect student-level academic context."
               icon={GraduationCap}
+              tone="secondary"
             />
-            <ModuleCard
+            <DashboardModuleCard
               href={principalExamsHref("setup")}
               title="Exam Setup"
               description="Schedule term exams with class scope, invigilation, and exam controls."
               icon={ClipboardList}
+              tone="warning"
             />
-            <ModuleCard
+            <DashboardModuleCard
               href={principalExamsHref("timetable")}
               title="Exam Timetable"
               description="Use table/calendar view to verify coverage and avoid exam-time conflicts."
               icon={CalendarClock}
+              tone="accent"
             />
-            <ModuleCard
+            <DashboardModuleCard
               href={principalExamsHref("progress")}
               title="Progress Reports"
               description="Track marks by subject and class to monitor academic performance trends."
               icon={BookOpenCheck}
+              tone="sage"
             />
-            <ModuleCard
+            <DashboardModuleCard
               href={principalSchoolSetupHref("subjects")}
               title="Subject & Class Setup"
               description="Maintain subject list, class list, and core academic structures for delivery."
               icon={School}
+              tone="neutral"
             />
-            <ModuleCard
+            <DashboardModuleCard
               href={principalHrHref("teachers")}
               title="Teacher Assignments"
               description="Map teachers to classes/subjects and keep assignment coverage current."
               icon={Presentation}
+              tone="sage"
             />
-            <ModuleCard
+            <DashboardModuleCard
               href={principalSchoolSetupHref("timetable")}
               title="School Timetable"
               description="Manage lesson timetable, breaks, and daily coverage for all class streams."
               icon={CalendarDays}
+              tone="accent"
             />
-            <ModuleCard
+            <DashboardModuleCard
               href={principalEventsHref()}
               title="Academic Events"
               description="Plan school and class events tied to terms with student/class targeting."
               icon={CalendarDays}
+              tone="warning"
             />
-            <ModuleCard
+            <DashboardModuleCard
               href={principalNotificationsHref()}
               title="Notifications"
               description="Review critical operational alerts and academic action items in real time."
               icon={BellRing}
+              tone="secondary"
             />
           </div>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="dashboard-surface rounded-[1.6rem] p-5">
             <h2 className="text-sm font-semibold text-slate-900">Upcoming Exams</h2>
             <p className="mt-0.5 text-xs text-slate-500">Next exam windows by date and class scope.</p>
             <div className="mt-4 space-y-2">
@@ -276,7 +242,7 @@ export default async function PrincipalDashboardPage() {
                   <a
                     key={row.id}
                     href={principalExamsHref("timetable")}
-                    className="block rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 transition hover:border-blue-100 hover:bg-blue-50/40"
+                    className="block rounded-xl border border-[#eadfce] bg-[#f8f3eb] px-3 py-2 transition hover:border-[#d7b699] hover:bg-[#f5ede3]"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
@@ -293,7 +259,7 @@ export default async function PrincipalDashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="dashboard-surface rounded-[1.6rem] p-5">
             <h2 className="text-sm font-semibold text-slate-900">Notifications Overview</h2>
             <p className="mt-0.5 text-xs text-slate-500">Latest tenant notifications and unresolved academic alerts.</p>
             <div className="mt-4 space-y-2">
@@ -308,8 +274,8 @@ export default async function PrincipalDashboardPage() {
                     href={principalNotificationsHref()}
                     className={`block rounded-xl border px-3 py-2 transition ${
                       item.unread
-                        ? "border-blue-100 bg-blue-50/60 hover:bg-blue-50"
-                        : "border-slate-100 bg-slate-50 hover:bg-slate-100"
+                        ? "border-[#d8e5e7] bg-[#eef5f5] hover:bg-[#e7f0f1]"
+                        : "border-[#eadfce] bg-[#f8f3eb] hover:bg-[#f2ece4]"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -320,7 +286,7 @@ export default async function PrincipalDashboardPage() {
                       <div className="shrink-0 text-right">
                         <div className="text-xs text-slate-400">{timeAgo(item.created_at)}</div>
                         {item.unread && (
-                          <span className="mt-1 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                          <span className="mt-1 inline-flex rounded-full bg-[#dce9eb] px-2 py-0.5 text-[10px] font-semibold text-[#173f49]">
                             Unread
                           </span>
                         )}

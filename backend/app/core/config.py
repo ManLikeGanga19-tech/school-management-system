@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     COOKIE_SAMESITE: str = "lax"
     COOKIE_DOMAIN: str = ""
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    PUBLIC_OAUTH_SHARED_SECRET: str = ""
 
     # Conservative defaults for local/dev and safe production baseline.
     DB_POOL_SIZE: int = 10
