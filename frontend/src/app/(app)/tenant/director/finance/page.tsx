@@ -549,7 +549,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="dashboard-surface rounded-[1.6rem]">
       <div className="border-b border-slate-100 px-6 py-4">
         <div className="flex items-center gap-2">
           {Icon && <Icon className="h-4 w-4 text-slate-400" />}
@@ -1304,7 +1304,7 @@ function TenantFinancePageContent() {
   return (
     <AppShell title="Director" nav={directorNav} activeHref={directorFinanceHref(section)}>
       <div className="space-y-5">
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 to-blue-500 p-5 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-5 text-white shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-xl font-bold">{SECTION_TITLES[section]}</h1>

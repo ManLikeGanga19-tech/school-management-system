@@ -202,7 +202,7 @@ export function StudentFeeBalancePage({
           }}
         />
 
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-5 text-white shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-bold">Students · Fee Balance</h1>
@@ -247,7 +247,7 @@ export function StudentFeeBalancePage({
           while full balance is based on tenant invoices when available.
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="dashboard-surface rounded-[1.6rem]">
           <div className="border-b border-slate-100 px-6 py-4 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-900">Student Fee Balance Table</h2>

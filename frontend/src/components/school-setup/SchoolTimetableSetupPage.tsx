@@ -1074,7 +1074,7 @@ export function SchoolTimetableSetupPage({
   return (
     <AppShell title={appTitle} nav={nav} activeHref={activeHref}>
       <div className="space-y-5">
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-5 text-white shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-xl font-bold">School Setup · Timetable</h1>
@@ -1099,7 +1099,7 @@ export function SchoolTimetableSetupPage({
           </div>
         )}
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="dashboard-surface rounded-[1.6rem] p-5">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Break Presets</h2>
@@ -1222,7 +1222,7 @@ export function SchoolTimetableSetupPage({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="dashboard-surface rounded-[1.6rem] p-5">
           <div className="mb-4">
             <h2 className="text-sm font-semibold text-slate-900">
               {editingId ? "Update Timetable Entry" : "Create Timetable Entry"}
@@ -1466,7 +1466,7 @@ export function SchoolTimetableSetupPage({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="dashboard-surface rounded-[1.6rem]">
           <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
             <div className="flex items-center gap-2">
               <CalendarDays className="h-4 w-4 text-blue-600" />

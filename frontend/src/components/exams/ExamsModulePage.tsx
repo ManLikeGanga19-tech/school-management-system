@@ -718,7 +718,7 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
   return (
     <AppShell title={appTitle} nav={nav} activeHref={activeHref}>
       <div className="space-y-5">
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-4 text-white shadow-sm sm:p-5">
+        <div className="dashboard-hero rounded-[2rem] p-4 text-white shadow-sm sm:p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-xl font-bold">Exams Module</h1>
@@ -738,7 +738,7 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
         </div>
 
         {section === "setup" && (
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="dashboard-surface rounded-[1.6rem]">
           <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
             <h2 className="text-sm font-semibold text-slate-900">Exam Setup</h2>
             <p className="mt-0.5 text-xs text-slate-500">
@@ -956,7 +956,7 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
         )}
 
         {section === "timetable" && (
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="dashboard-surface rounded-[1.6rem]">
           <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
             <h2 className="text-sm font-semibold text-slate-900">Timetable View</h2>
             <p className="mt-0.5 text-xs text-slate-500">
@@ -1305,7 +1305,7 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
 
         {section === "progress" && (
         <div className="grid gap-5 xl:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="dashboard-surface rounded-[1.6rem]">
             <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
               <h2 className="text-sm font-semibold text-slate-900">Record Student Marks</h2>
               <p className="mt-0.5 text-xs text-slate-500">
@@ -1452,7 +1452,7 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="dashboard-surface rounded-[1.6rem]">
             <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
               <div className="flex items-center gap-2">
                 <ClipboardList className="h-4 w-4 text-slate-500" />
@@ -1738,7 +1738,7 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
           </DialogContent>
         </Dialog>
 
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 shadow-sm">
+        <div className="dashboard-surface-muted rounded-[1.6rem] p-4 text-xs text-slate-600">
           <div className="flex items-start gap-2">
             <CalendarDays className="mt-0.5 h-4 w-4 text-slate-500" />
             <div>

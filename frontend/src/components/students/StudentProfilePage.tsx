@@ -460,7 +460,7 @@ export function StudentProfilePage({
   return (
     <AppShell title={appTitle} nav={nav} activeHref={activeHref}>
       <div className="space-y-5">
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-5 text-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <h1 className="truncate text-xl font-bold">
@@ -530,7 +530,7 @@ export function StudentProfilePage({
               </div>
             </div>
 
-            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <section className="dashboard-surface rounded-[1.6rem]">
               <div className="border-b border-slate-100 px-6 py-4">
                 <h2 className="text-sm font-semibold text-slate-900">Admission Details</h2>
               </div>
@@ -578,7 +578,7 @@ export function StudentProfilePage({
               </div>
 
               <div className="grid gap-4 xl:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="dashboard-surface rounded-[1.6rem]">
                   <div className="border-b border-slate-100 px-6 py-4">
                     <h3 className="text-sm font-semibold text-slate-900">Term Fee Summary</h3>
                   </div>
@@ -611,7 +611,7 @@ export function StudentProfilePage({
                   </Table>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="dashboard-surface rounded-[1.6rem]">
                   <div className="border-b border-slate-100 px-6 py-4">
                     <h3 className="text-sm font-semibold text-slate-900">Year Fee Summary</h3>
                   </div>
@@ -669,7 +669,7 @@ export function StudentProfilePage({
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="dashboard-surface rounded-[1.6rem]">
                 <div className="border-b border-slate-100 px-6 py-4">
                   <h3 className="text-sm font-semibold text-slate-900">Subject Summary</h3>
                 </div>
@@ -713,7 +713,7 @@ export function StudentProfilePage({
                 </Table>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="dashboard-surface rounded-[1.6rem]">
                 <div className="border-b border-slate-100 px-6 py-4">
                   <h3 className="text-sm font-semibold text-slate-900">Exam Record Log</h3>
                 </div>
