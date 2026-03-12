@@ -168,6 +168,24 @@ function avatarColor(id: string) {
   return palette[Math.abs(hash) % palette.length];
 }
 
+function darajaSurfaceClasses(ready: boolean) {
+  return ready
+    ? "border-[#d8e8df] bg-[#edf6f0]"
+    : "border-[#ead9bb] bg-[#f8efdf]";
+}
+
+function darajaStatusIcon(status: DarajaConnectivityCheck["status"]) {
+  if (status === "healthy") return <CheckCircle className="h-4 w-4 text-[#20644f]" />;
+  if (status === "misconfigured") return <XCircle className="h-4 w-4 text-[#a24d35]" />;
+  return <AlertTriangle className="h-4 w-4 text-[#8b5a17]" />;
+}
+
+function paymentStatusTone(status: SaaSPaymentRow["status"]) {
+  if (status === "completed") return "sage" as const;
+  if (status === "pending") return "warning" as const;
+  return "danger" as const;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SaaSDashboardPage() {
@@ -390,8 +408,8 @@ export default function SaaSDashboardPage() {
           )}
 
           {pastDueCount > 0 && (
-            <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+            <div className="flex items-center gap-3 rounded-xl border border-[#ead9bb] bg-[#f8efdf] px-4 py-3 text-sm text-[#7a4d12]">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-[#8b5a17]" />
               <span>
                 <strong>{pastDueCount}</strong> subscription{pastDueCount !== 1 ? "s are" : " is"} past due.{" "}
                 <a href="/saas/subscriptions" className="font-semibold underline hover:no-underline">
@@ -403,18 +421,14 @@ export default function SaaSDashboardPage() {
 
           {darajaHealth && (
             <div
-              className={`rounded-xl border px-4 py-3 ${
-                darajaHealth.ready
-                  ? "border-emerald-200 bg-emerald-50"
-                  : "border-amber-200 bg-amber-50"
-              }`}
+              className={`rounded-xl border px-4 py-3 ${darajaSurfaceClasses(darajaHealth.ready)}`}
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-start gap-2">
                   {darajaHealth.ready ? (
-                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#20644f]" />
                   ) : (
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#8b5a17]" />
                   )}
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Daraja Payments Health</p>
@@ -434,13 +448,7 @@ export default function SaaSDashboardPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span
-                    className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
-                      darajaHealth.ready
-                        ? "bg-emerald-100 text-emerald-700 ring-emerald-200"
-                        : "bg-amber-100 text-amber-700 ring-amber-200"
-                    }`}
-                  >
+                  <span className={dashboardBadgeClasses(darajaHealth.ready ? "sage" : "warning")}>
                     {darajaHealth.ready ? "Ready" : "Config Needed"}
                   </span>
                   <button
@@ -457,11 +465,11 @@ export default function SaaSDashboardPage() {
 
               {!darajaHealth.ready && darajaHealth.missing_required.length > 0 && (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium text-amber-800">Missing vars:</span>
+                  <span className="text-xs font-medium text-[#7a4d12]">Missing vars:</span>
                   {darajaHealth.missing_required.map((v) => (
                     <span
                       key={v}
-                      className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-amber-200"
+                      className="rounded-full border border-[#e5d1ac] bg-[#fbf6eb] px-2 py-0.5 text-[11px] font-medium text-[#8b5a17]"
                     >
                       {v}
                     </span>
@@ -473,13 +481,7 @@ export default function SaaSDashboardPage() {
                 <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                      {darajaConnectivity.status === "healthy" ? (
-                        <CheckCircle className="h-4 w-4 text-emerald-600" />
-                      ) : darajaConnectivity.status === "misconfigured" ? (
-                        <XCircle className="h-4 w-4 text-red-600" />
-                      ) : (
-                        <AlertTriangle className="h-4 w-4 text-amber-600" />
-                      )}
+                      {darajaStatusIcon(darajaConnectivity.status)}
                       Connectivity Status: {darajaConnectivity.status.toUpperCase()}
                     </div>
                     <span className="text-xs text-slate-500">
@@ -764,14 +766,10 @@ export default function SaaSDashboardPage() {
 
                       <div className="flex flex-col items-end gap-1 shrink-0">
                         <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                            t.is_active
-                              ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                              : "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
-                          }`}
+                          className={dashboardBadgeClasses(t.is_active ? "sage" : "neutral")}
                         >
                           <span
-                            className={`h-1.5 w-1.5 rounded-full ${t.is_active ? "bg-emerald-500" : "bg-slate-400"}`}
+                            className={`h-1.5 w-1.5 rounded-full ${t.is_active ? "bg-[#20644f]" : "bg-[#6b7580]"}`}
                           />
                           {t.is_active ? "Active" : "Inactive"}
                         </span>
@@ -823,13 +821,7 @@ export default function SaaSDashboardPage() {
                           {p.billing_term_label || (p.billing_plan === "per_year" ? "Per Year" : "Per Term")}
                         </span>
                         <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
-                            p.status === "completed"
-                              ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                              : p.status === "pending"
-                              ? "bg-amber-50 text-amber-700 ring-amber-200"
-                              : "bg-red-50 text-red-700 ring-red-200"
-                          }`}
+                          className={dashboardBadgeClasses(paymentStatusTone(p.status))}
                         >
                           {p.status}
                         </span>

@@ -48,7 +48,13 @@ def _load_roles_permissions(db: Session, tenant_id, user_id) -> tuple[list[str],
             role_scope_filter,
         )
     ).all()
-    role_codes = sorted({r[0] for r in role_rows})
+    role_codes = sorted({str(r[0]).strip().upper() for r in role_rows if r and r[0]})
+
+    if "SUPER_ADMIN" in role_codes:
+        all_permissions = db.execute(
+            select(Permission.code).order_by(Permission.code.asc())
+        ).scalars().all()
+        return role_codes, sorted({str(code) for code in all_permissions if code})
 
     # 2) Role permissions
     perm_rows = db.execute(

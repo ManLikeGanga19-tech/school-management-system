@@ -8,7 +8,7 @@ import pytest
 from uuid import uuid4
 from datetime import date
 from decimal import Decimal
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import Session, sessionmaker
 from app.api.v1.admin import routes as admin_routes
@@ -21,7 +21,7 @@ from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.membership import UserTenant
 from app.models.subscription import Subscription
-from app.models.rbac import Role, UserRole, Permission
+from app.models.rbac import Permission, Role, RolePermission, UserPermissionOverride, UserRole
 from app.utils.tokens import create_access_token
 from app.core.dependencies import SAAS_TENANT_MARKER
 
@@ -203,6 +203,59 @@ def create_super_admin_user(db: Session) -> User:
     return user
 
 
+def create_system_role(db: Session, code: str, name: str | None = None) -> Role:
+    role = Role(
+        id=uuid4(),
+        code=code,
+        name=name or code.replace("_", " ").title(),
+        tenant_id=None,
+        is_system=True,
+    )
+    db.add(role)
+    db.flush()
+    return role
+
+
+def create_permission(db: Session, code: str, name: str | None = None) -> Permission:
+    permission = Permission(
+        id=uuid4(),
+        code=code,
+        name=name or code.replace(".", " ").replace("_", " ").title(),
+    )
+    db.add(permission)
+    db.flush()
+    return permission
+
+
+def assign_permission_to_role(db: Session, role: Role, permission: Permission) -> None:
+    db.add(RolePermission(role_id=role.id, permission_id=permission.id))
+    db.flush()
+
+
+def create_saas_actor_user(db: Session, *, email: str = "ops@example.com", role_code: str = "OPS_AGENT") -> tuple[User, Role]:
+    user = User(
+        id=uuid4(),
+        email=email,
+        password_hash="fake_hash",
+        is_active=True,
+    )
+    db.add(user)
+    db.flush()
+
+    role = create_system_role(db, role_code)
+    db.add(
+        UserRole(
+            id=uuid4(),
+            user_id=user.id,
+            role_id=role.id,
+            tenant_id=None,
+        )
+    )
+    db.flush()
+    db.commit()
+    return user, role
+
+
 def get_saas_token(user: User) -> str:
     """Create a SaaS token for super admin"""
     return create_access_token(
@@ -213,6 +266,21 @@ def get_saas_token(user: User) -> str:
         permissions=["tenants.read_all", "tenants.create", "subscriptions.read", 
                      "subscriptions.manage", "admin.dashboard.view_all", 
                      "rbac.permissions.manage"],
+    )
+
+
+def get_saas_token_with_claims(
+    user: User,
+    *,
+    roles: list[str] | None = None,
+    permissions: list[str] | None = None,
+) -> str:
+    return create_access_token(
+        subject=str(user.id),
+        token_type="access",
+        tenant_id=SAAS_TENANT_MARKER,
+        roles=roles or [],
+        permissions=permissions or [],
     )
 
 
@@ -405,6 +473,120 @@ class TestCreateTenant:
         )
         
         assert response.status_code == 409
+
+    def test_create_tenant_with_admin_survives_invitation_failure(self, client, db_session, monkeypatch):
+        user = create_super_admin_user(db_session)
+        create_system_role(db_session, "DIRECTOR", "Director")
+        db_session.commit()
+        token = get_saas_token(user)
+
+        def _explode(*args, **kwargs):
+            raise RuntimeError("smtp offline")
+
+        monkeypatch.setattr("app.api.v1.admin.service._send_invitation_email", _explode)
+
+        response = client.post(
+            "/api/v1/admin/tenants",
+            json={
+                "name": "Invite School",
+                "slug": "invite-school",
+                "admin_email": "director@invite-school.test",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["slug"] == "invite-school"
+        assert data["user_count"] == 1
+
+        tenant = db_session.execute(
+            select(Tenant).where(Tenant.slug == "invite-school")
+        ).scalar_one()
+        invited_user = db_session.execute(
+            select(User).where(User.email == "director@invite-school.test")
+        ).scalar_one()
+        membership = db_session.execute(
+            select(UserTenant).where(
+                UserTenant.tenant_id == tenant.id,
+                UserTenant.user_id == invited_user.id,
+            )
+        ).scalar_one_or_none()
+        director_role = db_session.execute(
+            select(Role).where(Role.code == "DIRECTOR", Role.tenant_id.is_(None))
+        ).scalar_one()
+        assignment = db_session.execute(
+            select(UserRole).where(
+                UserRole.tenant_id == tenant.id,
+                UserRole.user_id == invited_user.id,
+                UserRole.role_id == director_role.id,
+            )
+        ).scalar_one_or_none()
+
+        assert membership is not None
+        assert assignment is not None
+
+
+class TestSaaSRbacRuntime:
+    def test_saas_permissions_recompute_from_db_even_when_token_is_stale(self, client, db_session):
+        user, role = create_saas_actor_user(db_session, role_code="TENANT_VIEWER")
+        permission = create_permission(db_session, "tenants.read_all", "Tenants Read All")
+        assign_permission_to_role(db_session, role, permission)
+        db_session.commit()
+
+        stale_token = get_saas_token_with_claims(user, roles=[], permissions=[])
+
+        response = client.get(
+            "/api/v1/admin/tenants",
+            headers={"Authorization": f"Bearer {stale_token}"},
+        )
+
+        assert response.status_code == 200
+
+    def test_saas_permission_deny_override_is_applied_immediately(self, client, db_session):
+        user, role = create_saas_actor_user(db_session, role_code="TENANT_VIEWER")
+        permission = create_permission(db_session, "tenants.read_all", "Tenants Read All")
+        assign_permission_to_role(db_session, role, permission)
+        db_session.flush()
+        db_session.add(
+            UserPermissionOverride(
+                id=uuid4(),
+                tenant_id=None,
+                user_id=user.id,
+                permission_id=permission.id,
+                effect="DENY",
+                reason="Regression test",
+            )
+        )
+        db_session.commit()
+
+        stale_token = get_saas_token_with_claims(
+            user,
+            roles=[role.code],
+            permissions=["tenants.read_all"],
+        )
+
+        response = client.get(
+            "/api/v1/admin/tenants",
+            headers={"Authorization": f"Bearer {stale_token}"},
+        )
+
+        assert response.status_code == 403
+
+    def test_super_admin_role_gets_full_permission_surface_without_token_claims(self, client, db_session):
+        user = create_super_admin_user(db_session)
+        create_permission(db_session, "admin.dashboard.view_all", "Admin Dashboard View All")
+        create_permission(db_session, "tenants.read_all", "Tenants Read All")
+        db_session.commit()
+
+        stale_token = get_saas_token_with_claims(user, roles=[], permissions=[])
+
+        response = client.get(
+            "/api/v1/admin/saas/metrics",
+            headers={"Authorization": f"Bearer {stale_token}"},
+        )
+
+        assert response.status_code == 200
 
 
 # ========================================================================

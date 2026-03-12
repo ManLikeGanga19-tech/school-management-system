@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from jose import JWTError
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.v1.auth.service import _load_roles_permissions
 from app.core.database import get_db
 from app.utils.tokens import decode_token
 from app.models.user import User
@@ -58,6 +59,18 @@ def _load_active_user(db: Session, user_id: str | None) -> User:
     return user
 
 
+def _load_effective_permissions(
+    db: Session,
+    *,
+    user_id: str,
+    tenant_id,
+) -> tuple[list[str], list[str]]:
+    try:
+        return _load_roles_permissions(db, tenant_id, user_id)
+    except SQLAlchemyError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+
 # -----------------------------
 # Auth: Tenant Mode (School Users)
 # -----------------------------
@@ -92,11 +105,16 @@ def get_current_user(
 
     user_id = payload.get("sub")
     user = _load_active_user(db, user_id)
+    roles, permissions = _load_effective_permissions(
+        db,
+        user_id=str(user.id),
+        tenant_id=tenant.id,
+    )
 
     # For AuditMiddleware + RBAC checks
     request.state.user_id = user.id
-    request.state.roles = payload.get("roles", []) or []
-    request.state.permissions = payload.get("permissions", []) or []
+    request.state.roles = roles
+    request.state.permissions = permissions
 
     return user
 
@@ -117,11 +135,16 @@ def get_current_user_saas(
 
     user_id = payload.get("sub")
     user = _load_active_user(db, user_id)
+    roles, permissions = _load_effective_permissions(
+        db,
+        user_id=str(user.id),
+        tenant_id=None,
+    )
 
     # For AuditMiddleware + RBAC checks
     request.state.user_id = user.id
-    request.state.roles = payload.get("roles", []) or []
-    request.state.permissions = payload.get("permissions", []) or []
+    request.state.roles = roles
+    request.state.permissions = permissions
 
     return user
 
@@ -141,6 +164,13 @@ def require_permission(code: str):
         request: Request,
         _user=Depends(get_current_user),
     ):
+        roles = {
+            str(role).strip().upper()
+            for role in (getattr(request.state, "roles", []) or [])
+            if isinstance(role, str) and str(role).strip()
+        }
+        if "SUPER_ADMIN" in roles:
+            return
         perms = getattr(request.state, "permissions", []) or []
         if code not in perms:
             raise HTTPException(status_code=403, detail=f"Missing permission: {code}")
@@ -158,6 +188,13 @@ def require_permission_saas(code: str):
         request: Request,
         _user=Depends(get_current_user_saas),
     ):
+        roles = {
+            str(role).strip().upper()
+            for role in (getattr(request.state, "roles", []) or [])
+            if isinstance(role, str) and str(role).strip()
+        }
+        if "SUPER_ADMIN" in roles:
+            return
         perms = getattr(request.state, "permissions", []) or []
         if code not in perms:
             raise HTTPException(status_code=403, detail=f"Missing permission: {code}")

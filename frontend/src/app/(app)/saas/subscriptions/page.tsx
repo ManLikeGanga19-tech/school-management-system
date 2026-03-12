@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
+import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -682,35 +684,20 @@ export default function SaaSSubscriptionsPage() {
       <div className="space-y-5">
 
         {/* Header */}
-        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="mb-1.5 flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
-                  <CreditCard className="h-3 w-3" />
-                  Super Admin · Billing
-                </span>
-              </div>
-              <h1 className="text-xl font-bold">Subscription Management</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
-                Manage tenant billing plans (per term or per year) and manual pricing
-              </p>
-            </div>
-            <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-4 sm:gap-3">
-              {[
-                { label: "Total",    value: rows.length  },
-                { label: "Active",   value: activeCount  },
-                { label: "Past Due", value: pastDueCount, warn: pastDueCount > 0 },
-                { label: "Trialing", value: trialCount   },
-              ].map((item) => (
-                <div key={item.label} className={`rounded-xl px-3 py-2 text-center backdrop-blur ${(item as any).warn ? "bg-red-500/20" : "bg-white/10"}`}>
-                  <div className={`text-lg font-bold sm:text-xl ${(item as any).warn ? "text-red-200" : "text-white"}`}>{item.value}</div>
-                  <div className="text-xs text-blue-200">{item.label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <SaasPageHeader
+          title="Subscription Management"
+          description="Control subscription plans, negotiated pricing, renewal cadence, and portfolio billing health across every tenant."
+          badges={[
+            { label: "Super Admin", icon: CreditCard },
+            { label: "Billing Control", icon: TrendingUp },
+          ]}
+          metrics={[
+            { label: "Total", value: rows.length },
+            { label: "Active", value: activeCount },
+            { label: "Past Due", value: pastDueCount, tone: pastDueCount > 0 ? "warning" : "default" },
+            { label: "Trialing", value: trialCount },
+          ]}
+        />
 
         {/* Past due alert */}
         {pastDueCount > 0 && (
@@ -730,22 +717,12 @@ export default function SaaSSubscriptionsPage() {
         )}
 
         {/* KPI strip */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-          {[
-            { label: "Active Subs",    value: activeCount,         color: "border-emerald-100 bg-emerald-50 text-emerald-900 text-emerald-400" },
-            { label: "Per Term",       value: termCount,           color: "border-blue-100 bg-blue-50 text-blue-900 text-blue-400" },
-            { label: "Per Year",       value: yearCount,           color: "border-purple-100 bg-purple-50 text-purple-900 text-purple-400" },
-            { label: "Past Due",       value: pastDueCount,        color: pastDueCount > 0 ? "border-red-100 bg-red-50 text-red-900 text-red-400" : "border-slate-100 bg-slate-50 text-slate-900 text-slate-400" },
-            { label: "Est. MRR",       value: formatKes(totalMrr), color: "border-amber-100 bg-amber-50 text-amber-900 text-amber-400" },
-          ].map((item) => {
-            const [border, bg, textVal, textSub] = item.color.split(" ");
-            return (
-              <div key={item.label} className={`rounded-xl border px-4 py-3 ${border} ${bg}`}>
-                <div className={`text-xl font-bold ${textVal}`}>{item.value}</div>
-                <div className={`text-xs font-medium ${textSub}`}>{item.label}</div>
-              </div>
-            );
-          })}
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
+          <DashboardStatCard label="Active Subs" value={activeCount} sub="Tenants with live billing coverage" icon={CheckCircle} tone="sage" />
+          <DashboardStatCard label="Per Term" value={termCount} sub="Term-billed institutions" icon={CalendarDays} tone="secondary" />
+          <DashboardStatCard label="Per Year" value={yearCount} sub="Annual-billed institutions" icon={Calendar} tone="accent" />
+          <DashboardStatCard label="Past Due" value={pastDueCount} sub="Subscriptions needing intervention" icon={AlertTriangle} tone={pastDueCount > 0 ? "danger" : "neutral"} />
+          <DashboardStatCard label="Est. MRR" value={formatKes(totalMrr)} sub="Approximate monthly normalized revenue" icon={BadgePercent} tone="warning" />
         </div>
 
         {/* Billing plan breakdown */}
@@ -755,7 +732,7 @@ export default function SaaSSubscriptionsPage() {
             const revenue = subs.reduce((s, r) => s + r.amount_kes, 0);
             const Icon = billingIcon(plan);
             return (
-              <div key={plan} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <SaasSurface key={plan} className="flex items-center gap-4 p-5">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
                   <Icon className="h-6 w-6" />
                 </div>
@@ -772,13 +749,13 @@ export default function SaaSSubscriptionsPage() {
                   <div className="text-xs text-slate-400">tenants</div>
                   <div className="mt-0.5 text-xs font-medium text-emerald-600">{formatKes(revenue)}</div>
                 </div>
-              </div>
+              </SaasSurface>
             );
           })}
         </div>
 
         {/* Table card */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <SaasSurface className="overflow-hidden">
 
           {/* Toolbar */}
           <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1010,7 +987,7 @@ export default function SaaSSubscriptionsPage() {
               </span>
             </div>
           )}
-        </div>
+        </SaasSurface>
       </div>
     </AppShell>
   );

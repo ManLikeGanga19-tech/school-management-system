@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
+import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -658,34 +660,19 @@ export default function SaaSTenantsPage() {
       <div className="space-y-5">
 
         {/* ── Header ── */}
-        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="mb-1.5 flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
-                  <Building2 className="h-3 w-3" />
-                  Super Admin
-                </span>
-              </div>
-              <h1 className="text-xl font-bold">Tenant Management</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
-                Manage all schools on the platform — suspend, restore, and monitor activity
-              </p>
-            </div>
-            <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-3 sm:gap-3">
-              {[
-                { label: "Total",    value: rows.length   },
-                { label: "Active",   value: activeCount   },
-                { label: "Inactive", value: inactiveCount },
-              ].map((item) => (
-                <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 text-center backdrop-blur sm:px-4">
-                  <div className="text-lg font-bold text-white sm:text-xl">{item.value}</div>
-                  <div className="text-xs text-blue-200">{item.label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <SaasPageHeader
+          title="Tenant Management"
+          description="Operate the school portfolio from one control layer: onboard tenants, manage domains, tune print profiles, and handle suspensions safely."
+          badges={[
+            { label: "Super Admin", icon: Building2 },
+            { label: "Tenant Portfolio", icon: Globe },
+          ]}
+          metrics={[
+            { label: "Total", value: rows.length },
+            { label: "Active", value: activeCount },
+            { label: "Inactive", value: inactiveCount, tone: inactiveCount > 0 ? "warning" : "default" },
+          ]}
+        />
 
         {/* ── Error ── */}
         {err && (
@@ -699,25 +686,15 @@ export default function SaaSTenantsPage() {
         )}
 
         {/* ── Stat pills ── */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: "Total Tenants",   value: rows.length,   color: "border-blue-100 bg-blue-50 text-blue-900 text-blue-400" },
-            { label: "Active",          value: activeCount,   color: "border-emerald-100 bg-emerald-50 text-emerald-900 text-emerald-400" },
-            { label: "Inactive",        value: inactiveCount, color: inactiveCount > 0 ? "border-amber-100 bg-amber-50 text-amber-900 text-amber-400" : "border-slate-100 bg-slate-50 text-slate-900 text-slate-400" },
-            { label: "Activity Rate",   value: `${activeRate}%`, color: "border-purple-100 bg-purple-50 text-purple-900 text-purple-400" },
-          ].map((item) => {
-            const [border, bg, textVal, textSub] = item.color.split(" ");
-            return (
-              <div key={item.label} className={`rounded-xl border px-4 py-3 ${border} ${bg}`}>
-                <div className={`text-2xl font-bold ${textVal}`}>{item.value}</div>
-                <div className={`text-xs font-medium ${textSub}`}>{item.label}</div>
-              </div>
-            );
-          })}
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <DashboardStatCard label="Total Tenants" value={rows.length} sub="Institutions on the platform" icon={Building2} tone="accent" />
+          <DashboardStatCard label="Active" value={activeCount} sub="Schools currently allowed to operate" icon={ShieldCheck} tone="sage" />
+          <DashboardStatCard label="Inactive" value={inactiveCount} sub="Suspended or inactive tenant footprints" icon={ShieldOff} tone={inactiveCount > 0 ? "warning" : "neutral"} />
+          <DashboardStatCard label="Activity Rate" value={`${activeRate}%`} sub="Share of active tenants in portfolio" icon={Activity} tone="secondary" />
         </div>
 
         {/* ── Search / filter / table card ── */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <SaasSurface className="overflow-hidden">
 
           {/* Toolbar */}
           <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -974,7 +951,7 @@ export default function SaaSTenantsPage() {
               </span>
             </div>
           )}
-        </div>
+        </SaasSurface>
       </div>
     </AppShell>
   );

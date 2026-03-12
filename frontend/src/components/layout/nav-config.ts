@@ -93,7 +93,7 @@ export function secretaryEventsHref() {
 }
 
 // ───────────────────────────────────────────────────────────────
-// Principal / Head Teacher paths under /tenant/principal/*
+// Principal paths under /tenant/principal/*
 // ───────────────────────────────────────────────────────────────
 
 export function principalSchoolSetupHref(section: SchoolSetupSection) {
@@ -126,12 +126,12 @@ export function principalEventsHref() {
 
 export const saasNav: AppNavItem[] = [
   { href: "/saas/dashboard", label: "SaaS Summary", icon: "LayoutDashboard" },
-  { href: "/saas/rollout", label: "Rollout Desk", icon: "Rocket" },
+  { href: "/saas/rollout", label: "Rollout Desk", icon: "Rocket", badgeKey: "saasRollout" },
   { href: "/saas/tenants", label: "Tenants", icon: "Building2" },
   { href: "/saas/subscriptions", label: "Subscriptions", icon: "CreditCard" },
   { href: "/saas/payment-history", label: "Payment History", icon: "HandCoins" },
   { href: "/saas/academic-calendar", label: "Academic Calendar", icon: "CalendarDays" },
-  { href: "/saas/support", label: "Support Inbox", icon: "Headset" },
+  { href: "/saas/support", label: "Support Inbox", icon: "Headset", badgeKey: "saasSupport" },
   { href: "/saas/rbac/permissions", label: "Permissions", icon: "ShieldCheck" },
   { href: "/saas/rbac/roles", label: "Roles", icon: "Layers" },
   { href: "/saas/audit", label: "Audit Logs", icon: "ScrollText" },
@@ -222,6 +222,7 @@ export const directorNav: AppNavItem[] = [
     label: "Notifications",
     icon: "Bell",
     showUnreadBadge: true,
+    badgeKey: "tenantNotifications",
   },
   { href: directorContactAdminHref(), label: "Contact Admin", icon: "Headset" },
   { href: "/tenant/director/users", label: "Users", icon: "UserCog" },
@@ -314,6 +315,7 @@ export const secretaryNav: AppNavItem[] = [
     label: "Notifications",
     icon: "Bell",
     showUnreadBadge: true,
+    badgeKey: "tenantNotifications",
   },
   { href: secretaryContactAdminHref(), label: "Contact Admin", icon: "Headset" },
   { href: "/tenant/secretary/users", label: "Users", icon: "UserCog" },
@@ -381,5 +383,6 @@ export const principalNav: AppNavItem[] = [
     label: "Notifications",
     icon: "Bell",
     showUnreadBadge: true,
+    badgeKey: "tenantNotifications",
   },
 ];

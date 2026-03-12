@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, UniqueConstraint, text
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Index, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -9,6 +9,7 @@ class Role(Base):
     __tablename__ = "roles"
     __table_args__ = (
         UniqueConstraint("tenant_id", "code", name="uq_roles_tenant_code"),
+        Index("ux_roles_global_code", "code", unique=True, postgresql_where=text("tenant_id IS NULL")),
         {"schema": "core"},
     )
 
@@ -45,6 +46,13 @@ class UserRole(Base):
     __tablename__ = "user_roles"
     __table_args__ = (
         UniqueConstraint("tenant_id", "user_id", "role_id", name="uq_user_roles_scope"),
+        Index(
+            "ux_user_roles_global_scope",
+            "user_id",
+            "role_id",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+        ),
         {"schema": "core"},
     )
 
@@ -59,6 +67,13 @@ class UserPermissionOverride(Base):
     __tablename__ = "user_permission_overrides"
     __table_args__ = (
         UniqueConstraint("tenant_id", "user_id", "permission_id", name="uq_user_perm_override_scope"),
+        Index(
+            "ux_user_permission_overrides_global_scope",
+            "user_id",
+            "permission_id",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+        ),
         {"schema": "core"},
     )
 

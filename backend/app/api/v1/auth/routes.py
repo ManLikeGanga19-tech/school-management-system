@@ -3,21 +3,15 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response, Cookie, HTTPException, Request
 from sqlalchemy.orm import Session
-from jose import JWTError
-
 from app.core.database import get_db
 from app.core.config import settings
-from app.core.dependencies import get_tenant, get_current_user
+from app.core.dependencies import get_tenant, get_current_user, get_current_user_saas
 from app.api.v1.schemas import LoginRequest, TokenResponse, MeResponse
 from app.api.v1.auth import service
-from app.utils.tokens import decode_token
 
 router = APIRouter()
 
 REFRESH_COOKIE = "sms_refresh"
-SAAS_TENANT_MARKER = "__saas__"
-
-
 def _refresh_cookie_options() -> dict[str, object]:
     options: dict[str, object] = {
         "key": REFRESH_COOKIE,
@@ -221,30 +215,17 @@ def logout_saas(
 @router.get("/me/saas")
 def me_saas(
     request: Request,
+    user=Depends(get_current_user_saas),
 ):
     """
     SaaS Me endpoint: no tenant middleware required.
     Frontend can use this to confirm SUPER_ADMIN session.
     """
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing access token")
-
-    token = auth.split(" ", 1)[1].strip()
-    try:
-        payload = decode_token(token)
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired access token")
-
-    if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid token type")
-
-    if payload.get("tenant_id") != SAAS_TENANT_MARKER:
-        raise HTTPException(status_code=401, detail="Not a SaaS token")
-
     return {
-        "user_id": payload.get("sub"),
-        "roles": payload.get("roles", []),
-        "permissions": payload.get("permissions", []),
+        "user_id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
+        "roles": getattr(request.state, "roles", []) or [],
+        "permissions": getattr(request.state, "permissions", []) or [],
         "mode": "saas",
     }

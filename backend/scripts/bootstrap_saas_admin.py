@@ -18,7 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.core.database import SessionLocal
-from app.models.rbac import Role, UserRole
+from app.models.rbac import Permission, Role, RolePermission, UserRole
 from app.models.user import User
 from app.utils.hashing import hash_password
 
@@ -99,6 +99,22 @@ def main() -> None:
             print(f"[created] global role assignment SUPER_ADMIN for {user.email}")
         else:
             print(f"[exists] global role assignment SUPER_ADMIN for {user.email}")
+
+        permission_ids = db.execute(select(Permission.id)).scalars().all()
+        existing_permission_ids = set(
+            db.execute(
+                select(RolePermission.permission_id).where(RolePermission.role_id == role.id)
+            ).scalars().all()
+        )
+        missing_permission_ids = [permission_id for permission_id in permission_ids if permission_id not in existing_permission_ids]
+        for permission_id in missing_permission_ids:
+            db.add(RolePermission(role_id=role.id, permission_id=permission_id))
+        if missing_permission_ids:
+            print(
+                f"[updated] synced {len(missing_permission_ids)} permissions to global SUPER_ADMIN role"
+            )
+        else:
+            print("[exists] global SUPER_ADMIN role already has all permissions")
 
         db.commit()
         print("[ok] saas admin bootstrap completed")

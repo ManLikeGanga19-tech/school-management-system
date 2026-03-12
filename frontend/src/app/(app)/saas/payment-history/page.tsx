@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
+import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/sonner";
-import { HandCoins, RefreshCw } from "lucide-react";
+import { Building2, CalendarDays, HandCoins, Receipt, RefreshCw, WalletCards } from "lucide-react";
 
 type SaaSPaymentRow = {
   id: string;
@@ -88,6 +90,18 @@ export default function SaaSPaymentHistoryPage() {
     () => Math.max(1, Math.ceil(total / Math.max(1, pageSize))),
     [total, pageSize]
   );
+  const completedCount = useMemo(
+    () => rows.filter((row) => row.status === "completed").length,
+    [rows]
+  );
+  const pendingCount = useMemo(
+    () => rows.filter((row) => row.status === "pending").length,
+    [rows]
+  );
+  const totalAmount = useMemo(
+    () => rows.reduce((sum, row) => sum + Number(row.amount_kes || 0), 0),
+    [rows]
+  );
 
   const loadTenants = useCallback(async () => {
     try {
@@ -148,31 +162,40 @@ export default function SaaSPaymentHistoryPage() {
   return (
     <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/payment-history">
       <div className="space-y-5">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-cyan-50 px-2.5 py-0.5 text-xs font-medium text-cyan-700 ring-1 ring-cyan-200">
-                <HandCoins className="h-3 w-3" />
-                SaaS Billing
-              </div>
-              <h1 className="mt-2 text-xl font-bold text-slate-900">Payment History</h1>
-              <p className="mt-0.5 text-sm text-slate-500">
-                All tenant subscription payments with timestamps, term labels, and statuses.
-              </p>
-            </div>
+        <SaasPageHeader
+          title="Payment History"
+          description="Cross-tenant billing ledger for completed, pending, and failed subscription collections."
+          badges={[
+            { label: "Super Admin", icon: WalletCards },
+            { label: "SaaS Billing", icon: HandCoins },
+          ]}
+          metrics={[
+            { label: "Visible Rows", value: rows.length },
+            { label: "Completed", value: completedCount },
+            { label: "Pending", value: pendingCount, tone: pendingCount > 0 ? "warning" : "default" },
+            { label: "Loaded Value", value: formatKes(totalAmount) },
+          ]}
+          actions={
             <Button
               variant="outline"
-              className="gap-1.5"
+              className="gap-1.5 border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
               onClick={() => void load(true)}
               disabled={loading}
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
-          </div>
+          }
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <DashboardStatCard label="Processed Payments" value={completedCount} sub="Confirmed settlements in view" icon={Receipt} tone="accent" />
+          <DashboardStatCard label="Active Queues" value={pendingCount} sub="Payments still waiting for completion" icon={CalendarDays} tone={pendingCount > 0 ? "warning" : "neutral"} />
+          <DashboardStatCard label="Tenants in View" value={new Set(rows.map((row) => row.tenant_id)).size} sub="Distinct schools in this slice" icon={Building2} tone="secondary" />
+          <DashboardStatCard label="Gross Loaded Value" value={formatKes(totalAmount)} sub="Total amount across loaded rows" icon={HandCoins} tone="sage" />
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <SaasSurface className="p-5">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <div className="lg:col-span-2">
               <Label className="text-xs text-slate-500">Search</Label>
@@ -251,9 +274,9 @@ export default function SaaSPaymentHistoryPage() {
               />
             </div>
           </div>
-        </div>
+        </SaasSurface>
 
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <SaasSurface className="overflow-hidden">
           {error && (
             <div className="border-b border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700">
               {error}
@@ -368,7 +391,7 @@ export default function SaaSPaymentHistoryPage() {
               </Button>
             </div>
           </div>
-        </div>
+        </SaasSurface>
       </div>
     </AppShell>
   );

@@ -62,10 +62,21 @@ type AppNavLink = {
   label: string;
   icon?: string;
   showUnreadBadge?: boolean;
+  badgeKey?: AppBadgeKey;
 };
 
 export type AppNavItem = AppNavLink & {
   children?: AppNavLink[];
+};
+
+export type AppBadgeKey = "tenantNotifications" | "saasRollout" | "saasSupport";
+
+type BadgeCounts = Record<AppBadgeKey, number>;
+
+const EMPTY_BADGE_COUNTS: BadgeCounts = {
+  tenantNotifications: 0,
+  saasRollout: 0,
+  saasSupport: 0,
 };
 
 const NAV_ICON_REGISTRY: Record<string, LucideIcon> = {
@@ -185,6 +196,12 @@ function parseHref(href: string) {
   }
 }
 
+function resolveBadgeKey(link: AppNavLink): AppBadgeKey | null {
+  if (link.badgeKey) return link.badgeKey;
+  if (link.showUnreadBadge) return "tenantNotifications";
+  return null;
+}
+
 export function AppShell({
   title,
   children,
@@ -222,7 +239,7 @@ export function AppShell({
   }, [active.full, active.path, nav]);
 
   const [expandedModuleKey, setExpandedModuleKey] = useState<string | null>(activeModuleKey);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [badgeCounts, setBadgeCounts] = useState<BadgeCounts>(EMPTY_BADGE_COUNTS);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [accountMenuOpenDesktop, setAccountMenuOpenDesktop] = useState(false);
   const [accountMenuOpenMobile, setAccountMenuOpenMobile] = useState(false);
@@ -437,90 +454,150 @@ export function AppShell({
     };
   }, [pathname]);
 
-  const shouldLoadUnreadCount = useMemo(
-    () =>
-      nav.some((item) => {
-        if (item.showUnreadBadge) return true;
-        return (item.children || []).some((child) => child.showUnreadBadge);
-      }),
-    [nav]
-  );
+  const requestedBadgeKeys = useMemo(() => {
+    const keys = new Set<AppBadgeKey>();
+    for (const item of nav) {
+      const itemBadgeKey = resolveBadgeKey(item);
+      if (itemBadgeKey) keys.add(itemBadgeKey);
+      for (const child of item.children || []) {
+        const childBadgeKey = resolveBadgeKey(child);
+        if (childBadgeKey) keys.add(childBadgeKey);
+      }
+    }
+    return keys;
+  }, [nav]);
 
   useEffect(() => {
-    if (!shouldLoadUnreadCount) {
-      setUnreadCount(0);
+    if (requestedBadgeKeys.size === 0) {
+      setBadgeCounts(EMPTY_BADGE_COUNTS);
       seenUnreadIdsRef.current = new Set();
       initializedRealtimeRef.current = false;
       return;
     }
 
     let cancelled = false;
-    async function pollNotifications() {
-      try {
-        const [countRaw, notificationsRaw] = await Promise.all([
-          api.get<unknown>("/tenants/notifications/unread-count", {
-            tenantRequired: true,
-            noRedirect: true,
-          }),
-          api.get<unknown>("/tenants/notifications?limit=20&offset=0", {
-            tenantRequired: true,
-            noRedirect: true,
-          }),
-        ]);
+    async function pollBadges() {
+      const nextBadgeCounts: BadgeCounts = { ...EMPTY_BADGE_COUNTS };
 
-        const payload = asObject(countRaw) || {};
-        const parsed = Number(payload.unread_count);
-        const nextUnreadCount = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
-        const unreadNotifications = normalizeNotificationPreviews(notificationsRaw).filter(
-          (row) => row.unread
-        );
-        const currentUnreadIds = new Set(unreadNotifications.map((row) => row.id));
+      if (requestedBadgeKeys.has("tenantNotifications")) {
+        try {
+          const [countRaw, notificationsRaw] = await Promise.all([
+            api.get<unknown>("/tenants/notifications/unread-count", {
+              tenantRequired: true,
+              noRedirect: true,
+            }),
+            api.get<unknown>("/tenants/notifications?limit=20&offset=0", {
+              tenantRequired: true,
+              noRedirect: true,
+            }),
+          ]);
 
-        if (!initializedRealtimeRef.current) {
-          initializedRealtimeRef.current = true;
-          seenUnreadIdsRef.current = currentUnreadIds;
-        } else {
-          const newUnread = unreadNotifications.filter(
-            (row) => !seenUnreadIdsRef.current.has(row.id)
+          const payload = asObject(countRaw) || {};
+          const parsed = Number(payload.unread_count);
+          nextBadgeCounts.tenantNotifications =
+            Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+
+          const unreadNotifications = normalizeNotificationPreviews(notificationsRaw).filter(
+            (row) => row.unread
           );
-          if (newUnread.length > 0) {
-            playNotificationPop();
-            if (newUnread.length === 1) {
-              const item = newUnread[0];
-              toast.info(item.title, {
-                description: item.message || "A new tenant notification is available.",
-              });
-            } else {
-              toast.info(`${newUnread.length} new notifications`, {
-                description: newUnread[0]?.title || "Open Notifications to review details.",
-              });
-            }
-          }
-          seenUnreadIdsRef.current = currentUnreadIds;
-        }
+          const currentUnreadIds = new Set(unreadNotifications.map((row) => row.id));
 
-        if (!cancelled) {
-          setUnreadCount(nextUnreadCount);
+          if (!initializedRealtimeRef.current) {
+            initializedRealtimeRef.current = true;
+            seenUnreadIdsRef.current = currentUnreadIds;
+          } else {
+            const newUnread = unreadNotifications.filter(
+              (row) => !seenUnreadIdsRef.current.has(row.id)
+            );
+            if (newUnread.length > 0) {
+              playNotificationPop();
+              if (newUnread.length === 1) {
+                const item = newUnread[0];
+                toast.info(item.title, {
+                  description: item.message || "A new tenant notification is available.",
+                });
+              } else {
+                toast.info(`${newUnread.length} new notifications`, {
+                  description: newUnread[0]?.title || "Open Notifications to review details.",
+                });
+              }
+            }
+            seenUnreadIdsRef.current = currentUnreadIds;
+          }
+        } catch {
+          nextBadgeCounts.tenantNotifications = 0;
         }
-      } catch {
-        if (!cancelled) setUnreadCount(0);
+      } else {
+        seenUnreadIdsRef.current = new Set();
+        initializedRealtimeRef.current = false;
+      }
+
+      if (requestedBadgeKeys.has("saasRollout")) {
+        try {
+          const rolloutRaw = await api.get<unknown>("/admin/saas/rollout/requests?limit=1&offset=0", {
+            tenantRequired: false,
+            noRedirect: true,
+          });
+          const rolloutPayload = asObject(rolloutRaw);
+          const counts = asObject(rolloutPayload?.counts);
+          const activeRolloutCount =
+            Number(counts?.new || 0) +
+            Number(counts?.contacting || 0) +
+            Number(counts?.scheduled || 0);
+          nextBadgeCounts.saasRollout =
+            Number.isFinite(activeRolloutCount) && activeRolloutCount > 0
+              ? Math.floor(activeRolloutCount)
+              : 0;
+        } catch {
+          nextBadgeCounts.saasRollout = 0;
+        }
+      }
+
+      if (requestedBadgeKeys.has("saasSupport")) {
+        try {
+          const supportRaw = await api.get<unknown>("/support/admin/unread-count", {
+            tenantRequired: false,
+            noRedirect: true,
+          });
+          const payload = asObject(supportRaw) || {};
+          const parsed = Number(payload.unread_count);
+          nextBadgeCounts.saasSupport =
+            Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+        } catch {
+          nextBadgeCounts.saasSupport = 0;
+        }
+      }
+
+      if (!cancelled) {
+        setBadgeCounts(nextBadgeCounts);
       }
     }
 
-    void pollNotifications();
+    void pollBadges();
     const timer = window.setInterval(() => {
-      void pollNotifications();
+      void pollBadges();
     }, 8_000);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [playNotificationPop, shouldLoadUnreadCount]);
+  }, [playNotificationPop, requestedBadgeKeys]);
 
   const isPathActive  = (href: string) => parseHref(href).path === active.path;
   const isExactActive = (href: string) => parseHref(href).full === active.full;
-  const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
+  const badgeCountFor = useCallback(
+    (link: AppNavLink) => {
+      const badgeKey = resolveBadgeKey(link);
+      return badgeKey ? badgeCounts[badgeKey] || 0 : 0;
+    },
+    [badgeCounts]
+  );
+  const badgeLabelFor = useCallback((count: number) => (count > 99 ? "99+" : String(count)), []);
+  const menuBadgeCount = useMemo(
+    () => Array.from(requestedBadgeKeys).reduce((sum, key) => sum + (badgeCounts[key] || 0), 0),
+    [badgeCounts, requestedBadgeKeys]
+  );
   const accountLabel = sidebarUserName || "Signed in user";
 
   function renderSidebarFooter(options?: { mobile?: boolean }) {
@@ -650,7 +727,9 @@ export function AppShell({
             const itemIsActive  = isPathActive(item.href) || childIsActive;
             const itemIsExpanded = hasChildren ? expandedModuleKey === key : false;
             const Icon = item.icon ? NAV_ICON_REGISTRY[item.icon] : undefined;
-            const showItemBadge = Boolean(item.showUnreadBadge && unreadCount > 0);
+            const itemBadgeCount = badgeCountFor(item);
+            const showItemBadge = itemBadgeCount > 0;
+            const itemBadgeLabel = badgeLabelFor(itemBadgeCount);
 
             return (
               <div key={key} className="space-y-1">
@@ -668,7 +747,7 @@ export function AppShell({
                       {Icon && <Icon className="h-4 w-4" />}
                       {showItemBadge && (
                         <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white">
-                          {unreadLabel}
+                          {itemBadgeLabel}
                         </span>
                       )}
                     </span>
@@ -701,7 +780,9 @@ export function AppShell({
                     {(item.children || []).map((child) => {
                       const childIsExactActive = isExactActive(child.href);
                       const ChildIcon = child.icon ? NAV_ICON_REGISTRY[child.icon] : undefined;
-                      const showChildBadge = Boolean(child.showUnreadBadge && unreadCount > 0);
+                      const childBadgeCount = badgeCountFor(child);
+                      const showChildBadge = childBadgeCount > 0;
+                      const childBadgeLabel = badgeLabelFor(childBadgeCount);
                       return (
                         <Link
                           key={child.href}
@@ -717,7 +798,7 @@ export function AppShell({
                             {ChildIcon && <ChildIcon className="h-3.5 w-3.5" />}
                             {showChildBadge && (
                               <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold text-white">
-                                {unreadLabel}
+                                {childBadgeLabel}
                               </span>
                             )}
                           </span>
@@ -749,9 +830,9 @@ export function AppShell({
             aria-label="Open navigation menu"
           >
             <Menu className="h-4 w-4" />
-            {unreadCount > 0 && (
+            {menuBadgeCount > 0 && (
               <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white">
-                {unreadLabel}
+                {badgeLabelFor(menuBadgeCount)}
               </span>
             )}
           </Button>
@@ -792,7 +873,9 @@ export function AppShell({
                 const itemIsActive = isPathActive(item.href) || childIsActive;
                 const itemIsExpanded = hasChildren ? expandedModuleKey === key : false;
                 const Icon = item.icon ? NAV_ICON_REGISTRY[item.icon] : undefined;
-                const showItemBadge = Boolean(item.showUnreadBadge && unreadCount > 0);
+                const itemBadgeCount = badgeCountFor(item);
+                const showItemBadge = itemBadgeCount > 0;
+                const itemBadgeLabel = badgeLabelFor(itemBadgeCount);
 
                 return (
                   <div key={key} className="space-y-1">
@@ -811,7 +894,7 @@ export function AppShell({
                           {Icon && <Icon className="h-4 w-4" />}
                           {showItemBadge && (
                             <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white">
-                              {unreadLabel}
+                              {itemBadgeLabel}
                             </span>
                           )}
                         </span>
@@ -844,7 +927,9 @@ export function AppShell({
                         {(item.children || []).map((child) => {
                           const childIsExactActive = isExactActive(child.href);
                           const ChildIcon = child.icon ? NAV_ICON_REGISTRY[child.icon] : undefined;
-                          const showChildBadge = Boolean(child.showUnreadBadge && unreadCount > 0);
+                          const childBadgeCount = badgeCountFor(child);
+                          const showChildBadge = childBadgeCount > 0;
+                          const childBadgeLabel = badgeLabelFor(childBadgeCount);
                           return (
                             <Link
                               key={child.href}
@@ -861,7 +946,7 @@ export function AppShell({
                                 {ChildIcon && <ChildIcon className="h-3.5 w-3.5" />}
                                 {showChildBadge && (
                                   <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold text-white">
-                                    {unreadLabel}
+                                    {childBadgeLabel}
                                   </span>
                                 )}
                               </span>

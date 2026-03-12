@@ -87,6 +87,12 @@ export async function deletePermission(code: string) {
 export type RoleScopeFilter = "tenant" | "global" | "all";
 export type RoleCreateScope = "tenant" | "global";
 
+function normalizeRoleCode(code: string) {
+  const normalized = String(code ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (normalized === "HEAD_TEACHER" || normalized === "HEADTEACHER") return "PRINCIPAL";
+  return normalized;
+}
+
 /**
  * Enterprise-safe listing:
  * - scope="global" => returns global roles (tenant_id = null). No tenantId required.
@@ -139,7 +145,7 @@ export async function createRole(payload: {
     method: "POST",
     tenantRequired: false,
     body: JSON.stringify({
-      code: payload.code?.trim(),
+      code: normalizeRoleCode(payload.code),
       name: payload.name?.trim(),
       description: payload.description?.trim() || undefined,
       scope,
