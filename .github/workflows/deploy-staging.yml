@@ -178,6 +178,163 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${STAGING_SSH_HOST}" >> ~/.ssh/known_hosts
 
+      - name: Hydrate runtime env from current staging host
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOY_PATH="${STAGING_DEPLOY_PATH:-/opt/school-erp-staging}"
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "
+            set -euo pipefail
+            if [ -f '${DEPLOY_PATH}/.env' ]; then
+              cat '${DEPLOY_PATH}/.env'
+            fi
+          " > .remote.env || true
+
+          if [ ! -s .remote.env ]; then
+            echo "No current staging .env found on host; continuing with provided environment secret only."
+            exit 0
+          fi
+
+          runtime_keys=(
+            APP_NAME
+            TENANT_MODE
+            NODE_ENV
+            COOKIE_SAMESITE
+            COOKIE_DOMAIN
+            NEXT_PUBLIC_PUBLIC_HOST
+            NEXT_PUBLIC_ADMIN_HOST
+            NEXT_PUBLIC_TENANT_BASE_HOST
+            NEXT_STATIC_CACHE_CONTROL
+            BACKEND_FETCH_TIMEOUT_MS
+            AUTH_LOGIN_TIMEOUT_MS
+            GOOGLE_OAUTH_CLIENT_ID
+            GOOGLE_OAUTH_CLIENT_SECRET
+            GOOGLE_OAUTH_REDIRECT_URI
+            PUBLIC_OAUTH_SHARED_SECRET
+            POSTGRES_DB
+            POSTGRES_USER
+            POSTGRES_PASSWORD
+            DATABASE_URL
+            DOCKER_DATABASE_URL
+            REDIS_URL
+            JWT_SECRET
+            JWT_ACCESS_TTL_MIN
+            JWT_REFRESH_TTL_DAYS
+            CORS_ORIGINS
+            DB_POOL_SIZE
+            DB_MAX_OVERFLOW
+            DB_POOL_TIMEOUT_SEC
+            DB_POOL_RECYCLE_SEC
+            DB_POOL_PRE_PING
+            AUDIT_QUEUE_MAXSIZE
+            AUDIT_WORKERS
+            AUDIT_POOL_RESERVE
+            DARAJA_ENV
+            DARAJA_CONSUMER_KEY
+            DARAJA_CONSUMER_SECRET
+            DARAJA_SHORTCODE
+            DARAJA_PASSKEY
+            DARAJA_CALLBACK_BASE_URL
+            DARAJA_CALLBACK_TOKEN
+            DARAJA_TIMEOUT_SEC
+            DARAJA_USE_MOCK
+            DARAJA_SANDBOX_FALLBACK_TO_MOCK
+          )
+
+          value_from_file() {
+            local file="$1"
+            local key="$2"
+            local line
+            line="$(grep -E "^${key}=" "${file}" | tail -n 1 || true)"
+            printf '%s' "${line#*=}"
+          }
+
+          for key in "${runtime_keys[@]}"; do
+            current_value="$(value_from_file .deploy.env "${key}")"
+            if [ -n "${current_value}" ] && [[ ! "${current_value}" =~ ^replace-with- ]]; then
+              continue
+            fi
+
+            remote_value="$(value_from_file .remote.env "${key}")"
+            if [ -z "${remote_value}" ]; then
+              continue
+            fi
+
+            sed -i "/^${key}=/d" .deploy.env
+            printf '%s=%s\n' "${key}" "${remote_value}" >> .deploy.env
+          done
+
+      - name: Validate runtime env file
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_keys=(
+            APP_NAME
+            TENANT_MODE
+            NODE_ENV
+            COOKIE_SECURE
+            COOKIE_SAMESITE
+            NEXT_PUBLIC_API_BASE_URL
+            NEXT_PUBLIC_PUBLIC_HOST
+            NEXT_PUBLIC_ADMIN_HOST
+            NEXT_PUBLIC_TENANT_BASE_HOST
+            BACKEND_BASE_URL
+            POSTGRES_DB
+            POSTGRES_USER
+            POSTGRES_PASSWORD
+            DATABASE_URL
+            DOCKER_DATABASE_URL
+            REDIS_URL
+            JWT_SECRET
+            JWT_ACCESS_TTL_MIN
+            JWT_REFRESH_TTL_DAYS
+            CORS_ORIGINS
+          )
+
+          missing=()
+          placeholders=()
+
+          value_for() {
+            local key="$1"
+            local line
+            line="$(grep -E "^${key}=" .deploy.env | tail -n 1 || true)"
+            printf '%s' "${line#*=}"
+          }
+
+          for key in "${required_keys[@]}"; do
+            value="$(value_for "${key}")"
+            if [ -z "${value}" ]; then
+              missing+=("${key}")
+              continue
+            fi
+            if [[ "${value}" =~ ^replace-with- ]]; then
+              placeholders+=("${key}")
+            fi
+          done
+
+          google_client_id="$(value_for GOOGLE_OAUTH_CLIENT_ID)"
+          google_client_secret="$(value_for GOOGLE_OAUTH_CLIENT_SECRET)"
+          oauth_shared_secret="$(value_for PUBLIC_OAUTH_SHARED_SECRET)"
+          if { [ -n "${google_client_id}" ] || [ -n "${google_client_secret}" ]; } && [ -z "${oauth_shared_secret}" ]; then
+            missing+=("PUBLIC_OAUTH_SHARED_SECRET")
+          fi
+          if [ -n "${oauth_shared_secret}" ] && [[ "${oauth_shared_secret}" =~ ^replace-with- ]]; then
+            placeholders+=("PUBLIC_OAUTH_SHARED_SECRET")
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Runtime env file is missing required keys: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+          if [ "${#placeholders[@]}" -gt 0 ]; then
+            printf 'Runtime env file still contains placeholder values for: %s\n' "${placeholders[*]}"
+            exit 1
+          fi
+
+          printf 'Validated runtime env file with %s required keys.\n' "${#required_keys[@]}"
+
       - name: Upload deploy bundle
         shell: bash
         run: |

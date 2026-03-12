@@ -15,6 +15,7 @@ import {
 
 import { CookieConsentBanner } from "@/components/marketing/CookieConsentBanner";
 import { ProspectEngagementPanel } from "@/components/marketing/ProspectEngagementPanel";
+import { ProspectSessionProvider } from "@/components/marketing/ProspectSessionProvider";
 import { PublicFooter } from "@/components/marketing/PublicFooter";
 import { PublicNavbar } from "@/components/marketing/PublicNavbar";
 import { Button } from "@/components/ui/button";
@@ -150,10 +151,11 @@ export function PublicSite({
       </div>
 
       <section className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 pb-16 pt-4 sm:px-6 lg:px-10">
-        <PublicNavbar navItems={navItems} />
+        <ProspectSessionProvider>
+          <PublicNavbar navItems={navItems} />
 
-        <div className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-[minmax(0,1.02fr)_minmax(20rem,0.98fr)] lg:py-18">
-          <div className="space-y-8">
+          <div className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-[minmax(0,1.02fr)_minmax(20rem,0.98fr)] lg:py-18">
+            <div className="space-y-8">
             <div className="hero-rise hero-delay-1 space-y-6">
               <SectionLabel>Run school rollout with control</SectionLabel>
               <div className="space-y-5">
@@ -195,9 +197,9 @@ export function PublicSite({
                 </article>
               ))}
             </div>
-          </div>
+            </div>
 
-          <div className="hero-rise hero-delay-3 space-y-4">
+            <div className="hero-rise hero-delay-3 space-y-4">
             <article className="rounded-[2rem] border border-slate-200 bg-white/88 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.09)] backdrop-blur">
               <SectionLabel>Access map</SectionLabel>
               <div className="mt-5 space-y-4">
@@ -242,8 +244,9 @@ export function PublicSite({
                 ))}
               </div>
             </article>
+            </div>
           </div>
-        </div>
+        </ProspectSessionProvider>
       </section>
 
       <section id="engage" className="relative border-y border-slate-200/70 bg-white/75 py-20 backdrop-blur">

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, LogOut, Rocket, ShieldCheck } from "lucide-react";
 
+import { useProspectSession } from "@/components/marketing/ProspectSessionProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,16 +18,6 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
-
-type ProspectAccount = {
-  id: string;
-  email: string;
-  full_name: string;
-  organization_name: string;
-  phone?: string | null;
-  job_title?: string | null;
-  is_active: boolean;
-};
 
 type ProspectRequestRow = {
   id: string;
@@ -78,9 +69,8 @@ const initialRequestState = {
 };
 
 export function ProspectEngagementPanel() {
-  const [account, setAccount] = useState<ProspectAccount | null>(null);
+  const { account, loading, setAccount } = useProspectSession();
   const [requests, setRequests] = useState<ProspectRequestRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [requestPending, setRequestPending] = useState(false);
   const [requestState, setRequestState] = useState(initialRequestState);
 
@@ -89,61 +79,48 @@ export function ProspectEngagementPanel() {
     return `${requests.length} request${requests.length === 1 ? "" : "s"} submitted`;
   }, [requests.length]);
 
-  async function loadRequests() {
-    const res = await fetch("/api/prospect/requests", {
-      method: "GET",
-      credentials: "include",
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(getErrorMessage(data, "Failed to load requests"));
-    }
-    const data = await res.json().catch(() => []);
-    setRequests(Array.isArray(data) ? data : []);
-  }
+  useEffect(() => {
+    let active = true;
 
-  async function loadSession() {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/prospect/auth/me", {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        setAccount(null);
-        setRequests([]);
+    const syncRequests = async () => {
+      if (!account) {
+        if (active) {
+          setRequests([]);
+          setRequestState(initialRequestState);
+        }
         return;
       }
 
-      const data = await res.json().catch(() => ({}));
-      const nextAccount = data?.account as ProspectAccount | undefined;
-      if (!nextAccount) {
-        setAccount(null);
-        setRequests([]);
-        return;
-      }
-
-      setAccount(nextAccount);
       setRequestState((current) => ({
         ...current,
-        organization_name: current.organization_name || nextAccount.organization_name || "",
-        contact_phone: current.contact_phone || nextAccount.phone || "",
+        organization_name: current.organization_name || account.organization_name || "",
+        contact_phone: current.contact_phone || account.phone || "",
       }));
-      await loadRequests();
-    } catch {
-      setAccount(null);
-      setRequests([]);
-    } finally {
-      setLoading(false);
-    }
-  }
 
-  useEffect(() => {
-    void loadSession();
-  }, []);
+      try {
+        const res = await fetch("/api/prospect/requests", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(getErrorMessage(data, "Failed to load requests"));
+        }
+        const data = await res.json().catch(() => []);
+        if (active) {
+          setRequests(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        if (active) setRequests([]);
+      }
+    };
+
+    void syncRequests();
+    return () => {
+      active = false;
+    };
+  }, [account]);
 
   async function handleLogout() {
     try {

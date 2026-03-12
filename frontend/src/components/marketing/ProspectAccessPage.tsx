@@ -4,6 +4,7 @@ import { Building2, ShieldCheck, Waypoints } from "lucide-react";
 
 import { CookieConsentBanner } from "@/components/marketing/CookieConsentBanner";
 import { ProspectAccessCard } from "@/components/marketing/ProspectAccessCard";
+import { ProspectSessionProvider } from "@/components/marketing/ProspectSessionProvider";
 import { PublicFooter } from "@/components/marketing/PublicFooter";
 import { PublicNavbar } from "@/components/marketing/PublicNavbar";
 
@@ -24,10 +25,11 @@ export function ProspectAccessPage({ mode }: { mode: "register" | "login" }) {
       </div>
 
       <section className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 pb-12 pt-4 sm:px-6 lg:px-10">
-        <PublicNavbar navItems={navItems} />
+        <ProspectSessionProvider>
+          <PublicNavbar navItems={navItems} />
 
-        <div className="grid flex-1 items-center gap-8 py-10 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:py-16">
-          <div className="space-y-6">
+          <div className="grid flex-1 items-center gap-8 py-10 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:py-16">
+            <div className="space-y-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600 shadow-sm backdrop-blur">
               <ShieldCheck className="size-3.5 text-amber-600" />
               Prospect onboarding
@@ -78,12 +80,13 @@ export function ProspectAccessPage({ mode }: { mode: "register" | "login" }) {
                 Need the full public brief first? <Link href="/" className="font-medium text-slate-900 underline-offset-4 hover:underline">Return to the homepage</Link>.
               </p>
             </div>
-          </div>
+            </div>
 
-          <Suspense fallback={<ProspectAccessCardFallback />}>
-            <ProspectAccessCard mode={mode} />
-          </Suspense>
-        </div>
+            <Suspense fallback={<ProspectAccessCardFallback />}>
+              <ProspectAccessCard mode={mode} />
+            </Suspense>
+          </div>
+        </ProspectSessionProvider>
       </section>
 
       <PublicFooter />
