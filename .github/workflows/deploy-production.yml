@@ -43,8 +43,8 @@ jobs:
       PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
       PRODUCTION_DEPLOY_PATH: ${{ secrets.PRODUCTION_DEPLOY_PATH }}
       PRODUCTION_ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.repository_owner }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || github.token }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
     steps:
       - name: Validate production secrets
         shell: bash
@@ -364,7 +364,15 @@ jobs:
             set -euo pipefail
             cd '${DEPLOY_PATH}'
             mv -f .deploy.env .env
-            echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin
+            if [ -n '${GHCR_USERNAME}' ] && [ -n '${GHCR_TOKEN}' ]; then
+              echo 'Using explicit GHCR credentials from GitHub Actions secrets.'
+              echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin
+            elif [ -f \"\$HOME/.docker/config.json\" ] && grep -q '\"ghcr.io\"' \"\$HOME/.docker/config.json\"; then
+              echo 'Using existing host-side GHCR auth.'
+            else
+              echo 'No GHCR auth available. Provide GHCR_USERNAME and GHCR_TOKEN secrets or log in on the host once.'
+              exit 1
+            fi
             grep -E '^(NGINX_HTTP_PORT|NEXT_PUBLIC_API_BASE_URL|BACKEND_BASE_URL|COOKIE_SECURE)=' .env
             docker compose --env-file .env -f docker-compose.prod.yml pull
             docker compose --env-file .env -f docker-compose.prod.yml up -d --wait postgres redis
