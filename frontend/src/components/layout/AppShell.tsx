@@ -417,43 +417,6 @@ export function AppShell({
     };
   }, [sidebarBadgeUrl, revokeObjectUrl]);
 
-  useEffect(() => {
-    const refreshPath =
-      (pathname || "").startsWith("/saas") ? "/api/auth/saas/refresh" : "/api/auth/refresh";
-
-    let cancelled = false;
-    async function keepAlive() {
-      if (cancelled || document.visibilityState !== "visible") return;
-      try {
-        await fetch(refreshPath, {
-          method: "POST",
-          credentials: "include",
-          cache: "no-store",
-        });
-      } catch {
-        // Best-effort keep-alive: ignore transient network errors.
-      }
-    }
-
-    const timer = window.setInterval(() => {
-      void keepAlive();
-    }, 8 * 60 * 1000);
-
-    const onFocus = () => {
-      void keepAlive();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onFocus);
-    void keepAlive();
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onFocus);
-    };
-  }, [pathname]);
-
   const requestedBadgeKeys = useMemo(() => {
     const keys = new Set<AppBadgeKey>();
     for (const item of nav) {

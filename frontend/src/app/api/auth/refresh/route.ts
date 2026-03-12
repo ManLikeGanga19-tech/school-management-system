@@ -5,14 +5,10 @@ import {
   clearTenantAuthCookies,
   setAccessToken,
   setRefreshToken,
+  setTenantContext,
 } from "@/lib/auth/cookies";
-
-function extractCookieValue(setCookie: string | null, cookieName: string) {
-  if (!setCookie) return null;
-  const re = new RegExp(`${cookieName}=([^;]+)`);
-  const m = setCookie.match(re);
-  return m?.[1] ?? null;
-}
+import { decodeAccess } from "@/lib/auth/jwt";
+import { extractCookieValue } from "@/server/http/set-cookie";
 
 export async function POST() {
   let res: Response;
@@ -34,10 +30,13 @@ export async function POST() {
 
   if (data?.access_token) {
     await setAccessToken(data.access_token);
+    const claims = decodeAccess(String(data.access_token));
+    if (claims?.tenant_id && typeof claims.tenant_id === "string") {
+      await setTenantContext({ tenant_id: claims.tenant_id });
+    }
   }
 
-  const setCookie = res.headers.get("set-cookie");
-  const refresh = extractCookieValue(setCookie, "sms_refresh");
+  const refresh = extractCookieValue(res.headers, "sms_refresh");
   if (refresh) {
     await setRefreshToken(refresh);
   }

@@ -18,6 +18,16 @@ from app.models.rbac import Role, Permission, RolePermission, UserRole, UserPerm
 SAAS_TENANT_MARKER = "__saas__"
 
 
+def _payload_expiry(payload: dict, *, fallback: datetime) -> datetime:
+    raw = payload.get("exp")
+    if raw is None:
+        return fallback
+    try:
+        return datetime.fromtimestamp(int(raw), tz=timezone.utc)
+    except Exception:
+        return fallback
+
+
 def _load_roles_permissions(db: Session, tenant_id, user_id) -> tuple[list[str], list[str]]:
     """
     tenant_id:
@@ -219,18 +229,14 @@ def refresh(db: Session, *, tenant_id, refresh_token: str) -> tuple[str, str]:
         permissions=permissions,
     )
 
-    new_refresh_token, new_exp = create_refresh_token(
-        session_id=str(session.id),
-        sub=str(user_id),
-        tenant_id=str(tenant_id),
-    )
-
-    session.refresh_token_hash = hash_password(new_refresh_token)
-    session.expires_at = new_exp
+    # Keep refresh tokens stable for the lifetime of a session.
+    # Rotating on every refresh caused parallel browser requests and separate
+    # tabs to invalidate each other spuriously.
+    session.expires_at = _payload_expiry(payload, fallback=session.expires_at)
     session.last_used_at = datetime.now(timezone.utc)
     db.commit()
 
-    return new_access, new_refresh_token
+    return new_access, refresh_token
 
 
 def logout(db: Session, *, tenant_id, refresh_token: str) -> None:
@@ -367,18 +373,13 @@ def refresh_saas(db: Session, *, refresh_token: str) -> tuple[str, str]:
         permissions=permissions,
     )
 
-    new_refresh_token, new_exp = create_refresh_token(
-        session_id=str(session.id),
-        sub=str(user_id),
-        tenant_id=SAAS_TENANT_MARKER,
-    )
-
-    session.refresh_token_hash = hash_password(new_refresh_token)
-    session.expires_at = new_exp
+    # Keep refresh tokens stable for the lifetime of a session so concurrent
+    # refreshes do not race each other across tabs or the app shell.
+    session.expires_at = _payload_expiry(payload, fallback=session.expires_at)
     session.last_used_at = datetime.now(timezone.utc)
     db.commit()
 
-    return new_access, new_refresh_token
+    return new_access, refresh_token
 
 
 def logout_saas(db: Session, *, refresh_token: str) -> None:

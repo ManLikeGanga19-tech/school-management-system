@@ -6,13 +6,7 @@ import {
   setPublicAccessToken,
   setPublicRefreshToken,
 } from "@/lib/auth/cookies";
-
-function extractCookieValue(setCookie: string | null, cookieName: string) {
-  if (!setCookie) return null;
-  const re = new RegExp(`${cookieName}=([^;]+)`);
-  const m = setCookie.match(re);
-  return m?.[1] ?? null;
-}
+import { extractCookieValue } from "@/server/http/set-cookie";
 
 export async function syncPublicSession(res: Response, data?: any) {
   const body = data ?? (await res.json().catch(() => ({})));
@@ -20,8 +14,7 @@ export async function syncPublicSession(res: Response, data?: any) {
     await setPublicAccessToken(String(body.access_token));
   }
 
-  const refresh =
-    extractCookieValue(res.headers.get("set-cookie"), "sms_public_refresh") || null;
+  const refresh = extractCookieValue(res.headers, "sms_public_refresh") || null;
   if (refresh) {
     await setPublicRefreshToken(refresh);
   }

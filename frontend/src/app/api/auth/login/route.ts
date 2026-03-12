@@ -12,13 +12,7 @@ import {
 import { decodeAccess } from "@/lib/auth/jwt";
 import { resolveTenantDashboard } from "@/lib/auth/tenant-dashboard";
 import { resolvePortalContext } from "@/lib/platform-host";
-
-function extractCookieValue(setCookie: string | null, cookieName: string) {
-  if (!setCookie) return null;
-  const re = new RegExp(`${cookieName}=([^;]+)`);
-  const m = setCookie.match(re);
-  return m?.[1] ?? null;
-}
+import { extractCookieValue } from "@/server/http/set-cookie";
 
 function readError(data: any, fallback: string) {
   if (!data) return fallback;
@@ -129,8 +123,7 @@ export async function POST(req: Request) {
     redirect_to = resolveTenantDashboard(claims?.roles);
   }
 
-  const setCookie = res.headers.get("set-cookie");
-  const refresh = extractCookieValue(setCookie, "sms_refresh");
+  const refresh = extractCookieValue(res.headers, "sms_refresh");
   if (refresh) {
     await setRefreshToken(refresh);
   }
