@@ -66,6 +66,9 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
     if (initialTenantSlug) {
       storage.set(keys.tenantSlug, initialTenantSlug);
     }
+    if (typeof data?.tenant_id === "string" && data.tenant_id.trim()) {
+      storage.set(keys.tenantId, data.tenant_id.trim());
+    }
 
     // Optional: if your /api/auth/login ever returns access_token, store it
     // (won't break anything if absent)

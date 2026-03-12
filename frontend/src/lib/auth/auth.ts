@@ -7,6 +7,9 @@ export type AuthMode = "saas" | "tenant";
 export type LoginResponse = {
   ok?: boolean;
   access_token?: string;
+  tenant_id?: string | null;
+  tenant_slug?: string | null;
+  redirect_to?: string;
   detail?: string;
   message?: string;
 };
@@ -107,6 +110,14 @@ export async function login(params: {
   // Optional: if your BFF returns access_token, keep it for legacy direct-backend calls.
   if (data?.access_token) {
     storage.set(tokenStorageKey, data.access_token);
+  }
+  if (mode === "tenant") {
+    if (typeof data?.tenant_slug === "string" && data.tenant_slug.trim()) {
+      storage.set(keys.tenantSlug, data.tenant_slug.trim());
+    }
+    if (typeof data?.tenant_id === "string" && data.tenant_id.trim()) {
+      storage.set(keys.tenantId, data.tenant_id.trim());
+    }
   }
 
   return data;
