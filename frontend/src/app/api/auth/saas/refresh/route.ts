@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { backendFetch } from "@/server/backend/client";
-import { setSaasAccessToken, setSaasRefreshToken } from "@/lib/auth/cookies";
+import {
+  clearClientModeCookie,
+  clearSaasAuthCookies,
+  setSaasAccessToken,
+  setSaasRefreshToken,
+} from "@/lib/auth/cookies";
 
 function extractCookieValue(setCookie: string | null, cookieName: string) {
   if (!setCookie) return null;
@@ -46,6 +51,8 @@ export async function POST() {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    await clearSaasAuthCookies();
+    await clearClientModeCookie();
     return NextResponse.json(data, { status: res.status });
   }
 

@@ -5,6 +5,7 @@ import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { secretaryNav } from "@/components/layout/nav-config";
+import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -58,9 +59,19 @@ function formatTimestamp(iso: string) {
   });
 }
 
+function humanizeAuditToken(value: string) {
+  return value
+    .split(".")
+    .flatMap((segment) => segment.split("_"))
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
 /** Colour-code action tokens by verb */
 function actionColor(action: string): string {
-  const verb = action.split(".")[0]?.toLowerCase() ?? "";
+  const lastSegment = action.split(".").pop()?.toLowerCase() ?? "";
+  const verb = lastSegment.split("_")[0] ?? "";
   if (["create", "post", "add"].includes(verb)) return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   if (["approve", "enroll", "complete"].includes(verb)) return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
   if (["reject", "delete", "remove"].includes(verb)) return "bg-red-50 text-red-700 ring-1 ring-red-200";
@@ -83,7 +94,7 @@ function SectionCard({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <TenantSurface className="overflow-hidden">
       <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
         <div>
           <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
@@ -92,7 +103,7 @@ function SectionCard({
         {action}
       </div>
       <div className="p-6">{children}</div>
-    </div>
+    </TenantSurface>
   );
 }
 
@@ -134,15 +145,17 @@ export default function SecretaryAuditPage() {
     if (action.trim()) qs.set("action", action.trim());
     if (resource.trim()) qs.set("resource", resource.trim());
 
-      try {
-        const body = await api.get<any>(`/tenants/secretary/audit?${qs.toString()}`, { tenantRequired: true });
-        setRows(asArray(body?.logs));
-      } catch (err: any) {
-        setRows([]);
-        setError(typeof err?.message === "string" ? err.message : "Failed to load audit logs");
-        return;
-      } finally {
-        if (!silent) setLoading(false);
+    try {
+      const body = await api.get<any>(`/tenants/secretary/audit?${qs.toString()}`, { tenantRequired: true });
+      setRows(Array.isArray(body) ? body : asArray(body?.logs));
+      setLastUpdated(new Date());
+      setError(null);
+    } catch (err: any) {
+      setRows([]);
+      setError(typeof err?.message === "string" ? err.message : "Failed to load audit logs");
+      return;
+    } finally {
+      if (!silent) setLoading(false);
     }
   }
 
@@ -187,29 +200,30 @@ export default function SecretaryAuditPage() {
   return (
     <AppShell title="Secretary" nav={secretaryNav} activeHref="/tenant/secretary/audit">
       <div className="space-y-5">
-
-        {/* ── Header ── */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-xl font-bold">Audit Monitoring</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
-                Real-time audit trail of all tenant system events
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {lastUpdated && (
-                <span className="text-xs text-blue-200">
+        <TenantPageHeader
+          title="Audit Monitoring"
+          description="Review the tenant audit trail in one place, filter meaningful events, and watch operational activity without leaving the secretary workspace."
+          badges={[{ label: "Tenant activity trail" }]}
+          metrics={[
+            { label: "Total Events", value: rows.length },
+            { label: "Unique Actions", value: uniqueActions },
+            { label: "Resources", value: uniqueResources },
+            { label: "Peak Hour", value: peakHour?.hour ?? "—" },
+          ]}
+          actions={
+            <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-white/80">
+              {lastUpdated ? (
+                <span className="rounded-full bg-white/10 px-3 py-1 backdrop-blur">
                   Updated {timeAgo(lastUpdated.toISOString())}
                 </span>
-              )}
-              <div className="flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 text-xs font-medium text-white backdrop-blur">
+              ) : null}
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 font-medium text-white backdrop-blur">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
                 Live
-              </div>
+              </span>
             </div>
-          </div>
-        </div>
+          }
+        />
 
         {/* ── Error ── */}
         {error && (
@@ -361,11 +375,21 @@ export default function SecretaryAuditPage() {
                 {rows.slice(0, 30).map((row) => (
                   <TableRow key={row.id} className="hover:bg-slate-50">
                     <TableCell>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-xs font-medium ${actionColor(row.action)}`}>
-                        {row.action}
-                      </span>
+                      <div className="space-y-1">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${actionColor(row.action)}`}>
+                          {humanizeAuditToken(row.action)}
+                        </span>
+                        <div className="font-mono text-[11px] text-slate-400">{row.action}</div>
+                      </div>
                     </TableCell>
-                    <TableCell className="text-sm text-slate-600">{row.resource}</TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <div className="text-sm font-medium text-slate-700">
+                          {humanizeAuditToken(row.resource)}
+                        </div>
+                        <div className="font-mono text-[11px] text-slate-400">{row.resource}</div>
+                      </div>
+                    </TableCell>
                     <TableCell className="text-xs text-slate-400 whitespace-nowrap">
                       {formatTimestamp(row.created_at)}
                     </TableCell>

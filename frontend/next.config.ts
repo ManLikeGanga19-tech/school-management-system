@@ -64,7 +64,9 @@ try {
 }
 
 const nextConfig: NextConfig = {
-  reactCompiler: true,
+  // Keep the React Compiler opt-in only. It is still experimental and adds
+  // unnecessary build cost for our current release pipeline.
+  reactCompiler: process.env.NEXT_ENABLE_REACT_COMPILER === "true",
   distDir,
   output: "standalone",
 };

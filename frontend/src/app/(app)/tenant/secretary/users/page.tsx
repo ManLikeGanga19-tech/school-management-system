@@ -5,6 +5,7 @@ import { Cell, Pie, PieChart } from "recharts";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { secretaryNav } from "@/components/layout/nav-config";
+import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -83,7 +84,7 @@ function SectionCard({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <TenantSurface className="overflow-hidden">
       <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
         <div>
           <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
@@ -92,7 +93,7 @@ function SectionCard({
         {action}
       </div>
       <div className="p-6">{children}</div>
-    </div>
+    </TenantSurface>
   );
 }
 
@@ -216,34 +217,17 @@ export default function SecretaryUsersPage() {
   return (
     <AppShell title="Secretary" nav={secretaryNav} activeHref="/tenant/secretary/users">
       <div className="space-y-5">
-
-        {/* ── Header ── */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-xl font-bold">User Operations</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
-                Monitor tenant users and manage role assignments
-              </p>
-            </div>
-            <div className="flex items-center gap-3 text-sm text-blue-100">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white">{users.length}</div>
-                <div className="text-xs">Total Users</div>
-              </div>
-              <div className="h-8 w-px bg-blue-400" />
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white">{activeCount}</div>
-                <div className="text-xs">Active</div>
-              </div>
-              <div className="h-8 w-px bg-blue-400" />
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white">{activeRate}%</div>
-                <div className="text-xs">Activity Rate</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <TenantPageHeader
+          title="User Operations"
+          description="Review tenant user access, assign or remove roles, and monitor overall account health from the same operating surface used across the rest of the secretary workspace."
+          badges={[{ label: "Access operations" }]}
+          metrics={[
+            { label: "Total Users", value: users.length },
+            { label: "Active", value: activeCount },
+            { label: "Inactive", value: inactiveCount },
+            { label: "Activity Rate", value: `${activeRate}%` },
+          ]}
+        />
 
         {/* ── Alerts ── */}
         {error && (
@@ -409,14 +393,14 @@ export default function SecretaryUsersPage() {
 
         {/* ── My Roles ── */}
         {me?.roles && me.roles.length > 0 && (
-          <div className="rounded-xl border border-slate-100 bg-slate-50 px-5 py-3 flex flex-wrap items-center gap-2">
+          <TenantSurface muted className="flex flex-wrap items-center gap-2 px-5 py-3">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Your roles:</span>
             {me.roles.map((role) => (
               <span key={role} className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
                 {role}
               </span>
             ))}
-          </div>
+          </TenantSurface>
         )}
 
         {/* ── Users Table ── */}

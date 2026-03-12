@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, not_
 
 from app.core.database import get_db
 from app.core.dependencies import get_tenant, require_permission
@@ -35,6 +35,7 @@ def list_audit_logs(
     resource: Optional[str] = Query(default=None),
     resource_id: Optional[UUID] = Query(default=None),
     request_id: Optional[str] = Query(default=None),  # meta.request_id
+    include_http_events: bool = Query(default=False),
     from_dt: Optional[datetime] = Query(default=None),
     to_dt: Optional[datetime] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -48,6 +49,15 @@ def list_audit_logs(
         effective_tenant_id = tenant_id
 
     stmt = select(AuditLog).where(AuditLog.tenant_id == effective_tenant_id)
+    if not include_http_events:
+        stmt = stmt.where(
+            not_(
+                and_(
+                    AuditLog.action == "http.request",
+                    AuditLog.resource == "http",
+                )
+            )
+        )
 
     if actor_user_id:
         stmt = stmt.where(AuditLog.actor_user_id == actor_user_id)

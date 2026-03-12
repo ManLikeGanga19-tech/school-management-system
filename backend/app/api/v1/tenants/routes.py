@@ -2640,12 +2640,13 @@ def _serialize_event_row(
     )
 
 
-def _audit_tenant_event_change_best_effort(
+def _audit_tenant_change_best_effort(
     db: Session,
     *,
     tenant_id: UUID,
     actor_user_id: Optional[UUID],
     action: str,
+    resource: str,
     resource_id: Optional[UUID],
     payload: Optional[dict[str, Any]] = None,
     request: Optional[Request] = None,
@@ -2666,7 +2667,7 @@ def _audit_tenant_event_change_best_effort(
             tenant_id=tenant_id,
             actor_user_id=actor_user_id,
             action=action,
-            resource="event",
+            resource=resource,
             resource_id=resource_id,
             payload=payload or {},
             meta=meta,
@@ -2674,6 +2675,28 @@ def _audit_tenant_event_change_best_effort(
     except Exception:
         # Best-effort audit capture; endpoint business flow should still succeed.
         return
+
+
+def _audit_tenant_event_change_best_effort(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    action: str,
+    resource_id: Optional[UUID],
+    payload: Optional[dict[str, Any]] = None,
+    request: Optional[Request] = None,
+) -> None:
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=action,
+        resource="event",
+        resource_id=resource_id,
+        payload=payload,
+        request=request,
+    )
 
 
 def _query_tenant_events(
@@ -2901,29 +2924,16 @@ def _audit_tenant_timetable_change_best_effort(
     payload: Optional[dict[str, Any]] = None,
     request: Optional[Request] = None,
 ) -> None:
-    try:
-        from app.core.audit import log_event
-
-        meta: dict[str, Any] = {}
-        if request is not None:
-            meta = {
-                "request_id": str(getattr(request.state, "request_id", "") or ""),
-                "method": str(request.method),
-                "path": str(request.url.path),
-            }
-
-        log_event(
-            db,
-            tenant_id=tenant_id,
-            actor_user_id=actor_user_id,
-            action=action,
-            resource="school_timetable",
-            resource_id=resource_id,
-            payload=payload or {},
-            meta=meta,
-        )
-    except Exception:
-        return
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=action,
+        resource="school_timetable",
+        resource_id=resource_id,
+        payload=payload,
+        request=request,
+    )
 
 
 def _serialize_exam_row(
@@ -10720,6 +10730,7 @@ def list_roles(
 )
 def create_role(
     payload: RoleCreate,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -10744,6 +10755,21 @@ def create_role(
         is_system=False,
     )
     db.add(r)
+    db.flush()
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=_user.id,
+        action="rbac.role.create",
+        resource="role",
+        resource_id=r.id,
+        payload={
+            "code": r.code,
+            "name": r.name,
+            "description": r.description,
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(r)
 
@@ -10764,6 +10790,7 @@ def create_role(
 def update_role(
     role_id: UUID,
     payload: RoleUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -10783,6 +10810,20 @@ def update_role(
     if payload.description is not None:
         r.description = payload.description.strip() if payload.description else None
 
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=_user.id,
+        action="rbac.role.update",
+        resource="role",
+        resource_id=r.id,
+        payload={
+            "code": r.code,
+            "name": r.name,
+            "description": r.description,
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(r)
 
@@ -10802,6 +10843,7 @@ def update_role(
 )
 def delete_role(
     role_id: UUID,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -10816,6 +10858,18 @@ def delete_role(
     if r.tenant_id != tenant.id:
         raise HTTPException(status_code=403, detail="Role not in this tenant")
 
+    role_name = str(r.name)
+    role_code = str(r.code)
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=_user.id,
+        action="rbac.role.delete",
+        resource="role",
+        resource_id=r.id,
+        payload={"code": role_code, "name": role_name},
+        request=request,
+    )
     db.delete(r)
     db.commit()
     return {"ok": True}
@@ -10828,6 +10882,7 @@ def delete_role(
 def set_role_permissions(
     role_id: UUID,
     payload: RolePermissionsSet,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -10854,6 +10909,19 @@ def set_role_permissions(
     for p in perm_rows:
         db.add(RolePermission(role_id=r.id, permission_id=p.id))
 
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=_user.id,
+        action="rbac.role.permissions.update",
+        resource="role",
+        resource_id=r.id,
+        payload={
+            "code": r.code,
+            "permission_codes": codes,
+        },
+        request=request,
+    )
     db.commit()
     return {"ok": True, "role_id": str(r.id), "permission_codes": codes}
 
@@ -10897,6 +10965,7 @@ def list_user_roles(
 def assign_user_role(
     user_id: UUID,
     payload: UserRoleAssign,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -10932,6 +11001,20 @@ def assign_user_role(
         role_id=r.id,
     )
     db.add(ur)
+    db.flush()
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=_user.id,
+        action="rbac.user_role.assign",
+        resource="user_role",
+        resource_id=ur.id,
+        payload={
+            "user_id": str(user_id),
+            "role_code": r.code,
+        },
+        request=request,
+    )
     db.commit()
     return {"ok": True}
 
@@ -10943,6 +11026,7 @@ def assign_user_role(
 def remove_user_role(
     user_id: UUID,
     role_code: str,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -10955,13 +11039,28 @@ def remove_user_role(
     if not r:
         raise HTTPException(status_code=404, detail="Role not found")
 
-    db.execute(
+    removed = db.execute(
         sa.delete(UserRole).where(
             UserRole.user_id == user_id,
             UserRole.role_id == r.id,
             UserRole.tenant_id == tenant.id,
         )
-    )
+    ).rowcount or 0
+    if removed:
+        _audit_tenant_change_best_effort(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=_user.id,
+            action="rbac.user_role.remove",
+            resource="user_role",
+            resource_id=None,
+            payload={
+                "user_id": str(user_id),
+                "role_code": r.code,
+                "removed_count": int(removed),
+            },
+            request=request,
+        )
     db.commit()
     return {"ok": True}
 
@@ -11002,6 +11101,7 @@ def list_user_permission_overrides(
 def set_user_permission_overrides(
     user_id: UUID,
     payload: UserPermissionOverridesSet,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -11038,6 +11138,27 @@ def set_user_permission_overrides(
             )
         )
 
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=_user.id,
+        action="rbac.user_permission_overrides.update",
+        resource="user_permission_override",
+        resource_id=None,
+        payload={
+            "user_id": str(user_id),
+            "overrides": [
+                {
+                    "permission_code": o.permission_code.strip(),
+                    "effect": o.effect,
+                    "reason": (o.reason.strip() if o.reason else None),
+                }
+                for o in requested
+                if o.permission_code and o.permission_code.strip()
+            ],
+        },
+        request=request,
+    )
     db.commit()
     return {"ok": True}
 
@@ -11094,6 +11215,7 @@ def secretary_audit(
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
+    include_http_events: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):
@@ -11106,6 +11228,8 @@ def secretary_audit(
 
     So we read from AuditLog directly.
     """
+    include_http_events = include_http_events if isinstance(include_http_events, bool) else False
+
     try:
         from app.models.audit_log import AuditLog  # canonical model used by log_event
     except Exception:
@@ -11115,6 +11239,16 @@ def secretary_audit(
         q = (
             select(AuditLog)
             .where(AuditLog.tenant_id == tenant.id)
+            .where(
+                sa.true()
+                if include_http_events
+                else sa.not_(
+                    sa.and_(
+                        AuditLog.action == "http.request",
+                        AuditLog.resource == "http",
+                    )
+                )
+            )
             .order_by(AuditLog.created_at.desc())
             .limit(int(limit))
             .offset(int(offset))
@@ -12088,6 +12222,7 @@ def director_user_staff_candidates(
 )
 def director_user_credentials_create_or_reset(
     payload: DirectorUserCredentialIn,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -12239,6 +12374,23 @@ def director_user_credentials_create_or_reset(
             role_assigned = True
         assigned_role_code = str(role.code)
 
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=_user.id,
+        action="tenant_user.credentials.upsert",
+        resource="user",
+        resource_id=existing_user.id,
+        payload={
+            "staff_id": str(staff_row.get("id") or ""),
+            "email": str(existing_user.email),
+            "role_code": assigned_role_code,
+            "created_user": created_user,
+            "membership_created": membership_created,
+            "role_assigned": role_assigned,
+        },
+        request=request,
+    )
     db.commit()
 
     return DirectorUserCredentialOut(
@@ -12260,6 +12412,7 @@ def director_user_credentials_create_or_reset(
 )
 def director_user_role_action(
     payload: DirectorUserRoleActionIn,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -12272,6 +12425,7 @@ def director_user_role_action(
         assign_user_role(
             user_id=user_id,
             payload=UserRoleAssign(role_code=role_code),
+            request=request,
             db=db,
             tenant=tenant,
             _user=_user,
@@ -12280,6 +12434,7 @@ def director_user_role_action(
         remove_user_role(
             user_id=user_id,
             role_code=role_code,
+            request=request,
             db=db,
             tenant=tenant,
             _user=_user,
@@ -12295,6 +12450,7 @@ def director_user_role_action(
 def director_user_update(
     user_id: str,
     payload: DirectorUserUpdateIn,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -12406,6 +12562,22 @@ def director_user_update(
             if not has_other_active_membership:
                 target_user.is_active = False
 
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=_user.id,
+        action="tenant_user.update",
+        resource="user",
+        resource_id=target_user.id,
+        payload={
+            "user_id": str(target_user.id),
+            "updated_fields": sorted(fields_set),
+            "email": str(target_user.email),
+            "full_name": target_user.full_name,
+            "is_active": bool(membership.is_active),
+        },
+        request=request,
+    )
     db.commit()
     rows = _director_user_payloads(db, tenant_id=tenant.id, user_ids=[target_user_id])
     if not rows:
@@ -12420,6 +12592,7 @@ def director_user_update(
 )
 def director_user_delete(
     user_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -12481,6 +12654,23 @@ def director_user_delete(
         target_user.is_active = False
         user_deactivated = True
 
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=_user.id,
+        action="tenant_user.remove_access",
+        resource="user",
+        resource_id=target_user.id,
+        payload={
+            "user_id": str(target_user.id),
+            "email": str(target_user.email),
+            "membership_deactivated": True,
+            "user_deactivated": user_deactivated,
+            "roles_removed": int(roles_removed),
+            "overrides_removed": int(overrides_removed),
+        },
+        request=request,
+    )
     db.commit()
     return DirectorUserDeleteOut(
         ok=True,
@@ -12588,6 +12778,7 @@ def director_rbac_overrides(
 )
 def director_rbac_override_upsert(
     payload: dict,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -12637,6 +12828,21 @@ def director_rbac_override_upsert(
             )
         )
 
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=_user.id,
+        action="rbac.user_permission_override.upsert",
+        resource="user_permission_override",
+        resource_id=None,
+        payload={
+            "user_id": str(user_id),
+            "permission_code": permission.code,
+            "effect": effect,
+            "reason": reason,
+        },
+        request=request,
+    )
     db.commit()
     return {"ok": True}
 
@@ -12647,6 +12853,7 @@ def director_rbac_override_upsert(
 )
 def director_rbac_override_delete(
     payload: dict,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _user=Depends(get_current_user),
@@ -12667,13 +12874,28 @@ def director_rbac_override_delete(
     if not permission:
         raise HTTPException(status_code=404, detail="Permission not found")
 
-    db.execute(
+    removed = db.execute(
         sa.delete(UserPermissionOverride).where(
             UserPermissionOverride.tenant_id == tenant.id,
             UserPermissionOverride.user_id == user_id,
             UserPermissionOverride.permission_id == permission.id,
         )
-    )
+    ).rowcount or 0
+    if removed:
+        _audit_tenant_change_best_effort(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=_user.id,
+            action="rbac.user_permission_override.delete",
+            resource="user_permission_override",
+            resource_id=None,
+            payload={
+                "user_id": str(user_id),
+                "permission_code": permission.code,
+                "removed_count": int(removed),
+            },
+            request=request,
+        )
     db.commit()
     return {"ok": True}
 

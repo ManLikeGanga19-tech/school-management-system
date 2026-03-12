@@ -230,6 +230,14 @@ function getStored(name: keyof typeof keys): string | null {
   return typeof val === "string" && val.trim() ? val : null;
 }
 
+function clearClientAuthState() {
+  storage.remove(keys.accessToken);
+  storage.remove(keys.saasAccessToken);
+  storage.remove(keys.tenantId);
+  storage.remove(keys.tenantSlug);
+  storage.remove(keys.mode);
+}
+
 function isFormDataBody(body: unknown): body is FormData {
   return typeof FormData !== "undefined" && body instanceof FormData;
 }
@@ -366,6 +374,7 @@ export async function apiFetch<T>(path: string, opts?: ApiOptions): Promise<T> {
     if (res.status === 401) {
       const body = await res.json().catch(() => ({}));
       const msg  = body?.detail ?? "Session expired. Please log in again.";
+      clearClientAuthState();
       if (!noRedirect) redirectToLogin(requestMode);
       throw new ApiError(401, msg, body);
     }
@@ -433,6 +442,7 @@ export async function apiFetchRaw(path: string, opts?: ApiOptions): Promise<Resp
         body = {};
       }
       const msg = body?.detail ?? "Session expired. Please log in again.";
+      clearClientAuthState();
       if (!noRedirect) redirectToLogin(requestMode);
       throw new ApiError(401, msg, body);
     }

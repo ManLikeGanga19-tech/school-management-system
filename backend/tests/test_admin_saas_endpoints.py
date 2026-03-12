@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.config import settings
 from app.core.database import get_db, Base
+from app.models.audit_log import AuditLog
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.membership import UserTenant
@@ -780,6 +781,17 @@ class TestDirectorTenantUsers:
         assert membership.is_active is False
         assert updated_user.is_active is False
 
+        audit_row = db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.tenant_id == tenant.id)
+            .order_by(AuditLog.created_at.desc())
+            .limit(1)
+        ).scalar_one()
+        assert audit_row.action == "tenant_user.update"
+        assert audit_row.resource == "user"
+        assert audit_row.resource_id == target.id
+        assert audit_row.actor_user_id == actor.id
+
     def test_director_can_remove_tenant_user_access_and_clean_tenant_scoped_assignments(
         self,
         client,
@@ -875,6 +887,82 @@ class TestDirectorTenantUsers:
         assert deleted_user.is_active is False
         assert role_assignment is None
         assert override is None
+
+        audit_row = db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.tenant_id == tenant.id)
+            .order_by(AuditLog.created_at.desc())
+            .limit(1)
+        ).scalar_one()
+        assert audit_row.action == "tenant_user.remove_access"
+        assert audit_row.resource == "user"
+        assert audit_row.resource_id == target.id
+        assert audit_row.actor_user_id == actor.id
+
+    def test_director_audit_feed_hides_legacy_http_request_events(self, client, db_session, monkeypatch):
+        monkeypatch.setattr("app.core.middleware.SessionLocal", TestSessionLocal)
+        tenant = Tenant(
+            id=uuid4(),
+            name="Tenant School",
+            slug="tenant-school",
+            is_active=True,
+        )
+        db_session.add(tenant)
+        db_session.flush()
+
+        director_role = create_system_role(db_session, "DIRECTOR", "Director")
+        view_tenant = create_permission(
+            db_session,
+            "admin.dashboard.view_tenant",
+            "Admin Dashboard View Tenant",
+        )
+        audit_read = create_permission(db_session, "audit.read", "Audit Read")
+        assign_permission_to_role(db_session, director_role, view_tenant)
+        assign_permission_to_role(db_session, director_role, audit_read)
+
+        actor = create_tenant_user(
+            db_session,
+            tenant=tenant,
+            email="director@tenant.test",
+            full_name="Tenant Director",
+            role=director_role,
+        )
+        db_session.add(
+            AuditLog(
+                id=uuid4(),
+                tenant_id=tenant.id,
+                actor_user_id=actor.id,
+                action="http.request",
+                resource="http",
+                payload={},
+                meta={},
+            )
+        )
+        db_session.add(
+            AuditLog(
+                id=uuid4(),
+                tenant_id=tenant.id,
+                actor_user_id=actor.id,
+                action="tenant_user.update",
+                resource="user",
+                resource_id=actor.id,
+                payload={"user_id": str(actor.id)},
+                meta={},
+            )
+        )
+        db_session.commit()
+
+        token = get_tenant_token(actor, tenant)
+        response = client.get(
+            "/api/v1/tenants/director/audit",
+            headers=get_tenant_headers(token, tenant),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["action"] == "tenant_user.update"
+        assert data[0]["resource"] == "user"
 
     def test_saas_permission_deny_override_is_applied_immediately(self, client, db_session):
         user, role = create_saas_actor_user(db_session, role_code="TENANT_VIEWER")
