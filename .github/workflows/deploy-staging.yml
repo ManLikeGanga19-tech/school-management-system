@@ -64,15 +64,17 @@ jobs:
         run: |
           set -euo pipefail
           DEPLOY_TAG=""
+          FALLBACK_TAG="staging-latest"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
             DEPLOY_TAG="${{ inputs.image_tag }}"
           elif [ "${{ github.event_name }}" = "workflow_run" ]; then
             DEPLOY_TAG="${{ github.event.workflow_run.head_sha }}"
             DEPLOY_TAG="${DEPLOY_TAG::7}"
           else
-            DEPLOY_TAG="${GITHUB_SHA::7}"
+            DEPLOY_TAG="staging"
           fi
           echo "value=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+          echo "fallback=${FALLBACK_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Fetch deploy manifest
         shell: bash
@@ -91,10 +93,36 @@ jobs:
         run: |
           set -euo pipefail
           echo '${{ github.token }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+          REQUESTED_TAG="${{ steps.tag.outputs.value }}"
+          FALLBACK_TAG="${{ steps.tag.outputs.fallback }}"
+          CANDIDATE_TAGS=("${REQUESTED_TAG}")
+          if [ -n "${FALLBACK_TAG}" ] && [ "${FALLBACK_TAG}" != "${REQUESTED_TAG}" ]; then
+            CANDIDATE_TAGS+=("${FALLBACK_TAG}")
+          fi
+
+          RESOLVED_TAG=""
+          for candidate in "${CANDIDATE_TAGS[@]}"; do
+            echo "Checking release images for tag: ${candidate}"
+            if docker manifest inspect "${BACKEND_IMAGE}:${candidate}" >/dev/null 2>&1 \
+              && docker manifest inspect "${FRONTEND_IMAGE}:${candidate}" >/dev/null 2>&1 \
+              && docker manifest inspect "${NGINX_IMAGE}:${candidate}" >/dev/null 2>&1; then
+              RESOLVED_TAG="${candidate}"
+              break
+            fi
+          done
+
+          if [ -z "${RESOLVED_TAG}" ]; then
+            echo "No published release images found for tags: ${CANDIDATE_TAGS[*]}"
+            exit 1
+          fi
+
+          echo "Using release image tag: ${RESOLVED_TAG}"
+          printf 'RESOLVED_IMAGE_TAG=%s\n' "${RESOLVED_TAG}" >> "$GITHUB_ENV"
+
           IMAGES=(
-            "${BACKEND_IMAGE}:${{ steps.tag.outputs.value }}"
-            "${FRONTEND_IMAGE}:${{ steps.tag.outputs.value }}"
-            "${NGINX_IMAGE}:${{ steps.tag.outputs.value }}"
+            "${BACKEND_IMAGE}:${RESOLVED_TAG}"
+            "${FRONTEND_IMAGE}:${RESOLVED_TAG}"
+            "${NGINX_IMAGE}:${RESOLVED_TAG}"
           )
           docker pull "${IMAGES[0]}"
           docker pull "${IMAGES[1]}"
@@ -115,10 +143,10 @@ jobs:
             echo ""
             echo "APP_ENV=staging"
             echo "PROD_DOMAIN=${STAGING_DOMAIN}"
-            echo "IMAGE_TAG=${{ steps.tag.outputs.value }}"
-            echo "BACKEND_IMAGE=${BACKEND_IMAGE}:${{ steps.tag.outputs.value }}"
-            echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}:${{ steps.tag.outputs.value }}"
-            echo "NGINX_IMAGE=${NGINX_IMAGE}:${{ steps.tag.outputs.value }}"
+            echo "IMAGE_TAG=${RESOLVED_IMAGE_TAG}"
+            echo "BACKEND_IMAGE=${BACKEND_IMAGE}:${RESOLVED_IMAGE_TAG}"
+            echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}:${RESOLVED_IMAGE_TAG}"
+            echo "NGINX_IMAGE=${NGINX_IMAGE}:${RESOLVED_IMAGE_TAG}"
             echo "NGINX_HTTP_PORT=127.0.0.1:8081"
             echo "NEXT_PUBLIC_API_BASE_URL=/api/v1"
             echo "BACKEND_BASE_URL=http://nginx/api/v1"
