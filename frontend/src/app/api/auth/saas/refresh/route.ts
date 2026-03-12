@@ -59,5 +59,11 @@ export async function POST() {
     await setSaasRefreshToken(rotatedRefresh);
   }
 
-  return NextResponse.json({ ok: true }, { status: 200 });
+  return NextResponse.json(
+    {
+      ok: true,
+      access_token: data?.access_token,
+    },
+    { status: 200 }
+  );
 }
