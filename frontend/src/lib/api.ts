@@ -184,7 +184,39 @@ async function silentRefresh(mode: RefreshMode): Promise<boolean> {
         cache: "no-store",
         credentials: "include",
       });
-      return res.ok;
+      const payload = await res.json().catch(() => ({} as any));
+      if (!res.ok) return false;
+
+      const accessToken =
+        typeof payload?.access_token === "string" && payload.access_token.trim()
+          ? payload.access_token.trim()
+          : null;
+
+      if (mode === "saas") {
+        if (accessToken) {
+          storage.set(keys.saasAccessToken, accessToken);
+        }
+        storage.set(keys.mode, "saas");
+        return true;
+      }
+
+      if (accessToken) {
+        storage.set(keys.accessToken, accessToken);
+      }
+
+      const tenantId =
+        typeof payload?.tenant_id === "string" && payload.tenant_id.trim()
+          ? payload.tenant_id.trim()
+          : null;
+      const tenantSlug =
+        typeof payload?.tenant_slug === "string" && payload.tenant_slug.trim()
+          ? payload.tenant_slug.trim()
+          : null;
+
+      storage.set(keys.mode, "tenant");
+      if (tenantId) storage.set(keys.tenantId, tenantId);
+      if (tenantSlug) storage.set(keys.tenantSlug, tenantSlug);
+      return true;
     } catch {
       return false;
     } finally {
