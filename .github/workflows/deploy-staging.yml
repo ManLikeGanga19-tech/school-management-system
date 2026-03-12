@@ -79,6 +79,22 @@ jobs:
           fi
           echo "value=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
 
+      - name: Fetch release images on runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '${{ github.token }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+          IMAGES=(
+            "${BACKEND_IMAGE}:${{ steps.tag.outputs.value }}"
+            "${FRONTEND_IMAGE}:${{ steps.tag.outputs.value }}"
+            "${NGINX_IMAGE}:${{ steps.tag.outputs.value }}"
+          )
+          docker pull "${IMAGES[0]}"
+          docker pull "${IMAGES[1]}"
+          docker pull "${IMAGES[2]}"
+          docker save "${IMAGES[@]}" | gzip -1 > .release-images.tgz
+          ls -lh .release-images.tgz
+
       - name: Build runtime env file
         shell: bash
         run: |
@@ -341,7 +357,7 @@ jobs:
           set -euo pipefail
           DEPLOY_PATH="${STAGING_DEPLOY_PATH:-/opt/school-erp-staging}"
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "mkdir -p '${DEPLOY_PATH}'"
-          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes docker-compose.prod.yml .deploy.env "${STAGING_SSH_USER}@${STAGING_SSH_HOST}:${DEPLOY_PATH}/"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes docker-compose.prod.yml .deploy.env .release-images.tgz "${STAGING_SSH_USER}@${STAGING_SSH_HOST}:${DEPLOY_PATH}/"
 
       - name: Verify remote deploy bundle
         shell: bash
@@ -353,6 +369,7 @@ jobs:
             ls -la '${DEPLOY_PATH}'
             test -f '${DEPLOY_PATH}/docker-compose.prod.yml'
             test -f '${DEPLOY_PATH}/.deploy.env'
+            test -f '${DEPLOY_PATH}/.release-images.tgz'
           "
 
       - name: Deploy on staging host
@@ -364,24 +381,9 @@ jobs:
             set -euo pipefail
             cd '${DEPLOY_PATH}'
             mv -f .deploy.env .env
-            if [ -n '${GHCR_USERNAME}' ] && [ -n '${GHCR_TOKEN}' ]; then
-              echo 'Trying explicit GHCR credentials from GitHub Actions secrets.'
-              if echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin; then
-                echo 'Explicit GHCR login succeeded.'
-              elif [ -f \"\$HOME/.docker/config.json\" ] && grep -q '\"ghcr.io\"' \"\$HOME/.docker/config.json\"; then
-                echo 'Explicit GHCR login failed. Falling back to existing host-side GHCR auth.'
-              else
-                echo 'Explicit GHCR login failed and no host-side GHCR auth is available.'
-                exit 1
-              fi
-            elif [ -f \"\$HOME/.docker/config.json\" ] && grep -q '\"ghcr.io\"' \"\$HOME/.docker/config.json\"; then
-              echo 'Using existing host-side GHCR auth.'
-            else
-              echo 'No GHCR auth available. Provide GHCR_USERNAME and GHCR_TOKEN secrets or log in on the host once.'
-              exit 1
-            fi
+            gunzip -c .release-images.tgz | docker load
+            rm -f .release-images.tgz
             grep -E '^(NGINX_HTTP_PORT|NEXT_PUBLIC_API_BASE_URL|BACKEND_BASE_URL|COOKIE_SECURE)=' .env
-            docker compose --env-file .env -f docker-compose.prod.yml pull
             docker compose --env-file .env -f docker-compose.prod.yml up -d --wait postgres redis
             POSTGRES_USER_VALUE=\${POSTGRES_USER:-postgres}
             POSTGRES_PASSWORD_VALUE=\${POSTGRES_PASSWORD:-postgres}
@@ -398,3 +400,8 @@ jobs:
             NGINX_HEALTH_PORT=\"\${NGINX_BIND##*:}\"
             curl -fsS \"http://127.0.0.1:\${NGINX_HEALTH_PORT}/nginx-healthz\" >/dev/null
           "
+
+      - name: Clean runner image bundle
+        if: always()
+        shell: bash
+        run: rm -f .release-images.tgz
