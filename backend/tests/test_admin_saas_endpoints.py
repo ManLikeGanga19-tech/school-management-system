@@ -23,6 +23,7 @@ from app.models.membership import UserTenant
 from app.models.subscription import Subscription
 from app.models.rbac import Permission, Role, RolePermission, UserPermissionOverride, UserRole
 from app.utils.tokens import create_access_token
+from app.utils.hashing import verify_password
 from app.core.dependencies import SAAS_TENANT_MARKER
 
 
@@ -524,6 +525,104 @@ class TestCreateTenant:
         ).scalar_one_or_none()
 
         assert membership is not None
+        assert assignment is not None
+
+    def test_create_tenant_with_explicit_admin_credentials(self, client, db_session):
+        user = create_super_admin_user(db_session)
+        create_system_role(db_session, "DIRECTOR", "Director")
+        db_session.commit()
+        token = get_saas_token(user)
+
+        response = client.post(
+            "/api/v1/admin/tenants",
+            json={
+                "name": "Novel School",
+                "slug": "novel-school",
+                "primary_domain": "novel-school.shulehq.co.ke",
+                "admin_email": "director@novel-school.test",
+                "admin_full_name": "Novel School Director",
+                "admin_password": "Pass12345!",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["primary_domain"] == "novel-school.shulehq.co.ke"
+        assert data["admin_email"] == "director@novel-school.test"
+        assert data["admin_full_name"] == "Novel School Director"
+        assert data["user_count"] == 1
+
+        created_user = db_session.execute(
+            select(User).where(User.email == "director@novel-school.test")
+        ).scalar_one()
+        assert verify_password("Pass12345!", created_user.password_hash)
+
+    def test_update_tenant_profile_and_admin_credentials(self, client, db_session):
+        user = create_super_admin_user(db_session)
+        create_system_role(db_session, "DIRECTOR", "Director")
+        tenant = Tenant(
+            id=uuid4(),
+            name="Original School",
+            slug="original-school",
+            primary_domain="original-school.shulehq.co.ke",
+            is_active=True,
+        )
+        db_session.add(tenant)
+        db_session.commit()
+        token = get_saas_token(user)
+
+        response = client.patch(
+            f"/api/v1/admin/tenants/{tenant.id}",
+            json={
+                "name": "Updated School",
+                "slug": "updated-school",
+                "primary_domain": "updated-school.shulehq.co.ke",
+                "admin_email": "director@updated-school.test",
+                "admin_full_name": "Updated School Director",
+                "admin_password": "Daniel.45_",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Updated School"
+        assert data["slug"] == "updated-school"
+        assert data["primary_domain"] == "updated-school.shulehq.co.ke"
+        assert data["admin_email"] == "director@updated-school.test"
+        assert data["admin_full_name"] == "Updated School Director"
+        assert data["user_count"] == 1
+
+        db_session.expire_all()
+        updated_tenant = db_session.get(Tenant, tenant.id)
+        assert updated_tenant is not None
+        assert updated_tenant.slug == "updated-school"
+        assert updated_tenant.primary_domain == "updated-school.shulehq.co.ke"
+
+        director_user = db_session.execute(
+            select(User).where(User.email == "director@updated-school.test")
+        ).scalar_one()
+        assert verify_password("Daniel.45_", director_user.password_hash)
+
+        membership = db_session.execute(
+            select(UserTenant).where(
+                UserTenant.tenant_id == tenant.id,
+                UserTenant.user_id == director_user.id,
+            )
+        ).scalar_one_or_none()
+        assert membership is not None
+
+        director_role = db_session.execute(
+            select(Role).where(Role.code == "DIRECTOR", Role.tenant_id.is_(None))
+        ).scalar_one()
+        assignment = db_session.execute(
+            select(UserRole).where(
+                UserRole.tenant_id == tenant.id,
+                UserRole.user_id == director_user.id,
+                UserRole.role_id == director_role.id,
+            )
+        ).scalar_one_or_none()
         assert assignment is not None
 
 

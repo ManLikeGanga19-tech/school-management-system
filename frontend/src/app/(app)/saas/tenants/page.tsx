@@ -8,6 +8,7 @@ import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import {
@@ -52,6 +53,11 @@ import {
   Activity,
   CheckCircle,
   Plus,
+  Pencil,
+  Copy,
+  KeyRound,
+  UserRound,
+  WandSparkles,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -74,8 +80,19 @@ type TenantRow = {
   is_active: boolean;
   plan?: string | null;
   user_count?: number | null;
+  admin_user_id?: string | null;
+  admin_email?: string | null;
+  admin_full_name?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+};
+
+type TenantAccessPack = {
+  tenantName: string;
+  domain: string;
+  adminEmail: string;
+  adminPassword: string;
+  adminFullName?: string | null;
 };
 
 type TenantPrintProfile = {
@@ -121,6 +138,46 @@ function formatBillingPlan(plan?: string | null): string {
   if (normalized === "per_term") return "Per Term";
   if (normalized === "per_year" || normalized === "full_year") return "Per Year";
   return String(plan ?? "");
+}
+
+function getTenantBaseHost() {
+  const configured =
+    process.env.NEXT_PUBLIC_TENANT_BASE_HOST?.trim() ||
+    process.env.NEXT_PUBLIC_PUBLIC_HOST?.trim();
+  if (configured) return configured;
+  if (typeof window === "undefined") return "shulehq.co.ke";
+  const hostname = window.location.hostname;
+  if (hostname === "localhost" || hostname === "127.0.0.1") return "localhost";
+  if (hostname.startsWith("admin.")) return hostname.slice("admin.".length);
+  return hostname;
+}
+
+function suggestTenantDomain(slug: string) {
+  const normalized = slug.trim().toLowerCase();
+  if (!normalized) return "";
+  const baseHost = getTenantBaseHost();
+  if (baseHost === "localhost") return `${normalized}.localhost`;
+  return `${normalized}.${baseHost}`;
+}
+
+function tenantLoginUrl(domain: string) {
+  const normalized = domain.trim();
+  if (!normalized) return "";
+  if (normalized.endsWith(".localhost") || normalized === "localhost") {
+    return `http://${normalized}:3000/login`;
+  }
+  return `https://${normalized}/login`;
+}
+
+function generateTenantPassword(length = 14) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
+  const values = new Uint32Array(length);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(values);
+  } else {
+    for (let i = 0; i < length; i++) values[i] = Math.floor(Math.random() * alphabet.length);
+  }
+  return Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
 }
 
 const DEFAULT_PRINT_PROFILE: TenantPrintProfile = {
@@ -174,9 +231,26 @@ export default function SaaSTenantsPage() {
   const [cSlug, setCSlug]                   = useState("");
   const [cSlugManual, setCSlugManual]       = useState(false);
   const [cDomain, setCDomain]               = useState("");
+  const [cDomainManual, setCDomainManual]   = useState(false);
   const [cBillingPlan, setCBillingPlan]     = useState<string>("__none__");
   const [cAdminEmail, setCAdminEmail]       = useState("");
+  const [cAdminFullName, setCAdminFullName] = useState("");
+  const [cAdminPassword, setCAdminPassword] = useState("");
   const [creating, setCreating]             = useState(false);
+
+  // ── Edit tenant dialog ───────────────────────────────────────────────────
+  const [editOpen, setEditOpen]             = useState(false);
+  const [editTarget, setEditTarget]         = useState<TenantRow | null>(null);
+  const [eName, setEName]                   = useState("");
+  const [eSlug, setESlug]                   = useState("");
+  const [eSlugManual, setESlugManual]       = useState(false);
+  const [eDomain, setEDomain]               = useState("");
+  const [eDomainManual, setEDomainManual]   = useState(false);
+  const [eAdminEmail, setEAdminEmail]       = useState("");
+  const [eAdminFullName, setEAdminFullName] = useState("");
+  const [eAdminPassword, setEAdminPassword] = useState("");
+  const [editing, setEditing]               = useState(false);
+  const [accessPack, setAccessPack]         = useState<TenantAccessPack | null>(null);
 
   // ── Tenant print profile ────────────────────────────────────────────────
   const [profileOpen, setProfileOpen] = useState(false);
@@ -198,17 +272,98 @@ export default function SaaSTenantsPage() {
 
   function handleNameChange(val: string) {
     setCName(val);
-    if (!cSlugManual) setCSlug(slugify(val));
+    if (!cSlugManual) {
+      const nextSlug = slugify(val);
+      setCSlug(nextSlug);
+      if (!cDomainManual) setCDomain(suggestTenantDomain(nextSlug));
+    }
   }
 
   function handleSlugChange(val: string) {
-    setCSlug(val.toLowerCase().replace(/[^a-z0-9-]/g, ""));
+    const normalized = val.toLowerCase().replace(/[^a-z0-9-]/g, "");
+    setCSlug(normalized);
     setCSlugManual(true);
+    if (!cDomainManual) setCDomain(suggestTenantDomain(normalized));
+  }
+
+  function handleDomainChange(val: string) {
+    setCDomain(val.trim().toLowerCase());
+    setCDomainManual(true);
   }
 
   function resetCreateForm() {
     setCName(""); setCSlug(""); setCSlugManual(false);
-    setCDomain(""); setCBillingPlan("__none__"); setCAdminEmail("");
+    setCDomain(""); setCDomainManual(false);
+    setCBillingPlan("__none__");
+    setCAdminEmail("");
+    setCAdminFullName("");
+    setCAdminPassword("");
+  }
+
+  function openEditDialog(tenant: TenantRow) {
+    setEditTarget(tenant);
+    setEName(tenant.name);
+    setESlug(tenant.slug);
+    setESlugManual(true);
+    const suggestedDomain = suggestTenantDomain(tenant.slug);
+    const resolvedDomain = tenant.primary_domain?.trim() || suggestedDomain;
+    setEDomain(resolvedDomain);
+    setEDomainManual(Boolean(tenant.primary_domain && tenant.primary_domain !== suggestedDomain));
+    setEAdminEmail(tenant.admin_email ?? "");
+    setEAdminFullName(tenant.admin_full_name ?? "");
+    setEAdminPassword("");
+    setEditOpen(true);
+  }
+
+  function resetEditForm() {
+    setEditTarget(null);
+    setEName("");
+    setESlug("");
+    setESlugManual(false);
+    setEDomain("");
+    setEDomainManual(false);
+    setEAdminEmail("");
+    setEAdminFullName("");
+    setEAdminPassword("");
+  }
+
+  function handleEditNameChange(val: string) {
+    setEName(val);
+    if (!eSlugManual) {
+      const nextSlug = slugify(val);
+      setESlug(nextSlug);
+      if (!eDomainManual) setEDomain(suggestTenantDomain(nextSlug));
+    }
+  }
+
+  function handleEditSlugChange(val: string) {
+    const normalized = val.toLowerCase().replace(/[^a-z0-9-]/g, "");
+    setESlug(normalized);
+    setESlugManual(true);
+    if (!eDomainManual) setEDomain(suggestTenantDomain(normalized));
+  }
+
+  function handleEditDomainChange(val: string) {
+    setEDomain(val.trim().toLowerCase());
+    setEDomainManual(true);
+  }
+
+  async function copyAccessPack(pack: TenantAccessPack) {
+    const message = [
+      `School: ${pack.tenantName}`,
+      pack.adminFullName ? `Contact: ${pack.adminFullName}` : null,
+      `Login URL: ${tenantLoginUrl(pack.domain)}`,
+      `Email: ${pack.adminEmail}`,
+      `Password: ${pack.adminPassword}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(message);
+      toast.success("Tenant access pack copied");
+    } catch {
+      toast.error("Unable to copy access pack");
+    }
   }
 
   // ── Create ────────────────────────────────────────────────────────────────
@@ -218,23 +373,41 @@ export default function SaaSTenantsPage() {
     const slug   = cSlug.trim();
     const domain = cDomain.trim() || null;
     const billingPlan = cBillingPlan !== "__none__" ? cBillingPlan : null;
-    const admin  = cAdminEmail.trim() || null;
+    const adminEmail = cAdminEmail.trim().toLowerCase() || null;
+    const adminFullName = cAdminFullName.trim() || null;
+    const adminPassword = cAdminPassword.trim() || null;
 
     if (!name) return toast.error("Institution name is required");
     if (!slug) return toast.error("Slug is required");
     if (!/^[a-z0-9-]+$/.test(slug)) return toast.error("Slug: lowercase letters, numbers, hyphens only");
+    if ((adminFullName || adminPassword) && !adminEmail) return toast.error("Admin email is required before setting school access");
+    if (adminEmail && !adminPassword) return toast.error("Admin password is required when provisioning tenant access");
 
     setCreating(true);
     try {
-      // TODO (backend): POST /api/v1/admin/tenants
-      // Body: { name, slug, primary_domain?, plan?, admin_email? }
-      // Returns created TenantRow. Optionally provisions first admin user.
-      await apiFetch("/admin/tenants", {
+      const created = await apiFetch<TenantRow>("/admin/tenants", {
         method: "POST",
         tenantRequired: false,
-        body: JSON.stringify({ name, slug, primary_domain: domain, plan: billingPlan, admin_email: admin }),
+        body: JSON.stringify({
+          name,
+          slug,
+          primary_domain: domain,
+          plan: billingPlan,
+          admin_email: adminEmail,
+          admin_full_name: adminFullName,
+          admin_password: adminPassword,
+        }),
         headers: { "Content-Type": "application/json" },
       } as any);
+      if (adminEmail && adminPassword) {
+        setAccessPack({
+          tenantName: created.name,
+          domain: created.primary_domain || domain || suggestTenantDomain(created.slug),
+          adminEmail,
+          adminPassword,
+          adminFullName,
+        });
+      }
       toast.success(`Tenant "${name}" created`);
       setCreateOpen(false);
       resetCreateForm();
@@ -243,6 +416,59 @@ export default function SaaSTenantsPage() {
       toast.error(e?.message ?? "Failed to create tenant");
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function saveTenantChanges() {
+    if (!editTarget) return;
+
+    const name = eName.trim();
+    const slug = eSlug.trim();
+    const domain = eDomain.trim() || null;
+    const adminEmail = eAdminEmail.trim().toLowerCase() || null;
+    const adminFullName = eAdminFullName.trim() || null;
+    const adminPassword = eAdminPassword.trim() || null;
+
+    if (!name) return toast.error("Institution name is required");
+    if (!slug) return toast.error("Slug is required");
+    if (!/^[a-z0-9-]+$/.test(slug)) return toast.error("Slug: lowercase letters, numbers, hyphens only");
+    if ((adminFullName || adminPassword) && !adminEmail) return toast.error("Admin email is required before setting school access");
+    if (adminEmail && !adminPassword && adminEmail !== (editTarget.admin_email ?? "").toLowerCase()) {
+      return toast.error("Admin password is required when provisioning tenant access");
+    }
+
+    setEditing(true);
+    try {
+      const updated = await apiFetch<TenantRow>(`/admin/tenants/${editTarget.id}`, {
+        method: "PATCH",
+        tenantRequired: false,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          slug,
+          primary_domain: domain,
+          admin_email: adminEmail,
+          admin_full_name: adminFullName,
+          ...(adminPassword ? { admin_password: adminPassword } : {}),
+        }),
+      });
+      if (adminEmail && adminPassword) {
+        setAccessPack({
+          tenantName: updated.name,
+          domain: updated.primary_domain || domain || suggestTenantDomain(updated.slug),
+          adminEmail,
+          adminPassword,
+          adminFullName,
+        });
+      }
+      toast.success(`Tenant "${updated.name}" updated`);
+      setEditOpen(false);
+      resetEditForm();
+      await load(true);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to update tenant");
+    } finally {
+      setEditing(false);
     }
   }
 
@@ -395,7 +621,7 @@ export default function SaaSTenantsPage() {
           <DialogHeader>
             <DialogTitle>Onboard New Tenant</DialogTitle>
             <DialogDescription>
-              Create a new institution on the platform. The slug is permanent — choose carefully.
+              Create a new institution, pre-wire its tenant domain, and prepare the director login pack for manual delivery.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-1">
@@ -419,14 +645,30 @@ export default function SaaSTenantsPage() {
                 )}
               </div>
               <p className="text-xs text-slate-400">
-                Lowercase letters, numbers, hyphens only. <strong>Permanent after creation.</strong>
+                Lowercase letters, numbers, hyphens only.
                 {cSlug && <span className="ml-1">Preview: <code className="rounded bg-slate-100 px-1">{cSlug}</code></span>}
               </p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-slate-600">Primary Domain</Label>
-              <Input placeholder="school.ac.ke" value={cDomain} onChange={(e) => setCDomain(e.target.value)} />
-              <p className="text-xs text-slate-400">Optional. Used for custom domain routing.</p>
+              <div className="flex items-center gap-2">
+                <Input placeholder="novel-school.shulehq.co.ke" value={cDomain} onChange={(e) => handleDomainChange(e.target.value)} />
+                {cSlug && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCDomain(suggestTenantDomain(cSlug));
+                      setCDomainManual(false);
+                    }}
+                    className="shrink-0 text-xs text-blue-500 hover:underline"
+                  >
+                    Autofill
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-400">
+                Autofilled from the tenant slug and base host, but you can override it for custom routing.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-slate-600">Initial Billing Plan</Label>
@@ -438,15 +680,54 @@ export default function SaaSTenantsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Initial Admin Email <span className="text-slate-400 font-normal">(optional)</span></Label>
-              <Input type="email" placeholder="director@school.ac.ke" value={cAdminEmail} onChange={(e) => setCAdminEmail(e.target.value)} />
-              <p className="text-xs text-slate-400">If provided, a director account will be created and invited.</p>
-            </div>
             <Separator />
-            <p className="text-xs text-slate-400">
-              Calls <code className="rounded bg-slate-100 px-1">POST /api/v1/admin/tenants</code>. Implement provisioning in Python.
-            </p>
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">School admin access</p>
+                  <p className="text-xs text-slate-500">
+                    Set the director login details now so you can share them directly over WhatsApp.
+                  </p>
+                </div>
+                <KeyRound className="mt-0.5 h-4 w-4 text-slate-400" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-600">Director/Admin Name</Label>
+                <Input placeholder="Novel School Director" value={cAdminFullName} onChange={(e) => setCAdminFullName(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-600">Director/Admin Email</Label>
+                <Input type="email" placeholder="director@novelschool.ac.ke" value={cAdminEmail} onChange={(e) => setCAdminEmail(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <Label className="text-xs font-medium text-slate-600">Initial Password</Label>
+                  <button
+                    type="button"
+                    onClick={() => setCAdminPassword(generateTenantPassword())}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+                  >
+                    <WandSparkles className="h-3.5 w-3.5" />
+                    Generate secure password
+                  </button>
+                </div>
+                <PasswordInput
+                  placeholder="Set a password to share with the school"
+                  value={cAdminPassword}
+                  onChange={(e) => setCAdminPassword(e.target.value)}
+                />
+              </div>
+              {cAdminEmail && cAdminPassword && (
+                <div className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-600">
+                  <div className="font-medium text-slate-900">Access pack preview</div>
+                  <div className="mt-1 space-y-1">
+                    <div>Login URL: <span className="font-mono">{tenantLoginUrl(cDomain || suggestTenantDomain(cSlug))}</span></div>
+                    <div>Email: <span className="font-mono">{cAdminEmail}</span></div>
+                    <div>Password: <span className="font-mono">{cAdminPassword}</span></div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setCreateOpen(false); resetCreateForm(); }} disabled={creating}>Cancel</Button>
@@ -464,6 +745,129 @@ export default function SaaSTenantsPage() {
                   Creating…
                 </span>
               ) : "Onboard Tenant"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editOpen}
+        onOpenChange={(open) => {
+          setEditOpen(open);
+          if (!open) resetEditForm();
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Edit Tenant Profile</DialogTitle>
+            <DialogDescription>
+              Update tenant identity, override the routed domain, and reset the director login pack when needed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-600">Institution Name</Label>
+                <Input value={eName} onChange={(e) => handleEditNameChange(e.target.value)} autoFocus />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-600">Slug</Label>
+                <div className="flex items-center gap-2">
+                  <Input value={eSlug} onChange={(e) => handleEditSlugChange(e.target.value)} className="font-mono" />
+                  {eSlugManual && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextSlug = slugify(eName);
+                        setESlug(nextSlug);
+                        setESlugManual(false);
+                        if (!eDomainManual) setEDomain(suggestTenantDomain(nextSlug));
+                      }}
+                      className="shrink-0 text-xs text-blue-500 hover:underline"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Primary Domain</Label>
+              <div className="flex items-center gap-2">
+                <Input value={eDomain} onChange={(e) => handleEditDomainChange(e.target.value)} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEDomain(suggestTenantDomain(eSlug));
+                    setEDomainManual(false);
+                  }}
+                  className="shrink-0 text-xs text-blue-500 hover:underline"
+                >
+                  Autofill
+                </button>
+              </div>
+              <p className="text-xs text-slate-400">
+                Derived from the slug by default. Keep it editable for mapped custom domains.
+              </p>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Tenant admin access</p>
+                  <p className="text-xs text-slate-500">
+                    Maintain the school director credentials without exposing any stored password.
+                  </p>
+                </div>
+                <UserRound className="mt-0.5 h-4 w-4 text-slate-400" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-slate-600">Director/Admin Name</Label>
+                  <Input value={eAdminFullName} onChange={(e) => setEAdminFullName(e.target.value)} placeholder="School director name" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-slate-600">Director/Admin Email</Label>
+                  <Input type="email" value={eAdminEmail} onChange={(e) => setEAdminEmail(e.target.value)} placeholder="director@school.ac.ke" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <Label className="text-xs font-medium text-slate-600">Reset Password</Label>
+                  <button
+                    type="button"
+                    onClick={() => setEAdminPassword(generateTenantPassword())}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+                  >
+                    <WandSparkles className="h-3.5 w-3.5" />
+                    Generate secure password
+                  </button>
+                </div>
+                <PasswordInput
+                  value={eAdminPassword}
+                  onChange={(e) => setEAdminPassword(e.target.value)}
+                  placeholder="Leave blank to keep the current password"
+                />
+              </div>
+              {eAdminEmail && eAdminPassword && (
+                <div className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-600">
+                  <div className="font-medium text-slate-900">Access pack preview</div>
+                  <div className="mt-1 space-y-1">
+                    <div>Login URL: <span className="font-mono">{tenantLoginUrl(eDomain || suggestTenantDomain(eSlug))}</span></div>
+                    <div>Email: <span className="font-mono">{eAdminEmail}</span></div>
+                    <div>Password: <span className="font-mono">{eAdminPassword}</span></div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditOpen(false); resetEditForm(); }} disabled={editing}>Cancel</Button>
+            <Button onClick={() => void saveTenantChanges()} disabled={editing || !editTarget} className="bg-blue-600 hover:bg-blue-700">
+              {editing ? "Saving…" : "Save Tenant Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -685,6 +1089,49 @@ export default function SaaSTenantsPage() {
           </div>
         )}
 
+        {accessPack && (
+          <SaasSurface className="border-emerald-200 bg-emerald-50/70">
+            <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <KeyRound className="h-4 w-4 text-emerald-600" />
+                  Tenant access pack ready
+                </div>
+                <div className="grid gap-1 text-sm text-slate-700">
+                  <div><span className="font-medium">Tenant:</span> {accessPack.tenantName}</div>
+                  {accessPack.adminFullName ? <div><span className="font-medium">Contact:</span> {accessPack.adminFullName}</div> : null}
+                  <div><span className="font-medium">Login URL:</span> <span className="font-mono">{tenantLoginUrl(accessPack.domain)}</span></div>
+                  <div><span className="font-medium">Email:</span> <span className="font-mono">{accessPack.adminEmail}</span></div>
+                  <div><span className="font-medium">Password:</span> <span className="font-mono">{accessPack.adminPassword}</span></div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  This password is shown once from the form input. It is not read back from storage.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => void copyAccessPack(accessPack)}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy for WhatsApp
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setAccessPack(null)}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          </SaasSurface>
+        )}
+
         {/* ── Stat pills ── */}
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <DashboardStatCard label="Total Tenants" value={rows.length} sub="Institutions on the platform" icon={Building2} tone="accent" />
@@ -832,11 +1279,18 @@ export default function SaaSTenantsPage() {
                     {/* Name + user count */}
                     <TableCell className="py-3">
                       <div className="text-sm font-semibold text-slate-900">{t.name}</div>
-                      {t.user_count !== undefined && t.user_count !== null && (
-                        <div className="text-xs text-slate-400">
-                          {t.user_count} user{t.user_count !== 1 ? "s" : ""}
-                        </div>
-                      )}
+                      <div className="space-y-0.5 text-xs text-slate-400">
+                        {t.user_count !== undefined && t.user_count !== null ? (
+                          <div>
+                            {t.user_count} user{t.user_count !== 1 ? "s" : ""}
+                          </div>
+                        ) : null}
+                        {t.admin_email ? (
+                          <div className="font-mono text-slate-500">{t.admin_email}</div>
+                        ) : (
+                          <div>No director/admin access configured</div>
+                        )}
+                      </div>
                     </TableCell>
 
                     {/* Slug with tooltip for full ID */}
@@ -898,6 +1352,15 @@ export default function SaaSTenantsPage() {
                     {/* Actions */}
                     <TableCell className="py-3 pr-4">
                       <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1.5 text-xs"
+                          onClick={() => openEditDialog(t)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Edit
+                        </Button>
                         {t.is_active ? (
                           <Button
                             variant="outline"
