@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
+import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -144,6 +146,13 @@ export default function SaaSPermissionsPage() {
   );
 
   const categories = Object.keys(grouped).sort();
+  const largestCategory = useMemo(() => {
+    return categories.reduce<{ name: string; count: number } | null>((largest, category) => {
+      const count = grouped[category]?.length ?? 0;
+      if (!largest || count > largest.count) return { name: category, count };
+      return largest;
+    }, null);
+  }, [categories, grouped]);
 
   // ── Create ────────────────────────────────────────────────────────────────
 
@@ -353,34 +362,19 @@ export default function SaaSPermissionsPage() {
       <div className="space-y-5">
 
         {/* Header */}
-        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="mb-1.5 flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
-                  <ShieldCheck className="h-3 w-3" />
-                  RBAC — Permissions
-                </span>
-              </div>
-              <h1 className="text-xl font-bold">Permission Catalog</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
-                Canonical permission codes used across all roles and overrides on the platform
-              </p>
-            </div>
-            <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-3 sm:gap-3">
-              {[
-                { label: "Total",      value: rows.length      },
-                { label: "Filtered",   value: filtered.length  },
-                { label: "Categories", value: categories.length },
-              ].map((item) => (
-                <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 text-center backdrop-blur sm:px-4">
-                  <div className="text-lg font-bold text-white sm:text-xl">{item.value}</div>
-                  <div className="text-xs text-blue-200">{item.label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <SaasPageHeader
+          title="Permission Catalog"
+          description="Canonical permission codes used across global roles, tenant roles, and user-level overrides."
+          badges={[
+            { label: "Super Admin", icon: ShieldCheck },
+            { label: "RBAC Permissions", icon: Plus },
+          ]}
+          metrics={[
+            { label: "Total", value: rows.length },
+            { label: "Filtered", value: filtered.length },
+            { label: "Categories", value: categories.length },
+          ]}
+        />
 
         {/* Error */}
         {err && (
@@ -394,8 +388,21 @@ export default function SaaSPermissionsPage() {
         )}
 
         {/* Stat pills — one per category */}
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <DashboardStatCard label="Permissions" value={rows.length} sub="Full platform catalog" icon={ShieldCheck} tone="accent" />
+          <DashboardStatCard label="Filtered View" value={filtered.length} sub={q.trim() ? `Matching "${q}"` : "Current working set"} icon={Search} tone="secondary" />
+          <DashboardStatCard label="Categories" value={categories.length} sub="Top-level code families" icon={RefreshCw} tone="sage" />
+          <DashboardStatCard
+            label="Largest Category"
+            value={largestCategory?.name ?? "—"}
+            sub={largestCategory ? `${largestCategory.count} permissions in ${largestCategory.name}` : "No permissions loaded"}
+            icon={Plus}
+            tone="neutral"
+          />
+        </div>
+
         {categories.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <SaasSurface muted className="flex flex-wrap gap-2 px-4 py-3">
             {categories.map((cat) => (
               <span
                 key={cat}
@@ -407,11 +414,11 @@ export default function SaaSPermissionsPage() {
                 </span>
               </span>
             ))}
-          </div>
+          </SaasSurface>
         )}
 
         {/* Table card */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <SaasSurface className="overflow-hidden">
 
           {/* Toolbar */}
           <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -584,7 +591,7 @@ export default function SaaSPermissionsPage() {
               </span>
             </div>
           )}
-        </div>
+        </SaasSurface>
       </div>
     </AppShell>
   );

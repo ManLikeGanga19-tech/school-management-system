@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
+import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -41,7 +43,9 @@ import type { AuditLogRow } from "@/lib/admin/audit";
 import { getAuditLog, listAuditLogs } from "@/lib/admin/audit";
 import { listTenants } from "@/lib/admin/tenants";
 import {
+  Activity,
   ClipboardList,
+  ShieldCheck,
   Search,
   RefreshCw,
   Filter,
@@ -305,39 +309,21 @@ export default function SaaSAuditPage() {
       <div className="space-y-5">
 
         {/* Header */}
-        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="mb-1.5 flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
-                  <ClipboardList className="h-3 w-3" />
-                  Cross-Tenant · Super Admin
-                </span>
-                <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-blue-100">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
-                  Live
-                </span>
-              </div>
-              <h1 className="text-xl font-bold">Audit Logs</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
-                Platform-wide event stream — filter by tenant, action, actor, or date range
-              </p>
-            </div>
-            <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-4 sm:gap-3">
-              {[
-                { label: "Total",    value: total         },
-                { label: "Loaded",   value: rows.length   },
-                { label: "Actions",  value: uniqueActions },
-                { label: "Tenants",  value: uniqueTenants },
-              ].map((item) => (
-                <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 text-center backdrop-blur">
-                  <div className="text-lg font-bold text-white sm:text-xl">{item.value}</div>
-                  <div className="text-xs text-blue-200">{item.label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <SaasPageHeader
+          title="Audit Logs"
+          description="Platform-wide event stream for tenant actions, RBAC changes, billing activity, and operational traces."
+          badges={[
+            { label: "Super Admin", icon: ShieldCheck },
+            { label: "Cross-Tenant", icon: ClipboardList },
+            { label: "Live Feed", icon: Activity },
+          ]}
+          metrics={[
+            { label: "Total", value: total },
+            { label: "Loaded", value: rows.length },
+            { label: "Actions", value: uniqueActions },
+            { label: "Tenants", value: uniqueTenants },
+          ]}
+        />
 
         {/* Error */}
         {err && (
@@ -348,25 +334,15 @@ export default function SaaSAuditPage() {
         )}
 
         {/* Stat pills */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: "Total Events",    value: total,         color: "border-blue-100 bg-blue-50 text-blue-900 text-blue-400" },
-            { label: "This Page",       value: rows.length,   color: "border-slate-100 bg-slate-50 text-slate-900 text-slate-400" },
-            { label: "Unique Actions",  value: uniqueActions, color: "border-emerald-100 bg-emerald-50 text-emerald-900 text-emerald-400" },
-            { label: "Tenants",         value: uniqueTenants, color: "border-purple-100 bg-purple-50 text-purple-900 text-purple-400" },
-          ].map((item) => {
-            const [border, bg, textVal, textSub] = item.color.split(" ");
-            return (
-              <div key={item.label} className={`rounded-xl border px-4 py-3 ${border} ${bg}`}>
-                <div className={`text-2xl font-bold ${textVal}`}>{item.value}</div>
-                <div className={`text-xs font-medium ${textSub}`}>{item.label}</div>
-              </div>
-            );
-          })}
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <DashboardStatCard label="Total Events" value={total} sub="All rows matching current filters" icon={ClipboardList} tone="accent" />
+          <DashboardStatCard label="Loaded This Page" value={rows.length} sub={`Offsets ${offset + 1}-${Math.min(offset + limit, total || rows.length)}`} icon={Eye} tone="neutral" />
+          <DashboardStatCard label="Unique Actions" value={uniqueActions} sub="Distinct event verbs in view" icon={TrendingUp} tone="sage" />
+          <DashboardStatCard label="Tenants In View" value={uniqueTenants} sub="Institutions represented in current slice" icon={Filter} tone="secondary" />
         </div>
 
         {/* Filter panel */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <SaasSurface>
           <div className="border-b border-slate-100 px-6 py-4">
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4 text-slate-400" />
@@ -535,7 +511,7 @@ export default function SaaSAuditPage() {
             {activeFilters.length > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {activeFilters.map((f) => (
-                  <span key={f} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
+                  <span key={f} className="inline-flex items-center gap-1 rounded-full bg-[#e9f1f2] px-2.5 py-1 text-xs font-medium text-[#173f49] ring-1 ring-[#c9dadd]">
                     {f}
                   </span>
                 ))}
@@ -545,10 +521,10 @@ export default function SaaSAuditPage() {
               </div>
             )}
           </div>
-        </div>
+        </SaasSurface>
 
         {/* Results table */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <SaasSurface className="overflow-hidden">
 
           {/* Table toolbar */}
           <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -751,7 +727,7 @@ export default function SaaSAuditPage() {
               </div>
             </div>
           )}
-        </div>
+        </SaasSurface>
       </div>
     </AppShell>
   );

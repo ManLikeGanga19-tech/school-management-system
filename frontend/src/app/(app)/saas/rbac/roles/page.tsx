@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
+import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -112,6 +114,11 @@ function avatarColor(id: string) {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
   return palette[Math.abs(hash) % palette.length];
+}
+
+function isRetiredPrincipalAlias(code: string) {
+  const normalized = String(code || "").trim().toUpperCase();
+  return normalized === "HEAD_TEACHER" || normalized === "HEADTEACHER";
 }
 
 // ─── Scope badge ──────────────────────────────────────────────────────────────
@@ -246,15 +253,20 @@ export default function SaaSRolesPage() {
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((r) =>
+    const visibleRows = rows.filter((r) => !isRetiredPrincipalAlias(r.code));
+    if (!needle) return visibleRows;
+    return visibleRows.filter((r) =>
       `${r.code} ${r.name ?? ""} ${r.description ?? ""} ${r.tenant_id ?? ""}`.toLowerCase().includes(needle)
     );
   }, [rows, q]);
 
-  const globalCount = rows.filter((r) => !r.tenant_id && !r.is_system).length;
-  const tenantCount = rows.filter((r) => !!r.tenant_id).length;
-  const systemCount = rows.filter((r) => r.is_system).length;
+  const visibleRows = useMemo(
+    () => rows.filter((r) => !isRetiredPrincipalAlias(r.code)),
+    [rows]
+  );
+  const globalCount = visibleRows.filter((r) => !r.tenant_id && !r.is_system).length;
+  const tenantCount = visibleRows.filter((r) => !!r.tenant_id).length;
+  const systemCount = visibleRows.filter((r) => r.is_system).length;
 
   const selectedTenant = tenants.find((t) => t.id === tenantId) ?? null;
 
@@ -798,35 +810,20 @@ export default function SaaSRolesPage() {
       <div className="space-y-5">
 
         {/* Header */}
-        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="mb-1.5 flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
-                  <ShieldCheck className="h-3 w-3" />
-                  RBAC — Roles
-                </span>
-              </div>
-              <h1 className="text-xl font-bold">Role Catalog</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
-                Manage global and tenant-scoped roles, assign permission sets
-              </p>
-            </div>
-            <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-4 sm:gap-3">
-              {[
-                { label: "Total",  value: rows.length   },
-                { label: "Global", value: globalCount   },
-                { label: "Tenant", value: tenantCount   },
-                { label: "System", value: systemCount   },
-              ].map((item) => (
-                <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 text-center backdrop-blur">
-                  <div className="text-lg font-bold text-white sm:text-xl">{item.value}</div>
-                  <div className="text-xs text-blue-200">{item.label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <SaasPageHeader
+          title="Role Catalog"
+          description="Platform and tenant-scoped role governance with direct access to permission bundles and assignment posture."
+          badges={[
+            { label: "Super Admin", icon: ShieldCheck },
+            { label: "RBAC Roles", icon: Layers },
+          ]}
+          metrics={[
+            { label: "Visible", value: filtered.length },
+            { label: "Global", value: globalCount },
+            { label: "Tenant", value: tenantCount },
+            { label: "System", value: systemCount },
+          ]}
+        />
 
         {/* Error */}
         {err && (
@@ -844,8 +841,21 @@ export default function SaaSRolesPage() {
           </div>
         )}
 
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <DashboardStatCard label="Global Roles" value={globalCount} sub="Platform-wide access profiles" icon={Globe} tone="secondary" />
+          <DashboardStatCard label="Tenant Roles" value={tenantCount} sub="School-specific role sets" icon={Building2} tone="accent" />
+          <DashboardStatCard label="System Roles" value={systemCount} sub="Protected platform roles" icon={Lock} tone="neutral" />
+          <DashboardStatCard
+            label={selectedTenant ? "Tenant Context" : "Tenant Context"}
+            value={selectedTenant ? selectedTenant.slug : "—"}
+            sub={selectedTenant ? selectedTenant.name : "Select a tenant when using tenant/all scope"}
+            icon={selectedTenant ? CheckCircle : ShieldOff}
+            tone={selectedTenant ? "sage" : "warning"}
+          />
+        </div>
+
         {/* Roles table card */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <SaasSurface className="overflow-hidden">
 
           {/* Toolbar */}
           <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -854,7 +864,7 @@ export default function SaaSRolesPage() {
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">Roles</h2>
                 <p className="mt-0.5 text-xs text-slate-400">
-                  {filtered.length} of {rows.length} role{rows.length !== 1 ? "s" : ""}
+                  {filtered.length} of {visibleRows.length} role{visibleRows.length !== 1 ? "s" : ""}
                   {q.trim() ? ` matching "${q}"` : ""}
                 </p>
               </div>
@@ -1114,7 +1124,7 @@ export default function SaaSRolesPage() {
               </span>
             </div>
           )}
-        </div>
+        </SaasSurface>
       </div>
     </AppShell>
   );

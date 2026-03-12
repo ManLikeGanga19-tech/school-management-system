@@ -5,6 +5,7 @@ import { RefreshCw, Reply, Send, X } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
+import { SaasPageHeader } from "@/components/saas/page-chrome";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,11 +41,11 @@ function formatDateTime(value: string | null): string {
 }
 
 function statusBadgeClass(status: string): string {
-  if (status === "WAITING_ADMIN") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (status === "WAITING_TENANT") return "border-blue-200 bg-blue-50 text-blue-700";
-  if (status === "RESOLVED") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "CLOSED") return "border-slate-200 bg-slate-100 text-slate-600";
-  return "border-purple-200 bg-purple-50 text-purple-700";
+  if (status === "WAITING_ADMIN") return "border-[#ead9bb] bg-[#f8efdf] text-[#8b5a17]";
+  if (status === "WAITING_TENANT") return "border-[#cedfe1] bg-[#e9f1f2] text-[#173f49]";
+  if (status === "RESOLVED") return "border-[#d8e8df] bg-[#edf6f0] text-[#20644f]";
+  if (status === "CLOSED") return "border-[#ddd0ba] bg-[#f7f3ec] text-[#55626b]";
+  return "border-[#ebd3c3] bg-[#f7e7dc] text-[#93411f]";
 }
 
 const THREAD_PAGE_SIZE_OPTIONS = [12, 20, 30, 40, 50] as const;
@@ -241,14 +242,22 @@ export function SaasSupportInboxPage() {
   return (
     <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/support">
       <div className="space-y-5">
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-bold">Support Inbox</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
-                Real-time tenant contact center for troubleshooting and platform support.
-              </p>
-            </div>
+        <SaasPageHeader
+          title="Support Inbox"
+          description="Live tenant support command desk for triage, follow-up, and real-time issue resolution."
+          badges={[
+            { label: "Super Admin", icon: Reply },
+            { label: "Support Operations", icon: Send },
+          ]}
+          metrics={[
+            { label: "Open Threads", value: threads.length },
+            {
+              label: "Unread",
+              value: threads.reduce((sum, thread) => sum + Number(thread.unread_for_admin || 0), 0),
+              tone: threads.some((thread) => thread.unread_for_admin > 0) ? "warning" : "default",
+            },
+          ]}
+          actions={
             <Button
               variant="outline"
               className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
@@ -257,10 +266,10 @@ export function SaasSupportInboxPage() {
               <RefreshCw className="h-3.5 w-3.5" />
               Refresh
             </Button>
-          </div>
-        </div>
+          }
+        />
 
-        <Card>
+        <Card className="dashboard-surface rounded-[1.6rem] border-0 shadow-none">
           <CardHeader>
             <CardTitle className="text-base">Tenant Chats</CardTitle>
             <CardDescription>Pick a tenant ticket and respond in real time.</CardDescription>
@@ -293,7 +302,7 @@ export function SaasSupportInboxPage() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
-              <div className="flex h-[620px] flex-col rounded-md border border-slate-200">
+              <div className="flex h-[620px] flex-col rounded-2xl border border-[#e2d4bf] bg-[#fdfbf8]">
                 <div className="min-h-0 flex-1 overflow-y-auto p-2">
                   {loadingThreads && <div className="px-2 py-6 text-xs text-slate-500">Loading tickets...</div>}
                   {!loadingThreads && threads.length === 0 && (
@@ -378,7 +387,7 @@ export function SaasSupportInboxPage() {
                 </div>
               </div>
 
-              <div className="flex h-[620px] flex-col rounded-md border border-slate-200">
+              <div className="flex h-[620px] flex-col rounded-2xl border border-[#e2d4bf] bg-[#fdfbf8]">
                 <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
                   <div>
                     <div className="text-sm font-semibold text-slate-900">
@@ -443,16 +452,16 @@ export function SaasSupportInboxPage() {
                           <div
                             className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
                               isAdmin
-                                ? "bg-blue-600 text-white"
-                                : "border border-slate-200 bg-white text-slate-800"
+                                ? "bg-[#173f49] text-white"
+                                : "border border-[#e2d4bf] bg-white text-slate-800"
                             }`}
                           >
                             {msg.reply_to_body && (
                               <div
                                 className={`mb-1 rounded border-l-2 px-2 py-1 text-[11px] ${
                                   isAdmin
-                                    ? "border-blue-200 bg-blue-500/25 text-blue-50"
-                                    : "border-slate-300 bg-slate-100 text-slate-600"
+                                    ? "border-[#d8e8df] bg-white/10 text-[#eef7f2]"
+                                    : "border-[#ddd0ba] bg-[#f7f3ec] text-slate-600"
                                 }`}
                               >
                                 <div className="font-semibold">{replySenderLabel}</div>

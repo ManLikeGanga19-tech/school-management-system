@@ -66,6 +66,13 @@ from app.api.v1.admin.schemas import (
 router = APIRouter()
 
 
+def _canonicalize_role_code(code: str) -> str:
+    normalized = str(code or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if normalized in {"HEAD_TEACHER", "HEADTEACHER"}:
+        return "PRINCIPAL"
+    return normalized
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # In-process TTL cache (no external dependency)
 # One instance per worker process — good enough for a dashboard endpoint.
@@ -813,7 +820,7 @@ def create_role(
     scope: str = Body(default="global"),
     tenant_id: Optional[UUID] = Body(default=None),
 ):
-    code = code.strip()
+    code = _canonicalize_role_code(code)
     if scope not in {"tenant", "global"}:
         raise HTTPException(status_code=400, detail="scope must be 'tenant' or 'global'")
 

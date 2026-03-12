@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
+import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import {
   ShieldCheck,
   Layers,
@@ -84,30 +85,20 @@ export default function SaaSRbacHubPage() {
       <div className="space-y-6">
 
         {/* ── Header ── */}
-        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-700 via-blue-600 to-blue-500 p-6 text-white shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <div className="mb-2 flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
-                  <ShieldCheck className="h-3 w-3" />
-                  Super Admin · Platform RBAC
-                </span>
-              </div>
-              <h1 className="text-2xl font-bold">Role-Based Access Control</h1>
-              <p className="mt-1 max-w-xl text-sm text-blue-100">
-                Define the platform's permission catalog, manage global and tenant-scoped roles,
-                and control exactly what every user across every institution can do.
-              </p>
-            </div>
-            <Globe className="hidden h-10 w-10 shrink-0 text-white/20 sm:block" />
-          </div>
-        </div>
+        <SaasPageHeader
+          title="Role-Based Access Control"
+          description="Define the platform permission catalog, govern global and tenant-scoped roles, and shape effective access with less drift."
+          badges={[
+            { label: "Super Admin", icon: ShieldCheck },
+            { label: "Platform RBAC", icon: Globe },
+          ]}
+        />
 
         {/* ── Module cards ── */}
         <div className="grid gap-4 sm:grid-cols-2">
           {modules.map((m) => (
             <Link key={m.href} href={m.href}>
-              <div className={`group h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md ${m.borderHover}`}>
+              <div className={`dashboard-surface group h-full rounded-[1.6rem] border-0 p-6 transition hover:-translate-y-0.5 ${m.borderHover}`}>
                 <div className="mb-4 flex items-start justify-between">
                   <div className={`inline-flex rounded-xl p-3 ${m.iconColor}`}>
                     <m.icon className="h-6 w-6" />
@@ -142,7 +133,7 @@ export default function SaaSRbacHubPage() {
         </div>
 
         {/* ── How it works ── */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SaasSurface className="p-6">
           <h2 className="mb-1 text-sm font-semibold text-slate-900">How Platform RBAC Works</h2>
           <p className="mb-5 text-xs text-slate-400">
             The four-step model from permission definition to API enforcement
@@ -161,7 +152,7 @@ export default function SaaSRbacHubPage() {
               </div>
             ))}
           </div>
-        </div>
+        </SaasSurface>
 
       </div>
     </AppShell>

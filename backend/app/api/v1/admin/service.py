@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, date, timedelta
+import logging
 from typing import Optional, Any
 from uuid import UUID, uuid4
 import secrets
@@ -23,6 +24,8 @@ from app.models.tenant_print_profile import TenantPrintProfile
 
 # If your project has hashing util (it does, used in tenants/routes.py)
 from app.utils.hashing import hash_password
+
+logger = logging.getLogger(__name__)
 
 
 # ─── Subscription billing model ──────────────────────────────────────────────
@@ -101,7 +104,7 @@ def _subscription_row(sub: Subscription, tenant: Tenant | None) -> dict:
     }
 
 
-def _send_invitation_email_or_raise(email: str, tenant: Tenant) -> None:
+def _send_invitation_email(email: str, tenant: Tenant) -> None:
     """
     Reuse existing invitation utility in your codebase.
     Update the import path below to match your project if needed.
@@ -116,6 +119,23 @@ def _send_invitation_email_or_raise(email: str, tenant: Tenant) -> None:
 
     # Minimal payload; adjust args to match your utility signature
     send_invitation_email(email=email, tenant_name=tenant.name, tenant_slug=tenant.slug)
+
+
+def _try_send_invitation_email(email: str, tenant: Tenant) -> None:
+    """
+    Invitation delivery is best-effort.
+
+    Tenant provisioning must succeed even when email infrastructure is absent or
+    temporarily degraded, otherwise local/staging environments become brittle
+    and admin onboarding fails with an opaque 500.
+    """
+    try:
+        _send_invitation_email(email=email, tenant=tenant)
+    except Exception:
+        logger.exception(
+            "Tenant admin invitation delivery failed",
+            extra={"tenant_slug": tenant.slug, "tenant_id": str(tenant.id), "email": email},
+        )
 
 
 def _resolve_payment_amount_column() -> Any | None:
@@ -434,10 +454,12 @@ def create_tenant_with_optional_admin(
 
     # Optional admin user + director role + invitation email
     created_user: Optional[User] = None
+    invite_email: Optional[str] = None
     if admin_email:
         email = admin_email.strip().lower()
         if not email:
             raise ValueError("admin_email is invalid")
+        invite_email = email
 
         created_user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
         if created_user is None:
@@ -493,11 +515,11 @@ def create_tenant_with_optional_admin(
                 )
             )
 
-        # Send invitation email (after flush so tenant exists)
-        _send_invitation_email_or_raise(email=email, tenant=tenant)
-
     db.commit()
     db.refresh(tenant)
+
+    if invite_email:
+        _try_send_invitation_email(email=invite_email, tenant=tenant)
 
     # Return TenantRow shape
     user_count = db.scalar(
