@@ -58,11 +58,6 @@ jobs:
             fi
           done
 
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'staging' }}
-
       - name: Resolve deploy tag
         id: tag
         shell: bash
@@ -75,9 +70,21 @@ jobs:
             DEPLOY_TAG="${{ github.event.workflow_run.head_sha }}"
             DEPLOY_TAG="${DEPLOY_TAG::7}"
           else
-            DEPLOY_TAG="$(git rev-parse --short=7 HEAD)"
+            DEPLOY_TAG="${GITHUB_SHA::7}"
           fi
           echo "value=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch deploy manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOY_REF="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
+          curl -fsSL \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/docker-compose.prod.yml?ref=${DEPLOY_REF}" \
+            -o docker-compose.prod.yml
+          test -s docker-compose.prod.yml
 
       - name: Fetch release images on runner
         shell: bash
