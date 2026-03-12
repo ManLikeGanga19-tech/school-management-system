@@ -23,9 +23,17 @@ def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, raw))
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 _AUDIT_QUEUE_MAXSIZE = _env_int("AUDIT_QUEUE_MAXSIZE", 2000, 100, 20000)
 _AUDIT_WORKERS = _env_int("AUDIT_WORKERS", 1, 1, 4)
 _AUDIT_POOL_RESERVE = _env_int("AUDIT_POOL_RESERVE", 4, 1, 20)
+_AUDIT_CAPTURE_HTTP_REQUESTS = _env_bool("AUDIT_CAPTURE_HTTP_REQUESTS", False)
 _AUDIT_DROPPED_LOG_EVERY = 100
 _AUDIT_PRESSURE_LOG_EVERY = 50
 
@@ -216,7 +224,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         tenant_id = getattr(request.state, "tenant_id", None)
         actor_user_id = getattr(request.state, "user_id", None)
 
-        if tenant_id:
+        if tenant_id and _AUDIT_CAPTURE_HTTP_REQUESTS:
             meta = {
                 "request_id": request_id,
                 "method": request.method,

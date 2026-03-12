@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, and_, not_
 
 from app.core.database import get_db
 from app.core.dependencies import get_tenant, require_permission, require_permission_saas
@@ -42,6 +42,7 @@ def list_audit_logs_saas(
     resource: Optional[str] = Query(default=None),
     resource_id: Optional[UUID] = Query(default=None),
     request_id: Optional[str] = Query(default=None),
+    include_http_events: bool = Query(default=False),
     from_dt: Optional[datetime] = Query(default=None),
     to_dt: Optional[datetime] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -54,6 +55,15 @@ def list_audit_logs_saas(
     """
 
     stmt = select(AuditLog)
+    if not include_http_events:
+        stmt = stmt.where(
+            not_(
+                and_(
+                    AuditLog.action == "http.request",
+                    AuditLog.resource == "http",
+                )
+            )
+        )
 
     if tenant_id:
         stmt = stmt.where(AuditLog.tenant_id == tenant_id)
@@ -132,6 +142,7 @@ def list_audit_logs_tenant(
     resource: Optional[str] = Query(default=None),
     resource_id: Optional[UUID] = Query(default=None),
     request_id: Optional[str] = Query(default=None),
+    include_http_events: bool = Query(default=False),
     from_dt: Optional[datetime] = Query(default=None),
     to_dt: Optional[datetime] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -142,6 +153,15 @@ def list_audit_logs_tenant(
     - Always restricted to resolved tenant.
     """
     stmt = select(AuditLog).where(AuditLog.tenant_id == tenant.id)
+    if not include_http_events:
+        stmt = stmt.where(
+            not_(
+                and_(
+                    AuditLog.action == "http.request",
+                    AuditLog.resource == "http",
+                )
+            )
+        )
 
     if actor_user_id:
         stmt = stmt.where(AuditLog.actor_user_id == actor_user_id)

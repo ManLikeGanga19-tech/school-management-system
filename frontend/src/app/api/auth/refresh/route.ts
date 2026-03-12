@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { backendFetch } from "@/server/backend/client";
-import { setAccessToken, setRefreshToken } from "@/lib/auth/cookies";
+import {
+  clearClientModeCookie,
+  clearTenantAuthCookies,
+  setAccessToken,
+  setRefreshToken,
+} from "@/lib/auth/cookies";
 
 function extractCookieValue(setCookie: string | null, cookieName: string) {
   if (!setCookie) return null;
@@ -21,7 +26,11 @@ export async function POST() {
   }
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) return NextResponse.json(data, { status: res.status });
+  if (!res.ok) {
+    await clearTenantAuthCookies();
+    await clearClientModeCookie();
+    return NextResponse.json(data, { status: res.status });
+  }
 
   if (data?.access_token) {
     await setAccessToken(data.access_token);

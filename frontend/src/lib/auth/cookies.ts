@@ -17,6 +17,11 @@
 
 import { cookies } from "next/headers";
 
+import {
+  buildCookieOptions,
+  expiredCookieVariants,
+} from "@/lib/auth/cookie-config";
+
 export const COOKIE_ACCESS       = "sms_access";
 export const COOKIE_REFRESH      = "sms_refresh";
 export const COOKIE_TENANT_ID    = "sms_tenant_id";
@@ -28,65 +33,46 @@ export const COOKIE_SAAS_REFRESH = "sms_saas_refresh";
 export const COOKIE_PUBLIC_ACCESS = "sms_public_access";
 export const COOKIE_PUBLIC_REFRESH = "sms_public_refresh";
 
-function parseOptionalBool(value: string | undefined): boolean | null {
-  if (value == null) return null;
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return null;
-}
-
-const IS_SECURE = (() => {
-  const fromEnv = parseOptionalBool(process.env.COOKIE_SECURE);
-  if (fromEnv !== null) return fromEnv;
-  return process.env.NODE_ENV === "production";
-})();
-
 const ACCESS_MAX_AGE  = 60 * 60;           // 1 hour
 const REFRESH_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 /** Base options for SHORT-LIVED access tokens — NOT httpOnly so JS can read them */
 function accessCookieOptions(maxAge: number) {
-  return {
-    httpOnly: false as const,   // ← CHANGED: must be readable by document.cookie
-    sameSite: "lax" as const,
-    secure: IS_SECURE,
-    path: "/",
+  return buildCookieOptions({
     maxAge,
-  };
+    httpOnly: false, // must remain readable by document.cookie
+  });
 }
 
 /** Base options for LONG-LIVED refresh tokens — httpOnly, never readable by JS */
 function refreshCookieOptions(maxAge: number) {
-  return {
-    httpOnly: true as const,    // ← UNCHANGED: refresh tokens stay protected
-    sameSite: "lax" as const,
-    secure: IS_SECURE,
-    path: "/",
+  return buildCookieOptions({
     maxAge,
-  };
+    httpOnly: true,
+  });
 }
 
 /** Public prospect auth stays server-only: BFF routes read/write these cookies. */
 function serverOnlyAuthCookieOptions(maxAge: number) {
-  return {
-    httpOnly: true as const,
-    sameSite: "lax" as const,
-    secure: IS_SECURE,
-    path: "/",
+  return buildCookieOptions({
     maxAge,
-  };
+    httpOnly: true,
+  });
 }
 
 /** Client-readable hints used for tenant resolution and mode selection. */
 function clientHintCookieOptions(maxAge: number) {
-  return {
-    httpOnly: false as const,
-    sameSite: "lax" as const,
-    secure: IS_SECURE,
-    path: "/",
+  return buildCookieOptions({
     maxAge,
-  };
+    httpOnly: false,
+  });
+}
+
+async function expireCookie(name: string) {
+  const c = await cookies();
+  for (const variant of expiredCookieVariants()) {
+    c.set(name, "", variant);
+  }
 }
 
 /** Tenant/school login access token */
@@ -143,28 +129,29 @@ export async function setClientModeCookie(mode: "tenant" | "saas") {
 }
 
 export async function clearTenantAuthCookies() {
-  const c = await cookies();
-  c.delete(COOKIE_ACCESS);
-  c.delete(COOKIE_REFRESH);
-  c.delete(COOKIE_TENANT_ID);
-  c.delete(COOKIE_TENANT_SLUG);
+  await expireCookie(COOKIE_ACCESS);
+  await expireCookie(COOKIE_REFRESH);
+  await expireCookie(COOKIE_TENANT_ID);
+  await expireCookie(COOKIE_TENANT_SLUG);
 }
 
 export async function clearSaasAuthCookies() {
-  const c = await cookies();
-  c.delete(COOKIE_SAAS_ACCESS);
-  c.delete(COOKIE_SAAS_REFRESH);
+  await expireCookie(COOKIE_SAAS_ACCESS);
+  await expireCookie(COOKIE_SAAS_REFRESH);
 }
 
 export async function clearPublicAuthCookies() {
-  const c = await cookies();
-  c.delete(COOKIE_PUBLIC_ACCESS);
-  c.delete(COOKIE_PUBLIC_REFRESH);
+  await expireCookie(COOKIE_PUBLIC_ACCESS);
+  await expireCookie(COOKIE_PUBLIC_REFRESH);
+}
+
+export async function clearClientModeCookie() {
+  await expireCookie(COOKIE_MODE);
 }
 
 export async function clearAllAuthCookies() {
   await clearTenantAuthCookies();
   await clearSaasAuthCookies();
   await clearPublicAuthCookies();
-  (await cookies()).delete(COOKIE_MODE);
+  await clearClientModeCookie();
 }

@@ -72,9 +72,19 @@ function formatTimestamp(iso: string) {
   });
 }
 
+function humanizeAuditToken(value: string) {
+  return value
+    .split(".")
+    .flatMap((segment) => segment.split("_"))
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
 /** Color-code action badges by verb */
 function actionBadgeClass(action: string): string {
-  const verb = action.split(".")[0]?.toLowerCase() ?? "";
+  const lastSegment = action.split(".").pop()?.toLowerCase() ?? "";
+  const verb = lastSegment.split("_")[0] ?? "";
   if (["create", "post", "add"].includes(verb))
     return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   if (["approve", "enroll", "complete", "activate"].includes(verb))
@@ -431,11 +441,21 @@ export default function TenantAuditPage() {
               {!loading && rows.slice(0, 30).map((r) => (
                 <TableRow key={r.id} className="hover:bg-slate-50">
                   <TableCell className="py-3">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-xs font-medium ${actionBadgeClass(r.action)}`}>
-                      {r.action}
-                    </span>
+                    <div className="space-y-1">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${actionBadgeClass(r.action)}`}>
+                        {humanizeAuditToken(r.action)}
+                      </span>
+                      <div className="font-mono text-[11px] text-slate-400">{r.action}</div>
+                    </div>
                   </TableCell>
-                  <TableCell className="py-3 text-sm text-slate-600">{r.resource}</TableCell>
+                  <TableCell className="py-3">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-slate-700">
+                        {humanizeAuditToken(r.resource)}
+                      </div>
+                      <div className="font-mono text-[11px] text-slate-400">{r.resource}</div>
+                    </div>
+                  </TableCell>
                   <TableCell className="py-3 text-xs text-slate-400 whitespace-nowrap">
                     {formatTimestamp(r.created_at)}
                   </TableCell>

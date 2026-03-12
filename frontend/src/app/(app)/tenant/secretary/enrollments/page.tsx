@@ -10,6 +10,7 @@ import {
   secretaryNav,
   type EnrollmentSection,
 } from "@/components/layout/nav-config";
+import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -2425,32 +2426,21 @@ function SecretaryEnrollmentsPageContent() {
           loading={overrideLoading}
         />
 
-        {/* ── Page Header ── */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold">
-                {section === "students" ? "Enrolled Students" : "Enrollment Operations"}
-              </h1>
-              <p className="mt-0.5 text-sm text-blue-100">
-                {section === "students"
-                  ? "Manage existing student records and add returning students."
-                  : "Register new student intake step-by-step, then manage the workflow queue."}
-              </p>
-            </div>
-            <div className="flex items-center gap-3 text-right text-sm text-blue-100">
-              <div>
-                <div className="text-xl font-bold text-white">{rows.length}</div>
-                <div className="text-xs">Total Records</div>
-              </div>
-              <div className="h-8 w-px bg-blue-400" />
-              <div>
-                <div className="text-xl font-bold text-white">{studentRows.length}</div>
-                <div className="text-xs">Enrolled</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <TenantPageHeader
+          title={section === "students" ? "Enrolled Students" : "Enrollment Operations"}
+          description={
+            section === "students"
+              ? "Manage existing student records, maintain enrollment quality, and update records inside the same tenant operating shell used across the secretary workspace."
+              : "Run intake, workflow review, and enrollment queue operations in a consistent, production-grade tenant interface."
+          }
+          badges={[{ label: section === "students" ? "Student registry" : "Enrollment desk" }]}
+          metrics={[
+            { label: "Total Records", value: rows.length },
+            { label: "Enrolled", value: studentRows.length },
+            { label: "Workflow Pages", value: workflowTotalPages },
+            { label: "Queue Pages", value: queueTotalPages },
+          ]}
+        />
 
         {/* ══════════════════════════════════════════════════════════════
             INTAKE SECTION
@@ -2460,7 +2450,7 @@ function SecretaryEnrollmentsPageContent() {
 
             {/* 1) STATUS OVERVIEW */}
             <div className="grid gap-5 xl:grid-cols-3">
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
+              <TenantSurface className="p-5">
                 <h3 className="mb-3 text-sm font-semibold text-slate-800">Enrollment Status Overview</h3>
                 <ChartContainer config={chartConfig} className="h-[200px] w-full">
                   <BarChart accessibilityLayer data={chartData}>
@@ -2470,9 +2460,9 @@ function SecretaryEnrollmentsPageContent() {
                     <Bar dataKey="count" fill="var(--color-count)" radius={6} />
                   </BarChart>
                 </ChartContainer>
-              </div>
+              </TenantSurface>
 
-              <div className="xl:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
+              <TenantSurface className="xl:col-span-2 p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-semibold text-slate-800">Overview</h3>
@@ -2494,11 +2484,11 @@ function SecretaryEnrollmentsPageContent() {
                     );
                   })}
                 </div>
-              </div>
+              </TenantSurface>
             </div>
 
             {/* 2) NEW STUDENT INTAKE WIZARD */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <TenantSurface className="overflow-hidden">
               <div className="border-b border-slate-100 px-6 py-4 flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-base font-semibold text-slate-900">New Student Intake</h2>
@@ -2876,10 +2866,10 @@ function SecretaryEnrollmentsPageContent() {
                   </div>
                 </div>
               </div>
-            </div>
+            </TenantSurface>
 
             {/* 3) WORKFLOW ACTIONS TABLE */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <TenantSurface>
               <div className="border-b border-slate-100 px-6 py-4 flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-base font-semibold text-slate-900">Workflow Actions</h2>
@@ -3002,10 +2992,10 @@ function SecretaryEnrollmentsPageContent() {
                 totalItems={workflowPageData.total}
                 label="workflow items"
               />
-            </div>
+            </TenantSurface>
 
             {/* 4) ENROLLMENT QUEUE */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <TenantSurface>
               <div className="border-b border-slate-100 px-5 py-4 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-800">Enrollment Queue</h3>
@@ -3081,7 +3071,7 @@ function SecretaryEnrollmentsPageContent() {
                 totalItems={queuePageData.total}
                 label="records"
               />
-            </div>
+            </TenantSurface>
           </div>
         )}
 
@@ -3092,7 +3082,7 @@ function SecretaryEnrollmentsPageContent() {
           <div className="space-y-5">
 
             {/* Add Existing Student */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <TenantSurface>
               <div className="border-b border-slate-100 px-6 py-4">
                 <h2 className="text-base font-semibold text-slate-900">Add Existing Student</h2>
                 <p className="mt-0.5 text-sm text-slate-500">Register a returning or already-enrolled student into the system.</p>
@@ -3267,10 +3257,10 @@ function SecretaryEnrollmentsPageContent() {
                   </Button>
                 </div>
               </div>
-            </div>
+            </TenantSurface>
 
             {/* ── Enrolled Students Table ── */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <TenantSurface>
               <div className="border-b border-slate-100 px-6 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -3385,7 +3375,7 @@ function SecretaryEnrollmentsPageContent() {
                 totalItems={studentsPageData.total}
                 label="students"
               />
-            </div>
+            </TenantSurface>
           </div>
         )}
       </div>

@@ -18,6 +18,7 @@ import {
   secretaryNav,
   type FinanceSection,
 } from "@/components/layout/nav-config";
+import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -396,7 +397,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <TenantSurface>
       <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
         {step !== undefined && stepLabel && (
           <div className="mb-2">
@@ -409,7 +410,7 @@ function SectionCard({
         )}
       </div>
       <div className="p-4 sm:p-6">{children}</div>
-    </div>
+    </TenantSurface>
   );
 }
 
@@ -971,6 +972,10 @@ function SecretaryFinancePageContent() {
   const showInvoices = section === "invoices";
   const showPayments = section === "payments";
   const showReceipts = section === "receipts";
+  const totalCollections = data.payments.reduce(
+    (acc, payment) => acc + toNumber(payment.amount),
+    0
+  );
 
   const selectedStructure = data.fee_structures.find(
     (s) => s.id === selectedStructureId
@@ -1563,23 +1568,26 @@ function SecretaryFinancePageContent() {
   return (
     <AppShell title="Secretary" nav={secretaryNav} activeHref={activeFinanceHref}>
       <div className="space-y-5">
-        {/* ── Page Header ── */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-4 text-white shadow-sm sm:p-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-xl font-bold">Finance Operations</h1>
-              <p className="mt-0.5 text-sm text-blue-100 capitalize">
-                {section.replace("-", " ")} — manage school fees, invoices &amp; payments
-              </p>
-            </div>
-            <button
+        <TenantPageHeader
+          title="Finance Operations"
+          description={`Run ${section.replace("-", " ")} activities with the same operating standard as the rest of the tenant workspace: review balances, structures, invoices, receipts, and payment activity without switching themes.`}
+          badges={[{ label: "Finance desk" }]}
+          metrics={[
+            { label: "Invoices", value: data.invoices.length },
+            { label: "Outstanding", value: formatKes(totals.balance) },
+            { label: "Collected", value: formatKes(totalCollections) },
+            { label: "Structures", value: data.fee_structures.length },
+          ]}
+          actions={
+            <Button
               onClick={() => void loadFinance()}
-              className="flex items-center gap-1.5 w-full justify-center rounded-lg bg-white/20 px-3 py-1.5 text-xs font-medium text-white backdrop-blur hover:bg-white/30 transition sm:w-auto"
+              variant="outline"
+              className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
             >
-              ↻ Refresh
-            </button>
-          </div>
-        </div>
+              Refresh
+            </Button>
+          }
+        />
 
         {/* ── Alerts ── */}
         {error && (
