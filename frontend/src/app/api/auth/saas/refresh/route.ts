@@ -7,13 +7,7 @@ import {
   setSaasAccessToken,
   setSaasRefreshToken,
 } from "@/lib/auth/cookies";
-
-function extractCookieValue(setCookie: string | null, cookieName: string) {
-  if (!setCookie) return null;
-  const re = new RegExp(`${cookieName}=([^;]+)`);
-  const m = setCookie.match(re);
-  return m?.[1] ?? null;
-}
+import { extractCookieValue } from "@/server/http/set-cookie";
 
 export async function POST() {
   const saasRefresh = (await cookies()).get("sms_saas_refresh")?.value;
@@ -60,8 +54,7 @@ export async function POST() {
     await setSaasAccessToken(data.access_token);
   }
 
-  const setCookie = res.headers.get("set-cookie");
-  const rotatedRefresh = extractCookieValue(setCookie, "sms_refresh");
+  const rotatedRefresh = extractCookieValue(res.headers, "sms_refresh");
   if (rotatedRefresh) {
     await setSaasRefreshToken(rotatedRefresh);
   }

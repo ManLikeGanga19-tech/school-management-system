@@ -6,13 +6,7 @@ import {
   setSaasRefreshToken,
 } from "@/lib/auth/cookies";
 import { backendFetch } from "@/server/backend/client";
-
-function extractCookieValue(setCookie: string | null, cookieName: string) {
-  if (!setCookie) return null;
-  const re = new RegExp(`${cookieName}=([^;]+)`);
-  const m = setCookie.match(re);
-  return m?.[1] ?? null;
-}
+import { extractCookieValue } from "@/server/http/set-cookie";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
@@ -61,10 +55,9 @@ export async function POST(req: Request) {
   }
 
   // Best-effort mirror refresh cookie (if backend sets one)
-  const setCookie = res.headers.get("set-cookie");
   const refresh =
-    extractCookieValue(setCookie, "sms_saas_refresh") ||
-    extractCookieValue(setCookie, "sms_refresh");
+    extractCookieValue(res.headers, "sms_saas_refresh") ||
+    extractCookieValue(res.headers, "sms_refresh");
 
   if (refresh) {
     await setSaasRefreshToken(refresh);

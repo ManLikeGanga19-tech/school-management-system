@@ -23,8 +23,9 @@ from app.models.user import User
 from app.models.membership import UserTenant
 from app.models.subscription import Subscription
 from app.models.rbac import Permission, Role, RolePermission, UserPermissionOverride, UserRole
+from app.api.v1.auth import service as auth_service
 from app.utils.tokens import create_access_token
-from app.utils.hashing import verify_password
+from app.utils.hashing import hash_password, verify_password
 from app.core.dependencies import SAAS_TENANT_MARKER
 
 
@@ -1303,3 +1304,71 @@ class TestPermissions:
         assert test_perm is not None
         assert "category" in test_perm
         assert test_perm["category"] == "Testing"
+
+
+class TestAuthRefreshStability:
+    def test_tenant_refresh_reuses_same_token(self, db_session):
+        tenant = Tenant(id=uuid4(), slug="novel-school", name="Novel School", is_active=True)
+        db_session.add(tenant)
+        role = create_system_role(db_session, "DIRECTOR", "Director")
+        user = create_tenant_user(
+            db_session,
+            tenant=tenant,
+            email="director@novel-school.test",
+            full_name="Director",
+            role=role,
+        )
+        user.password_hash = hash_password("Pass12345!")
+        db_session.commit()
+
+        access, refresh = auth_service.login(
+            db_session,
+            tenant_id=tenant.id,
+            email=user.email,
+            password="Pass12345!",
+        )
+        assert access
+        assert refresh
+
+        next_access, next_refresh = auth_service.refresh(
+            db_session,
+            tenant_id=tenant.id,
+            refresh_token=refresh,
+        )
+        assert next_access
+        assert next_refresh == refresh
+
+        third_access, third_refresh = auth_service.refresh(
+            db_session,
+            tenant_id=tenant.id,
+            refresh_token=refresh,
+        )
+        assert third_access
+        assert third_refresh == refresh
+
+    def test_saas_refresh_reuses_same_token(self, db_session):
+        user = create_super_admin_user(db_session)
+        user.password_hash = hash_password("Daniel.45_")
+        db_session.commit()
+
+        access, refresh = auth_service.login_saas(
+            db_session,
+            email=user.email,
+            password="Daniel.45_",
+        )
+        assert access
+        assert refresh
+
+        next_access, next_refresh = auth_service.refresh_saas(
+            db_session,
+            refresh_token=refresh,
+        )
+        assert next_access
+        assert next_refresh == refresh
+
+        third_access, third_refresh = auth_service.refresh_saas(
+            db_session,
+            refresh_token=refresh,
+        )
+        assert third_access
+        assert third_refresh == refresh
