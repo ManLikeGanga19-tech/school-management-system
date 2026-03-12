@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, LogOut, Rocket, ShieldCheck } from "lucide-react";
 
+import { type ProspectAccount, useProspectSession } from "@/components/marketing/ProspectSessionProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,16 +13,6 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { toast } from "@/components/ui/sonner";
 
 type AuthMode = "register" | "login";
-
-type ProspectAccount = {
-  id: string;
-  email: string;
-  full_name: string;
-  organization_name: string;
-  phone?: string | null;
-  job_title?: string | null;
-  is_active: boolean;
-};
 
 const initialRegisterState = {
   full_name: "",
@@ -79,8 +70,7 @@ function oauthErrorMessage(value: string | null) {
 export function ProspectAccessCard({ mode }: { mode: AuthMode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [account, setAccount] = useState<ProspectAccount | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { account, loading, setAccount } = useProspectSession();
   const [submitting, setSubmitting] = useState(false);
   const [registerState, setRegisterState] = useState(initialRegisterState);
   const [loginState, setLoginState] = useState(initialLoginState);
@@ -89,35 +79,6 @@ export function ProspectAccessCard({ mode }: { mode: AuthMode }) {
     () => `/api/prospect/auth/google/start?flow=${mode}&return_to=${encodeURIComponent("/#engage")}`,
     [mode]
   );
-
-  useEffect(() => {
-    let active = true;
-
-    const loadSession = async () => {
-      try {
-        const res = await fetch("/api/prospect/auth/me", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        });
-
-        if (!res.ok) {
-          if (active) setAccount(null);
-          return;
-        }
-
-        const data = await res.json().catch(() => ({}));
-        if (active) setAccount((data?.account as ProspectAccount | undefined) || null);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-
-    void loadSession();
-    return () => {
-      active = false;
-    };
-  }, []);
 
   useEffect(() => {
     const message = oauthErrorMessage(searchParams.get("oauth_error"));

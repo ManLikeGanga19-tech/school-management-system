@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, LogOut, Menu, School, X } from "lucide-react";
 
+import { useProspectSession } from "@/components/marketing/ProspectSessionProvider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -20,13 +20,6 @@ import { toast } from "@/components/ui/sonner";
 type NavItem = {
   href: string;
   label: string;
-};
-
-type ProspectAccount = {
-  id: string;
-  email: string;
-  full_name: string;
-  organization_name: string;
 };
 
 function initialsFor(name: string) {
@@ -48,39 +41,8 @@ export function PublicNavbar({
   createAccessHref?: string;
   signInHref?: string;
 }) {
-  const router = useRouter();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [account, setAccount] = useState<ProspectAccount | null>(null);
-
-  useEffect(() => {
-    let active = true;
-
-    const loadSession = async () => {
-      try {
-        const res = await fetch("/api/prospect/auth/me", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          if (active) setAccount(null);
-          return;
-        }
-
-        const data = await res.json().catch(() => ({}));
-        if (active) {
-          setAccount((data?.account as ProspectAccount | undefined) || null);
-        }
-      } catch {
-        if (active) setAccount(null);
-      }
-    };
-
-    void loadSession();
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { account, setAccount } = useProspectSession();
 
   const accountInitials = useMemo(
     () => initialsFor(account?.full_name || account?.email || ""),
