@@ -793,6 +793,82 @@ class TestDirectorTenantUsers:
         assert audit_row.resource_id == target.id
         assert audit_row.actor_user_id == actor.id
 
+    def test_director_can_reactivate_previously_deactivated_tenant_user(
+        self,
+        client,
+        db_session,
+        monkeypatch,
+    ):
+        monkeypatch.setattr("app.core.middleware.SessionLocal", TestSessionLocal)
+        tenant = Tenant(
+            id=uuid4(),
+            name="Tenant School",
+            slug="tenant-school",
+            is_active=True,
+        )
+        db_session.add(tenant)
+        db_session.flush()
+
+        director_role = create_system_role(db_session, "DIRECTOR", "Director")
+        secretary_role = create_system_role(db_session, "SECRETARY", "Secretary")
+        users_manage = create_permission(db_session, "users.manage", "Users Manage")
+        view_tenant = create_permission(
+            db_session,
+            "admin.dashboard.view_tenant",
+            "Admin Dashboard View Tenant",
+        )
+        assign_permission_to_role(db_session, director_role, users_manage)
+        assign_permission_to_role(db_session, director_role, view_tenant)
+
+        actor = create_tenant_user(
+            db_session,
+            tenant=tenant,
+            email="director@tenant.test",
+            full_name="Tenant Director",
+            role=director_role,
+        )
+        target = create_tenant_user(
+            db_session,
+            tenant=tenant,
+            email="secretary@tenant.test",
+            full_name="Tenant Secretary",
+            role=secretary_role,
+        )
+        membership = db_session.execute(
+            select(UserTenant).where(
+                UserTenant.tenant_id == tenant.id,
+                UserTenant.user_id == target.id,
+            )
+        ).scalar_one()
+        membership.is_active = False
+        target.is_active = False
+        db_session.commit()
+
+        token = get_tenant_token(actor, tenant)
+
+        response = client.patch(
+            f"/api/v1/tenants/director/users/{target.id}",
+            json={"is_active": True},
+            headers=get_tenant_headers(token, tenant),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_active"] is True
+
+        db_session.expire_all()
+        reactivated_user = db_session.get(User, target.id)
+        reactivated_membership = db_session.execute(
+            select(UserTenant).where(
+                UserTenant.tenant_id == tenant.id,
+                UserTenant.user_id == target.id,
+            )
+        ).scalar_one()
+
+        assert reactivated_user is not None
+        assert reactivated_user.is_active is True
+        assert reactivated_membership.is_active is True
+
     def test_director_can_remove_tenant_user_access_and_clean_tenant_scoped_assignments(
         self,
         client,

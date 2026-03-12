@@ -802,19 +802,27 @@ def _get_role_by_code(db: Session, *, tenant_id: UUID, role_code: str) -> Role |
     ).scalar_one_or_none()
 
 
-def _ensure_user_in_tenant(db: Session, *, tenant_id: UUID, user_id: UUID) -> None:
+def _ensure_user_in_tenant(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    include_inactive: bool = False,
+) -> None:
+    conditions = [
+        UserTenant.tenant_id == tenant_id,
+        UserTenant.user_id == user_id,
+    ]
+    if not include_inactive:
+        conditions.append(UserTenant.is_active == True)
+
     membership = db.execute(
-        select(UserTenant).where(
-            and_(
-                UserTenant.tenant_id == tenant_id,
-                UserTenant.user_id == user_id,
-                UserTenant.is_active == True,
-            )
-        )
+        select(UserTenant).where(and_(*conditions))
     ).scalar_one_or_none()
 
     if not membership:
-        raise HTTPException(status_code=400, detail="User is not active in this tenant")
+        detail = "User does not belong to this tenant" if include_inactive else "User is not active in this tenant"
+        raise HTTPException(status_code=400, detail=detail)
 
 
 def _safe_db_missing_table(err: Exception) -> bool:
@@ -12456,7 +12464,12 @@ def director_user_update(
     _user=Depends(get_current_user),
 ):
     target_user_id = _parse_uuid(user_id, field="user_id")
-    _ensure_user_in_tenant(db, tenant_id=tenant.id, user_id=target_user_id)
+    _ensure_user_in_tenant(
+        db,
+        tenant_id=tenant.id,
+        user_id=target_user_id,
+        include_inactive=True,
+    )
 
     fields_set = set(payload.model_fields_set)
     if not fields_set:
