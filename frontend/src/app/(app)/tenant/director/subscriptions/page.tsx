@@ -373,7 +373,7 @@ export default function DirectorSubscriptionsPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <AppShell title="Director" nav={directorNav} activeHref="/tenant/subscriptions">
+    <AppShell title="Director" nav={directorNav} activeHref="/tenant/director/subscriptions">
 
       {/* ── M-Pesa Payment Dialog ─────────────────────────────────────────── */}
       <Dialog open={payOpen} onOpenChange={closePay}>
@@ -571,7 +571,7 @@ export default function DirectorSubscriptionsPage() {
       <div className="space-y-5">
 
         {/* ── Hero header — matches SaaS dashboard gradient style ── */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-600 p-6 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-6 text-white shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="mb-2 flex items-center gap-2">
@@ -694,8 +694,8 @@ export default function DirectorSubscriptionsPage() {
 
         {/* ── Empty state ── */}
         {!loading && !err && !sub && (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 py-16 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col items-center gap-3 dashboard-surface-muted rounded-[1.6rem] py-16 text-center">
+            <div className="flex h-14 w-14 items-center justify-center dashboard-surface rounded-[1.6rem]">
               <CreditCard className="h-6 w-6 text-slate-300" />
             </div>
             <div>
@@ -713,7 +713,7 @@ export default function DirectorSubscriptionsPage() {
             {/* ── Plan card ── */}
             <SectionLabel>Current Plan</SectionLabel>
 
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-hidden dashboard-surface rounded-[1.6rem]">
               {/* Card header gradient — darker, more premium than the hero */}
               <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-6 py-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -881,7 +881,7 @@ export default function DirectorSubscriptionsPage() {
           <>
             <SectionLabel>Payment History</SectionLabel>
 
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-hidden dashboard-surface rounded-[1.6rem]">
               <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
                 <div className="flex items-center gap-2">
                   <Receipt className="h-4 w-4 text-slate-400" />

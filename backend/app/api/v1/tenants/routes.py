@@ -693,6 +693,13 @@ class DirectorUserOut(BaseModel):
     roles: list[str] = Field(default_factory=list)
 
 
+class DirectorUserUpdateIn(BaseModel):
+    full_name: Optional[str] = Field(default=None, max_length=160)
+    email: Optional[str] = Field(default=None, max_length=255)
+    is_active: Optional[bool] = None
+    password: Optional[str] = Field(default=None, min_length=8, max_length=128)
+
+
 class DirectorStaffCandidateOut(BaseModel):
     staff_id: str
     staff_no: str
@@ -726,6 +733,15 @@ class DirectorUserRoleActionIn(BaseModel):
     mode: Literal["assign", "remove"]
     user_id: str
     role_code: str = Field(..., min_length=2, max_length=60)
+
+
+class DirectorUserDeleteOut(BaseModel):
+    ok: bool
+    user_id: str
+    membership_deactivated: bool
+    user_deactivated: bool
+    roles_removed: int = 0
+    overrides_removed: int = 0
 
 
 class DirectorPermissionOverrideOut(BaseModel):
@@ -1149,6 +1165,167 @@ def _staff_full_name(first_name: str | None, last_name: str | None) -> str:
     parts = [str(first_name or "").strip(), str(last_name or "").strip()]
     full = " ".join(p for p in parts if p)
     return full or "Unnamed staff"
+
+
+def _director_user_payloads(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    user_ids: list[UUID] | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> list[DirectorUserOut]:
+    stmt = (
+        select(
+            User.id,
+            User.email,
+            User.full_name,
+            User.is_active,
+            UserTenant.is_active,
+        )
+        .select_from(UserTenant)
+        .join(User, User.id == UserTenant.user_id)
+        .where(UserTenant.tenant_id == tenant_id)
+        .order_by(User.email.asc())
+    )
+    if user_ids is not None:
+        if not user_ids:
+            return []
+        stmt = stmt.where(UserTenant.user_id.in_(user_ids))
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    if offset is not None:
+        stmt = stmt.offset(offset)
+
+    users_rows = db.execute(stmt).all()
+    scoped_user_ids = [row[0] for row in users_rows]
+    role_map: dict[UUID, list[str]] = {uid: [] for uid in scoped_user_ids}
+    if scoped_user_ids:
+        role_rows = db.execute(
+            select(UserRole.user_id, Role.code)
+            .select_from(UserRole)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(
+                UserRole.tenant_id == tenant_id,
+                UserRole.user_id.in_(scoped_user_ids),
+            )
+            .order_by(Role.code.asc())
+        ).all()
+        for scoped_user_id, role_code in role_rows:
+            if role_code is None:
+                continue
+            code = str(role_code).strip().upper()
+            if _is_restricted_tenant_role_code(code):
+                continue
+            role_map.setdefault(scoped_user_id, []).append(code)
+
+    return [
+        DirectorUserOut(
+            id=str(user_id),
+            email=str(email),
+            full_name=(str(full_name) if full_name else None),
+            is_active=bool(user_is_active and membership_is_active),
+            roles=role_map.get(user_id, []),
+        )
+        for user_id, email, full_name, user_is_active, membership_is_active in users_rows
+    ]
+
+
+def _director_user_has_role(db: Session, *, tenant_id: UUID, user_id: UUID, role_code: str) -> bool:
+    return bool(
+        db.execute(
+            select(UserRole.id)
+            .select_from(UserRole)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(
+                UserRole.tenant_id == tenant_id,
+                UserRole.user_id == user_id,
+                sa.func.upper(Role.code) == role_code.strip().upper(),
+            )
+            .limit(1)
+        ).first()
+    )
+
+
+def _count_active_tenant_users_for_role(db: Session, *, tenant_id: UUID, role_code: str) -> int:
+    return int(
+        db.execute(
+            select(sa.func.count(sa.distinct(UserRole.user_id)))
+            .select_from(UserRole)
+            .join(Role, Role.id == UserRole.role_id)
+            .join(
+                UserTenant,
+                and_(
+                    UserTenant.tenant_id == tenant_id,
+                    UserTenant.user_id == UserRole.user_id,
+                    UserTenant.is_active == True,
+                ),
+            )
+            .join(User, User.id == UserRole.user_id)
+            .where(
+                UserRole.tenant_id == tenant_id,
+                User.is_active == True,
+                sa.func.upper(Role.code) == role_code.strip().upper(),
+            )
+        ).scalar()
+        or 0
+    )
+
+
+def _sync_staff_registry_email_for_user(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    current_email: str,
+    next_email: str,
+) -> None:
+    current_normalized = current_email.strip().lower()
+    next_normalized = next_email.strip().lower()
+    if not current_normalized or current_normalized == next_normalized:
+        return
+
+    table_name, cols = _resolve_existing_table(db, candidates=TENANT_STAFF_TABLE_CANDIDATES)
+    if not table_name or "email" not in cols:
+        return
+
+    duplicate = db.execute(
+        sa.text(
+            f"""
+            SELECT 1
+            FROM {table_name}
+            WHERE tenant_id = :tenant_id
+              AND LOWER(email) = :next_email
+              AND LOWER(email) <> :current_email
+            LIMIT 1
+            """
+        ),
+        {
+            "tenant_id": str(tenant_id),
+            "current_email": current_normalized,
+            "next_email": next_normalized,
+        },
+    ).first()
+    if duplicate:
+        raise HTTPException(
+            status_code=409,
+            detail="Email already exists in the tenant staff registry.",
+        )
+
+    db.execute(
+        sa.text(
+            f"""
+            UPDATE {table_name}
+            SET email = :next_email
+            WHERE tenant_id = :tenant_id
+              AND LOWER(email) = :current_email
+            """
+        ),
+        {
+            "tenant_id": str(tenant_id),
+            "current_email": current_normalized,
+            "next_email": next_normalized,
+        },
+    )
 
 
 def _execute_on_first_table(
@@ -11774,50 +11951,12 @@ def director_users(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):
-    users_rows = db.execute(
-        select(User.id, User.email, User.full_name, User.is_active)
-        .select_from(UserTenant)
-        .join(User, User.id == UserTenant.user_id)
-        .where(
-            UserTenant.tenant_id == tenant.id,
-            UserTenant.is_active == True,
-        )
-        .order_by(User.email.asc())
-        .limit(limit)
-        .offset(offset)
-    ).all()
-
-    user_ids = [row[0] for row in users_rows]
-    role_map: dict[UUID, list[str]] = {uid: [] for uid in user_ids}
-    if user_ids:
-        role_rows = db.execute(
-            select(UserRole.user_id, Role.code)
-            .select_from(UserRole)
-            .join(Role, Role.id == UserRole.role_id)
-            .where(
-                UserRole.tenant_id == tenant.id,
-                UserRole.user_id.in_(user_ids),
-            )
-            .order_by(Role.code.asc())
-        ).all()
-        for user_id, role_code in role_rows:
-            if role_code is None:
-                continue
-            code = str(role_code).strip().upper()
-            if _is_restricted_tenant_role_code(code):
-                continue
-            role_map.setdefault(user_id, []).append(code)
-
-    return [
-        DirectorUserOut(
-            id=str(user_id),
-            email=str(email),
-            full_name=(str(full_name) if full_name else None),
-            is_active=bool(is_active),
-            roles=role_map.get(user_id, []),
-        )
-        for user_id, email, full_name, is_active in users_rows
-    ]
+    return _director_user_payloads(
+        db,
+        tenant_id=tenant.id,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get(
@@ -12146,6 +12285,211 @@ def director_user_role_action(
             _user=_user,
         )
     return {"ok": True}
+
+
+@router.patch(
+    "/director/users/{user_id}",
+    response_model=DirectorUserOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "users.manage"))],
+)
+def director_user_update(
+    user_id: str,
+    payload: DirectorUserUpdateIn,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    target_user_id = _parse_uuid(user_id, field="user_id")
+    _ensure_user_in_tenant(db, tenant_id=tenant.id, user_id=target_user_id)
+
+    fields_set = set(payload.model_fields_set)
+    if not fields_set:
+        rows = _director_user_payloads(db, tenant_id=tenant.id, user_ids=[target_user_id])
+        if not rows:
+            raise HTTPException(status_code=404, detail="User not found")
+        return rows[0]
+
+    user_row = db.execute(
+        select(User, UserTenant)
+        .select_from(UserTenant)
+        .join(User, User.id == UserTenant.user_id)
+        .where(
+            UserTenant.tenant_id == tenant.id,
+            UserTenant.user_id == target_user_id,
+        )
+        .limit(1)
+    ).first()
+    if not user_row:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target_user: User = user_row[0]
+    membership: UserTenant = user_row[1]
+
+    if "is_active" in fields_set and payload.is_active is False and target_user_id == _user.id:
+        raise HTTPException(status_code=400, detail="You cannot deactivate your own tenant access.")
+
+    if _director_user_has_role(db, tenant_id=tenant.id, user_id=target_user_id, role_code="DIRECTOR"):
+        last_director_count = _count_active_tenant_users_for_role(
+            db,
+            tenant_id=tenant.id,
+            role_code="DIRECTOR",
+        )
+        if "is_active" in fields_set and payload.is_active is False and last_director_count <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one active director must remain assigned to this tenant.",
+            )
+
+    if "full_name" in fields_set:
+        target_user.full_name = _text_or_none(payload.full_name)
+
+    if "email" in fields_set:
+        email = _normalized_email(payload.email)
+        if not email:
+            raise HTTPException(status_code=400, detail="Email is required")
+
+        duplicate_user = db.execute(
+            select(User.id)
+            .where(
+                sa.func.lower(User.email) == email,
+                User.id != target_user_id,
+            )
+            .limit(1)
+        ).first()
+        if duplicate_user:
+            raise HTTPException(status_code=409, detail="Email is already in use.")
+
+        has_other_active_membership = db.execute(
+            select(UserTenant.id)
+            .where(
+                UserTenant.user_id == target_user_id,
+                UserTenant.tenant_id != tenant.id,
+                UserTenant.is_active == True,
+            )
+            .limit(1)
+        ).first()
+        if has_other_active_membership:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot change email for a user with active access in another tenant.",
+            )
+
+        current_email = str(target_user.email)
+        target_user.email = email
+        _sync_staff_registry_email_for_user(
+            db,
+            tenant_id=tenant.id,
+            current_email=current_email,
+            next_email=email,
+        )
+
+    if "password" in fields_set:
+        if payload.password is None:
+            raise HTTPException(status_code=400, detail="Password cannot be null")
+        target_user.password_hash = hash_password(_validated_password(payload.password))
+        target_user.is_active = True
+
+    if "is_active" in fields_set and payload.is_active is not None:
+        membership.is_active = payload.is_active
+        if payload.is_active:
+            target_user.is_active = True
+        else:
+            has_other_active_membership = db.execute(
+                select(UserTenant.id)
+                .where(
+                    UserTenant.user_id == target_user_id,
+                    UserTenant.tenant_id != tenant.id,
+                    UserTenant.is_active == True,
+                )
+                .limit(1)
+            ).first()
+            if not has_other_active_membership:
+                target_user.is_active = False
+
+    db.commit()
+    rows = _director_user_payloads(db, tenant_id=tenant.id, user_ids=[target_user_id])
+    if not rows:
+        raise HTTPException(status_code=404, detail="User not found")
+    return rows[0]
+
+
+@router.delete(
+    "/director/users/{user_id}",
+    response_model=DirectorUserDeleteOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "users.manage"))],
+)
+def director_user_delete(
+    user_id: str,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    target_user_id = _parse_uuid(user_id, field="user_id")
+    _ensure_user_in_tenant(db, tenant_id=tenant.id, user_id=target_user_id)
+
+    if target_user_id == _user.id:
+        raise HTTPException(status_code=400, detail="You cannot remove your own tenant access.")
+
+    if _director_user_has_role(db, tenant_id=tenant.id, user_id=target_user_id, role_code="DIRECTOR"):
+        if _count_active_tenant_users_for_role(db, tenant_id=tenant.id, role_code="DIRECTOR") <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one active director must remain assigned to this tenant.",
+            )
+
+    user_row = db.execute(
+        select(User, UserTenant)
+        .select_from(UserTenant)
+        .join(User, User.id == UserTenant.user_id)
+        .where(
+            UserTenant.tenant_id == tenant.id,
+            UserTenant.user_id == target_user_id,
+        )
+        .limit(1)
+    ).first()
+    if not user_row:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target_user: User = user_row[0]
+    membership: UserTenant = user_row[1]
+    membership.is_active = False
+
+    roles_removed = db.execute(
+        sa.delete(UserRole).where(
+            UserRole.tenant_id == tenant.id,
+            UserRole.user_id == target_user_id,
+        )
+    ).rowcount or 0
+    overrides_removed = db.execute(
+        sa.delete(UserPermissionOverride).where(
+            UserPermissionOverride.tenant_id == tenant.id,
+            UserPermissionOverride.user_id == target_user_id,
+        )
+    ).rowcount or 0
+
+    has_other_active_membership = db.execute(
+        select(UserTenant.id)
+        .where(
+            UserTenant.user_id == target_user_id,
+            UserTenant.tenant_id != tenant.id,
+            UserTenant.is_active == True,
+        )
+        .limit(1)
+    ).first()
+    user_deactivated = False
+    if not has_other_active_membership:
+        target_user.is_active = False
+        user_deactivated = True
+
+    db.commit()
+    return DirectorUserDeleteOut(
+        ok=True,
+        user_id=str(target_user_id),
+        membership_deactivated=True,
+        user_deactivated=user_deactivated,
+        roles_removed=int(roles_removed),
+        overrides_removed=int(overrides_removed),
+    )
 
 
 @router.get(

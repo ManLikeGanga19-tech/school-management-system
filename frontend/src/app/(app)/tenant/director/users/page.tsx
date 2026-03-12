@@ -11,14 +11,19 @@ import {
   Search,
   CheckCircle,
   XCircle,
+  Pencil,
+  Trash2,
+  UserCog,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { directorNav } from "@/components/layout/nav-config";
+import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import {
   Select,
   SelectContent,
@@ -81,6 +86,22 @@ type StaffCredentialCandidate = {
   user_id?: string | null;
 };
 
+type DirectorUserDeleteResult = {
+  ok: boolean;
+  user_id: string;
+  membership_deactivated: boolean;
+  user_deactivated: boolean;
+  roles_removed: number;
+  overrides_removed: number;
+};
+
+type EditUserForm = {
+  full_name: string;
+  email: string;
+  password: string;
+  is_active: "true" | "false";
+};
+
 // ─── Chart config ─────────────────────────────────────────────────────────────
 
 const chartConfig = {
@@ -89,6 +110,12 @@ const chartConfig = {
 };
 
 const PIE_COLORS = ["#10b981", "#e2e8f0"];
+const initialEditForm: EditUserForm = {
+  full_name: "",
+  email: "",
+  password: "",
+  is_active: "true",
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -267,6 +294,13 @@ export default function TenantUsersPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [newRole, setNewRole]   = useState("");
   const [addBusy, setAddBusy]   = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editUser, setEditUser] = useState<TenantUser | null>(null);
+  const [editForm, setEditForm] = useState<EditUserForm>(initialEditForm);
+  const [editBusy, setEditBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteUser, setDeleteUser] = useState<TenantUser | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -429,6 +463,87 @@ export default function TenantUsersPage() {
     }
   }
 
+  function openEditDialog(user: TenantUser) {
+    setEditUser(user);
+    setEditForm({
+      full_name: user.full_name ?? "",
+      email: user.email,
+      password: "",
+      is_active: user.is_active ? "true" : "false",
+    });
+    setEditOpen(true);
+  }
+
+  async function saveUserChanges() {
+    if (!editUser) return;
+
+    const fullName = editForm.full_name.trim();
+    const email = editForm.email.trim().toLowerCase();
+    const password = editForm.password.trim();
+
+    if (!email) {
+      setError("Email is required.");
+      return;
+    }
+    if (password && password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      full_name: fullName || null,
+      email,
+      is_active: editForm.is_active === "true",
+    };
+    if (password) payload.password = password;
+
+    setEditBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.patch(`/tenants/director/users/${encodeURIComponent(editUser.id)}`, payload, {
+        tenantRequired: true,
+      });
+      setNotice("User access updated successfully.");
+      setEditOpen(false);
+      setEditUser(null);
+      setEditForm(initialEditForm);
+      await load(true);
+    } catch (err: any) {
+      setError(typeof err?.message === "string" ? err.message : "Failed to update user.");
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function deleteUserAccess() {
+    if (!deleteUser) return;
+
+    setDeleteBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.delete<DirectorUserDeleteResult>(
+        `/tenants/director/users/${encodeURIComponent(deleteUser.id)}`,
+        undefined,
+        { tenantRequired: true }
+      );
+      const removedRoles = Number(result?.roles_removed ?? 0);
+      setNotice(
+        removedRoles > 0
+          ? `User access removed. ${removedRoles} tenant role${removedRoles === 1 ? "" : "s"} cleaned up.`
+          : "User access removed successfully."
+      );
+      setDeleteOpen(false);
+      setDeleteUser(null);
+      await load(true);
+    } catch (err: any) {
+      setError(typeof err?.message === "string" ? err.message : "Failed to remove user access.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   // ── Derived values ────────────────────────────────────────────────────────
 
   const activeCount   = users.filter((u) => u.is_active).length;
@@ -454,7 +569,7 @@ export default function TenantUsersPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <AppShell title="Director" nav={directorNav} activeHref="/tenant/users">
+    <AppShell title="Director" nav={directorNav} activeHref="/tenant/director/users">
       {/* ── Provision Login Credential Dialog ── */}
       <Dialog
         open={addOpen}
@@ -556,8 +671,7 @@ export default function TenantUsersPage() {
               <Label className="text-xs font-medium text-slate-600">
                 Password <span className="text-red-500">*</span>
               </Label>
-              <Input
-                type="password"
+              <PasswordInput
                 placeholder="At least 8 characters, include letters and numbers"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
@@ -568,8 +682,7 @@ export default function TenantUsersPage() {
               <Label className="text-xs font-medium text-slate-600">
                 Confirm password <span className="text-red-500">*</span>
               </Label>
-              <Input
-                type="password"
+              <PasswordInput
                 placeholder="Re-enter password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -611,35 +724,169 @@ export default function TenantUsersPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={editOpen}
+        onOpenChange={(open) => {
+          setEditOpen(open);
+          if (!open) {
+            setEditUser(null);
+            setEditForm(initialEditForm);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Tenant User</DialogTitle>
+            <DialogDescription>
+              Update identity details, reset password, or deactivate access for this tenant user.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-600">Full name</Label>
+                <Input
+                  value={editForm.full_name}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, full_name: event.target.value }))
+                  }
+                  placeholder="User full name"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-600">Status</Label>
+                <Select
+                  value={editForm.is_active}
+                  onValueChange={(value) =>
+                    setEditForm((current) => ({ ...current, is_active: value as "true" | "false" }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Active</SelectItem>
+                    <SelectItem value="false">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Email</Label>
+              <Input
+                value={editForm.email}
+                onChange={(event) =>
+                  setEditForm((current) => ({ ...current, email: event.target.value }))
+                }
+                placeholder="user@school.test"
+                autoCapitalize="none"
+                autoCorrect="off"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">
+                Reset password <span className="text-slate-400">(optional)</span>
+              </Label>
+              <PasswordInput
+                value={editForm.password}
+                onChange={(event) =>
+                  setEditForm((current) => ({ ...current, password: event.target.value }))
+                }
+                placeholder="Leave blank to keep current password"
+              />
+              <p className="text-[11px] text-slate-400">
+                Setting a new password will immediately replace the existing credential.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={saveUserChanges}
+              disabled={editBusy || !editUser}
+              className="bg-[#173f49] hover:bg-[#132129]"
+            >
+              {editBusy ? "Saving..." : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open);
+          if (!open) setDeleteUser(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove Tenant Access</DialogTitle>
+            <DialogDescription>
+              This removes the user's access to this tenant, clears tenant-scoped roles and overrides,
+              and keeps audit history intact.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+            <div className="font-medium">{deleteUser?.full_name || deleteUser?.email || "User"}</div>
+            <div className="mt-1 text-xs text-rose-700">
+              {deleteUser?.email}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={deleteUserAccess}
+              disabled={deleteBusy || !deleteUser}
+            >
+              {deleteBusy ? "Removing..." : "Remove access"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Page body ── */}
       <div className="space-y-5">
 
-        {/* Header */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 to-blue-500 p-5 text-white shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-xl font-bold">User Credentials &amp; Role Management</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
-                Provision staff logins, assign roles, and monitor tenant account access
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {[
-                { label: "Total",  value: users.length  },
-                { label: "Active", value: activeCount   },
-                { label: "Roles",  value: roles.length  },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-xl bg-white/10 px-4 py-2 text-center backdrop-blur"
-                >
-                  <div className="text-xl font-bold text-white">{item.value}</div>
-                  <div className="text-xs text-blue-200">{item.label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <TenantPageHeader
+          title="User Credentials & Role Management"
+          description="Provision staff logins, update access details, assign roles, and remove tenant access without compromising audit history."
+          badges={[{ label: "Director Workspace", icon: UserCog }]}
+          metrics={[
+            { label: "Total", value: users.length },
+            { label: "Active", value: activeCount },
+            { label: "Roles", value: roles.length },
+          ]}
+          actions={
+            <>
+              <Button
+                variant="secondary"
+                className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                onClick={() => void load(true)}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Refresh
+              </Button>
+              <Button
+                className="bg-[#b9512d] text-white hover:bg-[#a34727]"
+                onClick={() => setAddOpen(true)}
+              >
+                <UserPlus className="mr-2 h-4 w-4" />
+                Provision Login
+              </Button>
+            </>
+          }
+        />
 
         {/* Alerts */}
         {error && (
@@ -665,7 +912,7 @@ export default function TenantUsersPage() {
         <div className="grid gap-5 lg:grid-cols-3">
 
           {/* Pie chart — fixed height container */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <TenantSurface className="p-5">
             <div className="mb-4 flex items-center gap-2">
               <Users className="h-4 w-4 text-slate-400" />
               <div>
@@ -725,10 +972,10 @@ export default function TenantUsersPage() {
                 No users yet
               </div>
             )}
-          </div>
+          </TenantSurface>
 
           {/* Available Roles */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <TenantSurface className="p-5">
             <div className="mb-4 flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-slate-400" />
               <div>
@@ -767,7 +1014,7 @@ export default function TenantUsersPage() {
                 ))}
               </div>
             )}
-          </div>
+          </TenantSurface>
 
           {/* Quick stat pills */}
           <div className="flex flex-col gap-3">
@@ -820,7 +1067,7 @@ export default function TenantUsersPage() {
         </div>
 
         {/* Users table */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <TenantSurface className="overflow-hidden">
           {/* Table header toolbar */}
           <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -846,25 +1093,9 @@ export default function TenantUsersPage() {
                 />
               </div>
 
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 text-xs"
-                onClick={() => void load(true)}
-              >
-                <RefreshCw className="h-3 w-3" />
-                Refresh
-              </Button>
-
-              {/* Opens the top-level dialog */}
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 bg-blue-600 text-xs hover:bg-blue-700"
-                onClick={() => setAddOpen(true)}
-              >
-                <UserPlus className="h-3.5 w-3.5" />
-                Provision Login
-              </Button>
+              <Badge variant="outline" className="border-[#d8c4a6] bg-[#f7f3ec] text-[#6b4f35]">
+                {filteredUsers.length} visible
+              </Badge>
             </div>
           </div>
 
@@ -878,12 +1109,13 @@ export default function TenantUsersPage() {
                   <TableHead className="text-xs">User ID</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Roles</TableHead>
+                  <TableHead className="text-xs text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading && (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-12 text-center">
+                    <TableCell colSpan={6} className="py-12 text-center">
                       <div className="flex items-center justify-center gap-2 text-sm text-slate-400">
                         <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -897,7 +1129,7 @@ export default function TenantUsersPage() {
 
                 {!loading && filteredUsers.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-12 text-center">
+                    <TableCell colSpan={6} className="py-12 text-center">
                       <div className="flex flex-col items-center gap-1">
                         <Users className="h-6 w-6 text-slate-200" />
                         <span className="text-sm text-slate-400">
@@ -983,12 +1215,37 @@ export default function TenantUsersPage() {
                         busy={busy}
                       />
                     </TableCell>
+                    <TableCell className="py-3 pr-6">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1.5 text-xs"
+                          onClick={() => openEditDialog(u)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1.5 border-rose-200 text-xs text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                          onClick={() => {
+                            setDeleteUser(u);
+                            setDeleteOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Remove
+                        </Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
-        </div>
+        </TenantSurface>
       </div>
     </AppShell>
   );

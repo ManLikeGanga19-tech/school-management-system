@@ -285,6 +285,69 @@ def get_saas_token_with_claims(
     )
 
 
+def get_tenant_token(
+    user: User,
+    tenant: Tenant,
+    *,
+    roles: list[str] | None = None,
+    permissions: list[str] | None = None,
+) -> str:
+    return create_access_token(
+        subject=str(user.id),
+        token_type="access",
+        tenant_id=str(tenant.id),
+        roles=roles or [],
+        permissions=permissions or [],
+    )
+
+
+def get_tenant_headers(token: str, tenant: Tenant) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Tenant-ID": str(tenant.id),
+        "X-Tenant-Slug": tenant.slug,
+    }
+
+
+def create_tenant_user(
+    db: Session,
+    *,
+    tenant: Tenant,
+    email: str,
+    full_name: str,
+    role: Role | None = None,
+    is_active: bool = True,
+) -> User:
+    user = User(
+        id=uuid4(),
+        email=email,
+        password_hash="fake_hash",
+        full_name=full_name,
+        is_active=is_active,
+    )
+    db.add(user)
+    db.flush()
+    db.add(
+        UserTenant(
+            id=uuid4(),
+            tenant_id=tenant.id,
+            user_id=user.id,
+            is_active=is_active,
+        )
+    )
+    if role is not None:
+        db.add(
+            UserRole(
+                id=uuid4(),
+                user_id=user.id,
+                role_id=role.id,
+                tenant_id=tenant.id,
+            )
+        )
+    db.flush()
+    return user
+
+
 # ========================================================================
 # Tests: GET /api/v1/admin/tenants
 # ========================================================================
@@ -641,6 +704,177 @@ class TestSaaSRbacRuntime:
         )
 
         assert response.status_code == 200
+
+
+class TestDirectorTenantUsers:
+    def test_director_can_update_tenant_user_identity_password_and_status(self, client, db_session, monkeypatch):
+        monkeypatch.setattr("app.core.middleware.SessionLocal", TestSessionLocal)
+        tenant = Tenant(
+            id=uuid4(),
+            name="Tenant School",
+            slug="tenant-school",
+            is_active=True,
+        )
+        db_session.add(tenant)
+        db_session.flush()
+
+        director_role = create_system_role(db_session, "DIRECTOR", "Director")
+        secretary_role = create_system_role(db_session, "SECRETARY", "Secretary")
+        users_manage = create_permission(db_session, "users.manage", "Users Manage")
+        view_tenant = create_permission(
+            db_session,
+            "admin.dashboard.view_tenant",
+            "Admin Dashboard View Tenant",
+        )
+        assign_permission_to_role(db_session, director_role, users_manage)
+        assign_permission_to_role(db_session, director_role, view_tenant)
+
+        actor = create_tenant_user(
+            db_session,
+            tenant=tenant,
+            email="director@tenant.test",
+            full_name="Tenant Director",
+            role=director_role,
+        )
+        target = create_tenant_user(
+            db_session,
+            tenant=tenant,
+            email="secretary@tenant.test",
+            full_name="Tenant Secretary",
+            role=secretary_role,
+        )
+        db_session.commit()
+
+        token = get_tenant_token(actor, tenant)
+
+        response = client.patch(
+            f"/api/v1/tenants/director/users/{target.id}",
+            json={
+                "full_name": "Updated Secretary",
+                "email": "updated-secretary@tenant.test",
+                "password": "Pass12345!",
+                "is_active": False,
+            },
+            headers=get_tenant_headers(token, tenant),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["email"] == "updated-secretary@tenant.test"
+        assert data["full_name"] == "Updated Secretary"
+        assert data["is_active"] is False
+
+        db_session.expire_all()
+        updated_user = db_session.get(User, target.id)
+        membership = db_session.execute(
+            select(UserTenant).where(
+                UserTenant.tenant_id == tenant.id,
+                UserTenant.user_id == target.id,
+            )
+        ).scalar_one()
+
+        assert updated_user is not None
+        assert updated_user.email == "updated-secretary@tenant.test"
+        assert updated_user.full_name == "Updated Secretary"
+        assert verify_password("Pass12345!", updated_user.password_hash)
+        assert membership.is_active is False
+        assert updated_user.is_active is False
+
+    def test_director_can_remove_tenant_user_access_and_clean_tenant_scoped_assignments(
+        self,
+        client,
+        db_session,
+        monkeypatch,
+    ):
+        monkeypatch.setattr("app.core.middleware.SessionLocal", TestSessionLocal)
+        tenant = Tenant(
+            id=uuid4(),
+            name="Tenant School",
+            slug="tenant-school",
+            is_active=True,
+        )
+        db_session.add(tenant)
+        db_session.flush()
+
+        director_role = create_system_role(db_session, "DIRECTOR", "Director")
+        secretary_role = create_system_role(db_session, "SECRETARY", "Secretary")
+        users_manage = create_permission(db_session, "users.manage", "Users Manage")
+        view_tenant = create_permission(
+            db_session,
+            "admin.dashboard.view_tenant",
+            "Admin Dashboard View Tenant",
+        )
+        manual_permission = create_permission(db_session, "students.read", "Students Read")
+        assign_permission_to_role(db_session, director_role, users_manage)
+        assign_permission_to_role(db_session, director_role, view_tenant)
+
+        actor = create_tenant_user(
+            db_session,
+            tenant=tenant,
+            email="director@tenant.test",
+            full_name="Tenant Director",
+            role=director_role,
+        )
+        target = create_tenant_user(
+            db_session,
+            tenant=tenant,
+            email="secretary@tenant.test",
+            full_name="Tenant Secretary",
+            role=secretary_role,
+        )
+        db_session.add(
+            UserPermissionOverride(
+                id=uuid4(),
+                tenant_id=tenant.id,
+                user_id=target.id,
+                permission_id=manual_permission.id,
+                effect="ALLOW",
+                reason="Manual grant",
+            )
+        )
+        db_session.commit()
+
+        token = get_tenant_token(actor, tenant)
+
+        response = client.delete(
+            f"/api/v1/tenants/director/users/{target.id}",
+            headers=get_tenant_headers(token, tenant),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert data["membership_deactivated"] is True
+        assert data["user_deactivated"] is True
+        assert data["roles_removed"] == 1
+        assert data["overrides_removed"] == 1
+
+        db_session.expire_all()
+        deleted_user = db_session.get(User, target.id)
+        membership = db_session.execute(
+            select(UserTenant).where(
+                UserTenant.tenant_id == tenant.id,
+                UserTenant.user_id == target.id,
+            )
+        ).scalar_one()
+        role_assignment = db_session.execute(
+            select(UserRole).where(
+                UserRole.tenant_id == tenant.id,
+                UserRole.user_id == target.id,
+            )
+        ).scalar_one_or_none()
+        override = db_session.execute(
+            select(UserPermissionOverride).where(
+                UserPermissionOverride.tenant_id == tenant.id,
+                UserPermissionOverride.user_id == target.id,
+            )
+        ).scalar_one_or_none()
+
+        assert deleted_user is not None
+        assert membership.is_active is False
+        assert deleted_user.is_active is False
+        assert role_assignment is None
+        assert override is None
 
     def test_saas_permission_deny_override_is_applied_immediately(self, client, db_session):
         user, role = create_saas_actor_user(db_session, role_code="TENANT_VIEWER")

@@ -344,14 +344,14 @@ export function TenantSettingsPage({
   return (
     <AppShell title={appTitle} nav={nav} activeHref={activeHref}>
       <div className="space-y-5">
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-5 text-white shadow-sm">
           <h1 className="text-xl font-bold">Settings</h1>
           <p className="mt-1 text-sm text-blue-100">
             Manage tenant role-based security controls.
           </p>
         </div>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="dashboard-surface rounded-[1.6rem] p-5">
           <div className="mb-4 flex items-center gap-2">
             <h2 className="text-sm font-semibold text-slate-900">School Badge</h2>
           </div>
@@ -416,7 +416,7 @@ export function TenantSettingsPage({
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="dashboard-surface rounded-[1.6rem] p-5">
           <div className="mb-4 flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-slate-600" />
             <h2 className="text-sm font-semibold text-slate-900">Password & Security</h2>

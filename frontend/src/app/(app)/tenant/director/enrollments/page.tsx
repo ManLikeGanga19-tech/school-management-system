@@ -1452,7 +1452,7 @@ function TenantEnrollmentsPageContent() {
         </Dialog>
 
         {/* ── Page Header ── */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 to-blue-500 p-5 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-5 text-white shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold">
@@ -1495,7 +1495,7 @@ function TenantEnrollmentsPageContent() {
 
             {/* 1) OVERVIEW */}
             <div className="grid gap-5 xl:grid-cols-3">
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
+              <div className="dashboard-surface rounded-[1.6rem] p-5">
                 <h3 className="mb-3 text-sm font-semibold text-slate-800">Enrollment Status Overview</h3>
                 {chartData.length > 0 ? (
                   <ChartContainer config={chartConfig} className="h-[200px] w-full">
@@ -1511,7 +1511,7 @@ function TenantEnrollmentsPageContent() {
                 )}
               </div>
 
-              <div className="xl:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
+              <div className="xl:col-span-2 dashboard-surface rounded-[1.6rem] p-5">
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div>
                     <h3 className="text-sm font-semibold text-slate-800">Pipeline Snapshot</h3>
@@ -1540,7 +1540,7 @@ function TenantEnrollmentsPageContent() {
             </div>
 
             {/* 2) WORKFLOW ACTIONS TABLE */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="dashboard-surface rounded-[1.6rem]">
               <div className="border-b border-slate-100 px-6 py-4 flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-base font-semibold text-slate-900">Workflow Actions</h2>
@@ -1667,7 +1667,7 @@ function TenantEnrollmentsPageContent() {
             </div>
 
             {/* 3) ENROLLMENT QUEUE */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="dashboard-surface rounded-[1.6rem]">
               <div className="border-b border-slate-100 px-5 py-4 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-800">Enrollment Queue</h3>
@@ -1747,7 +1747,7 @@ function TenantEnrollmentsPageContent() {
             STUDENTS SECTION
         ══════════════════════════════════════════════════════════════ */}
         {section === "students" && (
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="dashboard-surface rounded-[1.6rem]">
             <div className="border-b border-slate-100 px-6 py-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>

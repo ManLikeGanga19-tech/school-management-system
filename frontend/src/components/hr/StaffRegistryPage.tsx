@@ -876,7 +876,7 @@ export function StaffRegistryPage({
           </DialogContent>
         </Dialog>
 
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-5 text-white shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-bold">HR · Staff Registry</h1>
@@ -896,7 +896,7 @@ export function StaffRegistryPage({
         </div>
 
         {allowCreate && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="dashboard-surface rounded-[1.6rem] p-5">
             <div className="mb-4">
               <h2 className="text-sm font-semibold text-slate-900">Register Staff</h2>
               <p className="mt-0.5 text-xs text-slate-500">
@@ -1172,7 +1172,7 @@ export function StaffRegistryPage({
           </div>
         )}
 
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="dashboard-surface rounded-[1.6rem]">
           <div className="border-b border-slate-100 px-6 py-4 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-900">Staff Directory</h2>

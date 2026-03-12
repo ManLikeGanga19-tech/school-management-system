@@ -248,7 +248,7 @@ function SectionCard({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="dashboard-surface rounded-[1.6rem]">
       <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
         <div className="flex items-center gap-2">
           {Icon && <Icon className="h-4 w-4 text-slate-400" />}
@@ -431,7 +431,7 @@ export default function TenantRbacPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <AppShell title="Director" nav={directorNav} activeHref="/tenant/rbac">
+    <AppShell title="Director" nav={directorNav} activeHref="/tenant/director/rbac">
 
       {/* ── Add Override Dialog — top-level ── */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
@@ -600,7 +600,7 @@ export default function TenantRbacPage() {
       <div className="space-y-5">
 
         {/* Header */}
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-700 to-blue-500 p-5 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-5 text-white shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="mb-1 flex items-center gap-2">

@@ -274,7 +274,7 @@ export function TenantContactAdminPage({
   return (
     <AppShell title={appTitle} nav={nav} activeHref={activeHref}>
       <div className="space-y-5">
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-600 to-blue-500 p-5 text-white shadow-sm">
+        <div className="dashboard-hero rounded-[2rem] p-5 text-white shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-bold">Contact Admin</h1>
