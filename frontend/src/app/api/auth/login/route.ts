@@ -5,6 +5,7 @@ import {
   setAccessToken,
   setRefreshToken,
   setTenantContext,
+  setClientModeCookie,
   clearSaasAuthCookies,
   clearTenantAuthCookies,
 } from "@/lib/auth/cookies";
@@ -114,10 +115,17 @@ export async function POST(req: Request) {
   }
 
   let redirect_to = "/dashboard";
+  let tenant_id: string | null = null;
 
   if (data?.access_token) {
     await setAccessToken(data.access_token);
     const claims = decodeAccess(String(data.access_token));
+    tenant_id = claims?.tenant_id ?? null;
+    await setTenantContext({
+      tenant_id: tenant_id ?? undefined,
+      tenant_slug,
+    });
+    await setClientModeCookie("tenant");
     redirect_to = resolveTenantDashboard(claims?.roles);
   }
 
@@ -127,7 +135,14 @@ export async function POST(req: Request) {
     await setRefreshToken(refresh);
   }
 
-  await setTenantContext({ tenant_slug });
-
-  return NextResponse.json({ ok: true, redirect_to }, { status: 200 });
+  return NextResponse.json(
+    {
+      ok: true,
+      access_token: data?.access_token,
+      tenant_id,
+      tenant_slug,
+      redirect_to,
+    },
+    { status: 200 }
+  );
 }

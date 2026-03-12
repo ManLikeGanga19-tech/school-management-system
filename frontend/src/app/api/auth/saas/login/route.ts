@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   clearAllAuthCookies,
+  setClientModeCookie,
   setSaasAccessToken,
   setSaasRefreshToken,
 } from "@/lib/auth/cookies";
@@ -56,6 +57,7 @@ export async function POST(req: Request) {
   const access = data?.access_token as string | undefined;
   if (access) {
     await setSaasAccessToken(access);
+    await setClientModeCookie("saas");
   }
 
   // Best-effort mirror refresh cookie (if backend sets one)
