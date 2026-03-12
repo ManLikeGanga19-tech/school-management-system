@@ -33,8 +33,12 @@ class TenantDashboardSummary(BaseModel):
 
 class TenantUpdate(BaseModel):
     name: Optional[str] = None
+    slug: Optional[str] = None
     primary_domain: Optional[str] = None
     is_active: Optional[bool] = None
+    admin_email: Optional[str] = None
+    admin_full_name: Optional[str] = None
+    admin_password: Optional[str] = Field(default=None, min_length=8, max_length=128)
 
 
 class TenantRow(BaseModel):
@@ -48,6 +52,9 @@ class TenantRow(BaseModel):
     is_active: bool
     plan: Optional[str] = None
     user_count: Optional[int] = None
+    admin_user_id: Optional[UUID] = None
+    admin_email: Optional[str] = None
+    admin_full_name: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -84,6 +91,8 @@ class CreateTenantRequest(BaseModel):
     primary_domain: Optional[str] = None
     plan: Optional[Literal["per_term", "per_year"]] = None
     admin_email: Optional[str] = None
+    admin_full_name: Optional[str] = None
+    admin_password: Optional[str] = Field(default=None, min_length=8, max_length=128)
 
 
 class RecentTenantRow(BaseModel):
@@ -354,4 +363,3 @@ class PermissionOverrideRequest(BaseModel):
     user_id: UUID
     permission_code: str
     effect: str  # "ALLOW" | "DENY"
-

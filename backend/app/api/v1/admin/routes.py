@@ -523,9 +523,11 @@ def create_tenant_endpoint(
             primary_domain=payload.primary_domain,
             plan=payload.plan,
             admin_email=payload.admin_email,
+            admin_full_name=payload.admin_full_name,
+            admin_password=payload.admin_password,
         )
     except ValueError as exc:
-        code = 409 if "already exists" in str(exc) else 422
+        code = 409 if "already exists" in str(exc).lower() else 422
         raise HTTPException(status_code=code, detail=str(exc))
 
     _metrics_cache.invalidate()
@@ -581,6 +583,28 @@ def soft_delete_tenant(
     return {"ok": True}
 
 
+@router.patch(
+    "/tenants/{tenant_id}",
+    response_model=TenantRow,
+    dependencies=[Depends(require_permission_saas("tenants.update"))],
+)
+def update_tenant_admin_view(
+    tenant_id: UUID,
+    payload: TenantUpdate,
+    db: Session = Depends(get_db),
+):
+    try:
+        updated = service.update_tenant(db, tenant_id, payload.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        code = 409 if "already exists" in str(exc).lower() else 422
+        raise HTTPException(status_code=code, detail=str(exc))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    _metrics_cache.invalidate()
+    _recent_cache.invalidate()
+    return updated
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Update Tenant — tenant scoped (director / super admin via perms)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -592,7 +616,7 @@ def update_tenant(
     tenant=Depends(get_tenant),
     _=Depends(require_permission("tenants.update")),
 ):
-    updated = service.update_tenant(db, tenant.id, payload.model_dump())
+    updated = service.update_tenant(db, tenant.id, payload.model_dump(exclude_unset=True))
     if not updated:
         raise HTTPException(status_code=404, detail="Tenant not found")
     return {"ok": True}

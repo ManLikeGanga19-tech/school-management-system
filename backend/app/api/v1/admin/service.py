@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, date, timedelta
 import logging
+import re
 from typing import Optional, Any
 from uuid import UUID, uuid4
 import secrets
@@ -26,6 +27,7 @@ from app.models.tenant_print_profile import TenantPrintProfile
 from app.utils.hashing import hash_password
 
 logger = logging.getLogger(__name__)
+TENANT_SLUG_PATTERN = re.compile(r"^[a-z0-9-]+$")
 
 
 # ─── Subscription billing model ──────────────────────────────────────────────
@@ -41,6 +43,204 @@ def _clean_optional_text(value: Any, *, max_len: int) -> str | None:
     if not out:
         return None
     return out[:max_len]
+
+
+def _clean_email(value: Any) -> str | None:
+    cleaned = _clean_optional_text(value, max_len=255)
+    return cleaned.lower() if cleaned else None
+
+
+def _clean_domain(value: Any) -> str | None:
+    cleaned = _clean_optional_text(value, max_len=255)
+    return cleaned.lower() if cleaned else None
+
+
+def _clean_name(value: Any) -> str | None:
+    return _clean_optional_text(value, max_len=160)
+
+
+def _clean_password(value: Any) -> str | None:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
+
+
+def _normalize_slug(value: Any) -> str:
+    slug = str(value or "").strip().lower()
+    if not slug:
+        raise ValueError("slug is required")
+    if not TENANT_SLUG_PATTERN.fullmatch(slug):
+        raise ValueError("slug must be lowercase letters, numbers, and hyphens only")
+    return slug
+
+
+def _get_global_role(db: Session, code: str) -> Role:
+    role = db.execute(
+        select(Role).where(Role.code == code, Role.tenant_id.is_(None))
+    ).scalar_one_or_none()
+    if role is None:
+        raise RuntimeError(f"System role {code} not seeded")
+    return role
+
+
+def _get_tenant_director_user(db: Session, tenant_id: UUID) -> User | None:
+    director_role = db.execute(
+        select(Role).where(Role.code == "DIRECTOR", Role.tenant_id.is_(None))
+    ).scalar_one_or_none()
+    if director_role is None:
+        return None
+    return (
+        db.execute(
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .where(
+                UserRole.tenant_id == tenant_id,
+                UserRole.role_id == director_role.id,
+            )
+            .order_by(User.created_at.asc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
+
+def _build_tenant_row(
+    db: Session,
+    tenant: Tenant,
+    *,
+    plan_hint: str | None = None,
+) -> dict:
+    user_count = db.scalar(
+        select(func.count()).select_from(UserTenant).where(UserTenant.tenant_id == tenant.id)
+    )
+
+    active_sub = None
+    if plan_hint is None:
+        active_sub = db.execute(
+            select(Subscription)
+            .where(Subscription.tenant_id == tenant.id, Subscription.status == "active")
+            .order_by(Subscription.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+    admin_user = _get_tenant_director_user(db, tenant.id)
+
+    return {
+        "id": tenant.id,
+        "slug": tenant.slug,
+        "name": tenant.name,
+        "primary_domain": tenant.primary_domain,
+        "is_active": bool(tenant.is_active),
+        "plan": _subscription_billing_plan(active_sub)
+        if active_sub
+        else plan_hint,
+        "user_count": int(user_count) if user_count is not None else None,
+        "admin_user_id": getattr(admin_user, "id", None),
+        "admin_email": getattr(admin_user, "email", None),
+        "admin_full_name": getattr(admin_user, "full_name", None),
+        "created_at": tenant.created_at,
+        "updated_at": getattr(tenant, "updated_at", None),
+    }
+
+
+def _ensure_tenant_admin_access(
+    db: Session,
+    *,
+    tenant: Tenant,
+    admin_email: Any = None,
+    admin_full_name: Any = None,
+    admin_password: Any = None,
+) -> User | None:
+    normalized_email = _clean_email(admin_email)
+    normalized_name = _clean_name(admin_full_name)
+    normalized_password = _clean_password(admin_password)
+
+    if normalized_email is None and (normalized_name is not None or normalized_password is not None):
+        raise ValueError("admin_email is required before setting tenant admin credentials")
+
+    director_role = _get_global_role(db, "DIRECTOR")
+    current_director = _get_tenant_director_user(db, tenant.id)
+    target_user = current_director
+
+    if normalized_email:
+        target_user = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
+        if target_user is None:
+            if not normalized_password:
+                raise ValueError("admin_password is required when provisioning a new tenant admin")
+            target_user = User(
+                id=uuid4(),
+                email=normalized_email,
+                password_hash=hash_password(normalized_password),
+                full_name=normalized_name,
+                is_active=True,
+            )
+            db.add(target_user)
+            db.flush()
+        else:
+            target_user.is_active = True
+            if normalized_password:
+                target_user.password_hash = hash_password(normalized_password)
+            if normalized_name is not None:
+                target_user.full_name = normalized_name
+    elif current_director is not None:
+        target_user = current_director
+        target_user.is_active = True
+        if normalized_password:
+            target_user.password_hash = hash_password(normalized_password)
+        if normalized_name is not None:
+            target_user.full_name = normalized_name
+    else:
+        return None
+
+    membership = db.execute(
+        select(UserTenant).where(
+            UserTenant.tenant_id == tenant.id,
+            UserTenant.user_id == target_user.id,
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        db.add(
+            UserTenant(
+                id=uuid4(),
+                tenant_id=tenant.id,
+                user_id=target_user.id,
+                is_active=True,
+            )
+        )
+    elif not membership.is_active:
+        membership.is_active = True
+
+    assignment = db.execute(
+        select(UserRole).where(
+            UserRole.tenant_id == tenant.id,
+            UserRole.user_id == target_user.id,
+            UserRole.role_id == director_role.id,
+        )
+    ).scalar_one_or_none()
+    if assignment is None:
+        db.add(
+            UserRole(
+                id=uuid4(),
+                tenant_id=tenant.id,
+                user_id=target_user.id,
+                role_id=director_role.id,
+            )
+        )
+
+    if current_director is not None and current_director.id != target_user.id:
+        old_assignments = db.execute(
+            select(UserRole).where(
+                UserRole.tenant_id == tenant.id,
+                UserRole.user_id == current_director.id,
+                UserRole.role_id == director_role.id,
+            )
+        ).scalars().all()
+        for old_assignment in old_assignments:
+            db.delete(old_assignment)
+
+    return target_user
 
 
 def _normalize_billing_plan(value: Any) -> str:
@@ -208,13 +408,46 @@ def update_tenant(db: Session, tenant_id: UUID, data: dict):
     if not tenant:
         return None
 
-    for field, value in data.items():
-        if value is not None and hasattr(tenant, field):
-            setattr(tenant, field, value)
+    if "name" in data:
+        name = _clean_name(data.get("name"))
+        if name is None:
+            raise ValueError("name is required")
+        tenant.name = name
+
+    if "slug" in data:
+        slug = _normalize_slug(data.get("slug"))
+        existing_slug = db.execute(
+            select(Tenant).where(Tenant.slug == slug, Tenant.id != tenant.id)
+        ).scalar_one_or_none()
+        if existing_slug is not None:
+            raise ValueError("Slug already exists")
+        tenant.slug = slug
+
+    if "primary_domain" in data:
+        domain = _clean_domain(data.get("primary_domain"))
+        if domain:
+            existing_domain = db.execute(
+                select(Tenant).where(Tenant.primary_domain == domain, Tenant.id != tenant.id)
+            ).scalar_one_or_none()
+            if existing_domain is not None:
+                raise ValueError("Primary domain already exists")
+        tenant.primary_domain = domain
+
+    if "is_active" in data and data.get("is_active") is not None:
+        tenant.is_active = bool(data.get("is_active"))
+
+    if any(key in data for key in ("admin_email", "admin_full_name", "admin_password")):
+        _ensure_tenant_admin_access(
+            db,
+            tenant=tenant,
+            admin_email=data.get("admin_email"),
+            admin_full_name=data.get("admin_full_name"),
+            admin_password=data.get("admin_password"),
+        )
 
     db.commit()
     db.refresh(tenant)
-    return tenant
+    return _build_tenant_row(db, tenant)
 
 
 # ─── List Users (tenant scoped) ───────────────────────────────────────────────
@@ -315,30 +548,7 @@ def list_tenants_with_metadata(
     # If you expect thousands of tenants, we can convert to subqueries in one SQL call.
     result: list[dict] = []
     for t in tenants:
-        user_count = db.scalar(
-            select(func.count()).select_from(UserTenant).where(UserTenant.tenant_id == t.id)
-        )
-
-        sub = db.execute(
-            select(Subscription)
-            .where(Subscription.tenant_id == t.id, Subscription.status == "active")
-            .order_by(Subscription.created_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-
-        result.append(
-            {
-                "id": t.id,
-                "slug": t.slug,
-                "name": t.name,
-                "primary_domain": t.primary_domain,
-                "is_active": bool(t.is_active),
-                "plan": _subscription_billing_plan(sub) if sub else None,
-                "user_count": int(user_count) if user_count is not None else None,
-                "created_at": t.created_at,
-                "updated_at": getattr(t, "updated_at", None),
-            }
-        )
+        result.append(_build_tenant_row(db, t))
 
     return result
 
@@ -416,13 +626,24 @@ def create_tenant_with_optional_admin(
     primary_domain: Optional[str] = None,
     plan: Optional[str] = None,
     admin_email: Optional[str] = None,
+    admin_full_name: Optional[str] = None,
+    admin_password: Optional[str] = None,
 ) -> dict:
-    slug = slug.strip()
-    name = name.strip()
+    slug = _normalize_slug(slug)
+    name = _clean_name(name)
+    if name is None:
+        raise ValueError("name is required")
+    primary_domain = _clean_domain(primary_domain)
 
     existing = db.execute(select(Tenant).where(Tenant.slug == slug)).scalar_one_or_none()
     if existing:
         raise ValueError("Slug already exists")
+    if primary_domain:
+        existing_domain = db.execute(
+            select(Tenant).where(Tenant.primary_domain == primary_domain)
+        ).scalar_one_or_none()
+        if existing_domain is not None:
+            raise ValueError("Primary domain already exists")
 
     tenant = Tenant(name=name, slug=slug, primary_domain=primary_domain, is_active=True)
     db.add(tenant)
@@ -452,68 +673,16 @@ def create_tenant_with_optional_admin(
             )
         )
 
-    # Optional admin user + director role + invitation email
-    created_user: Optional[User] = None
     invite_email: Optional[str] = None
     if admin_email:
-        email = admin_email.strip().lower()
-        if not email:
-            raise ValueError("admin_email is invalid")
-        invite_email = email
-
-        created_user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-        if created_user is None:
-            # Create temporary password, user will set password via invite flow
-            temp_pwd = secrets.token_urlsafe(18)
-            created_user = User(
-                id=uuid4(),
-                email=email,
-                password_hash=hash_password(temp_pwd),
-                is_active=True,
-            )
-            db.add(created_user)
-            db.flush()
-
-        # Membership
-        membership = db.execute(
-            select(UserTenant).where(
-                UserTenant.tenant_id == tenant.id,
-                UserTenant.user_id == created_user.id,
-            )
-        ).scalar_one_or_none()
-        if membership is None:
-            db.add(
-                UserTenant(
-                    id=uuid4(),
-                    tenant_id=tenant.id,
-                    user_id=created_user.id,
-                    is_active=True,
-                )
-            )
-
-        # Director role assignment (global DIRECTOR role, tenant-scoped assignment)
-        director_role = db.execute(
-            select(Role).where(Role.code == "DIRECTOR", Role.tenant_id.is_(None))
-        ).scalar_one_or_none()
-        if not director_role:
-            raise RuntimeError("System role DIRECTOR not seeded")
-
-        ur = db.execute(
-            select(UserRole).where(
-                UserRole.user_id == created_user.id,
-                UserRole.role_id == director_role.id,
-                UserRole.tenant_id == tenant.id,
-            )
-        ).scalar_one_or_none()
-        if ur is None:
-            db.add(
-                UserRole(
-                    id=uuid4(),
-                    tenant_id=tenant.id,
-                    user_id=created_user.id,
-                    role_id=director_role.id,
-                )
-            )
+        invite_email = _clean_email(admin_email)
+        _ensure_tenant_admin_access(
+            db,
+            tenant=tenant,
+            admin_email=invite_email,
+            admin_full_name=admin_full_name,
+            admin_password=admin_password or secrets.token_urlsafe(18),
+        )
 
     db.commit()
     db.refresh(tenant)
@@ -521,31 +690,12 @@ def create_tenant_with_optional_admin(
     if invite_email:
         _try_send_invitation_email(email=invite_email, tenant=tenant)
 
-    # Return TenantRow shape
-    user_count = db.scalar(
-        select(func.count()).select_from(UserTenant).where(UserTenant.tenant_id == tenant.id)
+    normalized_plan_hint = (
+        _normalize_billing_plan(plan)
+        if str(plan or "").strip().lower() in {"per_term", "per_year", "full_year"}
+        else None
     )
-
-    active_sub = db.execute(
-        select(Subscription)
-        .where(Subscription.tenant_id == tenant.id, Subscription.status == "active")
-        .order_by(Subscription.created_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-
-    return {
-        "id": tenant.id,
-        "slug": tenant.slug,
-        "name": tenant.name,
-        "primary_domain": tenant.primary_domain,
-        "is_active": bool(tenant.is_active),
-        "plan": _subscription_billing_plan(active_sub)
-        if active_sub
-        else (_normalize_billing_plan(plan) if str(plan or "").strip().lower() in {"per_term", "per_year", "full_year"} else None),
-        "user_count": int(user_count) if user_count is not None else None,
-        "created_at": tenant.created_at,
-        "updated_at": getattr(tenant, "updated_at", None),
-    }
+    return _build_tenant_row(db, tenant, plan_hint=normalized_plan_hint)
 
 
 # ─── Recent tenants ───────────────────────────────────────────────────────────

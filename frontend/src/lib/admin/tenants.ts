@@ -12,8 +12,23 @@ export type TenantRow = {
   name: string;
   primary_domain?: string | null;
   is_active: boolean;
+  plan?: string | null;
+  user_count?: number | null;
+  admin_user_id?: string | null;
+  admin_email?: string | null;
+  admin_full_name?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+};
+
+export type UpdateTenantPayload = {
+  name?: string;
+  slug?: string;
+  primary_domain?: string | null;
+  is_active?: boolean;
+  admin_email?: string | null;
+  admin_full_name?: string | null;
+  admin_password?: string | null;
 };
 
 export type ListTenantsParams = {
@@ -52,5 +67,14 @@ export async function deleteTenant(tenantId: string) {
   return apiFetch<{ ok: true }>(`/admin/tenants/${encodeURIComponent(tenantId)}`, {
     method: "DELETE",
     tenantRequired: false,
+  });
+}
+
+export async function updateTenant(tenantId: string, payload: UpdateTenantPayload) {
+  return apiFetch<TenantRow>(`/admin/tenants/${encodeURIComponent(tenantId)}`, {
+    method: "PATCH",
+    tenantRequired: false,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
 }
