@@ -365,8 +365,15 @@ jobs:
             cd '${DEPLOY_PATH}'
             mv -f .deploy.env .env
             if [ -n '${GHCR_USERNAME}' ] && [ -n '${GHCR_TOKEN}' ]; then
-              echo 'Using explicit GHCR credentials from GitHub Actions secrets.'
-              echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin
+              echo 'Trying explicit GHCR credentials from GitHub Actions secrets.'
+              if echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin; then
+                echo 'Explicit GHCR login succeeded.'
+              elif [ -f \"\$HOME/.docker/config.json\" ] && grep -q '\"ghcr.io\"' \"\$HOME/.docker/config.json\"; then
+                echo 'Explicit GHCR login failed. Falling back to existing host-side GHCR auth.'
+              else
+                echo 'Explicit GHCR login failed and no host-side GHCR auth is available.'
+                exit 1
+              fi
             elif [ -f \"\$HOME/.docker/config.json\" ] && grep -q '\"ghcr.io\"' \"\$HOME/.docker/config.json\"; then
               echo 'Using existing host-side GHCR auth.'
             else
