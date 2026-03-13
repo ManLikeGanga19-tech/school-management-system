@@ -5,7 +5,12 @@ import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
 import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { BillingEligibilityPreview } from "@/components/saas/BillingEligibilityPreview";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
+import {
+  fetchSubscriptionBillingEligibility,
+  type SubscriptionBillingEligibility,
+} from "@/lib/admin/subscription-eligibility";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -92,6 +97,9 @@ type SubscriptionRow = {
   created_at?: string | null;
   /** Any admin notes */
   notes?: string | null;
+  billing_term_label?: string | null;
+  billing_term_code?: string | null;
+  billing_academic_year?: number | null;
 };
 
 type TenantOption = {
@@ -253,6 +261,9 @@ export default function SaaSSubscriptionsPage() {
   const [cNotes, setCNotes]             = useState("");
   const [cPeriodStart, setCPeriodStart] = useState("");
   const [creating, setCreating]         = useState(false);
+  const [createEligibility, setCreateEligibility] = useState<SubscriptionBillingEligibility | null>(null);
+  const [createEligibilityLoading, setCreateEligibilityLoading] = useState(false);
+  const [createEligibilityError, setCreateEligibilityError] = useState<string | null>(null);
 
   // Edit dialog
   const [editOpen, setEditOpen]   = useState(false);
@@ -263,6 +274,9 @@ export default function SaaSSubscriptionsPage() {
   const [eDiscount, setEDiscount] = useState("0");
   const [eNotes, setENotes]       = useState("");
   const [saving, setSaving]       = useState(false);
+  const [editEligibility, setEditEligibility] = useState<SubscriptionBillingEligibility | null>(null);
+  const [editEligibilityLoading, setEditEligibilityLoading] = useState(false);
+  const [editEligibilityError, setEditEligibilityError] = useState<string | null>(null);
 
   // Cancel confirm
   const [cancelTarget, setCancelTarget] = useState<SubscriptionRow | null>(null);
@@ -301,6 +315,74 @@ export default function SaaSSubscriptionsPage() {
     const timer = setInterval(() => void load(true), 30_000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCreateEligibility() {
+      if (!createOpen) {
+        setCreateEligibility(null);
+        setCreateEligibilityError(null);
+        setCreateEligibilityLoading(false);
+        return;
+      }
+      setCreateEligibilityLoading(true);
+      setCreateEligibilityError(null);
+      try {
+        const eligibility = await fetchSubscriptionBillingEligibility(
+          cBillingPlan,
+          cPeriodStart || undefined
+        );
+        if (!cancelled) setCreateEligibility(eligibility);
+      } catch (error: any) {
+        if (!cancelled) {
+          setCreateEligibility(null);
+          setCreateEligibilityError(error?.message ?? "Unable to resolve the current billing window.");
+        }
+      } finally {
+        if (!cancelled) setCreateEligibilityLoading(false);
+      }
+    }
+
+    void loadCreateEligibility();
+    return () => {
+      cancelled = true;
+    };
+  }, [cBillingPlan, cPeriodStart, createOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEditEligibility() {
+      if (!editOpen || !editRow) {
+        setEditEligibility(null);
+        setEditEligibilityError(null);
+        setEditEligibilityLoading(false);
+        return;
+      }
+      setEditEligibilityLoading(true);
+      setEditEligibilityError(null);
+      try {
+        const eligibility = await fetchSubscriptionBillingEligibility(
+          eBillingPlan,
+          editRow.period_start || undefined
+        );
+        if (!cancelled) setEditEligibility(eligibility);
+      } catch (error: any) {
+        if (!cancelled) {
+          setEditEligibility(null);
+          setEditEligibilityError(error?.message ?? "Unable to resolve the current billing window.");
+        }
+      } finally {
+        if (!cancelled) setEditEligibilityLoading(false);
+      }
+    }
+
+    void loadEditEligibility();
+    return () => {
+      cancelled = true;
+    };
+  }, [eBillingPlan, editOpen, editRow]);
 
   // ── Create ────────────────────────────────────────────────────────────────
 
@@ -510,6 +592,13 @@ export default function SaaSSubscriptionsPage() {
               <p className="text-xs text-slate-400">Defaults to today if not specified.</p>
             </div>
 
+            <BillingEligibilityPreview
+              eligibility={createEligibility}
+              loading={createEligibilityLoading}
+              error={createEligibilityError}
+              title="Current billing window"
+            />
+
             {/* Notes */}
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-slate-600">Notes</Label>
@@ -607,6 +696,13 @@ export default function SaaSSubscriptionsPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            <BillingEligibilityPreview
+              eligibility={editEligibility}
+              loading={editEligibilityLoading}
+              error={editEligibilityError}
+              title="Current billing window"
+            />
 
             {/* Discount */}
             <div className="space-y-1.5">
@@ -891,10 +987,17 @@ export default function SaaSSubscriptionsPage() {
                           const plan = resolveBillingPlan(r);
                           const Icon = billingIcon(plan);
                           return (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
-                              <Icon className="h-3.5 w-3.5 text-blue-500" />
-                              {billingLabel(plan)}
-                            </span>
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
+                                <Icon className="h-3.5 w-3.5 text-blue-500" />
+                                {billingLabel(plan)}
+                              </span>
+                              {r.billing_term_label ? (
+                                <div className="text-xs text-slate-500">
+                                  Starts in <span className="font-medium text-slate-700">{r.billing_term_label}</span>
+                                </div>
+                              ) : null}
+                            </div>
                           );
                         })()}
                       </TableCell>

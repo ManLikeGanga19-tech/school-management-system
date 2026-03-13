@@ -171,6 +171,7 @@ try:
         prospect,
         audit_log,
         subscription,
+        school_calendar,
         invoice,
         payment,
         fee_structure,

@@ -56,6 +56,7 @@ from app.api.v1.admin.schemas import (
     TenantPrintProfileUpsert,
     CreateTenantRequest,
     SubscriptionRow,
+    SubscriptionBillingEligibilityResponse,
     CreateSubscriptionRequest,
     UpdateSubscriptionRequest,
     PermissionRow,
@@ -658,6 +659,23 @@ def list_subscriptions(
             plan=plan,
             billing_cycle=billing_cycle,
             tenant_id=tenant_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/subscriptions/eligibility", response_model=SubscriptionBillingEligibilityResponse)
+def get_subscription_eligibility(
+    billing_plan: str = Query(...),
+    as_of: Optional[_date] = Query(default=None),
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    try:
+        return service.get_subscription_billing_eligibility(
+            db,
+            billing_plan=billing_plan,
+            as_of=as_of,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))

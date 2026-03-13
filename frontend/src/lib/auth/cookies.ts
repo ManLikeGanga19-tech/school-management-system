@@ -36,6 +36,12 @@ export const COOKIE_PUBLIC_REFRESH = "sms_public_refresh";
 const ACCESS_MAX_AGE  = 60 * 60;           // 1 hour
 const REFRESH_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
+type CookieWriter = {
+  cookies: {
+    set(name: string, value: string, options: Record<string, any>): void;
+  };
+};
+
 /** Base options for SHORT-LIVED access tokens — NOT httpOnly so JS can read them */
 function accessCookieOptions(maxAge: number) {
   return buildCookieOptions({
@@ -75,9 +81,28 @@ async function expireCookie(name: string) {
   }
 }
 
+function expireCookieOnResponse(response: CookieWriter, name: string) {
+  for (const variant of expiredCookieVariants()) {
+    response.cookies.set(name, "", variant);
+  }
+}
+
+function setCookieOnResponse(
+  response: CookieWriter,
+  name: string,
+  value: string,
+  options: Record<string, any>
+) {
+  response.cookies.set(name, value, options);
+}
+
 /** Tenant/school login access token */
 export async function setAccessToken(token: string) {
   (await cookies()).set(COOKIE_ACCESS, token, accessCookieOptions(ACCESS_MAX_AGE));
+}
+
+export function setAccessTokenOnResponse(response: CookieWriter, token: string) {
+  setCookieOnResponse(response, COOKIE_ACCESS, token, accessCookieOptions(ACCESS_MAX_AGE));
 }
 
 /** Tenant/school login refresh token */
@@ -85,9 +110,17 @@ export async function setRefreshToken(token: string) {
   (await cookies()).set(COOKIE_REFRESH, token, refreshCookieOptions(REFRESH_MAX_AGE));
 }
 
+export function setRefreshTokenOnResponse(response: CookieWriter, token: string) {
+  setCookieOnResponse(response, COOKIE_REFRESH, token, refreshCookieOptions(REFRESH_MAX_AGE));
+}
+
 /** SaaS super admin access token */
 export async function setSaasAccessToken(token: string) {
   (await cookies()).set(COOKIE_SAAS_ACCESS, token, accessCookieOptions(ACCESS_MAX_AGE));
+}
+
+export function setSaasAccessTokenOnResponse(response: CookieWriter, token: string) {
+  setCookieOnResponse(response, COOKIE_SAAS_ACCESS, token, accessCookieOptions(ACCESS_MAX_AGE));
 }
 
 /** SaaS super admin refresh token */
@@ -95,12 +128,34 @@ export async function setSaasRefreshToken(token: string) {
   (await cookies()).set(COOKIE_SAAS_REFRESH, token, refreshCookieOptions(REFRESH_MAX_AGE));
 }
 
+export function setSaasRefreshTokenOnResponse(response: CookieWriter, token: string) {
+  setCookieOnResponse(response, COOKIE_SAAS_REFRESH, token, refreshCookieOptions(REFRESH_MAX_AGE));
+}
+
 export async function setPublicAccessToken(token: string) {
   (await cookies()).set(COOKIE_PUBLIC_ACCESS, token, serverOnlyAuthCookieOptions(ACCESS_MAX_AGE));
 }
 
+export function setPublicAccessTokenOnResponse(response: CookieWriter, token: string) {
+  setCookieOnResponse(
+    response,
+    COOKIE_PUBLIC_ACCESS,
+    token,
+    serverOnlyAuthCookieOptions(ACCESS_MAX_AGE)
+  );
+}
+
 export async function setPublicRefreshToken(token: string) {
   (await cookies()).set(COOKIE_PUBLIC_REFRESH, token, serverOnlyAuthCookieOptions(REFRESH_MAX_AGE));
+}
+
+export function setPublicRefreshTokenOnResponse(response: CookieWriter, token: string) {
+  setCookieOnResponse(
+    response,
+    COOKIE_PUBLIC_REFRESH,
+    token,
+    serverOnlyAuthCookieOptions(REFRESH_MAX_AGE)
+  );
 }
 
 /** Tenant context cookies — not sensitive, readable by JS */
@@ -124,8 +179,37 @@ export async function setTenantContext(input: { tenant_id?: string; tenant_slug?
   }
 }
 
+export function setTenantContextOnResponse(
+  response: CookieWriter,
+  input: { tenant_id?: string; tenant_slug?: string }
+) {
+  if (input.tenant_id) {
+    setCookieOnResponse(response, COOKIE_TENANT_ID, input.tenant_id, clientHintCookieOptions(REFRESH_MAX_AGE));
+  } else {
+    expireCookieOnResponse(response, COOKIE_TENANT_ID);
+  }
+
+  if (input.tenant_slug) {
+    setCookieOnResponse(
+      response,
+      COOKIE_TENANT_SLUG,
+      input.tenant_slug,
+      clientHintCookieOptions(REFRESH_MAX_AGE)
+    );
+  } else {
+    expireCookieOnResponse(response, COOKIE_TENANT_SLUG);
+  }
+}
+
 export async function setClientModeCookie(mode: "tenant" | "saas") {
   (await cookies()).set(COOKIE_MODE, mode, clientHintCookieOptions(REFRESH_MAX_AGE));
+}
+
+export function setClientModeCookieOnResponse(
+  response: CookieWriter,
+  mode: "tenant" | "saas"
+) {
+  setCookieOnResponse(response, COOKIE_MODE, mode, clientHintCookieOptions(REFRESH_MAX_AGE));
 }
 
 export async function clearTenantAuthCookies() {
@@ -135,9 +219,21 @@ export async function clearTenantAuthCookies() {
   await expireCookie(COOKIE_TENANT_SLUG);
 }
 
+export function clearTenantAuthCookiesOnResponse(response: CookieWriter) {
+  expireCookieOnResponse(response, COOKIE_ACCESS);
+  expireCookieOnResponse(response, COOKIE_REFRESH);
+  expireCookieOnResponse(response, COOKIE_TENANT_ID);
+  expireCookieOnResponse(response, COOKIE_TENANT_SLUG);
+}
+
 export async function clearSaasAuthCookies() {
   await expireCookie(COOKIE_SAAS_ACCESS);
   await expireCookie(COOKIE_SAAS_REFRESH);
+}
+
+export function clearSaasAuthCookiesOnResponse(response: CookieWriter) {
+  expireCookieOnResponse(response, COOKIE_SAAS_ACCESS);
+  expireCookieOnResponse(response, COOKIE_SAAS_REFRESH);
 }
 
 export async function clearPublicAuthCookies() {
@@ -145,8 +241,17 @@ export async function clearPublicAuthCookies() {
   await expireCookie(COOKIE_PUBLIC_REFRESH);
 }
 
+export function clearPublicAuthCookiesOnResponse(response: CookieWriter) {
+  expireCookieOnResponse(response, COOKIE_PUBLIC_ACCESS);
+  expireCookieOnResponse(response, COOKIE_PUBLIC_REFRESH);
+}
+
 export async function clearClientModeCookie() {
   await expireCookie(COOKIE_MODE);
+}
+
+export function clearClientModeCookieOnResponse(response: CookieWriter) {
+  expireCookieOnResponse(response, COOKIE_MODE);
 }
 
 export async function clearAllAuthCookies() {
@@ -154,4 +259,11 @@ export async function clearAllAuthCookies() {
   await clearSaasAuthCookies();
   await clearPublicAuthCookies();
   await clearClientModeCookie();
+}
+
+export function clearAllAuthCookiesOnResponse(response: CookieWriter) {
+  clearTenantAuthCookiesOnResponse(response);
+  clearSaasAuthCookiesOnResponse(response);
+  clearPublicAuthCookiesOnResponse(response);
+  clearClientModeCookieOnResponse(response);
 }
