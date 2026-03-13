@@ -12,11 +12,13 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import Session, sessionmaker
 from app.api.v1.admin import routes as admin_routes
+from app.api.v1.admin import service as admin_service
 
 from fastapi.testclient import TestClient
 from app.main import app
 from app.core.config import settings
 from app.core.database import get_db, Base
+from app.core import middleware as tenant_middleware
 from app.models.audit_log import AuditLog
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -155,12 +157,13 @@ def db_session(setup_db):
 
 
 @pytest.fixture
-def override_get_db(db_session):
+def override_get_db(db_session, monkeypatch):
     """Override FastAPI dependency"""
     def _override_get_db():
         yield db_session
     
     app.dependency_overrides[get_db] = _override_get_db
+    monkeypatch.setattr(tenant_middleware, "SessionLocal", TestSessionLocal)
     yield
     app.dependency_overrides.clear()
 
@@ -1259,6 +1262,102 @@ class TestSubscriptions:
         data = response.json()
         assert data["amount_kes"] == 12000.0
         assert data["discount_percent"] == 10.0
+
+    def test_subscription_eligibility_uses_saas_academic_calendar(self, client, db_session, monkeypatch):
+        user = create_super_admin_user(db_session)
+        token = get_saas_token(user)
+
+        admin_service.upsert_saas_academic_calendar_terms(
+            db_session,
+            academic_year=2026,
+            terms=[
+                {
+                    "term_no": 1,
+                    "term_code": "TERM_1_2026",
+                    "term_name": "Term 1 2026",
+                    "start_date": date(2026, 1, 6),
+                    "end_date": date(2026, 4, 3),
+                    "is_active": True,
+                },
+                {
+                    "term_no": 2,
+                    "term_code": "TERM_2_2026",
+                    "term_name": "Term 2 2026",
+                    "start_date": date(2026, 5, 4),
+                    "end_date": date(2026, 8, 7),
+                    "is_active": True,
+                },
+            ],
+        )
+        db_session.commit()
+        monkeypatch.setattr(admin_service, "_service_today", lambda: date(2026, 3, 12))
+
+        response = client.get(
+            "/api/v1/admin/subscriptions/eligibility?billing_plan=per_term",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["source"] == "saas_academic_calendar"
+        assert data["label"] == "Term 1 2026"
+        assert data["term_code"] == "TERM_1_2026"
+        assert data["eligible_from_date"] == "2026-03-12"
+        assert data["eligible_until_date"] == "2026-04-03"
+
+    def test_create_subscription_aligns_period_end_to_active_term(self, client, db_session, monkeypatch):
+        user = create_super_admin_user(db_session)
+        token = get_saas_token(user)
+
+        tenant = Tenant(
+            id=uuid4(),
+            name="Aligned School",
+            slug="aligned-school",
+            is_active=True,
+        )
+        db_session.add(tenant)
+        admin_service.upsert_saas_academic_calendar_terms(
+            db_session,
+            academic_year=2026,
+            terms=[
+                {
+                    "term_no": 1,
+                    "term_code": "TERM_1_2026",
+                    "term_name": "Term 1 2026",
+                    "start_date": date(2026, 1, 6),
+                    "end_date": date(2026, 4, 3),
+                    "is_active": True,
+                },
+                {
+                    "term_no": 2,
+                    "term_code": "TERM_2_2026",
+                    "term_name": "Term 2 2026",
+                    "start_date": date(2026, 5, 4),
+                    "end_date": date(2026, 8, 7),
+                    "is_active": True,
+                },
+            ],
+        )
+        db_session.commit()
+        monkeypatch.setattr(admin_service, "_service_today", lambda: date(2026, 6, 26))
+
+        response = client.post(
+            "/api/v1/admin/subscriptions",
+            json={
+                "tenant_id": str(tenant.id),
+                "billing_plan": "per_term",
+                "amount_kes": 8000,
+                "discount_percent": 0,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["billing_term_label"] == "Term 2 2026"
+        assert data["billing_term_code"] == "TERM_2_2026"
+        assert data["period_start"] == "2026-06-26"
+        assert data["period_end"] == "2026-08-07"
     
     def test_update_subscription(self, client, db_session):
         """Test updating a subscription"""
@@ -1345,6 +1444,80 @@ class TestSubscriptions:
         # Verify it's cancelled
         db_session.refresh(sub)
         assert sub.status == "cancelled"
+
+
+class TestTenantSchoolCalendar:
+    def test_director_can_crud_school_calendar_events(self, client, db_session):
+        tenant = Tenant(id=uuid4(), name="Novel School", slug="novel-school", is_active=True)
+        db_session.add(tenant)
+        director_role = create_system_role(db_session, "DIRECTOR", "Director")
+        view_tenant = create_permission(db_session, "admin.dashboard.view_tenant")
+        enrollment_manage = create_permission(db_session, "enrollment.manage")
+        assign_permission_to_role(db_session, director_role, view_tenant)
+        assign_permission_to_role(db_session, director_role, enrollment_manage)
+        director = create_tenant_user(
+            db_session,
+            tenant=tenant,
+            email="director@tenant.test",
+            full_name="Director User",
+            role=director_role,
+        )
+        db_session.commit()
+
+        token = get_tenant_token(
+            director,
+            tenant,
+            roles=["DIRECTOR"],
+            permissions=["admin.dashboard.view_tenant", "enrollment.manage"],
+        )
+        headers = get_tenant_headers(token, tenant)
+
+        response = client.post(
+            "/api/v1/tenants/school-calendar/events",
+            json={
+                "academic_year": 2026,
+                "event_type": "HALF_TERM_BREAK",
+                "title": "Term 1 Half-Term Break",
+                "term_code": "T1-2026",
+                "start_date": "2026-02-25",
+                "end_date": "2026-03-01",
+                "notes": "Half-term break",
+            },
+            headers=headers,
+        )
+
+        assert response.status_code == 201
+        created = response.json()
+        assert created["event_type"] == "HALF_TERM_BREAK"
+        assert created["term_code"] == "T1-2026"
+
+        event_id = created["id"]
+
+        list_response = client.get(
+            "/api/v1/tenants/school-calendar/events?academic_year=2026&event_type=HALF_TERM_BREAK",
+            headers=headers,
+        )
+        assert list_response.status_code == 200
+        rows = list_response.json()
+        assert len(rows) == 1
+        assert rows[0]["title"] == "Term 1 Half-Term Break"
+
+        update_response = client.put(
+            f"/api/v1/tenants/school-calendar/events/{event_id}",
+            json={"notes": "Updated note", "is_active": False},
+            headers=headers,
+        )
+        assert update_response.status_code == 200
+        updated = update_response.json()
+        assert updated["notes"] == "Updated note"
+        assert updated["is_active"] is False
+
+        delete_response = client.delete(
+            f"/api/v1/tenants/school-calendar/events/{event_id}",
+            headers=headers,
+        )
+        assert delete_response.status_code == 200
+        assert delete_response.json()["ok"] is True
 
 
 # ========================================================================

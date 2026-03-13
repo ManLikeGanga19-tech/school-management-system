@@ -24,7 +24,7 @@ function authState(accessToken: string, refreshToken: string) {
   const refreshLive = isJwtLive(refreshToken);
   const stale = Boolean(accessToken || refreshToken) && !accessLive && !refreshLive;
   return {
-    hasSession: accessLive || (Boolean(accessToken) && refreshLive),
+    hasSession: accessLive || refreshLive,
     stale,
   };
 }

@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import { backendFetch } from "@/server/backend/client";
 import { headers } from "next/headers";
 import {
-  setAccessToken,
-  setRefreshToken,
-  setTenantContext,
-  setClientModeCookie,
-  clearSaasAuthCookies,
-  clearTenantAuthCookies,
+  setAccessTokenOnResponse,
+  setRefreshTokenOnResponse,
+  setTenantContextOnResponse,
+  setClientModeCookieOnResponse,
+  clearAllAuthCookiesOnResponse,
 } from "@/lib/auth/cookies";
 import { decodeAccess } from "@/lib/auth/jwt";
 import { resolveTenantDashboard } from "@/lib/auth/tenant-dashboard";
@@ -89,9 +88,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ detail: "Email and password are required" }, { status: 400 });
   }
 
-  await clearSaasAuthCookies();
-  await clearTenantAuthCookies();
-
   let res;
   try {
     res = await requestTenantLogin(tenant_slug, email, password);
@@ -112,23 +108,12 @@ export async function POST(req: Request) {
   let tenant_id: string | null = null;
 
   if (data?.access_token) {
-    await setAccessToken(data.access_token);
     const claims = decodeAccess(String(data.access_token));
     tenant_id = claims?.tenant_id ?? null;
-    await setTenantContext({
-      tenant_id: tenant_id ?? undefined,
-      tenant_slug,
-    });
-    await setClientModeCookie("tenant");
     redirect_to = resolveTenantDashboard(claims?.roles);
   }
 
-  const refresh = extractCookieValue(res.headers, "sms_refresh");
-  if (refresh) {
-    await setRefreshToken(refresh);
-  }
-
-  return NextResponse.json(
+  const response = NextResponse.json(
     {
       ok: true,
       access_token: data?.access_token,
@@ -138,4 +123,22 @@ export async function POST(req: Request) {
     },
     { status: 200 }
   );
+
+  clearAllAuthCookiesOnResponse(response);
+
+  if (data?.access_token) {
+    setAccessTokenOnResponse(response, data.access_token);
+    setTenantContextOnResponse(response, {
+      tenant_id: tenant_id ?? undefined,
+      tenant_slug,
+    });
+    setClientModeCookieOnResponse(response, "tenant");
+  }
+
+  const refresh = extractCookieValue(res.headers, "sms_refresh");
+  if (refresh) {
+    setRefreshTokenOnResponse(response, refresh);
+  }
+
+  return response;
 }

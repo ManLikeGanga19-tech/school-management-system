@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
-  clearAllAuthCookies,
-  setClientModeCookie,
-  setSaasAccessToken,
-  setSaasRefreshToken,
+  clearAllAuthCookiesOnResponse,
+  setClientModeCookieOnResponse,
+  setSaasAccessTokenOnResponse,
+  setSaasRefreshTokenOnResponse,
 } from "@/lib/auth/cookies";
 import { backendFetch } from "@/server/backend/client";
 import { extractCookieValue } from "@/server/http/set-cookie";
@@ -20,9 +20,6 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-
-  // ✅ Clear both modes to avoid cross-mode confusion
-  await clearAllAuthCookies();
 
   let res: Response;
   try {
@@ -47,11 +44,17 @@ export async function POST(req: Request) {
     return NextResponse.json(data, { status: res.status });
   }
 
+  const response = NextResponse.json(
+    { ok: true, access_token: data?.access_token },
+    { status: 200 }
+  );
+  clearAllAuthCookiesOnResponse(response);
+
   // ✅ Backend returns access token for Authorization header usage
   const access = data?.access_token as string | undefined;
   if (access) {
-    await setSaasAccessToken(access);
-    await setClientModeCookie("saas");
+    setSaasAccessTokenOnResponse(response, access);
+    setClientModeCookieOnResponse(response, "saas");
   }
 
   // Best-effort mirror refresh cookie (if backend sets one)
@@ -60,12 +63,8 @@ export async function POST(req: Request) {
     extractCookieValue(res.headers, "sms_refresh");
 
   if (refresh) {
-    await setSaasRefreshToken(refresh);
+    setSaasRefreshTokenOnResponse(response, refresh);
   }
 
-  // ✅ IMPORTANT: return access_token so frontend stores it and apiFetch sends Bearer
-  return NextResponse.json(
-    { ok: true, access_token: access },
-    { status: 200 }
-  );
+  return response;
 }

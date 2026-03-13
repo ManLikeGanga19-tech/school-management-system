@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional, List, Literal
 from uuid import UUID, uuid4
 	
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from sqlalchemy.orm import Session
@@ -136,6 +136,39 @@ class TenantTermUpdateIn(BaseModel):
     is_active: Optional[bool] = None
     start_date: Optional[str] = Field(default=None, max_length=32)
     end_date: Optional[str] = Field(default=None, max_length=32)
+
+
+class TenantSchoolCalendarEventOut(BaseModel):
+    id: str
+    academic_year: int
+    event_type: Literal["HALF_TERM_BREAK", "EXAM_WINDOW"]
+    title: str
+    term_code: Optional[str] = None
+    start_date: str
+    end_date: str
+    notes: Optional[str] = None
+    is_active: bool = True
+
+
+class TenantSchoolCalendarEventCreateIn(BaseModel):
+    academic_year: Optional[int] = Field(default=None, ge=2000, le=2100)
+    event_type: Literal["HALF_TERM_BREAK", "EXAM_WINDOW"]
+    title: str = Field(..., min_length=2, max_length=160)
+    term_code: Optional[str] = Field(default=None, max_length=80)
+    start_date: str = Field(..., max_length=32)
+    end_date: str = Field(..., max_length=32)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    is_active: bool = True
+
+
+class TenantSchoolCalendarEventUpdateIn(BaseModel):
+    academic_year: Optional[int] = Field(default=None, ge=2000, le=2100)
+    title: Optional[str] = Field(default=None, min_length=2, max_length=160)
+    term_code: Optional[str] = Field(default=None, max_length=80)
+    start_date: Optional[str] = Field(default=None, max_length=32)
+    end_date: Optional[str] = Field(default=None, max_length=32)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    is_active: Optional[bool] = None
 
 
 class TenantSubjectOut(BaseModel):
@@ -1068,6 +1101,10 @@ def _serialize_payment(row: dict[str, Any]) -> dict:
 
 TENANT_CLASS_TABLE_CANDIDATES = ("core.tenant_classes", "tenant_classes")
 TENANT_TERM_TABLE_CANDIDATES = ("core.tenant_terms", "tenant_terms")
+TENANT_SCHOOL_CALENDAR_EVENT_TABLE_CANDIDATES = (
+    "core.tenant_school_calendar_events",
+    "tenant_school_calendar_events",
+)
 TENANT_SUBJECT_TABLE_CANDIDATES = ("core.tenant_subjects", "tenant_subjects")
 TENANT_STAFF_TABLE_CANDIDATES = ("core.staff_directory", "staff_directory")
 TENANT_ASSET_TABLE_CANDIDATES = ("core.school_assets", "school_assets")
@@ -1127,6 +1164,42 @@ def _normalize_code(value: str) -> str:
 
 def _normalize_name(value: str) -> str:
     return value.strip()
+
+
+def _ensure_tenant_school_calendar_event_table(db: Session) -> str:
+    db.execute(sa.text('CREATE EXTENSION IF NOT EXISTS "pgcrypto"'))
+    db.execute(sa.text("CREATE SCHEMA IF NOT EXISTS core"))
+    db.execute(
+        sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS core.tenant_school_calendar_events (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES core.tenants(id) ON DELETE CASCADE,
+                academic_year INT NOT NULL,
+                event_type VARCHAR(32) NOT NULL,
+                title VARCHAR(160) NOT NULL,
+                term_code VARCHAR(80),
+                start_date DATE NOT NULL,
+                end_date DATE NOT NULL,
+                notes VARCHAR(500),
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                CONSTRAINT ck_tenant_school_calendar_events_type
+                    CHECK (event_type IN ('HALF_TERM_BREAK', 'EXAM_WINDOW'))
+            )
+            """
+        )
+    )
+    db.execute(
+        sa.text(
+            """
+            CREATE INDEX IF NOT EXISTS ix_tenant_school_calendar_events_scope
+            ON core.tenant_school_calendar_events (tenant_id, academic_year, event_type, is_active)
+            """
+        )
+    )
+    return TENANT_SCHOOL_CALENDAR_EVENT_TABLE_CANDIDATES[0]
 
 
 def _normalize_staff_type(value: str) -> str:
@@ -3839,6 +3912,290 @@ def update_tenant_term(
         start_date=(str(updated["start_date"]) if updated["start_date"] is not None else None),
         end_date=(str(updated["end_date"]) if updated["end_date"] is not None else None),
     )
+
+
+def _serialize_school_calendar_event_row(row: dict[str, Any]) -> TenantSchoolCalendarEventOut:
+    return TenantSchoolCalendarEventOut(
+        id=str(row.get("id") or ""),
+        academic_year=int(row.get("academic_year") or 0),
+        event_type=str(row.get("event_type") or "HALF_TERM_BREAK"),
+        title=str(row.get("title") or ""),
+        term_code=(str(row.get("term_code")) if row.get("term_code") else None),
+        start_date=str(row.get("start_date") or ""),
+        end_date=str(row.get("end_date") or ""),
+        notes=(str(row.get("notes")) if row.get("notes") else None),
+        is_active=bool(row.get("is_active", True)),
+    )
+
+
+@router.get(
+    "/school-calendar/events",
+    response_model=list[TenantSchoolCalendarEventOut],
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def list_tenant_school_calendar_events(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    academic_year: Optional[int] = Query(default=None, ge=2000, le=2100),
+    event_type: Optional[Literal["HALF_TERM_BREAK", "EXAM_WINDOW"]] = Query(default=None),
+    include_inactive: bool = Query(default=False),
+):
+    _ensure_tenant_school_calendar_event_table(db)
+
+    params: dict[str, Any] = {"tenant_id": str(tenant.id)}
+    where_parts = ["tenant_id = :tenant_id"]
+    if academic_year is not None:
+        where_parts.append("academic_year = :academic_year")
+        params["academic_year"] = academic_year
+    if event_type is not None:
+        where_parts.append("event_type = :event_type")
+        params["event_type"] = event_type
+    if not include_inactive:
+        where_parts.append("COALESCE(is_active, true) = true")
+
+    rows, _ = _read_rows_first_table(
+        db,
+        table_candidates=TENANT_SCHOOL_CALENDAR_EVENT_TABLE_CANDIDATES,
+        sql_template=(
+            """
+            SELECT id, academic_year, event_type, title, term_code,
+                   CAST(start_date AS TEXT) AS start_date,
+                   CAST(end_date AS TEXT) AS end_date,
+                   notes,
+                   COALESCE(is_active, true) AS is_active
+            FROM {table}
+            WHERE """
+            + " AND ".join(where_parts)
+            + " ORDER BY academic_year ASC, start_date ASC, title ASC"
+        ),
+        params=params,
+    )
+    return [_serialize_school_calendar_event_row(row) for row in rows]
+
+
+@router.post(
+    "/school-calendar/events",
+    response_model=TenantSchoolCalendarEventOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def create_tenant_school_calendar_event(
+    payload: TenantSchoolCalendarEventCreateIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    _ensure_tenant_school_calendar_event_table(db)
+
+    title = _normalize_name(payload.title or "")
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+
+    term_code = _normalize_code(payload.term_code) if payload.term_code else None
+    start_date = _normalize_iso_date_value(payload.start_date, field="start_date", required=True)
+    end_date = _normalize_iso_date_value(payload.end_date, field="end_date", required=True)
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+
+    academic_year = _normalize_academic_year(payload.academic_year, start_date=start_date)
+    created = db.execute(
+        sa.text(
+            """
+            INSERT INTO core.tenant_school_calendar_events (
+                id, tenant_id, academic_year, event_type, title, term_code,
+                start_date, end_date, notes, is_active, updated_at
+            )
+            VALUES (
+                :id, :tenant_id, :academic_year, :event_type, :title, :term_code,
+                :start_date, :end_date, :notes, :is_active, now()
+            )
+            RETURNING id, academic_year, event_type, title, term_code,
+                      CAST(start_date AS TEXT) AS start_date,
+                      CAST(end_date AS TEXT) AS end_date,
+                      notes,
+                      COALESCE(is_active, true) AS is_active
+            """
+        ),
+        {
+            "id": str(uuid4()),
+            "tenant_id": str(tenant.id),
+            "academic_year": academic_year,
+            "event_type": payload.event_type,
+            "title": title,
+            "term_code": term_code,
+            "start_date": start_date,
+            "end_date": end_date,
+            "notes": _text_or_none(payload.notes),
+            "is_active": bool(payload.is_active),
+        },
+    ).mappings().first()
+    db.commit()
+
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create school calendar event")
+
+    resource_id = UUID(str(created["id"]))
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        action="school_calendar.event.create",
+        resource="school_calendar_event",
+        resource_id=resource_id,
+        payload={
+            "academic_year": academic_year,
+            "event_type": payload.event_type,
+            "title": title,
+            "term_code": term_code,
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+        request=request,
+    )
+    db.commit()
+    return _serialize_school_calendar_event_row(dict(created))
+
+
+@router.put(
+    "/school-calendar/events/{event_id}",
+    response_model=TenantSchoolCalendarEventOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def update_tenant_school_calendar_event(
+    event_id: UUID,
+    payload: TenantSchoolCalendarEventUpdateIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    _ensure_tenant_school_calendar_event_table(db)
+
+    params: dict[str, Any] = {"event_id": str(event_id), "tenant_id": str(tenant.id)}
+    updates: list[str] = []
+
+    if payload.title is not None:
+        title = _normalize_name(payload.title)
+        if not title:
+            raise HTTPException(status_code=400, detail="title cannot be empty")
+        params["title"] = title
+        updates.append("title = :title")
+
+    if payload.term_code is not None:
+        params["term_code"] = _normalize_code(payload.term_code) if payload.term_code else None
+        updates.append("term_code = :term_code")
+
+    if payload.academic_year is not None:
+        params["academic_year"] = int(payload.academic_year)
+        updates.append("academic_year = :academic_year")
+
+    normalized_start = None
+    normalized_end = None
+    if payload.start_date is not None:
+        normalized_start = _normalize_iso_date_value(payload.start_date, field="start_date", required=True)
+        params["start_date"] = normalized_start
+        updates.append("start_date = :start_date")
+
+    if payload.end_date is not None:
+        normalized_end = _normalize_iso_date_value(payload.end_date, field="end_date", required=True)
+        params["end_date"] = normalized_end
+        updates.append("end_date = :end_date")
+
+    if normalized_start and normalized_end and normalized_end < normalized_start:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+
+    if payload.notes is not None:
+        params["notes"] = _text_or_none(payload.notes)
+        updates.append("notes = :notes")
+
+    if payload.is_active is not None:
+        params["is_active"] = bool(payload.is_active)
+        updates.append("is_active = :is_active")
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No updates provided")
+
+    params["updated_at"] = datetime.now(timezone.utc).isoformat()
+    updated = db.execute(
+        sa.text(
+            """
+            UPDATE core.tenant_school_calendar_events
+            SET """
+            + ", ".join(updates)
+            + """,
+                updated_at = now()
+            WHERE id = :event_id AND tenant_id = :tenant_id
+            RETURNING id, academic_year, event_type, title, term_code,
+                      CAST(start_date AS TEXT) AS start_date,
+                      CAST(end_date AS TEXT) AS end_date,
+                      notes,
+                      COALESCE(is_active, true) AS is_active
+            """
+        ),
+        params,
+    ).mappings().first()
+    db.commit()
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="School calendar event not found")
+
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        action="school_calendar.event.update",
+        resource="school_calendar_event",
+        resource_id=event_id,
+        payload={"event_type": updated["event_type"], "title": updated["title"]},
+        request=request,
+    )
+    db.commit()
+    return _serialize_school_calendar_event_row(dict(updated))
+
+
+@router.delete(
+    "/school-calendar/events/{event_id}",
+    response_model=dict,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def delete_tenant_school_calendar_event(
+    event_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    _ensure_tenant_school_calendar_event_table(db)
+
+    deleted = db.execute(
+        sa.text(
+            """
+            DELETE FROM core.tenant_school_calendar_events
+            WHERE id = :event_id AND tenant_id = :tenant_id
+            RETURNING id, event_type, title
+            """
+        ),
+        {"event_id": str(event_id), "tenant_id": str(tenant.id)},
+    ).mappings().first()
+    db.commit()
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="School calendar event not found")
+
+    _audit_tenant_change_best_effort(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        action="school_calendar.event.delete",
+        resource="school_calendar_event",
+        resource_id=event_id,
+        payload={"event_type": deleted["event_type"], "title": deleted["title"]},
+        request=request,
+    )
+    db.commit()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------

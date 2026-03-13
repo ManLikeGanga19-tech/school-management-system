@@ -34,6 +34,7 @@ TENANT_SLUG_PATTERN = re.compile(r"^[a-z0-9-]+$")
 
 ALLOWED_BILLING_PLANS = {"per_term", "per_year"}
 ALLOWED_SUB_STATUSES = {"active", "trialing", "past_due", "cancelled", "paused"}
+SAAS_BILLING_ELIGIBILITY_SOURCES = {"saas_academic_calendar", "fallback"}
 
 
 def _clean_optional_text(value: Any, *, max_len: int) -> str | None:
@@ -273,6 +274,114 @@ def _subscription_billing_plan(sub: Subscription) -> str:
     return _cycle_to_plan(getattr(sub, "billing_cycle", None))
 
 
+def _service_today() -> date:
+    return date.today()
+
+
+def _fallback_term_label(when: date) -> str:
+    if when.month <= 4:
+        term_no = 1
+    elif when.month <= 8:
+        term_no = 2
+    else:
+        term_no = 3
+    return f"Term {term_no} {when.year}"
+
+
+def _active_saas_term_covering_date(db: Session, *, when: date) -> dict[str, Any] | None:
+    _ensure_saas_academic_calendar_table(db)
+    row = db.execute(
+        text(
+            """
+            SELECT academic_year, term_no, term_code, term_name, start_date, end_date
+            FROM core.saas_academic_calendar_terms
+            WHERE COALESCE(is_active, true) = true
+              AND start_date <= :when
+              AND end_date >= :when
+            ORDER BY academic_year DESC, term_no ASC
+            LIMIT 1
+            """
+        ),
+        {"when": when},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def _next_or_current_saas_term(db: Session, *, when: date) -> dict[str, Any] | None:
+    _ensure_saas_academic_calendar_table(db)
+    row = db.execute(
+        text(
+            """
+            SELECT academic_year, term_no, term_code, term_name, start_date, end_date
+            FROM core.saas_academic_calendar_terms
+            WHERE COALESCE(is_active, true) = true
+              AND end_date >= :when
+            ORDER BY academic_year ASC, start_date ASC, term_no ASC
+            LIMIT 1
+            """
+        ),
+        {"when": when},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def get_subscription_billing_eligibility(
+    db: Session,
+    *,
+    billing_plan: str,
+    as_of: date | None = None,
+) -> dict[str, Any]:
+    normalized_plan = _normalize_billing_plan(billing_plan)
+    effective_date = as_of or _service_today()
+
+    if normalized_plan == "per_year":
+        current_or_next = _next_or_current_saas_term(db, when=effective_date)
+        academic_year = int(current_or_next["academic_year"]) if current_or_next else effective_date.year
+        return {
+            "billing_plan": normalized_plan,
+            "source": "saas_academic_calendar" if current_or_next else "fallback",
+            "as_of": effective_date,
+            "academic_year": academic_year,
+            "label": f"Academic Year {academic_year}",
+            "eligible_from_date": effective_date,
+            "eligible_until_date": effective_date + timedelta(days=365),
+            "term_no": None,
+            "term_code": None,
+            "term_name": None,
+        }
+
+    term = _next_or_current_saas_term(db, when=effective_date)
+    if term:
+        start_date = term["start_date"]
+        end_date = term["end_date"]
+        eligible_from = max(effective_date, start_date)
+        return {
+            "billing_plan": normalized_plan,
+            "source": "saas_academic_calendar",
+            "as_of": effective_date,
+            "academic_year": int(term["academic_year"]),
+            "label": str(term["term_name"]),
+            "eligible_from_date": eligible_from,
+            "eligible_until_date": end_date,
+            "term_no": int(term["term_no"]),
+            "term_code": str(term["term_code"]),
+            "term_name": str(term["term_name"]),
+        }
+
+    return {
+        "billing_plan": normalized_plan,
+        "source": "fallback",
+        "as_of": effective_date,
+        "academic_year": effective_date.year,
+        "label": _fallback_term_label(effective_date),
+        "eligible_from_date": effective_date,
+        "eligible_until_date": effective_date + timedelta(days=90),
+        "term_no": None,
+        "term_code": None,
+        "term_name": None,
+    }
+
+
 def _period_end_for_plan(period_start: date, billing_plan: str) -> date:
     normalized = _normalize_billing_plan(billing_plan)
     if normalized == "per_year":
@@ -280,9 +389,30 @@ def _period_end_for_plan(period_start: date, billing_plan: str) -> date:
     return period_start + timedelta(days=90)
 
 
-def _subscription_row(sub: Subscription, tenant: Tenant | None) -> dict:
+def _subscription_row(db: Session, sub: Subscription, tenant: Tenant | None) -> dict:
     billing_plan = _subscription_billing_plan(sub)
     billing_cycle = _plan_to_cycle(billing_plan)
+    billing_term_label: str | None = None
+    billing_term_code: str | None = None
+    billing_academic_year: int | None = None
+
+    if billing_plan == "per_term":
+        anchor_date = getattr(sub, "period_start", None) or getattr(sub, "period_end", None) or _service_today()
+        term = _active_saas_term_covering_date(db, when=anchor_date) if isinstance(anchor_date, date) else None
+        if term:
+            billing_term_label = str(term["term_name"])
+            billing_term_code = str(term["term_code"])
+            billing_academic_year = int(term["academic_year"])
+        else:
+            eligibility = get_subscription_billing_eligibility(
+                db,
+                billing_plan=billing_plan,
+                as_of=anchor_date if isinstance(anchor_date, date) else None,
+            )
+            billing_term_label = str(eligibility["label"])
+            billing_term_code = eligibility.get("term_code")
+            billing_academic_year = int(eligibility["academic_year"])
+
     return {
         "id": sub.id,
         "tenant_id": sub.tenant_id,
@@ -299,6 +429,9 @@ def _subscription_row(sub: Subscription, tenant: Tenant | None) -> dict:
         "period_end": sub.period_end,
         "next_payment_date": sub.period_end,
         "next_payment_amount": float(sub.amount_kes),
+        "billing_term_label": billing_term_label,
+        "billing_term_code": billing_term_code,
+        "billing_academic_year": billing_academic_year,
         "created_at": sub.created_at,
         "notes": sub.notes,
     }
@@ -657,9 +790,19 @@ def create_tenant_with_optional_admin(
         except ValueError:
             # Backward-compatible guard for legacy onboarding forms.
             billing_plan = "per_term"
-        today = date.today()
+        today = _service_today()
         billing_cycle = _plan_to_cycle(billing_plan)
-        end = _period_end_for_plan(today, billing_plan)
+        if billing_plan == "per_term":
+            eligibility = get_subscription_billing_eligibility(
+                db,
+                billing_plan=billing_plan,
+                as_of=today,
+            )
+            start = eligibility["eligible_from_date"]
+            end = eligibility["eligible_until_date"]
+        else:
+            start = today
+            end = _period_end_for_plan(today, billing_plan)
         db.add(
             Subscription(
                 tenant_id=tenant.id,
@@ -668,7 +811,7 @@ def create_tenant_with_optional_admin(
                 status="trialing",
                 amount_kes=0.0,
                 discount_percent=0.0,
-                period_start=today,
+                period_start=start,
                 period_end=end,
             )
         )
@@ -913,7 +1056,7 @@ def list_subscriptions(
         stmt = stmt.where(Subscription.tenant_id == tenant_id)
 
     rows = db.execute(stmt.order_by(Subscription.created_at.desc())).all()
-    return [_subscription_row(sub, tenant) for sub, tenant in rows]
+    return [_subscription_row(db, sub, tenant) for sub, tenant in rows]
 
 
 def create_subscription(
@@ -939,8 +1082,24 @@ def create_subscription(
     if not tenant:
         raise ValueError("Tenant not found")
 
-    start = period_start or date.today()
-    end = _period_end_for_plan(start, normalized_plan)
+    if period_start is not None:
+        start = period_start
+        if normalized_plan == "per_term":
+            term = _active_saas_term_covering_date(db, when=start)
+            end = term["end_date"] if term else _period_end_for_plan(start, normalized_plan)
+        else:
+            end = _period_end_for_plan(start, normalized_plan)
+    elif normalized_plan == "per_term":
+        eligibility = get_subscription_billing_eligibility(
+            db,
+            billing_plan=normalized_plan,
+            as_of=_service_today(),
+        )
+        start = eligibility["eligible_from_date"]
+        end = eligibility["eligible_until_date"]
+    else:
+        start = _service_today()
+        end = _period_end_for_plan(start, normalized_plan)
 
     has_prior = (
         db.scalar(
@@ -964,7 +1123,7 @@ def create_subscription(
     db.commit()
     db.refresh(sub)
 
-    return _subscription_row(sub, tenant)
+    return _subscription_row(db, sub, tenant)
 
 
 def update_subscription(db: Session, subscription_id: UUID, **kwargs) -> dict:
@@ -1014,7 +1173,7 @@ def update_subscription(db: Session, subscription_id: UUID, **kwargs) -> dict:
     db.refresh(sub)
 
     tenant = db.get(Tenant, sub.tenant_id)
-    return _subscription_row(sub, tenant)
+    return _subscription_row(db, sub, tenant)
 
 
 def cancel_subscription(db: Session, subscription_id: UUID) -> None:
@@ -1336,6 +1495,53 @@ def upsert_saas_academic_calendar_terms(
             )
 
     for row in normalized:
+        payload = {
+            "academic_year": academic_year,
+            "term_no": row["term_no"],
+            "term_code": row["term_code"],
+            "term_name": row["term_name"],
+            "start_date": row["start_date"],
+            "end_date": row["end_date"],
+            "is_active": row["is_active"],
+        }
+        existing = db.execute(
+            text(
+                """
+                SELECT id
+                FROM core.saas_academic_calendar_terms
+                WHERE academic_year = :academic_year
+                  AND term_no = :term_no
+                LIMIT 1
+                """
+            ),
+            {
+                "academic_year": academic_year,
+                "term_no": row["term_no"],
+            },
+        ).mappings().first()
+
+        if existing:
+            db.execute(
+                text(
+                    """
+                    UPDATE core.saas_academic_calendar_terms
+                    SET
+                        term_code = :term_code,
+                        term_name = :term_name,
+                        start_date = :start_date,
+                        end_date = :end_date,
+                        is_active = :is_active,
+                        updated_at = now()
+                    WHERE id = :id
+                    """
+                ),
+                {
+                    **payload,
+                    "id": existing["id"],
+                },
+            )
+            continue
+
         db.execute(
             text(
                 """
@@ -1347,25 +1553,9 @@ def upsert_saas_academic_calendar_terms(
                     :academic_year, :term_no, :term_code, :term_name,
                     :start_date, :end_date, :is_active, now()
                 )
-                ON CONFLICT (academic_year, term_no)
-                DO UPDATE SET
-                    term_code = EXCLUDED.term_code,
-                    term_name = EXCLUDED.term_name,
-                    start_date = EXCLUDED.start_date,
-                    end_date = EXCLUDED.end_date,
-                    is_active = EXCLUDED.is_active,
-                    updated_at = now()
                 """
             ),
-            {
-                "academic_year": academic_year,
-                "term_no": row["term_no"],
-                "term_code": row["term_code"],
-                "term_name": row["term_name"],
-                "start_date": row["start_date"],
-                "end_date": row["end_date"],
-                "is_active": row["is_active"],
-            },
+            payload,
         )
 
     return list_saas_academic_calendar_terms(db, academic_year=academic_year)

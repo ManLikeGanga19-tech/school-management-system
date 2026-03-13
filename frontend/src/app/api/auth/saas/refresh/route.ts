@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { backendFetch } from "@/server/backend/client";
 import {
-  clearClientModeCookie,
-  clearSaasAuthCookies,
-  setSaasAccessToken,
-  setSaasRefreshToken,
+  clearClientModeCookieOnResponse,
+  clearSaasAuthCookiesOnResponse,
+  setSaasAccessTokenOnResponse,
+  setSaasRefreshTokenOnResponse,
+  setClientModeCookieOnResponse,
 } from "@/lib/auth/cookies";
 import { extractCookieValue } from "@/server/http/set-cookie";
 
@@ -45,25 +46,29 @@ export async function POST() {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    await clearSaasAuthCookies();
-    await clearClientModeCookie();
-    return NextResponse.json(data, { status: res.status });
+    const response = NextResponse.json(data, { status: res.status });
+    clearSaasAuthCookiesOnResponse(response);
+    clearClientModeCookieOnResponse(response);
+    return response;
   }
 
-  if (data?.access_token) {
-    await setSaasAccessToken(data.access_token);
-  }
-
-  const rotatedRefresh = extractCookieValue(res.headers, "sms_refresh");
-  if (rotatedRefresh) {
-    await setSaasRefreshToken(rotatedRefresh);
-  }
-
-  return NextResponse.json(
+  const response = NextResponse.json(
     {
       ok: true,
       access_token: data?.access_token,
     },
     { status: 200 }
   );
+
+  if (data?.access_token) {
+    setSaasAccessTokenOnResponse(response, data.access_token);
+    setClientModeCookieOnResponse(response, "saas");
+  }
+
+  const rotatedRefresh = extractCookieValue(res.headers, "sms_refresh");
+  if (rotatedRefresh) {
+    setSaasRefreshTokenOnResponse(response, rotatedRefresh);
+  }
+
+  return response;
 }

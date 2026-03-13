@@ -11,6 +11,12 @@ import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
+import { BillingEligibilityPreview } from "@/components/saas/BillingEligibilityPreview";
+import {
+  fetchSubscriptionBillingEligibility,
+  type BillingPlan,
+  type SubscriptionBillingEligibility,
+} from "@/lib/admin/subscription-eligibility";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -237,6 +243,9 @@ export default function SaaSTenantsPage() {
   const [cAdminFullName, setCAdminFullName] = useState("");
   const [cAdminPassword, setCAdminPassword] = useState("");
   const [creating, setCreating]             = useState(false);
+  const [createEligibility, setCreateEligibility] = useState<SubscriptionBillingEligibility | null>(null);
+  const [createEligibilityLoading, setCreateEligibilityLoading] = useState(false);
+  const [createEligibilityError, setCreateEligibilityError] = useState<string | null>(null);
 
   // ── Edit tenant dialog ───────────────────────────────────────────────────
   const [editOpen, setEditOpen]             = useState(false);
@@ -258,7 +267,7 @@ export default function SaaSTenantsPage() {
   const [profileBusy, setProfileBusy] = useState(false);
   const [printProfile, setPrintProfile] = useState<TenantPrintProfile>(DEFAULT_PRINT_PROFILE);
 
-  const BILLING_PLANS = [
+  const BILLING_PLANS: Array<{ value: BillingPlan; label: string }> = [
     { value: "per_term", label: "Per Term" },
     { value: "per_year", label: "Per Year" },
   ];
@@ -298,6 +307,8 @@ export default function SaaSTenantsPage() {
     setCAdminEmail("");
     setCAdminFullName("");
     setCAdminPassword("");
+    setCreateEligibility(null);
+    setCreateEligibilityError(null);
   }
 
   function openEditDialog(tenant: TenantRow) {
@@ -501,6 +512,38 @@ export default function SaaSTenantsPage() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEligibility() {
+      if (!createOpen || cBillingPlan === "__none__") {
+        setCreateEligibility(null);
+        setCreateEligibilityError(null);
+        setCreateEligibilityLoading(false);
+        return;
+      }
+
+      setCreateEligibilityLoading(true);
+      setCreateEligibilityError(null);
+      try {
+        const eligibility = await fetchSubscriptionBillingEligibility(cBillingPlan as BillingPlan);
+        if (!cancelled) setCreateEligibility(eligibility);
+      } catch (error: any) {
+        if (!cancelled) {
+          setCreateEligibility(null);
+          setCreateEligibilityError(error?.message ?? "Unable to resolve the current billing window.");
+        }
+      } finally {
+        if (!cancelled) setCreateEligibilityLoading(false);
+      }
+    }
+
+    void loadEligibility();
+    return () => {
+      cancelled = true;
+    };
+  }, [cBillingPlan, createOpen]);
+
   // ── Actions ───────────────────────────────────────────────────────────────
 
   async function suspend(id: string) {
@@ -680,6 +723,14 @@ export default function SaaSTenantsPage() {
                 </SelectContent>
               </Select>
             </div>
+            {cBillingPlan !== "__none__" ? (
+              <BillingEligibilityPreview
+                eligibility={createEligibility}
+                loading={createEligibilityLoading}
+                error={createEligibilityError}
+                title="First billing window"
+              />
+            ) : null}
             <Separator />
             <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
               <div className="flex items-start justify-between gap-3">

@@ -149,8 +149,24 @@ class SubscriptionRow(BaseModel):
     period_end: Optional[date] = None
     next_payment_date: Optional[date] = None
     next_payment_amount: Optional[float] = None
+    billing_term_label: Optional[str] = None
+    billing_term_code: Optional[str] = None
+    billing_academic_year: Optional[int] = None
     created_at: datetime
     notes: Optional[str] = None
+
+
+class SubscriptionBillingEligibilityResponse(BaseModel):
+    billing_plan: Literal["per_term", "per_year"]
+    source: Literal["saas_academic_calendar", "fallback"]
+    as_of: date
+    academic_year: int
+    label: str
+    eligible_from_date: date
+    eligible_until_date: date
+    term_no: Optional[int] = None
+    term_code: Optional[str] = None
+    term_name: Optional[str] = None
 
 
 class CreateSubscriptionRequest(BaseModel):

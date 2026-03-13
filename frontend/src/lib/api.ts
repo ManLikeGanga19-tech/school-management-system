@@ -362,6 +362,32 @@ function buildHeaders(path: string, opts?: ApiOptions): Headers {
   return headers;
 }
 
+async function buildHeadersWithRefreshRecovery(
+  path: string,
+  opts: ApiOptions | undefined,
+  requestMode: RefreshMode
+): Promise<Headers> {
+  try {
+    return buildHeaders(path, opts);
+  } catch (err: any) {
+    const apiError =
+      err instanceof ApiError
+        ? err
+        : new ApiError(401, err?.message ?? "Authentication error");
+
+    if (apiError.status !== 401) {
+      throw apiError;
+    }
+
+    const refreshed = await silentRefresh(requestMode);
+    if (!refreshed) {
+      throw apiError;
+    }
+
+    return buildHeaders(path, opts);
+  }
+}
+
 // ─── Main fetch wrapper ───────────────────────────────────────────────────────
 
 export async function apiFetch<T>(path: string, opts?: ApiOptions): Promise<T> {
@@ -371,13 +397,7 @@ export async function apiFetch<T>(path: string, opts?: ApiOptions): Promise<T> {
 
   // Build headers — may throw ApiError for auth/config problems before the request
   let headers: Headers;
-  try {
-    headers = buildHeaders(path, opts);
-  } catch (err: any) {
-    throw err instanceof ApiError
-      ? err
-      : new ApiError(401, err?.message ?? "Authentication error");
-  }
+  headers = await buildHeadersWithRefreshRecovery(path, opts, requestMode);
 
   const doFetch = () =>
     fetch(url, {
@@ -437,13 +457,7 @@ export async function apiFetchRaw(path: string, opts?: ApiOptions): Promise<Resp
   const requestMode = resolveRequestMode(path, opts);
 
   let headers: Headers;
-  try {
-    headers = buildHeaders(path, opts);
-  } catch (err: any) {
-    throw err instanceof ApiError
-      ? err
-      : new ApiError(401, err?.message ?? "Authentication error");
-  }
+  headers = await buildHeadersWithRefreshRecovery(path, opts, requestMode);
 
   const doFetch = () =>
     fetch(url, {
