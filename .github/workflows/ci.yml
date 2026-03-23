@@ -50,6 +50,13 @@ jobs:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/school_manager_db
       REDIS_URL: redis://localhost:6379/0
       JWT_SECRET: ci-jwt-secret-please-change-in-real-environments
+      # Daraja: a non-empty token activates token validation so callback tests
+      # can assert that missing/wrong tokens are rejected with 401.
+      DARAJA_CALLBACK_TOKEN: ci-daraja-callback-token
+      # Public OAuth: must match the secret used in test_public.py (OAUTH_SECRET).
+      # _expected_public_oauth_secret() falls back to this for APP_ENV not in
+      # {dev, local, development, test}, so we set it explicitly for APP_ENV=ci.
+      PUBLIC_OAUTH_SHARED_SECRET: dev-public-oauth-bridge-secret
     defaults:
       run:
         working-directory: backend
