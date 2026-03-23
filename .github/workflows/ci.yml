@@ -48,6 +48,7 @@ jobs:
       APP_ENV: ci
       TENANT_MODE: domain
       DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/school_manager_db
+      REDIS_URL: redis://localhost:6379/0
       JWT_SECRET: ci-jwt-secret-please-change-in-real-environments
     defaults:
       run:
