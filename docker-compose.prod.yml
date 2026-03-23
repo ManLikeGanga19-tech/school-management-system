@@ -19,8 +19,8 @@ services:
       retries: 8
       start_period: 10s
     restart: unless-stopped
-    cpus: "0.75"
-    mem_limit: "768m"
+    cpus: "0.50"
+    mem_limit: "512m"
     networks:
       - backend-net
 
@@ -47,8 +47,8 @@ services:
       retries: 6
       start_period: 5s
     restart: unless-stopped
-    cpus: "0.50"
-    mem_limit: "512m"
+    cpus: "0.30"
+    mem_limit: "256m"
     networks:
       - backend-net
 
@@ -64,8 +64,8 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
-    cpus: "0.50"
-    mem_limit: "512m"
+    cpus: "0.30"
+    mem_limit: "256m"
     networks:
       - backend-net
 
@@ -79,7 +79,7 @@ services:
       DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production .env}
-      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-1}
       GUNICORN_LOG_LEVEL: ${GUNICORN_LOG_LEVEL:-info}
     command: ["gunicorn", "app.main:app", "--config", "/app/gunicorn.conf.py"]
     ports:
@@ -98,8 +98,8 @@ services:
       retries: 8
       start_period: 20s
     restart: unless-stopped
-    cpus: "1.50"
-    mem_limit: "1.5g"
+    cpus: "0.80"
+    mem_limit: "512m"
     networks:
       - backend-net
 
@@ -128,8 +128,8 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
-    cpus: "1.00"
-    mem_limit: "768m"
+    cpus: "0.70"
+    mem_limit: "512m"
     networks:
       - frontend-net
 
@@ -155,8 +155,8 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
-    cpus: "0.50"
-    mem_limit: "256m"
+    cpus: "0.20"
+    mem_limit: "128m"
     networks:
       - frontend-net
       - backend-net
