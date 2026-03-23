@@ -185,7 +185,7 @@ export async function getDirectorDashboardData(): Promise<DirectorDashboardData>
       scholarships?: Scholarship[];
       enrollments?: EnrollmentRow[];
     }>("/tenants/director/finance"),
-    getResource<unknown>("/tenants/notifications?limit=500&offset=0"),
+    getResource<unknown>("/tenants/notifications?limit=20&offset=0"),
     getResource<unknown>("/tenants/notifications/unread-count"),
   ]);
 

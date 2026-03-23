@@ -13,24 +13,42 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      # pg_isready alone returns OK during crash recovery before user queries work.
+      # The psql SELECT 1 gate ensures the DB is fully up and accepting connections.
+      test:
+        - "CMD-SHELL"
+        - "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB && psql -U $$POSTGRES_USER -d $$POSTGRES_DB -q -c 'SELECT 1' > /dev/null 2>&1"
       interval: 10s
       timeout: 5s
-      retries: 8
-      start_period: 10s
+      retries: 10
+      start_period: 15s
     networks:
       - backend-net
 
   redis:
     image: redis:7.4-alpine
     container_name: sms-redis
-    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    # When REDIS_PASSWORD is set, start Redis with --requirepass so that all
+    # clients (backend, rate-limiter) must authenticate. Leave REDIS_PASSWORD
+    # empty in .env for password-free local dev.
+    command: >
+      sh -c "redis-server --appendonly yes --save '60 1000'
+      $${REDIS_PASSWORD:+--requirepass $${REDIS_PASSWORD}}"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        - "CMD-SHELL"
+        - >-
+          if [ -n "$$REDIS_PASSWORD" ]; then
+            redis-cli -a "$$REDIS_PASSWORD" ping;
+          else
+            redis-cli ping;
+          fi
       interval: 10s
       timeout: 5s
       retries: 6
@@ -53,6 +71,8 @@ services:
       DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
     command: >
       python -m alembic upgrade head
+    volumes:
+      - ./backend/alambic:/app/alambic  # always use local migration files so new migrations are visible without a rebuild
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +94,8 @@ services:
         required: false
     environment:
       DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     command: >
       uvicorn app.main:app --app-dir /app --host 0.0.0.0 --port 8000 --reload
     ports:
@@ -112,6 +134,8 @@ services:
       AUTH_LOGIN_TIMEOUT_MS: "${AUTH_LOGIN_TIMEOUT_MS:-60000}"
       CHOKIDAR_USEPOLLING: "${CHOKIDAR_USEPOLLING:-true}"
       WATCHPACK_POLLING: "${WATCHPACK_POLLING:-true}"
+      # Local dev: makes novel-school.localhost:8080/login resolve as a tenant portal
+      NEXT_PUBLIC_TENANT_BASE_HOST: ${NEXT_PUBLIC_TENANT_BASE_HOST:-localhost}
     command: >
       sh -c "[ -d node_modules/.bin ] || npm ci; npm run dev -- --hostname 0.0.0.0 --port 3000"
     ports:

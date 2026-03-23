@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.api.v1.payments import service
@@ -16,7 +17,9 @@ from app.api.v1.payments.schemas import (
 )
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_tenant, require_permission
+from app.core.rate_limit import limiter
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -117,11 +120,19 @@ def get_subscription_payment_status(
 
 
 @router.post("/daraja/callback", response_model=DarajaCallbackAckOut)
+@limiter.limit("30/minute")
 def daraja_callback(
+    request: Request,
     payload: dict,
     token: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    logger.info(
+        "Daraja callback received from ip=%s request_id=%s",
+        client_ip,
+        getattr(request.state, "request_id", "-"),
+    )
     try:
         out = service.handle_daraja_callback(
             db,
@@ -132,6 +143,7 @@ def daraja_callback(
         return out
     except PermissionError as exc:
         db.rollback()
+        logger.warning("Daraja callback rejected (invalid token) from ip=%s", client_ip)
         raise HTTPException(status_code=401, detail=str(exc))
     except ValueError as exc:
         db.rollback()

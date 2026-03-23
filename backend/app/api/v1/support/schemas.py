@@ -46,7 +46,7 @@ class SupportMessageOut(BaseModel):
     reply_to_body: Optional[str] = None
     reply_to_sender_mode: Optional[SupportSenderMode] = None
     reply_to_sender_name: Optional[str] = None
-    body: str
+    message: str
     created_at: Optional[str] = None
 
 

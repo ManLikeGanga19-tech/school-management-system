@@ -69,10 +69,12 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run backend tests
-        run: pytest -q tests/test_admin_saas_endpoints.py
+        # Run the full test suite. CI uses APP_ENV=ci so it hits the real
+        # postgres/redis services spun up above (no mocks for integration paths).
+        run: pytest -q tests/
 
   frontend-checks:
-    name: Frontend Build
+    name: Frontend Checks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -94,6 +96,11 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      - name: Unit tests
+        # Run jest without coverage — coverage reporting adds significant time
+        # and is better suited for a scheduled job or a dedicated coverage report step.
+        run: npx jest --no-coverage --ci
+
       - name: Build frontend
         run: npm run build
 
@@ -105,6 +112,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      short_sha: ${{ steps.tags.outputs.short_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -180,3 +189,127 @@ jobs:
           tags: ${{ steps.tags.outputs.nginx_tags }}
           cache-from: type=gha,scope=nginx-image
           cache-to: type=gha,scope=nginx-image,mode=max
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: docker-images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    environment:
+      name: staging
+      url: https://staging.shulehq.co.ke
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy compose file to staging droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          source: docker-compose.prod.yml
+          target: /opt/sms-staging/
+
+      - name: Deploy on staging droplet
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE_TAG: ${{ needs.docker-images.outputs.short_sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN,ENV_FILE
+          script: |
+            set -euo pipefail
+            DEPLOY_DIR=/opt/sms-staging
+
+            # Write .env atomically (never leave a partial file)
+            printf '%s\n' "$ENV_FILE"        > "$DEPLOY_DIR/.env.tmp"
+            echo "IMAGE_TAG=$IMAGE_TAG"     >> "$DEPLOY_DIR/.env.tmp"
+            mv "$DEPLOY_DIR/.env.tmp" "$DEPLOY_DIR/.env"
+
+            # Pull new images from GHCR
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            IMAGE_TAG="$IMAGE_TAG" docker compose \
+              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
+              --env-file "$DEPLOY_DIR/.env" \
+              pull
+
+            # Rolling restart
+            IMAGE_TAG="$IMAGE_TAG" docker compose \
+              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
+              --env-file "$DEPLOY_DIR/.env" \
+              up -d --remove-orphans
+
+            # Smoke test — nginx on loopback (Caddy proxies 443 → 8081)
+            echo "Waiting for services to stabilise..."
+            sleep 20
+            curl --fail --silent --show-error http://127.0.0.1:8081/nginx-healthz
+            echo ""
+            echo "Staging deploy complete: $IMAGE_TAG"
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: docker-images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://shulehq.co.ke
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy compose file to production droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PRODUCTION_SSH_HOST }}
+          username: ${{ secrets.PRODUCTION_SSH_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          source: docker-compose.prod.yml
+          target: /opt/sms-production/
+
+      - name: Deploy on production droplet
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE_TAG: ${{ needs.docker-images.outputs.short_sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
+        with:
+          host: ${{ secrets.PRODUCTION_SSH_HOST }}
+          username: ${{ secrets.PRODUCTION_SSH_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN,ENV_FILE
+          script: |
+            set -euo pipefail
+            DEPLOY_DIR=/opt/sms-production
+
+            # Write .env atomically
+            printf '%s\n' "$ENV_FILE"        > "$DEPLOY_DIR/.env.tmp"
+            echo "IMAGE_TAG=$IMAGE_TAG"     >> "$DEPLOY_DIR/.env.tmp"
+            mv "$DEPLOY_DIR/.env.tmp" "$DEPLOY_DIR/.env"
+
+            # Pull new images from GHCR
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            IMAGE_TAG="$IMAGE_TAG" docker compose \
+              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
+              --env-file "$DEPLOY_DIR/.env" \
+              pull
+
+            # Rolling restart
+            IMAGE_TAG="$IMAGE_TAG" docker compose \
+              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
+              --env-file "$DEPLOY_DIR/.env" \
+              up -d --remove-orphans
+
+            # Smoke test
+            echo "Waiting for services to stabilise..."
+            sleep 20
+            curl --fail --silent --show-error http://127.0.0.1:8081/nginx-healthz
+            echo ""
+            echo "Production deploy complete: $IMAGE_TAG"

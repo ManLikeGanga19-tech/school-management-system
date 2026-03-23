@@ -38,6 +38,7 @@ _AUDIT_DROPPED_LOG_EVERY = 100
 _AUDIT_PRESSURE_LOG_EVERY = 50
 
 _audit_queue: asyncio.Queue[dict] | None = None
+_audit_tasks: list[asyncio.Task] = []          # tracked so shutdown can cancel them
 _audit_init_lock = threading.Lock()
 _audit_dropped_count = 0
 _audit_pressure_skipped_count = 0
@@ -163,7 +164,7 @@ async def _audit_worker(worker_id: int) -> None:
 
 
 def _ensure_audit_workers_started() -> None:
-    global _audit_queue
+    global _audit_queue, _audit_tasks
 
     if _audit_queue is not None:
         return
@@ -175,13 +176,68 @@ def _ensure_audit_workers_started() -> None:
         _audit_queue = asyncio.Queue(maxsize=_AUDIT_QUEUE_MAXSIZE)
         loop = asyncio.get_running_loop()
         for idx in range(_AUDIT_WORKERS):
-            loop.create_task(_audit_worker(idx))
+            task = loop.create_task(_audit_worker(idx))
+            _audit_tasks.append(task)
 
         logger.info(
             "Audit queue initialized (workers=%s, maxsize=%s)",
             _AUDIT_WORKERS,
             _AUDIT_QUEUE_MAXSIZE,
         )
+
+
+async def shutdown_audit_queue(*, drain_timeout: float = 8.0) -> None:
+    """
+    Gracefully drain and shut down the audit background queue.
+
+    Call this from the application lifespan shutdown *before* closing Redis
+    or the DB pool — workers need both to flush remaining events.
+
+    Sequence:
+      1. Wait up to ``drain_timeout`` seconds for in-flight events to be written.
+         (Gunicorn graceful_timeout is 30 s; 8 s leaves ample headroom for the
+         rest of teardown.)
+      2. Cancel worker tasks — they will be blocked on queue.get() at this point
+         because the queue is either empty or timed out.
+      3. Await cancellation so the event loop is clean before the process exits.
+
+    On timeout a WARNING is emitted with the count of dropped events so ops
+    teams know there was data loss and can investigate queue pressure settings.
+    """
+    global _audit_queue, _audit_tasks
+
+    if _audit_queue is None:
+        return  # audit was never initialised (e.g. no requests came in)
+
+    pending = _audit_queue.qsize()
+    if pending > 0:
+        logger.info(
+            "Audit shutdown: draining %s pending event(s) (timeout=%.1fs)",
+            pending,
+            drain_timeout,
+        )
+        try:
+            await asyncio.wait_for(_audit_queue.join(), timeout=drain_timeout)
+            logger.info("Audit queue drained successfully.")
+        except asyncio.TimeoutError:
+            remaining = _audit_queue.qsize()
+            logger.warning(
+                "Audit shutdown timed out after %.1fs — dropping %s unprocessed event(s). "
+                "Consider raising AUDIT_QUEUE_MAXSIZE or AUDIT_WORKERS if this recurs.",
+                drain_timeout,
+                remaining,
+            )
+
+    # Workers are now blocked on queue.get() (queue empty or timed out).
+    # Cancel them cleanly so the event loop has no dangling tasks at exit.
+    for task in _audit_tasks:
+        task.cancel()
+    if _audit_tasks:
+        await asyncio.gather(*_audit_tasks, return_exceptions=True)
+        _audit_tasks.clear()
+
+    _audit_queue = None
+    logger.info("Audit queue shut down.")
 
 
 def _try_enqueue_audit_event(event: dict) -> bool:
@@ -208,7 +264,12 @@ class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start = time.time()
 
-        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        # Prefer the ID already set by RequestIDMiddleware (runs before us).
+        request_id = (
+            getattr(request.state, "request_id", None)
+            or request.headers.get("X-Request-ID")
+            or str(uuid.uuid4())
+        )
         request.state.request_id = request_id
 
         response: Response | None = None

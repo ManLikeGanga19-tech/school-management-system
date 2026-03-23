@@ -13,6 +13,9 @@ import {
   TriangleAlert,
   TrendingUp,
   Building2,
+  CalendarDays,
+  BookOpenText,
+  BriefcaseBusiness,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -23,31 +26,8 @@ import {
 } from "@/components/dashboard/dashboard-primitives";
 import { directorNav } from "@/components/layout/nav-config";
 import { TenantNotificationsOverview } from "@/components/notifications/TenantNotificationsOverview";
-
 import { getDirectorDashboardData } from "@/server/director/dashboard";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function toNumber(value: string | number | null | undefined) {
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  if (typeof value === "string") {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  }
-  return 0;
-}
-
-function formatKes(value: number) {
-  return new Intl.NumberFormat("en-KE", {
-    style: "currency",
-    currency: "KES",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
+import { formatKes, toNumber } from "@/lib/format";
 
 export default async function DirectorDashboardPage() {
   const data = await getDirectorDashboardData();
@@ -62,14 +42,22 @@ export default async function DirectorDashboardPage() {
     redirect("/tenant/dashboard");
   }
 
-  const invoices = data.invoices.data || [];
-  const totalBilled    = invoices.reduce((sum, inv) => sum + toNumber(inv.total_amount),   0);
-  const totalPaid      = invoices.reduce((sum, inv) => sum + toNumber(inv.paid_amount),    0);
-  const outstanding    = invoices.reduce((sum, inv) => sum + toNumber(inv.balance_amount), 0);
+  const invoices      = data.invoices.data || [];
+  const enrollments   = data.enrollments.data || [];
+  const totalBilled   = invoices.reduce((sum, inv) => sum + toNumber(inv.total_amount),   0);
+  const totalPaid     = invoices.reduce((sum, inv) => sum + toNumber(inv.paid_amount),    0);
+  const outstanding   = invoices.reduce((sum, inv) => sum + toNumber(inv.balance_amount), 0);
   const collectionRate = totalBilled > 0 ? Math.round((totalPaid / totalBilled) * 100) : 0;
 
+  const totalEnrolled  = enrollments.filter((e) =>
+    e.status.toUpperCase() === "ENROLLED"
+  ).length;
+  const pendingIntake  = enrollments.filter((e) =>
+    ["SUBMITTED", "APPROVED"].includes(e.status.toUpperCase())
+  ).length;
+
   const tenantSlug = data.me.data.tenant.slug;
-  const tenantName = (data.me.data.tenant as any).name ?? tenantSlug;
+  const tenantName = (data.me.data.tenant as { name?: string }).name ?? tenantSlug;
   const hasSummaryError = Boolean(data.summary.error);
   const notifications = Array.isArray(data.notifications.data) ? data.notifications.data : [];
   const totalNotifications =
@@ -82,10 +70,10 @@ export default async function DirectorDashboardPage() {
       : notifications.filter((item) => item.unread).length;
 
   const headerStats = [
-    { label: "Users",      value: data.summary.data?.total_users      ?? 0 },
-    { label: "Roles",      value: data.summary.data?.total_roles      ?? 0 },
-    { label: "Invoices",   value: invoices.length                         },
-    { label: "Audit Logs", value: data.summary.data?.total_audit_logs ?? 0 },
+    { label: "Users",       value: data.summary.data?.total_users      ?? 0 },
+    { label: "Enrolled",    value: totalEnrolled                            },
+    { label: "Invoices",    value: invoices.length                          },
+    { label: "Audit Logs",  value: data.summary.data?.total_audit_logs ?? 0 },
   ];
 
   return (
@@ -134,12 +122,12 @@ export default async function DirectorDashboardPage() {
           </div>
         )}
 
-        {/* ── Finance KPI cards ── */}
+        {/* ── Finance KPIs ── */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <DashboardStatCard
             label="Total Billed"
             value={formatKes(totalBilled)}
-            sub={`${invoices.length} invoice${invoices.length !== 1 ? "s" : ""}`}
+            sub={`${invoices.length} invoice${invoices.length !== 1 ? "s" : ""} · all terms`}
             icon={Receipt}
             tone="secondary"
           />
@@ -163,6 +151,38 @@ export default async function DirectorDashboardPage() {
             sub="System-wide activity"
             icon={ClipboardList}
             tone="neutral"
+          />
+        </div>
+
+        {/* ── Enrollment KPIs ── */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <DashboardStatCard
+            label="Enrolled Students"
+            value={totalEnrolled}
+            sub={`${enrollments.length} total records`}
+            icon={GraduationCap}
+            tone="sage"
+          />
+          <DashboardStatCard
+            label="Pending Intake"
+            value={pendingIntake}
+            sub={pendingIntake > 0 ? "Awaiting review" : "Queue clear"}
+            icon={ClipboardList}
+            tone={pendingIntake > 0 ? "warning" : "sage"}
+          />
+          <DashboardStatCard
+            label="Users"
+            value={data.summary.data?.total_users ?? 0}
+            sub={`${data.summary.data?.total_roles ?? 0} role${(data.summary.data?.total_roles ?? 0) !== 1 ? "s" : ""} configured`}
+            icon={Users}
+            tone="neutral"
+          />
+          <DashboardStatCard
+            label="Fee Categories"
+            value={data.feeCategories.data?.length ?? 0}
+            sub={`${data.feeItems.data?.length ?? 0} fee item${(data.feeItems.data?.length ?? 0) !== 1 ? "s" : ""}`}
+            icon={CreditCard}
+            tone="accent"
           />
         </div>
 
@@ -203,22 +223,52 @@ export default async function DirectorDashboardPage() {
           <DashboardSectionLabel>Module Navigation</DashboardSectionLabel>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <DashboardModuleCard
-              href="/tenant/director/enrollments"
+              href="/tenant/director/enrollments?section=intake"
               icon={GraduationCap}
               title="Enrollments"
               description="Manage student intake, approve or reject applications, and track the enrollment pipeline."
-              badge="Pipeline"
+              badge={pendingIntake > 0 ? `${pendingIntake} pending` : "Up to date"}
               tone="secondary"
-              badgeTone="secondary"
+              badgeTone={pendingIntake > 0 ? "warning" : "sage"}
             />
             <DashboardModuleCard
-              href="/tenant/director/finance"
+              href="/tenant/director/finance?section=overview"
               icon={CreditCard}
               title="Finance"
               description="Fee structures, invoice management, payment recording, and collection reporting."
               badge={outstanding > 0 ? formatKes(outstanding) + " due" : "Up to date"}
               tone="sage"
               badgeTone={outstanding > 0 ? "warning" : "sage"}
+            />
+            <DashboardModuleCard
+              href="/tenant/director/students/all"
+              icon={Users}
+              title="Students"
+              description="View enrolled students, fee balances, and clearance status across all classes and terms."
+              badge={`${totalEnrolled} enrolled`}
+              tone="neutral"
+              badgeTone="neutral"
+            />
+            <DashboardModuleCard
+              href="/tenant/director/exams?section=setup"
+              icon={BookOpenText}
+              title="Exams"
+              description="Set up exam schedules, manage timetables, and view student progress reports."
+              tone="accent"
+            />
+            <DashboardModuleCard
+              href="/tenant/director/school-setup/terms"
+              icon={CalendarDays}
+              title="School Setup"
+              description="Configure academic terms, class structures, subjects, timetables, and the school calendar."
+              tone="warning"
+            />
+            <DashboardModuleCard
+              href="/tenant/director/hr/staff"
+              icon={BriefcaseBusiness}
+              title="HR"
+              description="Staff registry, teacher assignments, and school assets management."
+              tone="neutral"
             />
             <DashboardModuleCard
               href="/tenant/director/users"
@@ -254,62 +304,6 @@ export default async function DirectorDashboardPage() {
               description="Tenant configuration, policy settings, and system-level preferences for this institution."
               tone="warning"
             />
-          </div>
-        </div>
-
-        {/* ── Summary data rows ── */}
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="dashboard-surface rounded-[1.6rem] p-5">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              <Users className="h-3.5 w-3.5" />
-              Users &amp; Roles
-            </div>
-            <div className="mt-3 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Total users</span>
-                <span className="font-semibold text-slate-800">{data.summary.data?.total_users ?? "—"}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Total roles</span>
-                <span className="font-semibold text-slate-800">{data.summary.data?.total_roles ?? "—"}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="dashboard-surface rounded-[1.6rem] p-5">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              <CreditCard className="h-3.5 w-3.5" />
-              Finance Summary
-            </div>
-            <div className="mt-3 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Total billed</span>
-                <span className="font-semibold text-slate-800">{formatKes(totalBilled)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Outstanding</span>
-                <span className={`font-semibold ${outstanding > 0 ? "text-amber-700" : "text-emerald-700"}`}>
-                  {formatKes(outstanding)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="dashboard-surface rounded-[1.6rem] p-5">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              <ClipboardList className="h-3.5 w-3.5" />
-              System Activity
-            </div>
-            <div className="mt-3 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Audit events</span>
-                <span className="font-semibold text-slate-800">{data.summary.data?.total_audit_logs ?? "—"}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Tenant</span>
-                <span className="font-mono text-xs font-semibold text-[#173f49]">{tenantSlug}</span>
-              </div>
-            </div>
           </div>
         </div>
 

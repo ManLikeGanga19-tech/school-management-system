@@ -1,0 +1,61 @@
+{
+  // ── File watcher exclusions ────────────────────────────────────────────────
+  // These directories generate thousands of inotify events during compilation
+  // and are the primary cause of the VSCode extension host reloading / port
+  // dying mid-development in WSL2. Excluding them from the file watcher
+  // eliminates the reload loop while keeping editor features fully functional.
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/.next-temp/**": true,
+    "**/dist/**": true,
+    "**/__pycache__/**": true,
+    "**/.venv/**": true,
+    "**/backend/.venv/**": true,
+    "**/*.pyc": true,
+    "**/alambic/versions/__pycache__/**": true,
+    "**/var/backups/**": true
+  },
+
+  // ── Search exclusions ──────────────────────────────────────────────────────
+  // Speeds up Ctrl+Shift+F searches and reduces indexing CPU spikes.
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/.next-temp": true,
+    "**/.venv": true,
+    "**/dist": true,
+    "**/__pycache__": true,
+    "**/package-lock.json": true
+  },
+
+  // ── TypeScript language server ─────────────────────────────────────────────
+  // The default 3072 MB heap can be exhausted on large projects with heavy
+  // type-checking, causing the TS server to crash and VSCode to reload.
+  // 8192 MB matches what CI uses and prevents OOM restarts in WSL2.
+  "typescript.tsserver.maxTsServerMemory": 8192,
+
+  // ── Reduce extension host pressure ────────────────────────────────────────
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/.next-temp": true
+  },
+
+  // ── ESLint / formatters ───────────────────────────────────────────────────
+  // Only run on save; don't run on every keystroke (reduces CPU spikes).
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+
+  // ── Python backend ────────────────────────────────────────────────────────
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
+  "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
+
+  // ── WSL2 memory pressure ──────────────────────────────────────────────────
+  // Limit the number of files VS Code actively tracks at once.
+  "files.maxMemoryForLargeFilesMB": 512
+}

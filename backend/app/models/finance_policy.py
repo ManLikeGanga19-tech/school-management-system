@@ -16,7 +16,7 @@ class FinancePolicy(Base):
     min_percent_to_enroll = Column(Integer, nullable=True)
     min_amount_to_enroll = Column(Numeric(12, 2), nullable=True)
 
-    require_interview_fee_before_submit = Column(Boolean, nullable=False, server_default=text("true"))
+    require_interview_fee_before_submit = Column(Boolean, nullable=False, server_default=text("false"))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())

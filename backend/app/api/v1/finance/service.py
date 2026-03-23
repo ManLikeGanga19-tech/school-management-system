@@ -386,7 +386,7 @@ def create_fee_category(
     name: str,
     is_active: bool
 ) -> FeeCategory:
-    norm_code = code.lower().strip()
+    norm_code = code.upper().strip()
     # prevent duplicate codes per tenant
     existing = db.execute(
         select(FeeCategory).where(FeeCategory.tenant_id == tenant_id, FeeCategory.code == norm_code)
@@ -475,7 +475,7 @@ def create_fee_item(
     if not category:
         raise ValueError("Fee category not found in this tenant")
 
-    norm_code = code.lower().strip()
+    norm_code = code.upper().strip()
     # ensure unique fee item code within tenant
     existing = db.execute(
         select(FeeItem).where(FeeItem.tenant_id == tenant_id, FeeItem.code == norm_code)
@@ -1026,8 +1026,8 @@ def create_scholarship(
     is_active: bool
 ) -> Scholarship:
     t = type_.upper().strip()
-    if t not in ("PERCENT", "FIXED"):
-        raise ValueError("Scholarship type must be PERCENT or FIXED")
+    if t not in ("PERCENTAGE", "FIXED"):
+        raise ValueError("Scholarship type must be PERCENTAGE or FIXED")
 
     row = Scholarship(tenant_id=tenant_id, name=name.strip(), type=t, value=value, is_active=is_active)
     db.add(row)

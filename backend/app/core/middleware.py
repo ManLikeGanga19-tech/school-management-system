@@ -12,6 +12,7 @@ from starlette.responses import JSONResponse
 from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
 from app.core.database import SessionLocal, database_status
+from app.core.logging_config import log_tenant_id
 from app.models.tenant import Tenant
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/v1/support/admin"):
             return True
         if path.startswith("/api/v1/public"):
+            return True
+        # Daraja M-Pesa callback is called by Safaricom directly (no tenant context)
+        if path.startswith("/api/v1/payments/daraja/callback"):
             return True
 
         return False
@@ -193,5 +197,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
         request.state.tenant = tenant_ctx
         request.state.tenant_id = tenant_ctx.id
         request.state.tenant_slug = tenant_ctx.slug
+
+        # Update the logging context var so every log record emitted by the
+        # route handler automatically includes the resolved tenant_id.
+        log_tenant_id.set(str(tenant_ctx.id))
 
         return await call_next(request)

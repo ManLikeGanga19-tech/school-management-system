@@ -69,6 +69,27 @@ const nextConfig: NextConfig = {
   reactCompiler: process.env.NEXT_ENABLE_REACT_COMPILER === "true",
   distDir,
   output: "standalone",
+
+  // next-intl requires the request config to be resolvable as "next-intl/config".
+  // createNextIntlPlugin injects this alias via webpack but also adds
+  // experimental.turbo which is invalid in Next.js 16, breaking Turbopack.
+  // We configure both bundlers manually instead.
+
+  // Turbopack (Next.js 16 default — `npm run dev:turbo`)
+  turbopack: {
+    resolveAlias: {
+      "next-intl/config": "./src/i18n/request.ts",
+    },
+  },
+
+  // Webpack (`npm run build` and `npm run dev`)
+  webpack(config) {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "next-intl/config": path.resolve("./src/i18n/request.ts"),
+    };
+    return config;
+  },
 };
 
 export default nextConfig;
