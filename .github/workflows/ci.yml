@@ -215,25 +215,26 @@ jobs:
         with:
           host: ${{ secrets.STAGING_SSH_HOST }}
           username: ${{ secrets.STAGING_SSH_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
+          key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
           source: docker-compose.prod.yml
-          target: /opt/sms-staging/
+          target: ${{ secrets.STAGING_DEPLOY_PATH }}
 
       - name: Deploy on staging droplet
         uses: appleboy/ssh-action@v1
         env:
           IMAGE_TAG: ${{ needs.docker-images.outputs.short_sha }}
-          GHCR_USER: ${{ github.actor }}
+          GHCR_USER: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
+          DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
         with:
           host: ${{ secrets.STAGING_SSH_HOST }}
           username: ${{ secrets.STAGING_SSH_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN,ENV_FILE
+          key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN,ENV_FILE,DEPLOY_PATH
           script: |
             set -euo pipefail
-            DEPLOY_DIR=/opt/sms-staging
+            DEPLOY_DIR="$DEPLOY_PATH"
 
             # Write .env atomically (never leave a partial file)
             printf '%s\n' "$ENV_FILE"        > "$DEPLOY_DIR/.env.tmp"
@@ -277,25 +278,26 @@ jobs:
         with:
           host: ${{ secrets.PRODUCTION_SSH_HOST }}
           username: ${{ secrets.PRODUCTION_SSH_USER }}
-          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          key: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
           source: docker-compose.prod.yml
-          target: /opt/sms-production/
+          target: ${{ secrets.PRODUCTION_DEPLOY_PATH }}
 
       - name: Deploy on production droplet
         uses: appleboy/ssh-action@v1
         env:
           IMAGE_TAG: ${{ needs.docker-images.outputs.short_sha }}
-          GHCR_USER: ${{ github.actor }}
+          GHCR_USER: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
+          DEPLOY_PATH: ${{ secrets.PRODUCTION_DEPLOY_PATH }}
         with:
           host: ${{ secrets.PRODUCTION_SSH_HOST }}
           username: ${{ secrets.PRODUCTION_SSH_USER }}
-          key: ${{ secrets.PRODUCTION_SSH_KEY }}
-          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN,ENV_FILE
+          key: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN,ENV_FILE,DEPLOY_PATH
           script: |
             set -euo pipefail
-            DEPLOY_DIR=/opt/sms-production
+            DEPLOY_DIR="$DEPLOY_PATH"
 
             # Write .env atomically
             printf '%s\n' "$ENV_FILE"        > "$DEPLOY_DIR/.env.tmp"
