@@ -22,6 +22,12 @@ http {
         ''      close;
     }
 
+    # Honour a client-supplied X-Request-ID; generate one when absent.
+    map $http_x_request_id $req_id {
+        default $http_x_request_id;
+        ""      $request_id;
+    }
+
     upstream frontend_upstream {
         server frontend:3000;
         keepalive 16;
@@ -36,6 +42,27 @@ http {
         listen 80;
         server_name _;
         client_max_body_size 25m;
+
+        # ── Security headers ────────────────────────────────────────────────
+        # Applied globally to all responses proxied through Nginx, including
+        # Nginx-generated error pages (502, 504, etc.) that bypass FastAPI.
+        # FastAPI also sets these via SecurityHeadersMiddleware — belt-and-
+        # suspenders at the edge is intentional.
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()" always;
+
+        # CSP for the frontend (Next.js SPA).
+        # 'unsafe-inline' and 'unsafe-eval' are required by Next.js dev mode
+        # and some RSC hydration patterns. Tighten with nonce-based CSP when
+        # your Next.js version supports it.
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none';" always;
+
+        # HSTS — uncomment when TLS is terminated at Nginx (not at an upstream
+        # CDN/load-balancer). Premature HSTS can lock out HTTP-only deployments.
+        # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
         location = /nginx-healthz {
             access_log off;
@@ -52,8 +79,10 @@ http {
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Request-ID $req_id;
             proxy_read_timeout 300s;
             proxy_connect_timeout 30s;
+            add_header X-Request-ID $req_id always;
         }
 
         # Staging can force revalidation of hashed Next assets after deploys while
@@ -65,8 +94,10 @@ http {
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Request-ID $req_id;
             proxy_hide_header Cache-Control;
             add_header Cache-Control "${NEXT_STATIC_CACHE_CONTROL}" always;
+            add_header X-Request-ID $req_id always;
             proxy_read_timeout 300s;
             proxy_connect_timeout 30s;
         }
@@ -79,6 +110,7 @@ http {
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Request-ID $req_id;
             proxy_read_timeout 60s;
             proxy_connect_timeout 15s;
         }
@@ -90,6 +122,7 @@ http {
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Request-ID $req_id;
             proxy_read_timeout 60s;
             proxy_connect_timeout 15s;
         }
@@ -101,8 +134,10 @@ http {
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Request-ID $req_id;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection $connection_upgrade;
+            add_header X-Request-ID $req_id always;
             proxy_read_timeout 300s;
             proxy_connect_timeout 30s;
         }

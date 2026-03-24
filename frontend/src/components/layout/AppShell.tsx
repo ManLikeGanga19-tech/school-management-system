@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { LocaleSwitcher } from "@/components/ui/locale-switcher";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -571,6 +572,9 @@ export function AppShell({
       <div
         className={cn("border-t border-[#e1d4c0] p-3", !mobile && "pt-2")}
       >
+        <div className="mb-2 flex justify-end">
+          <LocaleSwitcher />
+        </div>
         <DropdownMenu open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="h-auto w-full items-center justify-between px-3 py-2">
@@ -784,6 +788,8 @@ export function AppShell({
           <div>
             {renderShellBrand({ mode: "mobile-top" })}
           </div>
+          <div className="flex items-center gap-2">
+            <LocaleSwitcher />
           <Button
             type="button"
             variant="outline"
@@ -799,6 +805,7 @@ export function AppShell({
               </span>
             )}
           </Button>
+          </div>
         </div>
       </div>
 
@@ -899,7 +906,7 @@ export function AppShell({
                               href={child.href}
                               onClick={() => setMobileNavOpen(false)}
                               className={cn(
-                                "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs transition-colors",
+                                "flex min-h-[40px] items-center gap-2 rounded-md px-3 py-2 text-xs transition-colors",
                                 childIsExactActive
                                   ? "bg-[#e4edef] font-medium text-[#173f49]"
                                   : "text-slate-600 hover:bg-[#f5ece1] hover:text-[#173f49]"
@@ -929,7 +936,7 @@ export function AppShell({
       )}
 
 
-      <main className="min-h-screen bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(252,251,247,0.96))] p-4 md:ml-[260px] md:p-6">
+      <main className="min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(252,251,247,0.96))] px-3 py-4 sm:px-4 md:ml-[260px] md:px-6 md:py-6">
         <div className="mx-auto w-full max-w-6xl">{children}</div>
       </main>
 

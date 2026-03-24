@@ -286,13 +286,13 @@ export default function SaaSPaymentHistoryPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 hover:bg-slate-50">
-                  <TableHead>Date/Time</TableHead>
-                  <TableHead>Tenant</TableHead>
-                  <TableHead>Term</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Receipt</TableHead>
-                  <TableHead>Phone</TableHead>
+                  <TableHead className="text-xs whitespace-nowrap">Date/Time</TableHead>
+                  <TableHead className="text-xs">Tenant</TableHead>
+                  <TableHead className="hidden md:table-cell text-xs">Term</TableHead>
+                  <TableHead className="text-xs">Amount</TableHead>
+                  <TableHead className="text-xs">Status</TableHead>
+                  <TableHead className="hidden sm:table-cell text-xs">Receipt</TableHead>
+                  <TableHead className="hidden sm:table-cell text-xs">Phone</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -321,7 +321,7 @@ export default function SaaSPaymentHistoryPage() {
                       <div className="text-sm font-medium text-slate-900">{r.tenant_name}</div>
                       <div className="text-xs text-slate-400">{r.tenant_slug}</div>
                     </TableCell>
-                    <TableCell className="text-xs">
+                    <TableCell className="hidden md:table-cell text-xs">
                       {r.billing_term_label || (r.billing_plan === "per_year" ? "Per Year" : "Per Term")}
                     </TableCell>
                     <TableCell className="text-sm font-semibold text-slate-800">
@@ -340,8 +340,8 @@ export default function SaaSPaymentHistoryPage() {
                         {r.status}
                       </span>
                     </TableCell>
-                    <TableCell className="text-xs text-slate-500">{r.mpesa_receipt || "—"}</TableCell>
-                    <TableCell className="text-xs text-slate-500">{r.phone_number || "—"}</TableCell>
+                    <TableCell className="hidden sm:table-cell text-xs text-slate-500">{r.mpesa_receipt || "—"}</TableCell>
+                    <TableCell className="hidden sm:table-cell text-xs text-slate-500">{r.phone_number || "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

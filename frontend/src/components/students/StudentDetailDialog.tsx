@@ -103,7 +103,7 @@ export function StudentDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[720px]">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[720px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Eye className="h-4 w-4 text-slate-500" />

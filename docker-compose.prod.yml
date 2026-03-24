@@ -19,28 +19,36 @@ services:
       retries: 8
       start_period: 10s
     restart: unless-stopped
-    cpus: "0.75"
-    mem_limit: "768m"
+    cpus: "0.50"
+    mem_limit: "512m"
     networks:
       - backend-net
 
   redis:
     image: redis:7.4-alpine
     container_name: sms-redis
-    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    # REDIS_PASSWORD must be set in the production .env file.
+    # An empty password leaves Redis unauthenticated — unacceptable in production.
+    command: >
+      sh -c "redis-server --appendonly yes --save '60 1000'
+      $${REDIS_PASSWORD:+--requirepass $${REDIS_PASSWORD}}"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production .env}
     ports:
       - "${REDIS_PORT:-127.0.0.1:6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        - "CMD-SHELL"
+        - "redis-cli -a \"$$REDIS_PASSWORD\" ping"
       interval: 10s
       timeout: 5s
       retries: 6
       start_period: 5s
     restart: unless-stopped
-    cpus: "0.50"
-    mem_limit: "512m"
+    cpus: "0.30"
+    mem_limit: "256m"
     networks:
       - backend-net
 
@@ -56,8 +64,8 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
-    cpus: "0.50"
-    mem_limit: "512m"
+    cpus: "0.30"
+    mem_limit: "256m"
     networks:
       - backend-net
 
@@ -69,7 +77,11 @@ services:
         required: false
     environment:
       DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
-    command: ["python", "-m", "uvicorn", "app.main:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production .env}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-1}
+      GUNICORN_LOG_LEVEL: ${GUNICORN_LOG_LEVEL:-info}
+    command: ["gunicorn", "app.main:app", "--config", "/app/gunicorn.conf.py"]
     ports:
       - "${BACKEND_PORT:-127.0.0.1:8000}:8000"
     depends_on:
@@ -86,8 +98,8 @@ services:
       retries: 8
       start_period: 20s
     restart: unless-stopped
-    cpus: "1.00"
-    mem_limit: "1g"
+    cpus: "0.80"
+    mem_limit: "512m"
     networks:
       - backend-net
 
@@ -116,8 +128,8 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
-    cpus: "1.00"
-    mem_limit: "768m"
+    cpus: "0.70"
+    mem_limit: "512m"
     networks:
       - frontend-net
 
@@ -143,11 +155,28 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
-    cpus: "0.50"
-    mem_limit: "256m"
+    cpus: "0.20"
+    mem_limit: "128m"
     networks:
       - frontend-net
       - backend-net
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: sms-dozzle
+    environment:
+      DOZZLE_AUTH_PROVIDER: simple
+      DOZZLE_USERNAME: ${DOZZLE_USERNAME:-admin}
+      DOZZLE_PASSWORD: ${DOZZLE_PASSWORD:-changeme}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${DOZZLE_PORT:-127.0.0.1:9999}:8080"
+    restart: unless-stopped
+    cpus: "0.10"
+    mem_limit: "64m"
+    networks:
+      - frontend-net
 
 volumes:
   postgres_data:

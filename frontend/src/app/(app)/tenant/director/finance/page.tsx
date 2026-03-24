@@ -1778,7 +1778,7 @@ function TenantFinancePageContent() {
             subtitle="All structures created by the tenant secretary with totals and status"
             icon={ListChecks}
           >
-            <div className="mb-4 grid gap-3 sm:grid-cols-4">
+            <div className="mb-4 grid gap-3 grid-cols-2 sm:grid-cols-4">
               <StatCard
                 label="Structures"
                 value={feeStructures.length}
@@ -1921,7 +1921,7 @@ function TenantFinancePageContent() {
                 if (!open) setViewStructureId("");
               }}
             >
-              <DialogContent className="sm:max-w-4xl">
+              <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-4xl">
                 <DialogHeader>
                   <DialogTitle>Fee Structure Details</DialogTitle>
                   <DialogDescription>

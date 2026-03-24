@@ -495,7 +495,7 @@ export default function SaaSSubscriptionsPage() {
 
       {/* ── Create dialog ── */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>New Subscription</DialogTitle>
             <DialogDescription>
@@ -641,7 +641,7 @@ export default function SaaSSubscriptionsPage() {
 
       {/* ── Edit dialog ── */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Subscription</DialogTitle>
             <DialogDescription>

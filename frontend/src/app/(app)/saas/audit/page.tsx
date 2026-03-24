@@ -241,7 +241,7 @@ export default function SaaSAuditPage() {
 
       {/* ── Detail dialog ── */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Audit Event Detail</DialogTitle>
             <DialogDescription>
@@ -570,11 +570,11 @@ export default function SaaSAuditPage() {
               <TableHeader>
                 <TableRow className="bg-slate-50 hover:bg-slate-50">
                   <TableHead className="text-xs">Action</TableHead>
-                  <TableHead className="text-xs">Resource</TableHead>
-                  <TableHead className="text-xs">Tenant</TableHead>
-                  <TableHead className="text-xs">Actor</TableHead>
-                  <TableHead className="text-xs">Timestamp</TableHead>
-                  <TableHead className="text-xs">When</TableHead>
+                  <TableHead className="hidden sm:table-cell text-xs">Resource</TableHead>
+                  <TableHead className="hidden md:table-cell text-xs">Tenant</TableHead>
+                  <TableHead className="hidden sm:table-cell text-xs">Actor</TableHead>
+                  <TableHead className="text-xs whitespace-nowrap">Timestamp</TableHead>
+                  <TableHead className="hidden md:table-cell text-xs">When</TableHead>
                   <TableHead className="w-12 text-xs" />
                 </TableRow>
               </TableHeader>
@@ -624,12 +624,12 @@ export default function SaaSAuditPage() {
                     </TableCell>
 
                     {/* Resource */}
-                    <TableCell className="py-3 text-xs text-slate-600">
+                    <TableCell className="hidden sm:table-cell py-3 text-xs text-slate-600">
                       {r.resource}
                     </TableCell>
 
                     {/* Tenant */}
-                    <TableCell className="py-3">
+                    <TableCell className="hidden md:table-cell py-3">
                       <TooltipProvider delayDuration={200}>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -646,7 +646,7 @@ export default function SaaSAuditPage() {
                     </TableCell>
 
                     {/* Actor */}
-                    <TableCell className="py-3">
+                    <TableCell className="hidden sm:table-cell py-3">
                       <TooltipProvider delayDuration={200}>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -671,7 +671,7 @@ export default function SaaSAuditPage() {
                     </TableCell>
 
                     {/* Relative time */}
-                    <TableCell className="py-3 text-xs text-slate-400 whitespace-nowrap">
+                    <TableCell className="hidden md:table-cell py-3 text-xs text-slate-400 whitespace-nowrap">
                       {timeAgo(r.created_at)}
                     </TableCell>
 

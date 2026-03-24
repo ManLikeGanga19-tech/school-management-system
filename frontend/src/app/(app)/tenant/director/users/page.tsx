@@ -226,7 +226,7 @@ function InlineRoleAction({
           <ShieldCheck className="h-3 w-3" />
           Add
         </Button>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Assign Role</DialogTitle>
             <DialogDescription>
@@ -583,7 +583,7 @@ export default function TenantUsersPage() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Provision Login Credential</DialogTitle>
             <DialogDescription>
@@ -734,7 +734,7 @@ export default function TenantUsersPage() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Edit Tenant User</DialogTitle>
             <DialogDescription>
@@ -824,7 +824,7 @@ export default function TenantUsersPage() {
           if (!open) setDeleteUser(null);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Remove Tenant Access</DialogTitle>
             <DialogDescription>

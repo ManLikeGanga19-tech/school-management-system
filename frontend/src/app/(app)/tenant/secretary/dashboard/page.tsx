@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
 import { AppShell } from "@/components/layout/AppShell";
@@ -39,6 +40,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
+import { formatKes, timeAgo, toNumber } from "@/lib/format";
 import { TenantNotificationsOverview } from "@/components/notifications/TenantNotificationsOverview";
 import {
   normalizeTenantNotificationPreviews,
@@ -75,23 +77,6 @@ const enrollmentChartConfig = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function toNumber(value: string | number | null | undefined) {
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  if (typeof value === "string") {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  }
-  return 0;
-}
-
-function formatKes(value: number) {
-  return new Intl.NumberFormat("en-KE", {
-    style: "currency",
-    currency: "KES",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
 function enrollmentName(payload?: Record<string, unknown>) {
   if (!payload) return "Unknown student";
   for (const key of ["student_name", "studentName", "full_name", "fullName", "name"]) {
@@ -108,14 +93,6 @@ function enrollmentClass(payload?: Record<string, unknown>) {
       return payload[key] as string;
   }
   return "";
-}
-
-function timeAgo(dateString: string) {
-  const diff = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
-  if (diff < 60)    return `${diff}s ago`;
-  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -204,7 +181,7 @@ export default function SecretaryDashboardPage() {
     if (!silent) setLoading(true);
     const [dashboardRes, notificationsRes, unreadCountRes] = await Promise.allSettled([
       api.get<DashboardResponse>("/tenants/secretary/dashboard", { tenantRequired: true }),
-      api.get<unknown>("/tenants/notifications?limit=500&offset=0", {
+      api.get<unknown>("/tenants/notifications?limit=20&offset=0", {
         tenantRequired: true,
         noRedirect: true,
       }),
@@ -385,7 +362,7 @@ export default function SecretaryDashboardPage() {
               <DashboardStatCard
                 label="Outstanding Balance"
                 value={loading ? "—" : formatKes(outstandingBalance)}
-                sub="Contact director for full finance report"
+                sub={outstandingBalance > 0 ? "View breakdown in Finance module" : "No outstanding balance"}
                 icon={AlertTriangle}
                 tone={outstandingBalance > 0 ? "warning" : "sage"}
               />
@@ -535,9 +512,14 @@ export default function SecretaryDashboardPage() {
                   </TableHeader>
                   <TableBody>
                     {enrollments.slice(0, 8).map((row) => (
-                      <TableRow key={row.id} className="hover:bg-slate-50">
+                      <TableRow key={row.id} className="cursor-pointer hover:bg-slate-50">
                         <TableCell className="text-sm font-medium text-slate-800">
-                          {enrollmentName(row.payload)}
+                          <Link
+                            href={`/tenant/secretary/enrollments?section=intake`}
+                            className="block hover:text-[#173f49]"
+                          >
+                            {enrollmentName(row.payload)}
+                          </Link>
                         </TableCell>
                         <TableCell>
                           <span className="font-mono text-xs text-slate-400">

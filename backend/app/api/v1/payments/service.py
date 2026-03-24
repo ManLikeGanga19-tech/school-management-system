@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import socket
 import time
+
+logger = logging.getLogger(__name__)
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
@@ -606,6 +609,35 @@ def _touch_subscription_after_success(sub: Subscription, when_utc: datetime) -> 
     sub.updated_at = _now_utc()
 
 
+def _find_in_flight_payment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    subscription_id: UUID,
+    phone_number: str,
+    amount_kes: Decimal,
+    since: datetime,
+) -> "SubscriptionPayment | None":
+    """Return the most recent PENDING payment matching all dimensions, or None."""
+    try:
+        return db.execute(
+            select(SubscriptionPayment)
+            .where(
+                SubscriptionPayment.tenant_id == tenant_id,
+                SubscriptionPayment.subscription_id == subscription_id,
+                SubscriptionPayment.phone_number == phone_number,
+                SubscriptionPayment.amount_kes == amount_kes,
+                SubscriptionPayment.status == "PENDING",
+                SubscriptionPayment.initiated_at >= since,
+            )
+            .order_by(SubscriptionPayment.initiated_at.desc())
+        ).scalars().first()
+    except (ProgrammingError, OperationalError, InternalError) as err:
+        db.rollback()
+        _raise_if_storage_missing(err)
+        raise
+
+
 def initiate_tenant_subscription_payment(
     db: Session,
     *,
@@ -621,6 +653,31 @@ def initiate_tenant_subscription_payment(
 
     normalized_phone = _normalize_phone(phone_number)
     payment_amount = _to_amount_decimal(amount if amount is not None else sub.amount_kes)
+
+    # ── Deduplication guard ───────────────────────────────────────────────────
+    # If a PENDING STK push for the same tenant/subscription/phone/amount was
+    # initiated within the dedup window, return it instead of firing a new push.
+    # This prevents double-charges when the frontend retries on a network timeout.
+    dedup_window_sec = int(settings.DARAJA_DEDUP_WINDOW_SEC)
+    if dedup_window_sec > 0:
+        cutoff = _now_utc() - timedelta(seconds=dedup_window_sec)
+        existing = _find_in_flight_payment(
+            db,
+            tenant_id=tenant_id,
+            subscription_id=sub.id,
+            phone_number=normalized_phone,
+            amount_kes=payment_amount,
+            since=cutoff,
+        )
+        if existing is not None:
+            return {
+                "checkout_request_id": existing.checkout_request_id,
+                "merchant_request_id": existing.merchant_request_id or "",
+                "response_description": "Duplicate request — existing payment in progress",
+                "customer_message": "Your M-Pesa prompt is already on its way. Please check your phone.",
+                "status": "pending",
+                "duplicate": True,
+            }
 
     mock_fallback = False
     mock_fallback_reason: str | None = None
@@ -709,6 +766,7 @@ def initiate_tenant_subscription_payment(
         "response_description": response_description,
         "customer_message": customer_message,
         "status": "pending",
+        "duplicate": False,
     }
 
 
@@ -793,9 +851,14 @@ def handle_daraja_callback(
     payload: dict[str, Any],
     callback_token: str | None = None,
 ) -> dict[str, Any]:
+    import hmac as _hmac
+
     required_token = str(settings.DARAJA_CALLBACK_TOKEN or "").strip()
-    if required_token and required_token != str(callback_token or "").strip():
-        raise PermissionError("Invalid callback token")
+    if required_token:
+        provided = str(callback_token or "").strip()
+        # Use constant-time comparison to prevent timing-based token enumeration.
+        if not _hmac.compare_digest(required_token, provided):
+            raise PermissionError("Invalid callback token")
 
     body = payload.get("Body") if isinstance(payload.get("Body"), dict) else {}
     stk = body.get("stkCallback") if isinstance(body.get("stkCallback"), dict) else {}
@@ -825,6 +888,20 @@ def handle_daraja_callback(
 
     if pay is None:
         # Keep callback endpoint idempotent and safely acknowledge unknown callbacks.
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    # ── Idempotency guard ─────────────────────────────────────────────────────
+    # M-Pesa retries callbacks on non-2xx responses and sometimes re-delivers
+    # even after a successful 200 ACK.  If this payment is already in a terminal
+    # state, skip all mutations and re-acknowledge — the subscription period and
+    # audit log are already correct.
+    if str(pay.status or "").upper() in FINAL_PAYMENT_STATUSES:
+        logger.info(
+            "Daraja callback ignored — payment %s already in terminal state %s (checkout_id=%s)",
+            pay.id,
+            pay.status,
+            checkout_request_id,
+        )
         return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
     if merchant_request_id and not pay.merchant_request_id:

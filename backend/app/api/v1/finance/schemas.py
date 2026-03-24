@@ -15,7 +15,7 @@ class FinancePolicyUpsert(BaseModel):
     allow_partial_enrollment: bool = False
     min_percent_to_enroll: Optional[int] = Field(default=None, ge=0, le=100)
     min_amount_to_enroll: Optional[Decimal] = None
-    require_interview_fee_before_submit: bool = True
+    require_interview_fee_before_submit: bool = False
 
 
 class FinancePolicyOut(ORMOutModel, FinancePolicyUpsert):

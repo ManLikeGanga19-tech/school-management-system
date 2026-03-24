@@ -10,8 +10,9 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
 from app.core.config import settings
+from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.prospect import ProspectAccount, ProspectAuthSession, ProspectRequest
 from app.utils.hashing import hash_password, verify_password
 from app.utils.tokens import create_access_token, create_refresh_token, decode_token
@@ -256,7 +257,9 @@ def get_current_prospect(
 
 
 @router.post("/auth/register", response_model=ProspectAuthResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
 def register(
+    request: Request,
     payload: ProspectRegisterRequest,
     response: Response,
     db: Session = Depends(get_db),
@@ -286,7 +289,9 @@ def register(
 
 
 @router.post("/auth/login", response_model=ProspectAuthResponse)
+@limiter.limit("10/minute")
 def login(
+    request: Request,
     payload: ProspectLoginRequest,
     response: Response,
     db: Session = Depends(get_db),
@@ -305,7 +310,9 @@ def login(
 
 
 @router.post("/auth/oauth/google", response_model=ProspectAuthResponse)
+@limiter.limit("10/minute")
 def google_oauth_login(
+    request: Request,
     payload: ProspectGoogleOAuthRequest,
     response: Response,
     db: Session = Depends(get_db),
@@ -473,9 +480,10 @@ def list_requests(
 
 
 @router.post("/requests", response_model=ProspectRequestOut, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
 def create_request(
-    payload: ProspectRequestCreate,
     request: Request,
+    payload: ProspectRequestCreate,
     account: ProspectAccount = Depends(get_current_prospect),
     db: Session = Depends(get_db),
 ):
