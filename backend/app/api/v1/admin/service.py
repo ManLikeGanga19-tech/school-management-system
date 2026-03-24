@@ -744,6 +744,13 @@ def upsert_tenant_print_profile(
     row.currency = currency
     row.thermal_width_mm = thermal_width
     row.qr_enabled = bool(data.get("qr_enabled", row.qr_enabled))
+    row.po_box = _clean_optional_text(data.get("po_box"), max_len=100)
+    row.physical_address = _clean_optional_text(data.get("physical_address"), max_len=2000)
+    row.phone = _clean_optional_text(data.get("phone"), max_len=50)
+    row.email = _clean_optional_text(data.get("email"), max_len=255)
+    row.school_motto = _clean_optional_text(data.get("school_motto"), max_len=500)
+    row.authorized_signatory_name = _clean_optional_text(data.get("authorized_signatory_name"), max_len=200)
+    row.authorized_signatory_title = _clean_optional_text(data.get("authorized_signatory_title"), max_len=200)
     row.updated_by = actor_user_id
     db.flush()
     return row

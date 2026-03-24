@@ -67,6 +67,13 @@ class TenantPrintProfileUpsert(BaseModel):
     currency: str = Field(default="KES", min_length=3, max_length=10)
     thermal_width_mm: int = Field(default=80, ge=58, le=120)
     qr_enabled: bool = True
+    po_box: Optional[str] = Field(default=None, max_length=100)
+    physical_address: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=50)
+    email: Optional[str] = Field(default=None, max_length=255)
+    school_motto: Optional[str] = Field(default=None, max_length=500)
+    authorized_signatory_name: Optional[str] = Field(default=None, max_length=200)
+    authorized_signatory_title: Optional[str] = Field(default=None, max_length=200)
 
 
 class TenantPrintProfileOut(BaseModel):
@@ -80,6 +87,13 @@ class TenantPrintProfileOut(BaseModel):
     currency: str
     thermal_width_mm: int
     qr_enabled: bool
+    po_box: Optional[str] = None
+    physical_address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    school_motto: Optional[str] = None
+    authorized_signatory_name: Optional[str] = None
+    authorized_signatory_title: Optional[str] = None
     updated_by: Optional[UUID] = None
     updated_at: Optional[datetime] = None
 

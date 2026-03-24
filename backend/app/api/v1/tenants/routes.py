@@ -795,6 +795,29 @@ class TenantPrintProfileOut(BaseModel):
     currency: str = "KES"
     thermal_width_mm: int = 80
     qr_enabled: bool = True
+    po_box: Optional[str] = None
+    physical_address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    school_motto: Optional[str] = None
+    authorized_signatory_name: Optional[str] = None
+    authorized_signatory_title: Optional[str] = None
+
+
+class TenantPrintProfileUpsert(BaseModel):
+    school_header: Optional[str] = Field(default=None, max_length=500)
+    receipt_footer: Optional[str] = Field(default=None, max_length=500)
+    paper_size: Literal["A4", "THERMAL_80MM"] = "A4"
+    currency: str = Field(default="KES", min_length=3, max_length=10)
+    thermal_width_mm: int = Field(default=80, ge=58, le=120)
+    qr_enabled: bool = True
+    po_box: Optional[str] = Field(default=None, max_length=100)
+    physical_address: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=50)
+    email: Optional[str] = Field(default=None, max_length=255)
+    school_motto: Optional[str] = Field(default=None, max_length=500)
+    authorized_signatory_name: Optional[str] = Field(default=None, max_length=200)
+    authorized_signatory_title: Optional[str] = Field(default=None, max_length=200)
 
 
 class TenantSettingsPasswordSelfIn(BaseModel):
@@ -3277,6 +3300,12 @@ def _tenant_print_profile_to_out(*, tenant: Tenant, row: TenantPrintProfile | No
     if logo_url == "/api/v1/tenants/settings/badge" and _tenant_badge_path(tenant.id) is None:
         logo_url = None
 
+    def _str_or_none(attr: str) -> str | None:
+        if row is None:
+            return None
+        val = str(getattr(row, attr, "") or "").strip()
+        return val or None
+
     return TenantPrintProfileOut(
         tenant_id=str(tenant.id),
         logo_url=logo_url,
@@ -3290,6 +3319,13 @@ def _tenant_print_profile_to_out(*, tenant: Tenant, row: TenantPrintProfile | No
         currency=str(getattr(row, "currency", "KES") or "KES") if row is not None else "KES",
         thermal_width_mm=int(getattr(row, "thermal_width_mm", 80) or 80) if row is not None else 80,
         qr_enabled=bool(getattr(row, "qr_enabled", True)) if row is not None else True,
+        po_box=_str_or_none("po_box"),
+        physical_address=_str_or_none("physical_address"),
+        phone=_str_or_none("phone"),
+        email=_str_or_none("email"),
+        school_motto=_str_or_none("school_motto"),
+        authorized_signatory_name=_str_or_none("authorized_signatory_name"),
+        authorized_signatory_title=_str_or_none("authorized_signatory_title"),
     )
 
 
@@ -3319,6 +3355,54 @@ def tenant_print_profile(
         db.rollback()
         row = None
 
+    return _tenant_print_profile_to_out(tenant=tenant, row=row)
+
+
+@router.put(
+    "/print-profile",
+    response_model=TenantPrintProfileOut,
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "users.manage"))],
+)
+def tenant_update_print_profile(
+    payload: TenantPrintProfileUpsert,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    if not _is_director_context(request):
+        raise HTTPException(status_code=403, detail="Only the director can update print settings.")
+
+    row = _get_or_create_tenant_print_profile(db, tenant=tenant)
+
+    paper_size = str(payload.paper_size or "A4").upper().strip()
+    if paper_size not in {"A4", "THERMAL_80MM"}:
+        raise HTTPException(status_code=400, detail="paper_size must be A4 or THERMAL_80MM")
+
+    currency = str(payload.currency or "KES").upper().strip()
+
+    def _clean(val: str | None, max_len: int = 500) -> str | None:
+        if val is None:
+            return None
+        s = str(val).strip()
+        return s[:max_len] if s else None
+
+    row.school_header = _clean(payload.school_header)
+    row.receipt_footer = _clean(payload.receipt_footer)
+    row.paper_size = paper_size
+    row.currency = currency
+    row.thermal_width_mm = payload.thermal_width_mm
+    row.qr_enabled = payload.qr_enabled
+    row.po_box = _clean(payload.po_box, 100)
+    row.physical_address = _clean(payload.physical_address, 2000)
+    row.phone = _clean(payload.phone, 50)
+    row.email = _clean(payload.email, 255)
+    row.school_motto = _clean(payload.school_motto)
+    row.authorized_signatory_name = _clean(payload.authorized_signatory_name, 200)
+    row.authorized_signatory_title = _clean(payload.authorized_signatory_title, 200)
+    row.updated_by = user.id
+    db.commit()
+    db.refresh(row)
     return _tenant_print_profile_to_out(tenant=tenant, row=row)
 
 
