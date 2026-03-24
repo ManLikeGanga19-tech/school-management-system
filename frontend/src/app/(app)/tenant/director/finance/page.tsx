@@ -20,6 +20,7 @@ import {
   Banknote,
   Printer,
   Eye,
+  Download,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -81,6 +82,7 @@ type Invoice = {
   total_amount: string | number;
   paid_amount: string | number;
   balance_amount: string | number;
+  created_at?: string | null;
 };
 
 type FeeStructure = {
@@ -153,6 +155,8 @@ type InvoiceFilterState = {
   type: string;
   status: string;
   outstanding_only: boolean;
+  date_from: string;
+  date_to: string;
 };
 
 type PaymentFilterState = {
@@ -298,6 +302,50 @@ function normalizeSection(value: string | null): FinanceSection {
 
 function normalizeInvoiceType(value: string) {
   return value.trim().toUpperCase();
+}
+
+function exportInvoicesCsv(
+  rows: Invoice[],
+  nameById: Map<string, string>,
+  dateFrom: string,
+  dateTo: string
+) {
+  const periodLabel = dateFrom || dateTo
+    ? `${dateFrom || "start"}_to_${dateTo || "end"}`
+    : new Date().toISOString().slice(0, 10);
+  const headers = [
+    "Invoice No",
+    "Student",
+    "Type",
+    "Status",
+    "Total (KES)",
+    "Paid (KES)",
+    "Balance (KES)",
+    "Date",
+  ];
+  const csvCell = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const body = rows.map((inv) =>
+    [
+      inv.invoice_no || inv.id.slice(0, 8),
+      nameById.get(String(inv.enrollment_id || "")) || "—",
+      inv.invoice_type,
+      inv.status,
+      toNumber(inv.total_amount).toFixed(2),
+      toNumber(inv.paid_amount).toFixed(2),
+      toNumber(inv.balance_amount).toFixed(2),
+      inv.created_at ? inv.created_at.slice(0, 10) : "—",
+    ]
+      .map((c) => csvCell(String(c)))
+      .join(",")
+  );
+  const content = [headers.map(csvCell).join(","), ...body].join("\n");
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `invoices-${periodLabel}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function normalizeInvoiceStatus(value: string) {
@@ -604,6 +652,8 @@ function TenantFinancePageContent() {
   const [invoiceFilters, setInvoiceFilters] = useState<InvoiceFilterState>({
     q: initialInvoiceQuery,
     enrollment_id: "",
+    date_from: "",
+    date_to: "",
     type: "",
     status: "",
     outstanding_only: false,
@@ -624,6 +674,7 @@ function TenantFinancePageContent() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [policyDirty, setPolicyDirty] = useState(false);
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
@@ -749,6 +800,7 @@ function TenantFinancePageContent() {
         headers: { "Content-Type": "application/json" },
       });
       setPolicy(updated);
+      setPolicyDirty(false);
       setNotice("Finance policy saved successfully.");
     } catch (err: any) {
       setError(
@@ -934,6 +986,8 @@ function TenantFinancePageContent() {
     const type = normalizeInvoiceType(invoiceFilters.type || "");
     const status = normalizeInvoiceStatus(invoiceFilters.status || "");
     const enrollmentId = invoiceFilters.enrollment_id;
+    const dateFrom = invoiceFilters.date_from;
+    const dateTo = invoiceFilters.date_to;
 
     return invoices
       .filter((inv) => {
@@ -948,6 +1002,11 @@ function TenantFinancePageContent() {
         }
         if (invoiceFilters.outstanding_only && toNumber(inv.balance_amount) <= 0) {
           return false;
+        }
+        if (inv.created_at) {
+          const d = inv.created_at.slice(0, 10);
+          if (dateFrom && d < dateFrom) return false;
+          if (dateTo && d > dateTo) return false;
         }
         if (!q) return true;
 
@@ -1482,120 +1541,123 @@ function TenantFinancePageContent() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <PolicyToggle
-                      label="Global Partial Enrollment Fallback"
-                      description="Used only when no fee structure context can be resolved for an enrollment."
-                      enabled={policy.allow_partial_enrollment}
-                      onToggle={() =>
-                        setPolicy((p) =>
-                          p
-                            ? {
-                                ...p,
-                                allow_partial_enrollment: !p.allow_partial_enrollment,
-                              }
-                            : p
-                        )
-                      }
-                      icon={BadgePercent}
-                    />
+                    {/* ── Global Toggles ─────────────────────────────── */}
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Global Rules
+                      </p>
+                      <PolicyToggle
+                        label="Allow Partial Enrollment (Global Fallback)"
+                        description="Students can enroll after paying the minimum threshold below. Used when no structure-level policy exists."
+                        enabled={policy.allow_partial_enrollment}
+                        onToggle={() => {
+                          setPolicy((p) =>
+                            p ? { ...p, allow_partial_enrollment: !p.allow_partial_enrollment } : p
+                          );
+                          setPolicyDirty(true);
+                        }}
+                        icon={BadgePercent}
+                      />
 
-                    <PolicyToggle
-                      label="Require Interview Fee Before Submit"
-                      description="Intake cannot be submitted until the interview invoice is paid."
-                      enabled={policy.require_interview_fee_before_submit}
-                      onToggle={() =>
-                        setPolicy((p) =>
-                          p
-                            ? {
-                                ...p,
-                                require_interview_fee_before_submit:
-                                  !p.require_interview_fee_before_submit,
-                              }
-                            : p
-                        )
-                      }
-                      icon={FileText}
-                    />
+                      <PolicyToggle
+                        label="Require Interview Fee Before Submit"
+                        description="Intake form cannot be submitted until the interview invoice is fully paid."
+                        enabled={policy.require_interview_fee_before_submit}
+                        onToggle={() => {
+                          setPolicy((p) =>
+                            p
+                              ? { ...p, require_interview_fee_before_submit: !p.require_interview_fee_before_submit }
+                              : p
+                          );
+                          setPolicyDirty(true);
+                        }}
+                        icon={FileText}
+                      />
+                    </div>
 
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                          <BadgePercent className="h-3.5 w-3.5 text-slate-400" />
-                          Min. Percent to Enroll
-                        </Label>
-                        <div className="relative">
-                          <Input
-                            type="number"
-                            min={0}
-                            max={100}
-                            placeholder="e.g. 50"
-                            value={policy.min_percent_to_enroll ?? ""}
-                            onChange={(e) =>
-                              setPolicy((p) =>
-                                p
-                                  ? {
-                                      ...p,
-                                      min_percent_to_enroll:
-                                        e.target.value === ""
-                                          ? null
-                                          : Number(e.target.value),
-                                    }
-                                  : p
-                              )
-                            }
-                            className="pr-8"
-                          />
-                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
-                            %
-                          </span>
+                    {/* ── Partial Thresholds (only relevant when partial is on) ── */}
+                    <div className={`space-y-3 rounded-xl border p-4 transition ${policy.allow_partial_enrollment ? "border-blue-100 bg-blue-50/40" : "border-slate-100 bg-slate-50 opacity-50"}`}>
+                      <p className="text-xs font-semibold text-slate-600">
+                        Minimum Payment Threshold
+                        {!policy.allow_partial_enrollment && (
+                          <span className="ml-2 text-slate-400 font-normal">(enable partial enrollment above to activate)</span>
+                        )}
+                      </p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                            <BadgePercent className="h-3.5 w-3.5 text-slate-400" />
+                            Min. Percent to Enroll
+                          </Label>
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              min={0}
+                              max={100}
+                              placeholder="e.g. 50"
+                              disabled={!policy.allow_partial_enrollment}
+                              value={policy.min_percent_to_enroll ?? ""}
+                              onChange={(e) => {
+                                setPolicy((p) =>
+                                  p
+                                    ? { ...p, min_percent_to_enroll: e.target.value === "" ? null : Number(e.target.value) }
+                                    : p
+                                );
+                                setPolicyDirty(true);
+                              }}
+                              className="pr-8"
+                            />
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                              %
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                            <Banknote className="h-3.5 w-3.5 text-slate-400" />
+                            Min. Amount to Enroll (KES)
+                          </Label>
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              min={0}
+                              placeholder="e.g. 5000"
+                              disabled={!policy.allow_partial_enrollment}
+                              value={policy.min_amount_to_enroll ?? ""}
+                              onChange={(e) => {
+                                setPolicy((p) =>
+                                  p
+                                    ? { ...p, min_amount_to_enroll: e.target.value === "" ? null : e.target.value }
+                                    : p
+                                );
+                                setPolicyDirty(true);
+                              }}
+                              className="pr-12"
+                            />
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                              KES
+                            </span>
+                          </div>
                         </div>
                       </div>
-
-                      <div className="space-y-1.5">
-                        <Label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                          <Banknote className="h-3.5 w-3.5 text-slate-400" />
-                          Min. Amount to Enroll (KES)
-                        </Label>
-                        <div className="relative">
-                          <Input
-                            type="number"
-                            min={0}
-                            placeholder="e.g. 5000"
-                            value={policy.min_amount_to_enroll ?? ""}
-                            onChange={(e) =>
-                              setPolicy((p) =>
-                                p
-                                  ? {
-                                      ...p,
-                                      min_amount_to_enroll:
-                                        e.target.value === ""
-                                          ? null
-                                          : e.target.value,
-                                    }
-                                  : p
-                              )
-                            }
-                            className="pr-12"
-                          />
-                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
-                            KES
-                          </span>
-                        </div>
-                      </div>
+                      <p className="text-xs text-slate-400">
+                        A student must meet <strong>at least one</strong> of the thresholds above to be enrolled. Leave both blank to allow any partial amount.
+                      </p>
                     </div>
 
                     <div className="border-t border-slate-100 pt-3">
                       <Button
                         onClick={savePolicy}
-                        disabled={saving}
-                        className="w-full bg-blue-600 hover:bg-blue-700"
+                        disabled={saving || !policyDirty}
+                        className={`w-full ${policyDirty ? "bg-blue-600 hover:bg-blue-700" : "bg-slate-300"}`}
                       >
                         {saving ? (
                           <span className="flex items-center gap-2">Saving…</span>
                         ) : (
                           <span className="flex items-center gap-2">
                             <Save className="h-4 w-4" />
-                            Save Global Policy
+                            {policyDirty ? "Save Global Policy (unsaved changes)" : "Global Policy Saved"}
                           </span>
                         )}
                       </Button>
@@ -1702,7 +1764,10 @@ function TenantFinancePageContent() {
                             icon={BadgePercent}
                           />
 
-                          <div className="grid gap-3 sm:grid-cols-2">
+                          <div className={`grid gap-3 sm:grid-cols-2 rounded-lg p-3 transition ${structurePolicyDraft.allow_partial_enrollment ? "bg-blue-50/40 border border-blue-100" : "bg-slate-50 border border-slate-100 opacity-50"}`}>
+                            {!structurePolicyDraft.allow_partial_enrollment && (
+                              <p className="sm:col-span-2 text-xs text-slate-400">Enable partial above to set a minimum threshold for this scope.</p>
+                            )}
                             <div className="space-y-1.5">
                               <Label className="text-xs font-medium text-slate-600">
                                 Min. Percent For Scope
@@ -1711,6 +1776,7 @@ function TenantFinancePageContent() {
                                 type="number"
                                 min={0}
                                 max={100}
+                                disabled={!structurePolicyDraft.allow_partial_enrollment}
                                 value={structurePolicyDraft.min_percent_to_enroll ?? ""}
                                 onChange={(e) =>
                                   setStructurePolicyDraft((p) => ({
@@ -1730,6 +1796,7 @@ function TenantFinancePageContent() {
                               <Input
                                 type="number"
                                 min={0}
+                                disabled={!structurePolicyDraft.allow_partial_enrollment}
                                 value={structurePolicyDraft.min_amount_to_enroll ?? ""}
                                 onChange={(e) =>
                                   setStructurePolicyDraft((p) => ({
@@ -2141,6 +2208,48 @@ function TenantFinancePageContent() {
                     Due
                   </Button>
                 </div>
+              </div>
+
+              {/* Date range + export row */}
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <div className="flex-1 min-w-[140px] space-y-1">
+                  <Label className="text-xs text-slate-600">From Date</Label>
+                  <input
+                    type="date"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                    value={invoiceFilters.date_from}
+                    onChange={(e) =>
+                      setInvoiceFilters((p) => ({ ...p, date_from: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="flex-1 min-w-[140px] space-y-1">
+                  <Label className="text-xs text-slate-600">To Date</Label>
+                  <input
+                    type="date"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                    value={invoiceFilters.date_to}
+                    onChange={(e) =>
+                      setInvoiceFilters((p) => ({ ...p, date_to: e.target.value }))
+                    }
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    exportInvoicesCsv(
+                      filteredInvoices,
+                      enrollmentNameById,
+                      invoiceFilters.date_from,
+                      invoiceFilters.date_to
+                    )
+                  }
+                  disabled={filteredInvoices.length === 0}
+                  className="flex items-center gap-2 shrink-0"
+                >
+                  <Download className="h-4 w-4" />
+                  Export CSV ({filteredInvoices.length})
+                </Button>
               </div>
             </div>
 
