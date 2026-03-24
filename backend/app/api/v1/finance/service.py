@@ -2037,6 +2037,14 @@ def _render_timetable_pdf(payload: dict[str, Any]) -> bytes:
 def render_document_pdf(payload: dict[str, Any]) -> bytes:
     dtype = str(payload.get("document_type") or "").upper()
 
+    # Enterprise invoice template (A4, school header + QR + fee items table)
+    if dtype == "INVOICE":
+        try:
+            from app.utils.receipt_pdf import generate_invoice_pdf
+            return generate_invoice_pdf(payload)
+        except Exception as exc:
+            logger.exception("invoice_pdf rendering failed, falling back to plain-text: %s", exc)
+
     # Enterprise receipt template (A4 or Thermal with embedded QR code)
     if dtype == "RECEIPT":
         try:
