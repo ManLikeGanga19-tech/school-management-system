@@ -1641,7 +1641,6 @@ function SecretaryFinancePageContent() {
           metrics={[
             { label: "Invoices", value: data.invoices.length },
             { label: "Outstanding", value: formatKes(totals.balance) },
-            { label: "Collected", value: formatKes(totalCollections) },
             { label: "Structures", value: data.fee_structures.length },
           ]}
           actions={
@@ -2545,14 +2544,13 @@ function SecretaryFinancePageContent() {
         {showInvoices && (
           <div className="space-y-5">
             {/* Summary Cards */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <SummaryCard
                 label="Total Billed"
                 value={formatKes(totals.total)}
                 sub={`${data.invoices.length} invoices`}
                 color="blue"
               />
-              <SummaryCard label="Collected" value={formatKes(totals.paid)} color="emerald" />
               <SummaryCard
                 label="Outstanding"
                 value={formatKes(totals.balance)}
