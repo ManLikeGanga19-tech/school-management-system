@@ -191,7 +191,11 @@ def _profile_to_dict(profile: TenantPrintProfile | None, *, tenant_name: str | N
         "paper_size": _coerce_profile_paper_size(getattr(profile, "paper_size", "A4")),
         "currency": str(getattr(profile, "currency", "KES") or "KES"),
         "thermal_width_mm": int(getattr(profile, "thermal_width_mm", 80) or 80),
-        "qr_enabled": bool(getattr(profile, "qr_enabled", True)),
+        "qr_enabled": (
+            getattr(profile, "qr_enabled", None)
+            if getattr(profile, "qr_enabled", None) is not None
+            else True
+        ),
         "po_box": _s("po_box"),
         "physical_address": _s("physical_address"),
         "phone": _s("phone"),

@@ -1207,99 +1207,30 @@ function TenantFinancePageContent() {
     printDocument(`Fee Structure ${structure.class_code}`, body, printProfile);
   }
 
+  async function printEnterprisePdf(path: string) {
+    try {
+      const res = await apiFetchRaw(path, { method: "GET", tenantRequired: true });
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const newTab = window.open(url, "_blank");
+      if (!newTab) {
+        toast.error("Pop-up blocked. Please allow pop-ups to print.");
+      }
+      // Revoke blob URL after the browser has had time to load it
+      setTimeout(() => window.URL.revokeObjectURL(url), 30_000);
+    } catch (err: unknown) {
+      toast.error(
+        err instanceof Error ? err.message : "Unable to open print preview."
+      );
+    }
+  }
+
   function printInvoice(invoice: Invoice) {
-    const student =
-      enrollmentNameById.get(String(invoice.enrollment_id || "")) || "Unknown student";
-
-    const body = `
-      <div class="header">
-        <div>
-          <div class="title">Student Invoice</div>
-          <div class="muted">${escapeHtml(schoolName)}</div>
-        </div>
-        <div class="muted">Generated: ${escapeHtml(new Date().toLocaleString())}</div>
-      </div>
-      <div class="card">
-        <div class="grid">
-          <div><strong>Invoice ID:</strong> ${escapeHtml(String(invoice.id))}</div>
-          <div><strong>Invoice No:</strong> ${escapeHtml(invoice.invoice_no || "Pending")}</div>
-          <div><strong>Type:</strong> ${escapeHtml(
-            normalizeInvoiceType(invoice.invoice_type || "")
-          )}</div>
-          <div><strong>Student:</strong> ${escapeHtml(student)}</div>
-          <div><strong>Status:</strong> ${escapeHtml(
-            normalizeInvoiceStatus(invoice.status || "")
-          )}</div>
-        </div>
-      </div>
-      <table>
-        <thead>
-          <tr><th>Description</th><th class="right">Amount (KES)</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Total Amount</td><td class="right">${escapeHtml(
-            formatKes(toNumber(invoice.total_amount))
-          )}</td></tr>
-          <tr><td>Paid Amount</td><td class="right">${escapeHtml(
-            formatKes(toNumber(invoice.paid_amount))
-          )}</td></tr>
-          <tr><td>Balance</td><td class="right">${escapeHtml(
-            formatKes(toNumber(invoice.balance_amount))
-          )}</td></tr>
-        </tbody>
-      </table>
-      <div class="footer">${escapeHtml(printProfile.receipt_footer)}</div>
-    `;
-
-    printDocument(`Invoice ${String(invoice.id).slice(0, 8)}`, body, printProfile);
+    void printEnterprisePdf(`/finance/documents/invoices/${invoice.id}/pdf`);
   }
 
   function printPaymentReceipt(payment: DecoratedPayment) {
-    const linkedRows = (payment.allocations || [])
-      .map((alloc) => {
-        const inv = invoiceById.get(String(alloc.invoice_id || ""));
-        const student = inv
-          ? enrollmentNameById.get(String(inv.enrollment_id || "")) || "Unknown student"
-          : "Unknown student";
-        return `<tr>
-          <td>${escapeHtml(String(alloc.invoice_id || ""))}</td>
-          <td>${escapeHtml(student)}</td>
-          <td class="right">${escapeHtml(formatKes(toNumber(alloc.amount)))}</td>
-        </tr>`;
-      })
-      .join("");
-
-    const body = `
-      <div class="header">
-        <div>
-          <div class="title">Payment Receipt</div>
-          <div class="muted">${escapeHtml(schoolName)}</div>
-        </div>
-        <div class="muted">Generated: ${escapeHtml(new Date().toLocaleString())}</div>
-      </div>
-      <div class="card">
-        <div class="grid">
-          <div><strong>Receipt Ref:</strong> ${escapeHtml(String(payment.id))}</div>
-          <div><strong>Receipt No:</strong> ${escapeHtml(payment.receipt_no || "Pending")}</div>
-          <div><strong>Method:</strong> ${escapeHtml(payment.provider || "")}</div>
-          <div><strong>Reference:</strong> ${escapeHtml(payment.reference || "—")}</div>
-          <div><strong>Total Paid:</strong> ${escapeHtml(
-            formatKes(toNumber(payment.amount))
-          )}</div>
-        </div>
-      </div>
-      <table>
-        <thead>
-          <tr><th>Invoice ID</th><th>Student</th><th class="right">Allocated (KES)</th></tr>
-        </thead>
-        <tbody>
-          ${linkedRows || "<tr><td colspan=\"3\">No linked invoices.</td></tr>"}
-        </tbody>
-      </table>
-      <div class="footer">${escapeHtml(printProfile.receipt_footer)}</div>
-    `;
-
-    printDocument(`Receipt ${String(payment.id).slice(0, 8)}`, body, printProfile);
+    void printEnterprisePdf(`/finance/documents/payments/${payment.id}/pdf`);
   }
 
   async function downloadPdf(path: string, fallbackName: string) {
