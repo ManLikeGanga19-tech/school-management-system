@@ -14,8 +14,11 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.prospect import ProspectAccount, ProspectAuthSession, ProspectRequest
+from app.models.tenant import Tenant
+from app.models.payment import Payment
 from app.utils.hashing import hash_password, verify_password
 from app.utils.tokens import create_access_token, create_refresh_token, decode_token
+from app.utils.receipt_pdf import decode_receipt_verify_token
 
 router = APIRouter()
 
@@ -519,3 +522,91 @@ def create_request(
     db.refresh(row)
 
     return _request_out(row)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Receipt verification (tenant-scoped, no authentication required)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ReceiptVerifyOut(BaseModel):
+    """Public receipt verification result."""
+    valid: bool
+    receipt_no: str
+    tenant_name: str
+    tenant_slug: str
+    student_name: str
+    amount: str
+    issued_at: str
+    provider: Optional[str] = None
+    received_at: Optional[str] = None
+    message: str = "Receipt is valid and belongs to this school."
+
+
+@router.get(
+    "/verify/receipt",
+    response_model=ReceiptVerifyOut,
+    summary="Verify a receipt token (public, tenant-scoped)",
+)
+@limiter.limit("30/minute")
+def verify_receipt_public(
+    request: Request,
+    token: str,
+    slug: str,
+    db: Session = Depends(get_db),
+) -> ReceiptVerifyOut:
+    """
+    Verify a receipt QR token scoped to a specific tenant.
+
+    - ``token``: signed JWT embedded in the receipt QR code
+    - ``slug``:  the tenant slug (e.g. ``noveljuniorschool``)
+
+    Returns 200 with ``valid: true`` if the token is authentic and belongs to
+    the requested tenant. Returns 422/400 for malformed input, 403 if the token
+    belongs to a different tenant, 404 if the tenant or payment is not found.
+    """
+    # 1. Decode & validate the JWT signature
+    try:
+        data = decode_receipt_verify_token(token)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid or tampered receipt token.")
+
+    # 2. Resolve the tenant from the slug
+    tenant = db.execute(
+        select(Tenant).where(Tenant.slug == slug, Tenant.is_active == True)
+    ).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="School not found.")
+
+    # 3. Ensure the token belongs to this tenant (tenant-scoped verification)
+    if str(data.get("tenant_id")) != str(tenant.id):
+        raise HTTPException(
+            status_code=403,
+            detail="This receipt was not issued by the requested school.",
+        )
+
+    # 4. Confirm the payment still exists in the DB
+    payment = db.execute(
+        select(Payment).where(
+            Payment.tenant_id == tenant.id,
+            Payment.id == data.get("payment_id"),
+        )
+    ).scalar_one_or_none()
+    if payment is None:
+        raise HTTPException(status_code=404, detail="Payment record not found.")
+
+    return ReceiptVerifyOut(
+        valid=True,
+        receipt_no=str(data.get("receipt_no") or ""),
+        tenant_name=str(tenant.name),
+        tenant_slug=str(tenant.slug),
+        student_name=str(data.get("student_name") or ""),
+        amount=str(data.get("amount") or ""),
+        issued_at=str(data.get("issued_at") or ""),
+        provider=str(getattr(payment, "provider", "") or "") or None,
+        received_at=(
+            getattr(payment, "received_at").isoformat()
+            if getattr(payment, "received_at", None) is not None
+            else None
+        ),
+        message="Receipt is valid and belongs to this school.",
+    )
