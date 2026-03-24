@@ -145,6 +145,7 @@ export const directorNav: AppNavItem[] = [
     icon: "ClipboardCheck",
     children: [
       { href: directorEnrollmentsHref("intake"), label: "Intake", icon: "UserRoundPlus" },
+      { href: directorEnrollmentsHref("students"), label: "Student Registry", icon: "BookUser" },
     ],
   },
   {
@@ -240,6 +241,7 @@ export const secretaryNav: AppNavItem[] = [
     icon: "ClipboardCheck",
     children: [
       { href: secretaryEnrollmentsHref("intake"), label: "Intake", icon: "UserRoundPlus" },
+      { href: secretaryEnrollmentsHref("students"), label: "Student Registry", icon: "BookUser" },
     ],
   },
   {
