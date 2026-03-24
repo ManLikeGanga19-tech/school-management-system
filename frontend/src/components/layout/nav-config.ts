@@ -7,7 +7,7 @@ export type FinanceSection =
   | "payments"
   | "receipts";
 export type EnrollmentSection = "intake" | "students";
-export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar";
+export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings";
 export type StudentSection = "all" | "fee-balance" | "clearance";
 export type HrSection = "staff" | "teachers" | "assets";
 export type ExamSection = "setup" | "timetable" | "progress";
@@ -135,6 +135,7 @@ export const saasNav: AppNavItem[] = [
   { href: "/saas/rbac/permissions", label: "Permissions", icon: "ShieldCheck" },
   { href: "/saas/rbac/roles", label: "Roles", icon: "Layers" },
   { href: "/saas/audit", label: "Audit Logs", icon: "ScrollText" },
+  { href: "/saas/verify-receipt", label: "Verify Receipt", icon: "ShieldCheck" },
 ];
 
 export const directorNav: AppNavItem[] = [
@@ -207,6 +208,7 @@ export const directorNav: AppNavItem[] = [
       { href: directorSchoolSetupHref("subjects"), label: "Subjects", icon: "BookOpenText" },
       { href: directorSchoolSetupHref("timetable"), label: "School Timetable", icon: "CalendarDays" },
       { href: directorSchoolSetupHref("calendar"), label: "Calendar & Exams", icon: "CalendarDays" },
+      { href: directorSchoolSetupHref("print-settings"), label: "Print Settings", icon: "Printer" },
     ],
   },
   {

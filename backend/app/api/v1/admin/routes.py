@@ -34,6 +34,9 @@ from app.api.v1.admin.schemas import (
 from app.models.tenant import Tenant
 from app.models.membership import UserTenant
 from app.models.prospect import ProspectRequest
+from app.models.payment import Payment
+from app.models.audit_log import AuditLog
+from app.utils.receipt_pdf import decode_receipt_verify_token
 from app.models.rbac import (
     Role,
     Permission,
@@ -1105,3 +1108,102 @@ def delete_permission_override(
         db.commit()
 
     return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cross-tenant receipt verification (SUPER_ADMIN only, audit-logged)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AdminReceiptVerifyOut(BaseModel):
+    valid: bool
+    receipt_no: str
+    tenant_id: str
+    tenant_name: str
+    tenant_slug: str
+    student_name: str
+    amount: str
+    issued_at: str
+    provider: Optional[str] = None
+    received_at: Optional[str] = None
+    message: str = "Receipt verified."
+
+
+@router.get(
+    "/verify/receipt",
+    response_model=AdminReceiptVerifyOut,
+    summary="Cross-tenant receipt verification (SUPER_ADMIN)",
+    dependencies=[Depends(require_permission_saas)],
+)
+def admin_verify_receipt(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> AdminReceiptVerifyOut:
+    """
+    Verify a receipt QR token across any tenant.
+
+    Requires SUPER_ADMIN role. The verification is recorded in the audit log
+    so every cross-tenant receipt scan is traceable.
+    """
+    # 1. Decode token (signature check)
+    try:
+        data = decode_receipt_verify_token(token)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid or tampered receipt token.")
+
+    tenant_id = data.get("tenant_id")
+    payment_id = data.get("payment_id")
+
+    # 2. Resolve tenant
+    tenant = db.execute(
+        select(Tenant).where(Tenant.id == tenant_id)
+    ).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found.")
+
+    # 3. Confirm payment exists
+    payment = db.execute(
+        select(Payment).where(
+            Payment.tenant_id == tenant.id,
+            Payment.id == payment_id,
+        )
+    ).scalar_one_or_none()
+    if payment is None:
+        raise HTTPException(status_code=404, detail="Payment record not found.")
+
+    # 4. Audit log this cross-tenant verification
+    try:
+        log = AuditLog(
+            tenant_id=tenant.id,
+            actor_user_id=current_user.id,
+            action="receipt.cross_tenant_verify",
+            resource="payment",
+            resource_id=payment.id,
+            payload={
+                "receipt_no": str(data.get("receipt_no") or ""),
+                "admin_user_id": str(current_user.id),
+                "verified_tenant_slug": str(tenant.slug),
+            },
+        )
+        db.add(log)
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return AdminReceiptVerifyOut(
+        valid=True,
+        receipt_no=str(data.get("receipt_no") or ""),
+        tenant_id=str(tenant.id),
+        tenant_name=str(tenant.name),
+        tenant_slug=str(tenant.slug),
+        student_name=str(data.get("student_name") or ""),
+        amount=str(data.get("amount") or ""),
+        issued_at=str(data.get("issued_at") or ""),
+        provider=str(getattr(payment, "provider", "") or "") or None,
+        received_at=(
+            getattr(payment, "received_at").isoformat()
+            if getattr(payment, "received_at", None) is not None
+            else None
+        ),
+        message="Receipt verified.",
+    )
