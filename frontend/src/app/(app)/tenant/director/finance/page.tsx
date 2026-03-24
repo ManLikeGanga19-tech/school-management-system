@@ -202,6 +202,7 @@ const SECTION_TITLES: Record<FinanceSection, string> = {
   invoices: "Invoices",
   payments: "Payments",
   receipts: "Receipts",
+  "scan-receipt": "Scan Receipt",
 };
 
 const DEFAULT_PRINT_PROFILE: PrintProfile = {
