@@ -4,8 +4,11 @@ from decimal import Decimal
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 from typing import Any, Optional
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func as sa_func
@@ -2039,15 +2042,15 @@ def render_document_pdf(payload: dict[str, Any]) -> bytes:
         try:
             from app.utils.receipt_pdf import generate_receipt_pdf
             return generate_receipt_pdf(payload)
-        except Exception:
-            pass  # fall through to plain-text PDF on any import/rendering error
+        except Exception as exc:
+            logger.exception("receipt_pdf rendering failed, falling back to plain-text: %s", exc)
 
     # Timetable: A4 landscape
     if dtype == "TIMETABLE":
         try:
             return _render_timetable_pdf(payload)
-        except Exception:
-            pass  # fall through to plain-text PDF
+        except Exception as exc:
+            logger.exception("timetable PDF rendering failed, falling back to plain-text: %s", exc)
 
     lines = _document_lines(payload)
 
