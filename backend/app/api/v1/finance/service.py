@@ -1627,12 +1627,29 @@ def build_payment_receipt_document(
         str(e.id): _extract_student_name(getattr(e, "payload", None)) for e in enrollments
     }
 
+    # Fetch invoice lines (fee descriptions) for each allocated invoice
+    invoice_ids = [row.invoice_id for row in alloc_rows if row.invoice_id is not None]
+    invoice_lines_map: dict[str, list[dict]] = {}
+    if invoice_ids:
+        all_lines = db.execute(
+            select(InvoiceLine)
+            .where(InvoiceLine.invoice_id.in_(invoice_ids))
+            .order_by(InvoiceLine.invoice_id.asc(), InvoiceLine.id.asc())
+        ).scalars().all()
+        for line in all_lines:
+            key = str(line.invoice_id)
+            invoice_lines_map.setdefault(key, []).append({
+                "description": str(getattr(line, "description", "") or ""),
+                "amount": str(getattr(line, "amount", 0) or 0),
+            })
+
     allocations = [
         {
             "invoice_id": str(row.invoice_id),
             "invoice_no": (str(row.invoice_no) if row.invoice_no is not None else None),
             "amount": str(row.amount or 0),
             "student_name": enrollment_name_map.get(str(row.enrollment_id), "Unknown student"),
+            "lines": invoice_lines_map.get(str(row.invoice_id), []),
         }
         for row in alloc_rows
     ]
