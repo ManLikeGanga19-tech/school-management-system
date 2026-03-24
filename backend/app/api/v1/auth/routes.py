@@ -1,17 +1,28 @@
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, Cookie, HTTPException, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
-from app.core.database import get_db
-from app.core.config import settings
-from app.core.dependencies import get_tenant, get_current_user, get_current_user_saas
-from app.api.v1.schemas import LoginRequest, TokenResponse, MeResponse
+
 from app.api.v1.auth import service
+from app.api.v1.schemas import LoginRequest, MeResponse, TokenResponse
+from app.core.config import settings
+from app.core.database import get_db
+from app.core.dependencies import (
+    SAAS_TENANT_MARKER,
+    get_current_user,
+    get_current_user_saas,
+    get_tenant,
+)
+from app.core.rate_limit import limiter
+from app.core.session_cache import blacklist_token, invalidate_session
+from app.utils.tokens import decode_token
 
 router = APIRouter()
 
 REFRESH_COOKIE = "sms_refresh"
+
+
 def _refresh_cookie_options() -> dict[str, object]:
     options: dict[str, object] = {
         "key": REFRESH_COOKIE,
@@ -39,12 +50,12 @@ def _clear_refresh_cookie(response: Response) -> None:
     response.delete_cookie(**options)
 
 
-# -------------------------
-# Tenant Login (DIRECTOR/SECRETARY/etc)
-# -------------------------
+# ── Tenant Login (DIRECTOR / SECRETARY / etc.) ────────────────────────────────
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("5/minute")
 def login(
+    request: Request,
     payload: LoginRequest,
     response: Response,
     db: Session = Depends(get_db),
@@ -61,7 +72,6 @@ def login(
         raise HTTPException(status_code=401, detail=str(e))
 
     _set_refresh_cookie(response, refresh)
-
     return TokenResponse(access_token=access)
 
 
@@ -94,32 +104,45 @@ def refresh(
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     _set_refresh_cookie(response, new_refresh)
-
     return TokenResponse(access_token=access)
 
 
 @router.post("/logout")
-def logout(
+async def logout(
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
     sms_refresh: Optional[str] = Cookie(default=None),
 ):
+    # Best-effort: blacklist the access token so it is immediately unusable.
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        access_token = auth_header.split(" ", 1)[1].strip()
+        try:
+            token_payload = decode_token(access_token)
+            await blacklist_token(access_token, token_payload)
+            await invalidate_session(access_token)
+        except Exception:
+            pass  # Never block logout due to Redis or decode errors.
+
     if sms_refresh:
         try:
             payload = decode_token(sms_refresh)
             tenant_id_raw = payload.get("tenant_id")
-            if payload.get("type") == "refresh" and tenant_id_raw and tenant_id_raw != SAAS_TENANT_MARKER:
+            if (
+                payload.get("type") == "refresh"
+                and tenant_id_raw
+                and tenant_id_raw != SAAS_TENANT_MARKER
+            ):
                 service.logout(
                     db,
                     tenant_id=UUID(str(tenant_id_raw)),
                     refresh_token=sms_refresh,
                 )
         except Exception:
-            # Logout should be best-effort and always clear cookie client-side.
             pass
 
     _clear_refresh_cookie(response)
-
     return {"ok": True}
 
 
@@ -151,12 +174,12 @@ def me(
     )
 
 
-# -------------------------
-# SaaS Login (SUPER_ADMIN) - Global (NO tenant)
-# -------------------------
+# ── SaaS Login (SUPER_ADMIN) — no tenant resolution ───────────────────────────
 
 @router.post("/login/saas", response_model=TokenResponse)
+@limiter.limit("5/minute")
 def login_saas(
+    request: Request,
     payload: LoginRequest,
     response: Response,
     db: Session = Depends(get_db),
@@ -170,9 +193,7 @@ def login_saas(
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
-    # Keep cookie path consistent with other auth endpoints
     _set_refresh_cookie(response, refresh)
-
     return TokenResponse(access_token=access)
 
 
@@ -194,21 +215,33 @@ def refresh_saas(
         raise HTTPException(status_code=401, detail=str(e))
 
     _set_refresh_cookie(response, new_refresh)
-
     return TokenResponse(access_token=access)
 
 
 @router.post("/logout/saas")
-def logout_saas(
+async def logout_saas(
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
     sms_refresh: Optional[str] = Cookie(default=None),
 ):
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        access_token = auth_header.split(" ", 1)[1].strip()
+        try:
+            token_payload = decode_token(access_token)
+            await blacklist_token(access_token, token_payload)
+            await invalidate_session(access_token)
+        except Exception:
+            pass
+
     if sms_refresh:
-        service.logout_saas(db, refresh_token=sms_refresh)
+        try:
+            service.logout_saas(db, refresh_token=sms_refresh)
+        except Exception:
+            pass
 
     _clear_refresh_cookie(response)
-
     return {"ok": True}
 
 
@@ -219,7 +252,7 @@ def me_saas(
 ):
     """
     SaaS Me endpoint: no tenant middleware required.
-    Frontend can use this to confirm SUPER_ADMIN session.
+    Frontend uses this to confirm SUPER_ADMIN session.
     """
     return {
         "user_id": str(user.id),

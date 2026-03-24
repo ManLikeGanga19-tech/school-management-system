@@ -888,7 +888,7 @@ function DirectorOverrideDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[540px]">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[540px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-slate-900">
             <ShieldCheck className="h-5 w-5 text-blue-600" />
@@ -1121,7 +1121,7 @@ function StudentDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[640px]">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Eye className="h-4 w-4 text-slate-500" />
@@ -1289,7 +1289,7 @@ function UpdateEnrollmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[680px]">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[680px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Pencil className="h-4 w-4 text-slate-500" />
@@ -2357,7 +2357,7 @@ function SecretaryEnrollmentsPageContent() {
         {/* ── All dialogs — always mounted ── */}
 
         <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
-          <DialogContent className="sm:max-w-[520px]">
+          <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[520px]">
             <DialogHeader>
               <DialogTitle>Reject Intake</DialogTitle>
               <DialogDescription>Provide a clear reason. This will be recorded in the workflow.</DialogDescription>
@@ -2381,7 +2381,7 @@ function SecretaryEnrollmentsPageContent() {
         </Dialog>
 
         <Dialog open={payInterviewOpen} onOpenChange={setPayInterviewOpen}>
-          <DialogContent className="sm:max-w-[520px]">
+          <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[520px]">
             <DialogHeader>
               <DialogTitle>Pay Interview Fee</DialogTitle>
               <DialogDescription>Interview fee payment is required before submitting intake for review.</DialogDescription>

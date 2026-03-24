@@ -162,7 +162,8 @@ type FinanceAction =
   | "create_scholarship";
 
 type StructureRowDraft = {
-  fee_item_id: string;
+  fee_item_id?: string;
+  tempId?: string;
   fee_item_code: string;
   fee_item_name: string;
   category_id: string;
@@ -874,17 +875,53 @@ function SecretaryFinancePageContent() {
       return;
     }
     const source = data.fee_structure_items[selectedStructureId] || [];
-    setStructureRows(
-      source.map((item) => ({
-        fee_item_id: String(item.fee_item_id || ""),
-        fee_item_code: String(item.fee_item_code || ""),
-        fee_item_name: String(item.fee_item_name || ""),
-        category_id: String(item.category_id || ""),
-        category_code: String(item.category_code || ""),
-        category_name: String(item.category_name || ""),
-        amount: String(item.amount ?? ""),
-      }))
-    );
+
+    // If optimistic fee-assign feature enabled, merge server state with local drafts/pending rows.
+    const OPTIMISTIC = process.env.NEXT_PUBLIC_FEATURE_FEE_ASSIGN_OPTIMISTIC === "true";
+    const serverRows: StructureRowDraft[] = source.map((item) => ({
+      fee_item_id: String(item.fee_item_id || ""),
+      fee_item_code: String(item.fee_item_code || ""),
+      fee_item_name: String(item.fee_item_name || ""),
+      category_id: String(item.category_id || ""),
+      category_code: String(item.category_code || ""),
+      category_name: String(item.category_name || ""),
+      amount: String(item.amount ?? ""),
+    }));
+
+    if (!OPTIMISTIC) {
+      setStructureRows(serverRows);
+      return;
+    }
+
+    setStructureRows((local) => {
+      const serverById = new Map<string, StructureRowDraft>();
+      for (const s of serverRows) {
+        if (s.fee_item_id) serverById.set(String(s.fee_item_id), s);
+      }
+
+      const merged: StructureRowDraft[] = [];
+
+      // Preserve local pending rows and local edits
+      for (const l of local) {
+        if (l.tempId) {
+          merged.push(l);
+        } else if (l.fee_item_id && (!serverById.has(l.fee_item_id) || l.amount !== serverById.get(l.fee_item_id)!.amount)) {
+          merged.push(l);
+        } else if (l.fee_item_id && serverById.has(l.fee_item_id)) {
+          serverById.delete(l.fee_item_id);
+        }
+      }
+
+      // Append remaining server items
+      for (const s of serverRows) {
+        if (!s.fee_item_id) continue;
+        if (!merged.find((r) => r.fee_item_id === s.fee_item_id)) {
+          merged.push(s);
+        }
+      }
+
+      return merged;
+    });
   }, [selectedStructureId, data.fee_structure_items]);
 
   useEffect(() => {
@@ -1287,13 +1324,29 @@ function SecretaryFinancePageContent() {
       setError("Amount must be greater than 0.");
       return;
     }
+    // Optimistic append: add a temp row so UI doesn't lose focus or reorder unexpectedly.
+    const itemId = structureExistingItemForm.fee_item_id;
+    const amount = structureExistingItemForm.amount.trim();
+    const feeItem = data.fee_items.find((it) => it.id === itemId);
+    const tempId = `temp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempRow: StructureRowDraft = {
+      tempId,
+      fee_item_code: feeItem?.code || "",
+      fee_item_name: feeItem?.name || "",
+      category_id: feeItem?.category_id || "",
+      category_code: data.fee_categories.find((c) => c.id === feeItem?.category_id)?.code || "",
+      category_name: data.fee_categories.find((c) => c.id === feeItem?.category_id)?.name || "",
+      amount,
+    };
+    setStructureRows((prev) => [...prev, tempRow]);
+
     await postAction(
       "add_structure_item",
       {
         structure_id: selectedStructureId,
         item: {
-          fee_item_id: structureExistingItemForm.fee_item_id,
-          amount: structureExistingItemForm.amount.trim(),
+          fee_item_id: itemId,
+          amount,
         },
       },
       "Structure item saved.",
@@ -1322,6 +1375,19 @@ function SecretaryFinancePageContent() {
       setError("Amount must be greater than 0.");
       return;
     }
+    // Optimistic append for newly created inline item
+    const tempId = `temp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempRow: StructureRowDraft = {
+      tempId,
+      fee_item_code: normalizeCode(code),
+      fee_item_name: name,
+      category_id: structureInlineItemForm.category_id,
+      category_code: data.fee_categories.find((c) => c.id === structureInlineItemForm.category_id)?.code || "",
+      category_name: data.fee_categories.find((c) => c.id === structureInlineItemForm.category_id)?.name || "",
+      amount,
+    };
+    setStructureRows((prev) => [...prev, tempRow]);
+
     await postAction(
       "add_structure_item",
       {
@@ -2279,9 +2345,9 @@ function SecretaryFinancePageContent() {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {structureRows.map((row, index) => (
+                            {structureRows.map((row) => (
                               <TableRow
-                                key={`${row.fee_item_id}-${index}`}
+                                key={row.fee_item_id ?? row.tempId}
                                 className="hover:bg-slate-50"
                               >
                                 <TableCell>
@@ -2304,8 +2370,11 @@ function SecretaryFinancePageContent() {
                                     value={row.amount}
                                     onChange={(e) =>
                                       setStructureRows((prev) =>
-                                        prev.map((entry, idx) =>
-                                          idx === index ? { ...entry, amount: e.target.value } : entry
+                                        prev.map((entry) =>
+                                          (entry.fee_item_id && row.fee_item_id && entry.fee_item_id === row.fee_item_id) ||
+                                          (entry.tempId && row.tempId && entry.tempId === row.tempId)
+                                            ? { ...entry, amount: e.target.value }
+                                            : entry
                                         )
                                       )
                                     }
@@ -2316,7 +2385,7 @@ function SecretaryFinancePageContent() {
                                   <div className="flex gap-1">
                                     <button
                                       onClick={() => void saveStructureRowAmount(row)}
-                                      disabled={pendingAction !== null}
+                                      disabled={pendingAction !== null || !row.fee_item_id}
                                       className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 transition disabled:opacity-50"
                                     >
                                       Save

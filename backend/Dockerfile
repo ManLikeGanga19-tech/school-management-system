@@ -47,6 +47,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /app/app /app/app
 COPY --from=builder /app/alembic.ini /app/alembic.ini
 COPY --from=builder /app/alambic /app/alambic
+COPY --from=builder /app/gunicorn.conf.py /app/gunicorn.conf.py
 
 EXPOSE 8000
 
@@ -55,4 +56,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 USER appuser
 
-CMD ["uvicorn", "app.main:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["gunicorn", "app.main:app", "--config", "/app/gunicorn.conf.py"]

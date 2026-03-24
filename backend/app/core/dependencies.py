@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
-from fastapi import Request, HTTPException, Depends
-from sqlalchemy.orm import Session
+from datetime import datetime, timezone
+
+from fastapi import Depends, HTTPException, Request
 from jose import JWTError
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.api.v1.auth.service import _load_roles_permissions
 from app.core.database import get_db
-from app.utils.tokens import decode_token
+from app.core.session_cache import (
+    blacklist_token,
+    cache_session,
+    get_cached_session,
+    invalidate_session,
+    is_blacklisted,
+)
 from app.models.user import User
+from app.utils.tokens import decode_token
 
 SAAS_TENANT_MARKER = "__saas__"
 
@@ -71,10 +80,17 @@ def _load_effective_permissions(
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 
+def _remaining_ttl(payload: dict) -> int:
+    exp = payload.get("exp")
+    if exp is None:
+        return 60
+    return max(1, int(exp) - int(datetime.now(timezone.utc).timestamp()))
+
+
 # -----------------------------
 # Auth: Tenant Mode (School Users)
 # -----------------------------
-def get_current_user(
+async def get_current_user(
     request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
@@ -84,37 +100,63 @@ def get_current_user(
 
     Rules:
       - Normal tenant token must match resolved tenant.id
-      - SaaS token (tenant_id="__saas__") is allowed ONLY if tenant context exists
-        (i.e. request has a valid X-Tenant-Slug / domain mapping).
+      - SaaS token (tenant_id="__saas__") is allowed ONLY if tenant context
+        exists (i.e. request has a valid X-Tenant-Slug / domain mapping).
+
+    Session caching:
+      - On the first authenticated request the user + permissions are loaded
+        from DB and cached in Redis for the remaining token lifetime.
+      - Subsequent requests with the same token are served from cache,
+        avoiding DB round-trips for the full 15-minute access window.
+
+    Blacklist check:
+      - Tokens blacklisted at logout are rejected immediately, before any
+        DB lookup.
     """
     token = _read_bearer_token(request)
-    payload = _decode_access_token(token)
 
+    # Fast-path: reject revoked tokens before touching the DB.
+    if await is_blacklisted(token):
+        raise HTTPException(status_code=401, detail="Token has been revoked")
+
+    payload = _decode_access_token(token)
     token_tenant_id = payload.get("tenant_id")
 
-    # tenant safety:
-    # - tenant users must match tenant context
-    # - SaaS users may operate in tenant context (impersonation) if tenant is resolved
     if token_tenant_id == SAAS_TENANT_MARKER:
-        # SaaS token is allowed here ONLY because get_tenant already ensured tenant exists.
-        # This supports SaaS/operator viewing tenant pages with X-Tenant-Slug.
+        # SaaS token allowed here only because get_tenant already confirmed
+        # the tenant exists. Supports operator impersonation with X-Tenant-Slug.
         pass
     else:
         if token_tenant_id != str(tenant.id):
             raise HTTPException(status_code=401, detail="Tenant mismatch")
 
     user_id = payload.get("sub")
+
+    # Cache hit: skip DB permission round-trip.
+    cached = await get_cached_session(token)
+    if cached:
+        user = _load_active_user(db, cached.get("user_id") or user_id)
+        request.state.user_id = user.id
+        request.state.roles = cached.get("roles", [])
+        request.state.permissions = cached.get("permissions", [])
+        return user
+
+    # Cache miss: full DB load then populate cache.
     user = _load_active_user(db, user_id)
     roles, permissions = _load_effective_permissions(
         db,
         user_id=str(user.id),
         tenant_id=tenant.id,
     )
-
-    # For AuditMiddleware + RBAC checks
     request.state.user_id = user.id
     request.state.roles = roles
     request.state.permissions = permissions
+
+    await cache_session(
+        token,
+        {"user_id": str(user.id), "roles": roles, "permissions": permissions},
+        ttl_seconds=_remaining_ttl(payload),
+    )
 
     return user
 
@@ -122,29 +164,45 @@ def get_current_user(
 # -----------------------------
 # Auth: SaaS Mode (SUPER_ADMIN)
 # -----------------------------
-def get_current_user_saas(
+async def get_current_user_saas(
     request: Request,
     db: Session = Depends(get_db),
 ):
     token = _read_bearer_token(request)
+
+    if await is_blacklisted(token):
+        raise HTTPException(status_code=401, detail="Token has been revoked")
+
     payload = _decode_access_token(token)
 
-    # SaaS safety: token must be a SaaS token
     if payload.get("tenant_id") != SAAS_TENANT_MARKER:
         raise HTTPException(status_code=401, detail="Not a SaaS token")
 
     user_id = payload.get("sub")
+
+    cached = await get_cached_session(token)
+    if cached:
+        user = _load_active_user(db, cached.get("user_id") or user_id)
+        request.state.user_id = user.id
+        request.state.roles = cached.get("roles", [])
+        request.state.permissions = cached.get("permissions", [])
+        return user
+
     user = _load_active_user(db, user_id)
     roles, permissions = _load_effective_permissions(
         db,
         user_id=str(user.id),
         tenant_id=None,
     )
-
-    # For AuditMiddleware + RBAC checks
     request.state.user_id = user.id
     request.state.roles = roles
     request.state.permissions = permissions
+
+    await cache_session(
+        token,
+        {"user_id": str(user.id), "roles": roles, "permissions": permissions},
+        ttl_seconds=_remaining_ttl(payload),
+    )
 
     return user
 

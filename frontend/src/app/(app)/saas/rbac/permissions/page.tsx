@@ -223,7 +223,7 @@ export default function SaaSPermissionsPage() {
 
       {/* ── Create dialog — top level ── */}
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create Permission</DialogTitle>
             <DialogDescription>
@@ -296,7 +296,7 @@ export default function SaaSPermissionsPage() {
 
       {/* ── Edit dialog — top level ── */}
       <Dialog open={openEdit} onOpenChange={setOpenEdit}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Permission</DialogTitle>
             <DialogDescription>

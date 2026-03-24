@@ -510,6 +510,13 @@ export async function apiFetchRaw(path: string, opts?: ApiOptions): Promise<Resp
   return res;
 }
 
+// ─── Test helpers ─────────────────────────────────────────────────────────────
+// @internal — exported only for unit tests. Do not call in application code.
+export function _resetRefreshState() {
+  _refreshPromises.tenant = null;
+  _refreshPromises.saas = null;
+}
+
 // ─── Convenience wrappers ─────────────────────────────────────────────────────
 
 export const api = {

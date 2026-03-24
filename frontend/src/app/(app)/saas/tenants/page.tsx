@@ -660,7 +660,7 @@ export default function SaaSTenantsPage() {
 
       {/* ── Create tenant dialog ── */}
       <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) resetCreateForm(); }}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Onboard New Tenant</DialogTitle>
             <DialogDescription>
@@ -808,7 +808,7 @@ export default function SaaSTenantsPage() {
           if (!open) resetEditForm();
         }}
       >
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Edit Tenant Profile</DialogTitle>
             <DialogDescription>
@@ -932,7 +932,7 @@ export default function SaaSTenantsPage() {
           if (!o) setProfileTarget(null);
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Tenant Print Profile</DialogTitle>
             <DialogDescription>

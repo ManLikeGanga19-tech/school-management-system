@@ -1165,7 +1165,7 @@ export function EventsModulePage({ appTitle, nav, activeHref }: EventsModulePage
         </div>
 
         <Dialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen}>
-          <DialogContent className="sm:max-w-xl">
+          <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-xl">
             {calendarDialogMode === "entry" && calendarDialogEntry ? (
               <>
                 <DialogHeader>

@@ -377,7 +377,7 @@ export default function DirectorSubscriptionsPage() {
 
       {/* ── M-Pesa Payment Dialog ─────────────────────────────────────────── */}
       <Dialog open={payOpen} onOpenChange={closePay}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">

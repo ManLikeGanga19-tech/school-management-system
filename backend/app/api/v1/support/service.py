@@ -133,7 +133,7 @@ def _serialize_message(row: dict[str, Any]) -> dict[str, Any]:
         "reply_to_sender_name": (
             str(row.get("reply_to_sender_name")) if row.get("reply_to_sender_name") else None
         ),
-        "body": str(row.get("body") or ""),
+        "message": str(row.get("body") or ""),
         "created_at": (str(row.get("created_at")) if row.get("created_at") else None),
     }
 

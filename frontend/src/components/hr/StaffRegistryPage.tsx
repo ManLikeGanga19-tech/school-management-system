@@ -442,7 +442,7 @@ export function StaffRegistryPage({
     <AppShell title={appTitle} nav={nav} activeHref={activeHref}>
       <div className="space-y-5">
         <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-          <DialogContent className="sm:max-w-[760px]">
+          <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-[760px]">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Eye className="h-4 w-4 text-slate-500" />
@@ -453,8 +453,8 @@ export function StaffRegistryPage({
               </DialogDescription>
             </DialogHeader>
             {selectedRow && (
-              <div className="max-h-[68vh] overflow-y-auto space-y-4">
-                <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+              <div className="max-h-[68vh] overflow-y-auto space-y-4 pr-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                   <div>
                     <div className="text-[10px] uppercase text-slate-400">Full Name</div>
                     <div className="text-sm font-medium text-slate-900">{selectedRow.full_name}</div>
@@ -557,7 +557,7 @@ export function StaffRegistryPage({
         </Dialog>
 
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent className="sm:max-w-[840px]">
+          <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-[840px]">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <PencilLine className="h-4 w-4 text-slate-500" />
@@ -569,7 +569,7 @@ export function StaffRegistryPage({
             </DialogHeader>
 
             <div className="max-h-[66vh] overflow-y-auto space-y-3 pr-1">
-              <div className="grid gap-3 md:grid-cols-6">
+              <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-6">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Staff No</Label>
                   <Input
@@ -685,7 +685,7 @@ export function StaffRegistryPage({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
                 <div className="space-y-1.5">
                   <Label className="text-xs">First Name</Label>
                   <Input
@@ -716,7 +716,7 @@ export function StaffRegistryPage({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-5">
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-5">
                 <div className="space-y-1.5">
                   <Label className="text-xs">ID Number</Label>
                   <Input
@@ -754,7 +754,7 @@ export function StaffRegistryPage({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Date of Birth</Label>
                   <Input
@@ -793,7 +793,7 @@ export function StaffRegistryPage({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Address</Label>
                   <Textarea
@@ -815,7 +815,7 @@ export function StaffRegistryPage({
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-red-700">
                     Director Separation Controls
                   </div>
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs">Staff Lifecycle Status</Label>
                       <Select
@@ -904,7 +904,7 @@ export function StaffRegistryPage({
               </p>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-6">
+            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-6">
               <div className="space-y-1.5">
                 <Label className="text-xs">Staff Type *</Label>
                 <Select
@@ -1033,7 +1033,7 @@ export function StaffRegistryPage({
               </div>
             </div>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-4">
+            <div className="mt-3 grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
               <div className="space-y-1.5">
                 <Label className="text-xs">First Name *</Label>
                 <Input
@@ -1065,7 +1065,7 @@ export function StaffRegistryPage({
               </div>
             </div>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-5">
+            <div className="mt-3 grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-5">
               <div className="space-y-1.5">
                 <Label className="text-xs">ID Number</Label>
                 <Input
@@ -1103,7 +1103,7 @@ export function StaffRegistryPage({
               </div>
             </div>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-4">
+            <div className="mt-3 grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
               <div className="space-y-1.5">
                 <Label className="text-xs">Date of Birth</Label>
                 <Input
@@ -1140,7 +1140,7 @@ export function StaffRegistryPage({
               </div>
             </div>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div className="mt-3 grid gap-3 grid-cols-1 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label className="text-xs">Address</Label>
                 <Textarea

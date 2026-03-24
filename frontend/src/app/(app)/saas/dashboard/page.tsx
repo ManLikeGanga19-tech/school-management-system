@@ -11,6 +11,7 @@ import {
 } from "@/components/dashboard/dashboard-primitives";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { formatKes, timeAgo } from "@/lib/format";
 import {
   Building2,
   CheckCircle,
@@ -136,24 +137,6 @@ type DarajaConnectivityCheck = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatKes(value: number) {
-  return new Intl.NumberFormat("en-KE", {
-    style: "currency",
-    currency: "KES",
-    maximumFractionDigits: 0,
-    notation: value >= 1_000_000 ? "compact" : "standard",
-  }).format(value);
-}
-
-function timeAgo(iso?: string) {
-  if (!iso) return "—";
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
 
 function avatarColor(id: string) {
   const palette = [
@@ -664,11 +647,7 @@ export default function SaaSDashboardPage() {
                   <div className="flex flex-col items-center gap-2 py-8 text-center">
                     <Layers className="h-8 w-8 text-slate-200" />
                     <p className="text-sm text-slate-400">{kpiLoading ? "Loading…" : "No metrics yet"}</p>
-                    <p className="text-xs text-slate-300 max-w-xs">
-                      Ensure{" "}
-                      <code className="rounded bg-slate-100 px-1">GET /api/v1/admin/saas/metrics</code>{" "}
-                      is enabled and permissions allow access.
-                    </p>
+                    <p className="text-xs text-slate-300">Metrics will appear once subscriptions are active.</p>
                   </div>
                 ) : metrics.subscriptions.plans.length === 0 ? (
                   <p className="py-6 text-center text-sm text-slate-400">No plans configured yet.</p>
@@ -728,11 +707,8 @@ export default function SaaSDashboardPage() {
                 {tenants.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 py-8 text-center">
                     <Building2 className="h-8 w-8 text-slate-200" />
-                    <p className="text-sm text-slate-400">{initialLoading ? "Loading…" : "No recent tenants"}</p>
-                    <p className="text-xs text-slate-300 max-w-xs">
-                      Endpoint:{" "}
-                      <code className="rounded bg-slate-100 px-1">GET /api/v1/admin/saas/tenants/recent</code>
-                    </p>
+                    <p className="text-sm text-slate-400">{initialLoading ? "Loading…" : "No tenants onboarded yet"}</p>
+                    <p className="text-xs text-slate-300">New schools will appear here once they are created.</p>
                   </div>
                 ) : (
                   tenants.slice(0, 6).map((t) => (
@@ -805,11 +781,8 @@ export default function SaaSDashboardPage() {
               {recentPayments.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-8 text-center">
                   <HandCoins className="h-8 w-8 text-slate-200" />
-                  <p className="text-sm text-slate-400">{initialLoading ? "Loading…" : "No recent payments yet"}</p>
-                  <p className="text-xs text-slate-300 max-w-xs">
-                    Endpoint:{" "}
-                    <code className="rounded bg-slate-100 px-1">GET /api/v1/admin/saas/payments/recent</code>
-                  </p>
+                  <p className="text-sm text-slate-400">{initialLoading ? "Loading…" : "No payments recorded yet"}</p>
+                  <p className="text-xs text-slate-300">Subscription payments will appear here as schools pay.</p>
                 </div>
               ) : (
                 recentPayments.map((p) => (

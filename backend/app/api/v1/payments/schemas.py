@@ -51,6 +51,9 @@ class SubscriptionPaymentInitiateOut(BaseModel):
     response_description: str
     customer_message: Optional[str] = None
     status: SubscriptionPaymentStatus = "pending"
+    # True when an existing in-flight payment was returned instead of firing a
+    # new STK push.  The frontend should poll payment-status as usual.
+    duplicate: bool = False
 
 
 class SubscriptionPaymentStatusOut(BaseModel):

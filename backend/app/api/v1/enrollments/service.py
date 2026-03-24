@@ -512,11 +512,6 @@ def director_override(
             "Director override is only applicable to ENROLLED or ENROLLED_PARTIAL records."
         )
 
-    if not (getattr(enrollment, "secretary_edit_locked", False) or False):
-        raise ValueError(
-            "This record is not currently locked. No override is required."
-        )
-
     prev_count = getattr(enrollment, "secretary_edit_count", 0) or 0
     if hasattr(enrollment, "secretary_edit_count"):
         enrollment.secretary_edit_count = 0
@@ -658,10 +653,12 @@ def mark_enrolled(
         db, tenant_id=tenant_id, enrollment_id=enrollment.id
     )
 
-    if not finance["interview"]["paid_ok"]:
+    if finance["interview"]["invoice_id"] and not finance["interview"]["paid_ok"]:
         raise ValueError("Interview fee must be fully paid before final enrollment.")
 
-    if finance["fees"]["paid_ok"]:
+    if finance["fees"]["invoice_id"] is None:
+        new_status = "ENROLLED"
+    elif finance["fees"]["paid_ok"]:
         new_status = "ENROLLED"
     elif finance["fees"]["partial_ok"]:
         new_status = "ENROLLED_PARTIAL"
@@ -735,12 +732,10 @@ def approve_transfer(
     finance = finance_service.get_enrollment_finance_status(
         db, tenant_id=tenant_id, enrollment_id=enrollment.id
     )
-    if not finance["fees"]["paid_ok"]:
+    if finance["fees"]["invoice_id"] and not finance["fees"]["paid_ok"]:
         raise ValueError(
             "School fees must be fully cleared before the transfer is approved."
         )
-
-    _require_payload_fields(enrollment, ["assessment_no", "nemis_no"])
 
     enrollment.status = "TRANSFERRED"
     enrollment.updated_by = actor_user_id
