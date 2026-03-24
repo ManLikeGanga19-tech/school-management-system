@@ -372,12 +372,12 @@ export default function SaaSAcademicCalendarPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50 hover:bg-slate-50">
-                    <TableHead className="w-[80px]">Term</TableHead>
-                    <TableHead className="min-w-[180px]">Term Code</TableHead>
-                    <TableHead className="min-w-[220px]">Term Name</TableHead>
-                    <TableHead className="min-w-[160px]">Start Date</TableHead>
-                    <TableHead className="min-w-[160px]">End Date</TableHead>
-                    <TableHead className="w-[120px]">Active</TableHead>
+                    <TableHead className="w-12 sm:w-[80px] text-xs">Term</TableHead>
+                    <TableHead className="min-w-[130px] sm:min-w-[180px] text-xs">Term Code</TableHead>
+                    <TableHead className="min-w-[150px] sm:min-w-[220px] text-xs">Term Name</TableHead>
+                    <TableHead className="min-w-[120px] sm:min-w-[160px] text-xs">Start Date</TableHead>
+                    <TableHead className="min-w-[120px] sm:min-w-[160px] text-xs">End Date</TableHead>
+                    <TableHead className="w-20 text-xs">Active</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

@@ -435,7 +435,7 @@ export default function TenantRbacPage() {
 
       {/* ── Add Override Dialog — top-level ── */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>New Permission Override</DialogTitle>
             <DialogDescription>
@@ -573,7 +573,7 @@ export default function TenantRbacPage() {
 
       {/* ── Delete Confirmation ── */}
       <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Remove Override</DialogTitle>
             <DialogDescription>

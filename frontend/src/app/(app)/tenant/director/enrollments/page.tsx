@@ -504,20 +504,20 @@ function StudentDetailDialog({ row, open, onClose }: {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[640px]">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Eye className="h-4 w-4 text-slate-500" /> Student Record
           </DialogTitle>
           <DialogDescription>Full details for {studentName(p)}</DialogDescription>
         </DialogHeader>
-        <div className="max-h-[65vh] overflow-y-auto space-y-4">
+        <div className="max-h-[65vh] overflow-y-auto space-y-4 pr-1">
           <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 flex-wrap">
             <EnrollmentStatusBadge status={row.status} />
             {admNum !== "—" && <span className="font-mono text-xs font-semibold text-emerald-700">{admNum}</span>}
             <span className="ml-auto font-mono text-[11px] text-slate-400 select-all">{row.id}</span>
           </div>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
             {fields.map(({ label, value }) => (
               <div key={label} className="space-y-0.5">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
@@ -528,7 +528,7 @@ function StudentDetailDialog({ row, open, onClose }: {
           {(p as any)?.documents && (
             <div className="rounded-xl border border-slate-100 overflow-hidden">
               <div className="bg-slate-50 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Documents</div>
-              <div className="grid grid-cols-2 gap-2 p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-4">
                 {requirementChecklist.map((item) => {
                   const checked = !!(p as any).documents?.[item.key];
                   return (
@@ -609,7 +609,7 @@ function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, t
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[680px]">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-[680px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Pencil className="h-4 w-4 text-slate-500" />
@@ -620,8 +620,8 @@ function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, t
             Status: <span className="font-semibold">{row.status}</span>
           </DialogDescription>
         </DialogHeader>
-        <div className="max-h-[60vh] overflow-y-auto">
-          <div className="grid gap-4 py-2 md:grid-cols-2">
+        <div className="max-h-[65vh] overflow-y-auto pr-1">
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
             <FormField label="Full Name" required>
               <Input value={draft.student_name} onChange={(e) => setDraft((p) => ({ ...p, student_name: e.target.value }))} />
             </FormField>
@@ -770,7 +770,7 @@ function DirectorOverrideDialog({ row, open, onClose, onConfirm, loading }: {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[540px]">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[540px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-blue-600" /> Unlock Secretary Edit Lock
@@ -848,7 +848,7 @@ function DeleteStudentDialog({ row, open, onClose, onSoftDelete, onHardDelete, s
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-red-700">
             <Trash2 className="h-5 w-5" />
@@ -1429,7 +1429,7 @@ function TenantEnrollmentsPageContent() {
 
         {/* Reject dialog */}
         <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
-          <DialogContent className="sm:max-w-[520px]">
+          <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[520px]">
             <DialogHeader>
               <DialogTitle>Reject Enrollment</DialogTitle>
               <DialogDescription>Provide a written reason. This will be recorded in the workflow.</DialogDescription>

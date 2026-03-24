@@ -474,7 +474,7 @@ export default function SaaSRolesPage() {
 
       {/* ── Create role dialog ── */}
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create Role</DialogTitle>
             <DialogDescription>
@@ -575,7 +575,7 @@ export default function SaaSRolesPage() {
 
       {/* ── Inspect dialog ── */}
       <Dialog open={inspectOpen} onOpenChange={setInspectOpen}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Role Permissions</DialogTitle>
             <DialogDescription>
@@ -614,7 +614,7 @@ export default function SaaSRolesPage() {
 
       {/* ── Edit dialog ── */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Role</DialogTitle>
             <DialogDescription>
@@ -652,7 +652,7 @@ export default function SaaSRolesPage() {
 
       {/* ── Manage permissions dialog ── */}
       <Dialog open={permOpen} onOpenChange={setPermOpen}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Manage Permissions</DialogTitle>
             <DialogDescription>

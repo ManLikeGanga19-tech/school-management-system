@@ -161,6 +161,23 @@ services:
       - frontend-net
       - backend-net
 
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: sms-dozzle
+    environment:
+      DOZZLE_AUTH_PROVIDER: simple
+      DOZZLE_USERNAME: ${DOZZLE_USERNAME:-admin}
+      DOZZLE_PASSWORD: ${DOZZLE_PASSWORD:-changeme}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${DOZZLE_PORT:-127.0.0.1:9999}:8080"
+    restart: unless-stopped
+    cpus: "0.10"
+    mem_limit: "64m"
+    networks:
+      - frontend-net
+
 volumes:
   postgres_data:
   redis_data:
