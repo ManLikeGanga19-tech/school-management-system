@@ -171,6 +171,13 @@ def _profile_to_dict(profile: TenantPrintProfile | None, *, tenant_name: str | N
         or str(tenant_name or "").strip()
         or "School Management System"
     )
+
+    def _s(attr: str) -> str | None:
+        if profile is None:
+            return None
+        val = str(getattr(profile, attr, "") or "").strip()
+        return val or None
+
     return {
         "logo_url": (str(getattr(profile, "logo_url", "") or "").strip() or None),
         "school_header": school_header,
@@ -182,6 +189,13 @@ def _profile_to_dict(profile: TenantPrintProfile | None, *, tenant_name: str | N
         "currency": str(getattr(profile, "currency", "KES") or "KES"),
         "thermal_width_mm": int(getattr(profile, "thermal_width_mm", 80) or 80),
         "qr_enabled": bool(getattr(profile, "qr_enabled", True)),
+        "po_box": _s("po_box"),
+        "physical_address": _s("physical_address"),
+        "phone": _s("phone"),
+        "email": _s("email"),
+        "school_motto": _s("school_motto"),
+        "authorized_signatory_name": _s("authorized_signatory_name"),
+        "authorized_signatory_title": _s("authorized_signatory_title"),
     }
 
 
@@ -1664,6 +1678,8 @@ def build_payment_receipt_document(
         "allocations": allocations,
         "checksum": checksum,
         "qr_payload": qr_payload,
+        # slug needed by enterprise PDF generator for QR verify URL
+        "tenant_slug": str(getattr(db.get(Tenant, tenant_id), "slug", "") or ""),
     }
 
 
@@ -1867,7 +1883,155 @@ def _document_lines(payload: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _render_timetable_pdf(payload: dict[str, Any]) -> bytes:
+    """A4 landscape timetable — black & white, readable font."""
+    from reportlab.lib.pagesizes import A4, landscape  # type: ignore
+    from reportlab.lib.units import mm  # type: ignore
+    from reportlab.lib import colors  # type: ignore
+    from reportlab.platypus import (  # type: ignore
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+        HRFlowable,
+    )
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # type: ignore
+    from reportlab.lib.enums import TA_CENTER  # type: ignore
+    import io as _io
+
+    profile = payload.get("profile") or {}
+    school_name = str(profile.get("school_header") or payload.get("tenant_name") or "School")
+
+    styles = getSampleStyleSheet()
+
+    def _s(name: str, *, size: int = 9, bold: bool = False, center: bool = False) -> ParagraphStyle:
+        return ParagraphStyle(
+            name,
+            parent=styles["Normal"],
+            fontSize=size,
+            leading=size + 3,
+            alignment=TA_CENTER if center else 0,
+            fontName="Helvetica-Bold" if bold else "Helvetica",
+            spaceAfter=2,
+        )
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+        leftMargin=15 * mm,
+        rightMargin=15 * mm,
+    )
+
+    story = []
+    story.append(Paragraph(school_name.upper(), _s("t", size=14, bold=True, center=True)))
+    story.append(Paragraph("SCHOOL TIMETABLE", _s("st", size=11, center=True)))
+    story.append(Spacer(1, 3 * mm))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.black))
+    story.append(Spacer(1, 2 * mm))
+
+    # Filters summary
+    filters = payload.get("filters")
+    if isinstance(filters, dict):
+        parts = []
+        for label, key in (
+            ("Term", "term"),
+            ("Class", "class_code"),
+            ("Day", "day_of_week"),
+            ("Type", "slot_type"),
+        ):
+            val = str(filters.get(key) or "").strip()
+            if val:
+                parts.append(f"{label}: {val}")
+        if parts:
+            story.append(Paragraph("  |  ".join(parts), _s("filt", center=True)))
+            story.append(Spacer(1, 2 * mm))
+
+    entries = [e for e in (payload.get("entries") or []) if isinstance(e, dict)]
+
+    if not entries:
+        story.append(Paragraph("No timetable entries found.", _s("empty", center=True)))
+    else:
+        headers = ["Day", "Time", "Class", "Type", "Title / Subject", "Teacher", "Term"]
+        rows = [headers]
+        for e in entries:
+            title = str(e.get("title") or "")
+            subject = str(e.get("subject") or "")
+            title_subject = f"{title} / {subject}" if title and subject else title or subject
+            rows.append(
+                [
+                    str(e.get("day_of_week") or ""),
+                    str(e.get("time_range") or ""),
+                    str(e.get("class_code") or ""),
+                    str(e.get("slot_type") or ""),
+                    title_subject,
+                    str(e.get("teacher") or ""),
+                    str(e.get("term") or ""),
+                ]
+            )
+
+        page_w = landscape(A4)[0] - 30 * mm
+        col_widths = [
+            22 * mm,  # Day
+            25 * mm,  # Time
+            22 * mm,  # Class
+            22 * mm,  # Type
+            None,     # Title/Subject (auto fill)
+            35 * mm,  # Teacher
+            25 * mm,  # Term
+        ]
+        # Fill remaining width for Title/Subject
+        fixed = sum(w for w in col_widths if w is not None)
+        col_widths[4] = max(page_w - fixed, 30 * mm)
+
+        table = Table(rows, colWidths=col_widths, repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.black),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#eeeeee")]),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#aaaaaa")),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("WORDWRAP", (0, 0), (-1, -1), True),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        story.append(table)
+
+    story.append(Spacer(1, 4 * mm))
+    generated = str(payload.get("generated_at") or datetime.now(timezone.utc).isoformat())
+    story.append(Paragraph(f"Generated: {generated}", _s("gen", size=7, center=True)))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
 def render_document_pdf(payload: dict[str, Any]) -> bytes:
+    dtype = str(payload.get("document_type") or "").upper()
+
+    # Enterprise receipt template (A4 or Thermal with embedded QR code)
+    if dtype == "RECEIPT":
+        try:
+            from app.utils.receipt_pdf import generate_receipt_pdf
+            return generate_receipt_pdf(payload)
+        except Exception:
+            pass  # fall through to plain-text PDF on any import/rendering error
+
+    # Timetable: A4 landscape
+    if dtype == "TIMETABLE":
+        try:
+            return _render_timetable_pdf(payload)
+        except Exception:
+            pass  # fall through to plain-text PDF
+
     lines = _document_lines(payload)
 
     page_width = 595
