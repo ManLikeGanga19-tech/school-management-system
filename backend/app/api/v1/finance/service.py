@@ -4,8 +4,11 @@ from decimal import Decimal
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 from typing import Any, Optional
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func as sa_func
@@ -188,7 +191,11 @@ def _profile_to_dict(profile: TenantPrintProfile | None, *, tenant_name: str | N
         "paper_size": _coerce_profile_paper_size(getattr(profile, "paper_size", "A4")),
         "currency": str(getattr(profile, "currency", "KES") or "KES"),
         "thermal_width_mm": int(getattr(profile, "thermal_width_mm", 80) or 80),
-        "qr_enabled": bool(getattr(profile, "qr_enabled", True)),
+        "qr_enabled": (
+            getattr(profile, "qr_enabled", None)
+            if getattr(profile, "qr_enabled", None) is not None
+            else True
+        ),
         "po_box": _s("po_box"),
         "physical_address": _s("physical_address"),
         "phone": _s("phone"),
@@ -2034,20 +2041,28 @@ def _render_timetable_pdf(payload: dict[str, Any]) -> bytes:
 def render_document_pdf(payload: dict[str, Any]) -> bytes:
     dtype = str(payload.get("document_type") or "").upper()
 
+    # Enterprise invoice template (A4, school header + QR + fee items table)
+    if dtype == "INVOICE":
+        try:
+            from app.utils.receipt_pdf import generate_invoice_pdf
+            return generate_invoice_pdf(payload)
+        except Exception as exc:
+            logger.exception("invoice_pdf rendering failed, falling back to plain-text: %s", exc)
+
     # Enterprise receipt template (A4 or Thermal with embedded QR code)
     if dtype == "RECEIPT":
         try:
             from app.utils.receipt_pdf import generate_receipt_pdf
             return generate_receipt_pdf(payload)
-        except Exception:
-            pass  # fall through to plain-text PDF on any import/rendering error
+        except Exception as exc:
+            logger.exception("receipt_pdf rendering failed, falling back to plain-text: %s", exc)
 
     # Timetable: A4 landscape
     if dtype == "TIMETABLE":
         try:
             return _render_timetable_pdf(payload)
-        except Exception:
-            pass  # fall through to plain-text PDF
+        except Exception as exc:
+            logger.exception("timetable PDF rendering failed, falling back to plain-text: %s", exc)
 
     lines = _document_lines(payload)
 
