@@ -5,7 +5,8 @@ export type FinanceSection =
   | "fee-structures"
   | "invoices"
   | "payments"
-  | "receipts";
+  | "receipts"
+  | "scan-receipt";
 export type EnrollmentSection = "intake" | "students";
 export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings";
 export type StudentSection = "all" | "fee-balance" | "clearance";
@@ -17,6 +18,7 @@ export type ExamSection = "setup" | "timetable" | "progress";
 // ───────────────────────────────────────────────────────────────
 
 export function directorFinanceHref(section: FinanceSection) {
+  if (section === "scan-receipt") return "/tenant/director/finance/scan-receipt";
   return `/tenant/director/finance?section=${section}`;
 }
 
@@ -57,6 +59,7 @@ export function directorEventsHref() {
 // ───────────────────────────────────────────────────────────────
 
 export function secretaryFinanceHref(section: FinanceSection) {
+  if (section === "scan-receipt") return "/tenant/secretary/finance/scan-receipt";
   return `/tenant/secretary/finance?section=${section}`;
 }
 
@@ -177,6 +180,7 @@ export const directorNav: AppNavItem[] = [
       { href: directorFinanceHref("invoices"), label: "Invoices", icon: "FileText" },
       { href: directorFinanceHref("payments"), label: "Payments", icon: "HandCoins" },
       { href: directorFinanceHref("receipts"), label: "Receipts", icon: "Receipt" },
+      { href: directorFinanceHref("scan-receipt"), label: "Scan Receipt", icon: "ScanLine" },
     ],
   },
   {
@@ -273,6 +277,7 @@ export const secretaryNav: AppNavItem[] = [
       { href: secretaryFinanceHref("invoices"), label: "Invoices", icon: "FileText" },
       { href: secretaryFinanceHref("payments"), label: "Payments", icon: "HandCoins" },
       { href: secretaryFinanceHref("receipts"), label: "Receipts", icon: "Receipt" },
+      { href: secretaryFinanceHref("scan-receipt"), label: "Scan Receipt", icon: "ScanLine" },
     ],
   },
   {

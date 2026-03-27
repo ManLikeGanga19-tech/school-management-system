@@ -565,6 +565,230 @@ def _generate_thermal_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
     return buf.getvalue()
 
 
+# ─── Invoice A4 ───────────────────────────────────────────────────────────────
+
+def generate_invoice_pdf(doc: dict[str, Any]) -> bytes:
+    """Generate an enterprise A4 invoice PDF."""
+    from reportlab.lib.pagesizes import A4  # type: ignore
+    from reportlab.lib.units import mm  # type: ignore
+    from reportlab.lib import colors  # type: ignore
+    from reportlab.platypus import (  # type: ignore
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+        HRFlowable, Image as RLImage,
+    )
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # type: ignore
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT, TA_JUSTIFY  # type: ignore
+
+    profile  = doc.get("profile") or {}
+    currency = str(doc.get("currency") or profile.get("currency") or "KES")
+
+    styles = getSampleStyleSheet()
+
+    def _s(
+        name: str,
+        size: int = 10,
+        bold: bool = False,
+        align: int = TA_LEFT,
+        color=colors.black,
+        space_after: int = 2,
+        leading: int | None = None,
+    ) -> ParagraphStyle:
+        return ParagraphStyle(
+            name,
+            parent=styles["Normal"],
+            fontSize=size,
+            fontName="Helvetica-Bold" if bold else "Helvetica",
+            alignment=align,
+            textColor=color,
+            spaceAfter=space_after,
+            leading=leading or size + 3,
+        )
+
+    buf = io.BytesIO()
+    page_w, page_h = A4
+    lm = rm = 18 * mm
+    usable_w = page_w - lm - rm
+
+    doc_pdf = SimpleDocTemplate(
+        buf, pagesize=A4,
+        topMargin=12 * mm, bottomMargin=15 * mm,
+        leftMargin=lm, rightMargin=rm,
+    )
+
+    story = []
+
+    # ── Header: address block (left) + QR (right) ──────────────────────────
+    school_name = str(profile.get("school_header") or "School")
+    po_box      = str(profile.get("po_box") or "")
+    address     = str(profile.get("physical_address") or "")
+    phone       = str(profile.get("phone") or "")
+    email_str   = str(profile.get("email") or "")
+    motto       = str(profile.get("school_motto") or "")
+
+    addr_lines = []
+    if po_box:
+        addr_lines.append(f"P.O. Box {po_box}")
+    if address:
+        addr_lines.append(address)
+    if email_str:
+        addr_lines.append(email_str)
+    if phone:
+        addr_lines.append(phone)
+
+    addr_text = "<br/>".join(addr_lines) if addr_lines else school_name
+    addr_para = Paragraph(addr_text, _s("addr", size=8, space_after=0))
+
+    # QR — use the qr_payload JSON string (checksum-based, not JWT)
+    qr_size = 30 * mm
+    qr_payload = str(doc.get("qr_payload") or "")
+    qr_enabled = bool(profile.get("qr_enabled", True))
+    if qr_enabled and qr_payload:
+        qr_img: Any = RLImage(io.BytesIO(_qr_png(qr_payload, box_size=3)), width=qr_size, height=qr_size)
+    else:
+        qr_img = Spacer(qr_size, qr_size)
+
+    header_table = Table(
+        [[addr_para, qr_img]],
+        colWidths=[usable_w - qr_size - 4 * mm, qr_size + 4 * mm],
+    )
+    header_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN",  (1, 0), (1, 0),  "RIGHT"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 3 * mm))
+
+    # ── Solid black rule ───────────────────────────────────────────────────
+    story.append(HRFlowable(width="100%", thickness=2, color=colors.black))
+    story.append(Spacer(1, 6 * mm))
+
+    # ── Title ──────────────────────────────────────────────────────────────
+    story.append(Paragraph("Invoice", _s("title", size=18, bold=True, align=TA_CENTER, space_after=6)))
+
+    # ── Invoice No / Date ──────────────────────────────────────────────────
+    invoice_no = str(doc.get("document_no") or "")
+    created_at = _date_long(doc.get("created_at"))
+    story.append(Paragraph(f"<b>Invoice No:</b> {invoice_no}", _s("ino", size=10, space_after=3)))
+    story.append(Paragraph(f"<b>Date:</b> {created_at}", _s("idate", size=10, space_after=8)))
+    story.append(Spacer(1, 2 * mm))
+
+    # ── Bill To ────────────────────────────────────────────────────────────
+    student_name = str(doc.get("student_name") or "Unknown Student")
+    invoice_type = str(doc.get("invoice_type") or "").replace("_", " ").title()
+    story.append(Paragraph("<b>Bill To:</b>", _s("bt_label", size=10, space_after=2)))
+    story.append(Paragraph(f"<b>{student_name}</b>", _s("bt_name", size=10, space_after=1)))
+    if invoice_type:
+        story.append(Paragraph(f"Type: {invoice_type}", _s("bt_type", size=9, space_after=1,
+                                                             color=colors.HexColor("#555555"))))
+    story.append(Spacer(1, 6 * mm))
+
+    # ── Fee items table ────────────────────────────────────────────────────
+    story.append(Paragraph("<b>Invoice Items</b>", _s("items_label", size=11, space_after=4)))
+    lines = doc.get("lines") or []
+    tbl_data = [["#", "Description", "Amount"]]
+    for idx, line in enumerate(lines, 1):
+        if isinstance(line, dict):
+            tbl_data.append([
+                str(idx),
+                str(line.get("description") or ""),
+                _fmt(str(line.get("amount") or "0"), currency),
+            ])
+    if not lines:
+        tbl_data.append(["—", "—", "—"])
+
+    col_w = [usable_w * 0.07, usable_w * 0.63, usable_w * 0.30]
+    tbl = Table(tbl_data, colWidths=col_w)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",  (0, 0), (-1, 0), colors.HexColor("#e8e8e8")),
+        ("TEXTCOLOR",   (0, 0), (-1, 0), colors.HexColor("#444444")),
+        ("FONTNAME",    (0, 0), (-1, 0), "Helvetica"),
+        ("FONTSIZE",    (0, 0), (-1, -1), 9),
+        ("ALIGN",       (0, 0), (-1, 0),  "CENTER"),
+        ("ALIGN",       (0, 1), (0, -1),  "CENTER"),
+        ("ALIGN",       (2, 1), (2, -1),  "RIGHT"),
+        ("FONTNAME",    (0, 1), (-1, -1), "Helvetica"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+        ("GRID",        (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+        ("TOPPADDING",  (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 5 * mm))
+
+    # ── Totals block ───────────────────────────────────────────────────────
+    total   = str(doc.get("total_amount") or "0")
+    paid    = str(doc.get("paid_amount") or "0")
+    balance = str(doc.get("balance_amount") or "0")
+    status  = str(doc.get("status") or "").upper()
+
+    totals_data = [
+        ["Subtotal:",  _fmt(total, currency)],
+        ["Paid:",      _fmt(paid, currency)],
+        ["Balance:",   _fmt(balance, currency)],
+    ]
+    totals_col = [usable_w * 0.7, usable_w * 0.3]
+    totals_tbl = Table(totals_data, colWidths=totals_col)
+    totals_tbl.setStyle(TableStyle([
+        ("FONTNAME",    (0, 0), (-1, -1), "Helvetica"),
+        ("FONTNAME",    (0, 2), (-1, 2),  "Helvetica-Bold"),
+        ("FONTSIZE",    (0, 0), (-1, -1), 9),
+        ("ALIGN",       (1, 0), (1, -1),  "RIGHT"),
+        ("LINEABOVE",   (0, 2), (-1, 2),  0.5, colors.HexColor("#cccccc")),
+        ("TOPPADDING",  (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(totals_tbl)
+    story.append(Spacer(1, 4 * mm))
+
+    # ── Status badge ───────────────────────────────────────────────────────
+    if status == "PAID":
+        badge_color = colors.HexColor("#166534")
+        badge_bg    = colors.HexColor("#dcfce7")
+    elif status in ("PARTIALLY_PAID", "PARTIAL"):
+        badge_color = colors.HexColor("#92400e")
+        badge_bg    = colors.HexColor("#fef3c7")
+    else:
+        badge_color = colors.HexColor("#991b1b")
+        badge_bg    = colors.HexColor("#fee2e2")
+
+    badge_label = status.replace("_", " ")
+    badge_tbl = Table([[badge_label]], colWidths=[30 * mm])
+    badge_tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (0, 0), badge_bg),
+        ("TEXTCOLOR",     (0, 0), (0, 0), badge_color),
+        ("FONTNAME",      (0, 0), (0, 0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (0, 0), 8),
+        ("ALIGN",         (0, 0), (0, 0), "CENTER"),
+        ("TOPPADDING",    (0, 0), (0, 0), 3),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 3),
+        ("ROUNDEDCORNERS", [3]),
+    ]))
+    story.append(badge_tbl)
+    story.append(Spacer(1, 6 * mm))
+
+    # ── Footer + signatory ─────────────────────────────────────────────────
+    footer_msg = str(profile.get("receipt_footer") or "Thank you for partnering with us.")
+    story.append(Paragraph(footer_msg, _s("footer_msg", size=9, align=TA_JUSTIFY, space_after=8)))
+
+    sig_name  = str(profile.get("authorized_signatory_name") or "")
+    sig_title = str(profile.get("authorized_signatory_title") or "Authorized Signatory")
+    story.append(Spacer(1, 8 * mm))
+    story.append(Paragraph("________________________", _s("sig_line", size=9, space_after=1)))
+    if sig_name:
+        story.append(Paragraph(f"<b>{sig_name}</b>", _s("sig_name", size=9, space_after=1)))
+    story.append(Paragraph(sig_title, _s("sig_title", size=9, space_after=0)))
+
+    if motto:
+        story.append(Spacer(1, 3 * mm))
+        story.append(Paragraph(f"<i>{motto}</i>",
+                                _s("motto", size=8, align=TA_CENTER, color=colors.HexColor("#666666"))))
+
+    doc_pdf.build(story)
+    return buf.getvalue()
+
+
 # ─── Public entrypoint ────────────────────────────────────────────────────────
 
 def generate_receipt_pdf(doc: dict[str, Any]) -> bytes:
