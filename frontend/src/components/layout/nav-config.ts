@@ -8,10 +8,10 @@ export type FinanceSection =
   | "receipts"
   | "scan-receipt";
 export type EnrollmentSection = "intake" | "students";
-export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings";
-export type StudentSection = "all" | "fee-balance" | "clearance";
+export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings" | "curriculum";
+export type StudentSection = "all" | "fee-balance" | "clearance" | "attendance";
 export type HrSection = "staff" | "teachers" | "assets";
-export type ExamSection = "setup" | "timetable" | "progress";
+export type ExamSection = "setup" | "timetable" | "enter-marks" | "marks-review" | "report-cards";
 
 // ───────────────────────────────────────────────────────────────
 // Director (App Router) paths: /tenant/director/*
@@ -47,6 +47,9 @@ export function directorContactAdminHref() {
 }
 
 export function directorExamsHref(section: ExamSection = "setup") {
+  if (section === "enter-marks") return "/tenant/director/exams/enter-marks";
+  if (section === "marks-review") return "/tenant/director/exams/marks-review";
+  if (section === "report-cards") return "/tenant/director/exams/report-cards";
   return `/tenant/director/exams?section=${section}`;
 }
 
@@ -88,6 +91,9 @@ export function secretaryContactAdminHref() {
 }
 
 export function secretaryExamsHref(section: ExamSection = "setup") {
+  if (section === "enter-marks") return "/tenant/secretary/exams/enter-marks";
+  if (section === "marks-review") return "/tenant/secretary/exams/marks-review";
+  if (section === "report-cards") return "/tenant/secretary/exams/report-cards";
   return `/tenant/secretary/exams?section=${section}`;
 }
 
@@ -116,6 +122,9 @@ export function principalNotificationsHref() {
 }
 
 export function principalExamsHref(section: ExamSection = "setup") {
+  if (section === "enter-marks") return "/tenant/principal/exams/enter-marks";
+  if (section === "marks-review") return "/tenant/principal/exams/marks-review";
+  if (section === "report-cards") return "/tenant/principal/exams/report-cards";
   return `/tenant/principal/exams?section=${section}`;
 }
 
@@ -159,6 +168,11 @@ export const directorNav: AppNavItem[] = [
     children: [
       { href: directorStudentsHref("all"), label: "All Students", icon: "List" },
       {
+        href: directorStudentsHref("attendance"),
+        label: "Attendance",
+        icon: "CalendarCheck",
+      },
+      {
         href: directorStudentsHref("fee-balance"),
         label: "Student Fee Balance",
         icon: "WalletCards",
@@ -175,8 +189,11 @@ export const directorNav: AppNavItem[] = [
     label: "Finance",
     icon: "Landmark",
     children: [
-      { href: directorFinanceHref("overview"), label: "Finance Control Overview", icon: "ShieldCheck" },
-      { href: directorFinanceHref("fee-structures"), label: "Fee Structures", icon: "FileSpreadsheet" },
+      { href: directorFinanceHref("overview"), label: "Finance Overview", icon: "ShieldCheck" },
+      { href: "/tenant/director/finance/fee-structures", label: "Fee Structures", icon: "FileSpreadsheet" },
+      { href: "/tenant/director/finance/categories", label: "Categories & Items", icon: "Tag" },
+      { href: "/tenant/director/finance/scholarships", label: "Scholarships", icon: "GraduationCap" },
+      { href: "/tenant/director/finance/policy", label: "Finance Policy", icon: "SlidersHorizontal" },
       { href: directorFinanceHref("invoices"), label: "Invoices", icon: "FileText" },
       { href: directorFinanceHref("payments"), label: "Payments", icon: "HandCoins" },
       { href: directorFinanceHref("receipts"), label: "Receipts", icon: "Receipt" },
@@ -190,11 +207,9 @@ export const directorNav: AppNavItem[] = [
     children: [
       { href: directorExamsHref("setup"), label: "Exam Setup", icon: "FileSpreadsheet" },
       { href: directorExamsHref("timetable"), label: "Exam Timetable", icon: "CalendarDays" },
-      {
-        href: directorExamsHref("progress"),
-        label: "Student Progress Report",
-        icon: "ClipboardCheck",
-      },
+      { href: directorExamsHref("enter-marks"), label: "Enter Marks", icon: "PenLine" },
+      { href: directorExamsHref("marks-review"), label: "Marks Review", icon: "ClipboardList" },
+      { href: directorExamsHref("report-cards"), label: "Report Cards", icon: "FileBarChart" },
     ],
   },
   {
@@ -207,6 +222,7 @@ export const directorNav: AppNavItem[] = [
     label: "School Setup",
     icon: "Settings2",
     children: [
+      { href: directorSchoolSetupHref("curriculum"), label: "Curriculum Type", icon: "BookOpenText" },
       { href: directorSchoolSetupHref("terms"), label: "Terms", icon: "CalendarDays" },
       { href: directorSchoolSetupHref("classes"), label: "Classes", icon: "School" },
       { href: directorSchoolSetupHref("subjects"), label: "Subjects", icon: "BookOpenText" },
@@ -257,6 +273,11 @@ export const secretaryNav: AppNavItem[] = [
     children: [
       { href: secretaryStudentsHref("all"), label: "All Students", icon: "List" },
       {
+        href: secretaryStudentsHref("attendance"),
+        label: "Attendance",
+        icon: "CalendarCheck",
+      },
+      {
         href: secretaryStudentsHref("fee-balance"),
         label: "Student Fee Balance",
         icon: "WalletCards",
@@ -269,11 +290,13 @@ export const secretaryNav: AppNavItem[] = [
     ],
   },
   {
-    href: secretaryFinanceHref("fee-structures"),
+    href: "/tenant/secretary/finance/fee-structures",
     label: "Finance",
     icon: "Landmark",
     children: [
-      { href: secretaryFinanceHref("fee-structures"), label: "Fee Structures", icon: "FileSpreadsheet" },
+      { href: "/tenant/secretary/finance/fee-structures", label: "Fee Structures", icon: "FileSpreadsheet" },
+      { href: "/tenant/secretary/finance/categories", label: "Categories & Items", icon: "Tag" },
+      { href: "/tenant/secretary/finance/scholarships", label: "Scholarships", icon: "GraduationCap" },
       { href: secretaryFinanceHref("invoices"), label: "Invoices", icon: "FileText" },
       { href: secretaryFinanceHref("payments"), label: "Payments", icon: "HandCoins" },
       { href: secretaryFinanceHref("receipts"), label: "Receipts", icon: "Receipt" },
@@ -287,11 +310,9 @@ export const secretaryNav: AppNavItem[] = [
     children: [
       { href: secretaryExamsHref("setup"), label: "Exam Setup", icon: "FileSpreadsheet" },
       { href: secretaryExamsHref("timetable"), label: "Exam Timetable", icon: "CalendarDays" },
-      {
-        href: secretaryExamsHref("progress"),
-        label: "Student Progress Report",
-        icon: "ClipboardCheck",
-      },
+      { href: secretaryExamsHref("enter-marks"), label: "Enter Marks", icon: "PenLine" },
+      { href: secretaryExamsHref("marks-review"), label: "Marks Review", icon: "ClipboardList" },
+      { href: secretaryExamsHref("report-cards"), label: "Report Cards", icon: "FileBarChart" },
     ],
   },
   {
@@ -304,6 +325,7 @@ export const secretaryNav: AppNavItem[] = [
     label: "School Setup",
     icon: "Settings2",
     children: [
+      { href: secretarySchoolSetupHref("curriculum"), label: "Curriculum Type", icon: "BookOpenText" },
       { href: secretarySchoolSetupHref("terms"), label: "Terms", icon: "CalendarDays" },
       { href: secretarySchoolSetupHref("classes"), label: "Classes", icon: "School" },
       { href: secretarySchoolSetupHref("subjects"), label: "Subjects", icon: "BookOpenText" },
@@ -350,11 +372,8 @@ export const principalNav: AppNavItem[] = [
     children: [
       { href: principalExamsHref("setup"), label: "Exam Setup", icon: "FileSpreadsheet" },
       { href: principalExamsHref("timetable"), label: "Exam Timetable", icon: "CalendarDays" },
-      {
-        href: principalExamsHref("progress"),
-        label: "Student Progress Report",
-        icon: "ClipboardCheck",
-      },
+      { href: principalExamsHref("marks-review"), label: "Marks Review", icon: "ClipboardList" },
+      { href: principalExamsHref("report-cards"), label: "Report Cards", icon: "FileBarChart" },
     ],
   },
   {

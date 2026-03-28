@@ -184,7 +184,7 @@ export default async function PrincipalDashboardPage() {
               tone="accent"
             />
             <DashboardModuleCard
-              href={principalExamsHref("progress")}
+              href={principalExamsHref("marks-review")}
               title="Progress Reports"
               description="Track marks by subject and class to monitor academic performance trends."
               icon={BookOpenCheck}

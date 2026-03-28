@@ -10,6 +10,9 @@ from app.api.v1.admin.audit.routes import router as admin_audit_router
 from app.api.v1.support.routes import router as support_router
 from app.api.v1.payments.routes import router as payments_router
 from app.api.v1.public.routes import router as public_router
+from app.api.v1.students.routes import router as students_router
+from app.api.v1.attendance.routes import router as attendance_router
+from app.api.v1.reports.routes import router as reports_router
 
 api_router = APIRouter()
 
@@ -35,3 +38,12 @@ api_router.include_router(finance_router, prefix="/finance", tags=["finance"])
 api_router.include_router(support_router, prefix="/support", tags=["support"])
 api_router.include_router(payments_router, prefix="/payments", tags=["payments"])
 api_router.include_router(public_router, prefix="/public", tags=["public"])
+
+# SIS
+api_router.include_router(students_router, prefix="/students", tags=["students"])
+
+# Attendance
+api_router.include_router(attendance_router, prefix="/attendance", tags=["attendance"])
+
+# Reports (8-4-4 Report Cards)
+api_router.include_router(reports_router, prefix="/reports", tags=["reports"])

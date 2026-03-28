@@ -14,6 +14,7 @@ class Tenant(Base):
     primary_domain = Column(String, unique=True)
     name = Column(String, nullable=False)
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    curriculum_type = Column(String(20), nullable=False, server_default=text("'CBC'"))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
