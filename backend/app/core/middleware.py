@@ -192,6 +192,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
             slug=tenant.slug,
             name=tenant.name,
             is_active=tenant.is_active,
+            curriculum_type=getattr(tenant, "curriculum_type", "CBC") or "CBC",
         )
 
         request.state.tenant = tenant_ctx

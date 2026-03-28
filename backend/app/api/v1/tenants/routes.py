@@ -59,9 +59,13 @@ class TenantUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+_CURRICULUM_TYPES = {"CBC", "8-4-4", "IGCSE"}
+
+
 class TenantSelfUpdate(BaseModel):
     # Director can update limited fields within their tenant
     name: Optional[str] = Field(default=None, min_length=2, max_length=200)
+    curriculum_type: Optional[str] = Field(default=None, max_length=20)
 
 
 class RoleCreate(BaseModel):
@@ -3222,7 +3226,8 @@ def whoami(tenant=Depends(get_tenant)):
     return {
         "tenant_id": str(tenant.id),
         "tenant_slug": tenant.slug,
-        "tenant_name": tenant.name
+        "tenant_name": tenant.name,
+        "curriculum_type": getattr(tenant, "curriculum_type", "CBC") or "CBC",
     }
 
 
@@ -5733,6 +5738,19 @@ def tenant_student_profile(
     enrollment_class = _enrollment_class_code(payload)
     enrollment_term = _enrollment_term_bucket(payload)
 
+    # Resolve SIS student_id from core.students via admission_no
+    sis_student_id: str | None = None
+    if admission_number:
+        sis_row = db.execute(
+            sa.text(
+                "SELECT id FROM core.students "
+                "WHERE tenant_id = :tenant_id AND admission_no = :admission_no LIMIT 1"
+            ),
+            {"tenant_id": str(tenant.id), "admission_no": admission_number},
+        ).mappings().first()
+        if sis_row:
+            sis_student_id = str(sis_row["id"])
+
     invoices: list[dict[str, Any]] = []
     payments: list[dict[str, Any]] = []
     finance_term_agg: dict[str, dict[str, Any]] = {}
@@ -6058,6 +6076,7 @@ def tenant_student_profile(
             "id": str(enrollment.id),
             "status": str(getattr(enrollment, "status", "") or ""),
             "admission_number": (admission_number or None),
+            "student_id": sis_student_id,
             "student_name": student_name,
             "class_code": enrollment_class,
             "term_code": enrollment_term,
@@ -10979,6 +10998,55 @@ def create_tenant(
     }
 
 
+# ---------------------------------------------------------------------
+# Tenant Admin: Update own tenant basics (Director use-case)
+# NOTE: /me must be defined BEFORE /{tenant_id} or FastAPI will match /me
+# as the tenant_id path parameter.
+# ---------------------------------------------------------------------
+
+@router.patch(
+    "/me",
+    dependencies=[Depends(require_permission("admin.dashboard.view_tenant"))],
+)
+def update_my_tenant(
+    payload: TenantSelfUpdate,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    t = db.get(Tenant, tenant.id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    if payload.name is not None:
+        t.name = payload.name.strip()
+        t.updated_at = _now_utc()
+
+    if payload.curriculum_type is not None:
+        val = payload.curriculum_type.strip().upper().replace("8-4-4", "8-4-4")
+        # Normalise to canonical form
+        canonical = {"CBC": "CBC", "844": "8-4-4", "8-4-4": "8-4-4", "IGCSE": "IGCSE"}
+        if val not in canonical:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid curriculum_type '{payload.curriculum_type}'. Must be one of: CBC, 8-4-4, IGCSE",
+            )
+        t.curriculum_type = canonical[val]
+        t.updated_at = _now_utc()
+
+    db.commit()
+    db.refresh(t)
+
+    return {
+        "id": str(t.id),
+        "slug": t.slug,
+        "name": t.name,
+        "primary_domain": t.primary_domain,
+        "is_active": bool(t.is_active),
+        "curriculum_type": getattr(t, "curriculum_type", "CBC") or "CBC",
+    }
+
+
 @router.patch(
     "/{tenant_id}",
     dependencies=[Depends(require_permission("tenants.update"))],
@@ -11092,40 +11160,6 @@ def soft_delete_tenant(
     db.commit()
 
     return {"ok": True, "tenant_id": str(t.id)}
-
-
-# ---------------------------------------------------------------------
-# Tenant Admin: Update own tenant basics (Director use-case)
-# ---------------------------------------------------------------------
-
-@router.patch(
-    "/me",
-    dependencies=[Depends(require_permission("admin.dashboard.view_tenant"))],
-)
-def update_my_tenant(
-    payload: TenantSelfUpdate,
-    db: Session = Depends(get_db),
-    tenant=Depends(get_tenant),
-    _user=Depends(get_current_user),
-):
-    t = db.get(Tenant, tenant.id)
-    if not t:
-        raise HTTPException(status_code=404, detail="Tenant not found")
-
-    if payload.name is not None:
-        t.name = payload.name.strip()
-        t.updated_at = _now_utc()
-
-    db.commit()
-    db.refresh(t)
-
-    return {
-        "id": str(t.id),
-        "slug": t.slug,
-        "name": t.name,
-        "primary_domain": t.primary_domain,
-        "is_active": bool(t.is_active),
-    }
 
 
 # ---------------------------------------------------------------------
