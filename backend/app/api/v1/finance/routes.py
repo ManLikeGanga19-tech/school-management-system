@@ -10,10 +10,10 @@ from app.api.v1.payments import service as payments_service
 from app.api.v1.finance.schemas import (
     FinancePolicyUpsert, FinancePolicyOut,
     FinanceStructurePolicyUpsert, FinanceStructurePolicyOut,
-    FeeCategoryCreate, FeeCategoryOut,
-    FeeItemCreate, FeeItemOut,
+    FeeCategoryCreate, FeeCategoryOut, FeeCategoryUpdate,
+    FeeItemCreate, FeeItemOut, FeeItemUpdate,
     FeeStructureCreate, FeeStructureUpdate, FeeStructureOut, FeeStructureItemUpsert, FeeStructureItemAdd, FeeStructureItemOut, FeeStructureWithItemsOut,
-    ScholarshipCreate, ScholarshipOut,
+    ScholarshipCreate, ScholarshipOut, ScholarshipUpdate,
     InvoiceCreate, InvoiceOut,
     GenerateFeesInvoiceRequest,
     PaymentCreate, PaymentOut, PaymentWithAllocationsOut,
@@ -171,6 +171,43 @@ def create_fee_item(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.put("/fee-categories/{category_id}", response_model=FeeCategoryOut, dependencies=[Depends(require_permission("finance.fees.manage"))])
+def update_fee_category(
+    category_id: UUID,
+    payload: FeeCategoryUpdate,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    try:
+        row = service.update_fee_category(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            category_id=category_id,
+            updates=payload.model_dump(exclude_none=True),
+        )
+        db.commit()
+        db.refresh(row)
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/fee-categories/{category_id}", status_code=204, dependencies=[Depends(require_permission("finance.fees.manage"))])
+def delete_fee_category(
+    category_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    try:
+        service.delete_fee_category(db, tenant_id=tenant.id, actor_user_id=user.id, category_id=category_id)
+        db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/fee-items", response_model=list[FeeItemOut], dependencies=[Depends(require_permission("finance.fees.view"))])
 def list_fee_items(
     search: str | None = Query(default=None),
@@ -184,6 +221,43 @@ def list_fee_items(
     _=Depends(get_current_user),
 ):
     return service.list_fee_items_filtered(db, tenant_id=tenant.id, search=search, category_id=category_id, is_active=is_active, page=page, page_size=page_size, sort=sort)
+
+
+@router.put("/fee-items/{item_id}", response_model=FeeItemOut, dependencies=[Depends(require_permission("finance.fees.manage"))])
+def update_fee_item(
+    item_id: UUID,
+    payload: FeeItemUpdate,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    try:
+        row = service.update_fee_item(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            item_id=item_id,
+            updates=payload.model_dump(exclude_none=True),
+        )
+        db.commit()
+        db.refresh(row)
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/fee-items/{item_id}", status_code=204, dependencies=[Depends(require_permission("finance.fees.manage"))])
+def delete_fee_item(
+    item_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    try:
+        service.delete_fee_item(db, tenant_id=tenant.id, actor_user_id=user.id, item_id=item_id)
+        db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # -------------------------
@@ -411,6 +485,43 @@ def list_scholarships(
     _=Depends(get_current_user),
 ):
     return service.list_scholarships(db, tenant_id=tenant.id)
+
+
+@router.put("/scholarships/{scholarship_id}", response_model=ScholarshipOut, dependencies=[Depends(require_permission("finance.scholarships.manage"))])
+def update_scholarship(
+    scholarship_id: UUID,
+    payload: ScholarshipUpdate,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    try:
+        row = service.update_scholarship(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            scholarship_id=scholarship_id,
+            updates=payload.model_dump(exclude_none=True),
+        )
+        db.commit()
+        db.refresh(row)
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/scholarships/{scholarship_id}", status_code=204, dependencies=[Depends(require_permission("finance.scholarships.manage"))])
+def delete_scholarship(
+    scholarship_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    try:
+        service.delete_scholarship(db, tenant_id=tenant.id, actor_user_id=user.id, scholarship_id=scholarship_id)
+        db.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # -------------------------

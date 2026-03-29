@@ -36,6 +36,12 @@ class FeeCategoryOut(ORMOutModel, FeeCategoryCreate):
     id: UUID
 
 
+class FeeCategoryUpdate(BaseModel):
+    code: Optional[str] = None
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 class FeeItemCreate(BaseModel):
     category_id: UUID
     code: str
@@ -45,6 +51,13 @@ class FeeItemCreate(BaseModel):
 
 class FeeItemOut(ORMOutModel, FeeItemCreate):
     id: UUID
+
+
+class FeeItemUpdate(BaseModel):
+    category_id: Optional[UUID] = None
+    code: Optional[str] = None
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 # -------------------------
@@ -114,13 +127,20 @@ class FeeStructureWithItemsOut(FeeStructureOut):
 # -------------------------
 class ScholarshipCreate(BaseModel):
     name: str
-    type: str  # PERCENT|FIXED
+    type: str  # PERCENTAGE|FIXED
     value: Decimal
     is_active: bool = True
 
 
 class ScholarshipOut(ORMOutModel, ScholarshipCreate):
     id: UUID
+
+
+class ScholarshipUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    value: Optional[Decimal] = None
+    is_active: Optional[bool] = None
 
 
 # -------------------------
