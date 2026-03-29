@@ -152,6 +152,14 @@ jobs:
             echo "BACKEND_BASE_URL=http://nginx/api/v1"
             echo "COOKIE_SECURE=true"
           } >> .deploy.env
+          _default_if_missing() {
+            local key="$1" val="$2"
+            grep -qE "^${key}=" .deploy.env || printf '%s=%s\n' "${key}" "${val}" >> .deploy.env
+          }
+          _default_if_missing "COOKIE_SAMESITE"              "lax"
+          _default_if_missing "NEXT_PUBLIC_PUBLIC_HOST"      "${STAGING_DOMAIN}"
+          _default_if_missing "NEXT_PUBLIC_ADMIN_HOST"       "admin.${STAGING_DOMAIN}"
+          _default_if_missing "NEXT_PUBLIC_TENANT_BASE_HOST" "${STAGING_DOMAIN}"
 
       - name: Prepare staging SSH key
         shell: bash

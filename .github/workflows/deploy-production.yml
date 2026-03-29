@@ -152,6 +152,17 @@ jobs:
             echo "BACKEND_BASE_URL=http://nginx/api/v1"
             echo "COOKIE_SECURE=true"
           } >> .deploy.env
+          # Apply safe defaults for required keys that may be absent from the
+          # env secret (added to the validation list after the secret was first set).
+          # Values already present in PRODUCTION_ENV_FILE are preserved as-is.
+          _default_if_missing() {
+            local key="$1" val="$2"
+            grep -qE "^${key}=" .deploy.env || printf '%s=%s\n' "${key}" "${val}" >> .deploy.env
+          }
+          _default_if_missing "COOKIE_SAMESITE"              "lax"
+          _default_if_missing "NEXT_PUBLIC_PUBLIC_HOST"      "${PROD_DOMAIN}"
+          _default_if_missing "NEXT_PUBLIC_ADMIN_HOST"       "admin.${PROD_DOMAIN}"
+          _default_if_missing "NEXT_PUBLIC_TENANT_BASE_HOST" "${PROD_DOMAIN}"
 
       - name: Prepare production SSH key
         shell: bash
