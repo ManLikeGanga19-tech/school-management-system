@@ -1,7 +1,7 @@
 """extend parent contact fields
 
 Revision ID: e5f6g7h8i9j0
-Revises: d4e5f6g7h8i9
+Revises: d5e6f7g8h9i0
 Create Date: 2026-03-27 08:20:00.000000
 
 Adds first_name, last_name, phone, phone_alt, email, id_type, address
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e5f6g7h8i9j0"
-down_revision: Union[str, None] = "d4e5f6g7h8i9"
+down_revision: Union[str, None] = "d5e6f7g8h9i0"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
