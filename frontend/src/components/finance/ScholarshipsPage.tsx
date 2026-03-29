@@ -92,7 +92,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
   const [dialog, setDialog] = useState<"create" | "edit" | null>(null);
   const [form, setForm] = useState({
     name: "",
-    type: "PERCENT",
+    type: "PERCENTAGE",
     value: "",
     is_active: true,
   });
@@ -139,7 +139,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
   }
 
   function openCreate() {
-    setForm({ name: "", type: "PERCENT", value: "", is_active: true });
+    setForm({ name: "", type: "PERCENTAGE", value: "", is_active: true });
     setEditingId(null);
     setDialog("create");
   }
@@ -355,20 +355,20 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="PERCENT">Percentage (%)</SelectItem>
+                    <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
                     <SelectItem value="FIXED">Fixed Amount (KES)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>
-                  Value {form.type === "PERCENT" ? "(%)" : "(KES)"}{" "}
+                  Value {form.type === "PERCENTAGE" ? "(%)" : "(KES)"}{" "}
                   <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   type="number"
                   min={0}
-                  placeholder={form.type === "PERCENT" ? "e.g. 25" : "e.g. 5000"}
+                  placeholder={form.type === "PERCENTAGE" ? "e.g. 25" : "e.g. 5000"}
                   value={form.value}
                   onChange={(e) => setForm((p) => ({ ...p, value: e.target.value }))}
                 />

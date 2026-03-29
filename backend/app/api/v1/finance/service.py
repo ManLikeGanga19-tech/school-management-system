@@ -431,6 +431,80 @@ def create_fee_category(
     return row
 
 
+def update_fee_category(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    category_id: UUID,
+    updates: dict,
+) -> FeeCategory:
+    row = db.execute(
+        select(FeeCategory).where(FeeCategory.id == category_id, FeeCategory.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    if not row:
+        raise ValueError("Fee category not found")
+    if "code" in updates and updates["code"]:
+        norm = str(updates["code"]).upper().strip()
+        conflict = db.execute(
+            select(FeeCategory).where(
+                FeeCategory.tenant_id == tenant_id,
+                FeeCategory.code == norm,
+                FeeCategory.id != category_id,
+            )
+        ).scalar_one_or_none()
+        if conflict:
+            raise ValueError("Fee category code already exists for this tenant")
+        row.code = norm
+    if "name" in updates and updates["name"]:
+        row.name = str(updates["name"]).strip()
+    if "is_active" in updates:
+        row.is_active = bool(updates["is_active"])
+    db.flush()
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="fees.category.update",
+        resource="fee_category",
+        resource_id=row.id,
+        payload={"code": row.code},
+        meta=None,
+    )
+    return row
+
+
+def delete_fee_category(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    category_id: UUID,
+) -> None:
+    row = db.execute(
+        select(FeeCategory).where(FeeCategory.id == category_id, FeeCategory.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    if not row:
+        raise ValueError("Fee category not found")
+    has_items = db.execute(
+        select(FeeItem.id).where(FeeItem.tenant_id == tenant_id, FeeItem.category_id == category_id).limit(1)
+    ).scalar_one_or_none()
+    if has_items:
+        raise ValueError("Cannot delete a fee category that has fee items — remove the items first")
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="fees.category.delete",
+        resource="fee_category",
+        resource_id=row.id,
+        payload={"code": row.code},
+        meta=None,
+    )
+    db.delete(row)
+    db.flush()
+
+
 def list_fee_categories(db: Session, *, tenant_id: UUID) -> list[FeeCategory]:
     return db.execute(
         select(FeeCategory).where(FeeCategory.tenant_id == tenant_id).order_by(FeeCategory.created_at.desc())
@@ -524,6 +598,84 @@ def create_fee_item(
         meta=None,
     )
     return row
+
+
+def update_fee_item(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    item_id: UUID,
+    updates: dict,
+) -> FeeItem:
+    row = db.execute(
+        select(FeeItem).where(FeeItem.id == item_id, FeeItem.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    if not row:
+        raise ValueError("Fee item not found")
+    if "category_id" in updates and updates["category_id"]:
+        cat = db.execute(
+            select(FeeCategory).where(
+                FeeCategory.id == updates["category_id"], FeeCategory.tenant_id == tenant_id
+            )
+        ).scalar_one_or_none()
+        if not cat:
+            raise ValueError("Fee category not found in this tenant")
+        row.category_id = updates["category_id"]
+    if "code" in updates and updates["code"]:
+        norm = str(updates["code"]).upper().strip()
+        conflict = db.execute(
+            select(FeeItem).where(
+                FeeItem.tenant_id == tenant_id,
+                FeeItem.code == norm,
+                FeeItem.id != item_id,
+            )
+        ).scalar_one_or_none()
+        if conflict:
+            raise ValueError("Fee item code already exists for this tenant")
+        row.code = norm
+    if "name" in updates and updates["name"]:
+        row.name = str(updates["name"]).strip()
+    if "is_active" in updates:
+        row.is_active = bool(updates["is_active"])
+    db.flush()
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="fees.item.update",
+        resource="fee_item",
+        resource_id=row.id,
+        payload={"code": row.code},
+        meta=None,
+    )
+    return row
+
+
+def delete_fee_item(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    item_id: UUID,
+) -> None:
+    row = db.execute(
+        select(FeeItem).where(FeeItem.id == item_id, FeeItem.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    if not row:
+        raise ValueError("Fee item not found")
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="fees.item.delete",
+        resource="fee_item",
+        resource_id=row.id,
+        payload={"code": row.code},
+        meta=None,
+    )
+    db.delete(row)
+    db.flush()
 
 
 def list_fee_items(db: Session, *, tenant_id: UUID) -> list[FeeItem]:
@@ -1065,6 +1217,74 @@ def create_scholarship(
         meta=None,
     )
     return row
+
+
+def update_scholarship(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    scholarship_id: UUID,
+    updates: dict,
+) -> Scholarship:
+    row = db.execute(
+        select(Scholarship).where(Scholarship.id == scholarship_id, Scholarship.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    if not row:
+        raise ValueError("Scholarship not found")
+    if "name" in updates and updates["name"]:
+        row.name = str(updates["name"]).strip()
+    if "type" in updates and updates["type"]:
+        t = str(updates["type"]).upper().strip()
+        if t not in ("PERCENTAGE", "FIXED"):
+            raise ValueError("Scholarship type must be PERCENTAGE or FIXED")
+        row.type = t
+    if "value" in updates and updates["value"] is not None:
+        from decimal import Decimal, InvalidOperation
+        try:
+            row.value = Decimal(str(updates["value"]))
+        except InvalidOperation:
+            raise ValueError("Invalid scholarship value")
+    if "is_active" in updates:
+        row.is_active = bool(updates["is_active"])
+    db.flush()
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="scholarship.update",
+        resource="scholarship",
+        resource_id=row.id,
+        payload={"type": row.type, "value": str(row.value)},
+        meta=None,
+    )
+    return row
+
+
+def delete_scholarship(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    scholarship_id: UUID,
+) -> None:
+    row = db.execute(
+        select(Scholarship).where(Scholarship.id == scholarship_id, Scholarship.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    if not row:
+        raise ValueError("Scholarship not found")
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="scholarship.delete",
+        resource="scholarship",
+        resource_id=row.id,
+        payload={"name": row.name},
+        meta=None,
+    )
+    db.delete(row)
+    db.flush()
 
 
 def list_scholarships(db: Session, *, tenant_id: UUID) -> list[Scholarship]:

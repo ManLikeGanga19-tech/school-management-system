@@ -685,7 +685,7 @@ function SecretaryFinancePageContent() {
   const [itemFilter, setItemFilter] = useState("");
   const [scholarshipForm, setScholarshipForm] = useState({
     name: "",
-    type: "PERCENT",
+    type: "PERCENTAGE",
     value: "",
     is_active: true,
   });
@@ -1463,7 +1463,7 @@ function SecretaryFinancePageContent() {
       () =>
         setScholarshipForm({
           name: "",
-          type: "PERCENT",
+          type: "PERCENTAGE",
           value: "",
           is_active: true,
         })

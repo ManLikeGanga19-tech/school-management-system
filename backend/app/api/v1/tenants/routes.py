@@ -12064,7 +12064,11 @@ def secretary_finance_action(
         "record_payment": "finance.payments.manage",
         "update_policy": "finance.policy.manage",
         "create_fee_category": "finance.fees.manage",
+        "update_fee_category": "finance.fees.manage",
+        "delete_fee_category": "finance.fees.manage",
         "create_fee_item": "finance.fees.manage",
+        "update_fee_item": "finance.fees.manage",
+        "delete_fee_item": "finance.fees.manage",
         "create_fee_structure": "finance.fees.manage",
         "update_fee_structure": "finance.fees.manage",
         "delete_fee_structure": "finance.fees.manage",
@@ -12072,6 +12076,8 @@ def secretary_finance_action(
         "remove_structure_item": "finance.fees.manage",
         "upsert_structure_items": "finance.fees.manage",
         "create_scholarship": "finance.scholarships.manage",
+        "update_scholarship": "finance.scholarships.manage",
+        "delete_scholarship": "finance.scholarships.manage",
     }
 
     if action not in required_permissions:
@@ -12080,9 +12086,11 @@ def secretary_finance_action(
             detail=(
                 "Invalid action. Use "
                 "create_invoice|generate_fees_invoice|record_payment|update_policy|"
-                "create_fee_category|create_fee_item|create_fee_structure|"
-                "update_fee_structure|delete_fee_structure|add_structure_item|"
-                "remove_structure_item|upsert_structure_items|create_scholarship"
+                "create_fee_category|update_fee_category|delete_fee_category|"
+                "create_fee_item|update_fee_item|delete_fee_item|"
+                "create_fee_structure|update_fee_structure|delete_fee_structure|"
+                "add_structure_item|remove_structure_item|upsert_structure_items|"
+                "create_scholarship|update_scholarship|delete_scholarship"
             ),
         )
 
@@ -12252,6 +12260,33 @@ def secretary_finance_action(
             db.refresh(row)
             data = _serialize_fee_category(row)
 
+        elif action == "update_fee_category":
+            category_id = _parse_uuid(payload.get("category_id"), field="payload.category_id")
+            updates = payload.get("updates")
+            if not isinstance(updates, dict):
+                raise HTTPException(status_code=400, detail="payload.updates is required")
+            row = finance_service.update_fee_category(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                category_id=category_id,
+                updates=updates,
+            )
+            db.commit()
+            db.refresh(row)
+            data = _serialize_fee_category(row)
+
+        elif action == "delete_fee_category":
+            category_id = _parse_uuid(payload.get("category_id"), field="payload.category_id")
+            finance_service.delete_fee_category(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                category_id=category_id,
+            )
+            db.commit()
+            data = {"ok": True}
+
         elif action == "create_fee_item":
             row = finance_service.create_fee_item(
                 db,
@@ -12265,6 +12300,35 @@ def secretary_finance_action(
             db.commit()
             db.refresh(row)
             data = _serialize_fee_item(row)
+
+        elif action == "update_fee_item":
+            item_id = _parse_uuid(payload.get("item_id"), field="payload.item_id")
+            updates = payload.get("updates")
+            if not isinstance(updates, dict):
+                raise HTTPException(status_code=400, detail="payload.updates is required")
+            if "category_id" in updates and updates["category_id"] not in (None, ""):
+                updates["category_id"] = _parse_uuid(updates["category_id"], field="payload.updates.category_id")
+            row = finance_service.update_fee_item(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                item_id=item_id,
+                updates=updates,
+            )
+            db.commit()
+            db.refresh(row)
+            data = _serialize_fee_item(row)
+
+        elif action == "delete_fee_item":
+            item_id = _parse_uuid(payload.get("item_id"), field="payload.item_id")
+            finance_service.delete_fee_item(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                item_id=item_id,
+            )
+            db.commit()
+            data = {"ok": True}
 
         elif action == "create_fee_structure":
             row = finance_service.create_fee_structure(
@@ -12391,7 +12455,7 @@ def secretary_finance_action(
             db.commit()
             data = {"ok": True}
 
-        else:
+        elif action == "create_scholarship":
             row = finance_service.create_scholarship(
                 db,
                 tenant_id=tenant.id,
@@ -12404,6 +12468,36 @@ def secretary_finance_action(
             db.commit()
             db.refresh(row)
             data = _serialize_scholarship(row)
+
+        elif action == "update_scholarship":
+            scholarship_id = _parse_uuid(payload.get("scholarship_id"), field="payload.scholarship_id")
+            updates = payload.get("updates")
+            if not isinstance(updates, dict):
+                raise HTTPException(status_code=400, detail="payload.updates is required")
+            row = finance_service.update_scholarship(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                scholarship_id=scholarship_id,
+                updates=updates,
+            )
+            db.commit()
+            db.refresh(row)
+            data = _serialize_scholarship(row)
+
+        elif action == "delete_scholarship":
+            scholarship_id = _parse_uuid(payload.get("scholarship_id"), field="payload.scholarship_id")
+            finance_service.delete_scholarship(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                scholarship_id=scholarship_id,
+            )
+            db.commit()
+            data = {"ok": True}
+
+        else:
+            raise HTTPException(status_code=400, detail="Unhandled action")
 
         return {"ok": True, "data": data}
 
