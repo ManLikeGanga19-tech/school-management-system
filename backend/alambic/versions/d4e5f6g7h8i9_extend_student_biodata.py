@@ -1,7 +1,7 @@
 """extend student biodata fields
 
 Revision ID: d4e5f6g7h8i9
-Revises: c3d4e5f6g7h8
+Revises: c4d5e6f7g8h9
 Create Date: 2026-03-27 08:10:00.000000
 
 Adds extended bio-data columns to core.students:
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d4e5f6g7h8i9"
-down_revision: Union[str, None] = "c3d4e5f6g7h8"
+down_revision: Union[str, None] = "c4d5e6f7g8h9"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
