@@ -248,7 +248,23 @@ jobs:
               --env-file "$DEPLOY_DIR/.env" \
               pull
 
-            # Rolling restart
+            # Ensure postgres and redis are up before running migrations
+            IMAGE_TAG="$IMAGE_TAG" docker compose \
+              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
+              --env-file "$DEPLOY_DIR/.env" \
+              up -d --wait postgres redis
+
+            # Run migrations in the foreground so output is visible in CI logs.
+            # If this step fails the exact Alembic/SQL error will appear above.
+            echo "=== Running database migrations ==="
+            IMAGE_TAG="$IMAGE_TAG" docker compose \
+              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
+              --env-file "$DEPLOY_DIR/.env" \
+              up db-migrate
+            echo "=== Migrations complete ==="
+
+            # Start (or update) all remaining services.
+            # db-migrate already exited 0 so backend's depends_on is satisfied.
             IMAGE_TAG="$IMAGE_TAG" docker compose \
               -f "$DEPLOY_DIR/docker-compose.prod.yml" \
               --env-file "$DEPLOY_DIR/.env" \
@@ -311,7 +327,23 @@ jobs:
               --env-file "$DEPLOY_DIR/.env" \
               pull
 
-            # Rolling restart
+            # Ensure postgres and redis are up before running migrations
+            IMAGE_TAG="$IMAGE_TAG" docker compose \
+              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
+              --env-file "$DEPLOY_DIR/.env" \
+              up -d --wait postgres redis
+
+            # Run migrations in the foreground so output is visible in CI logs.
+            # If this step fails the exact Alembic/SQL error will appear above.
+            echo "=== Running database migrations ==="
+            IMAGE_TAG="$IMAGE_TAG" docker compose \
+              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
+              --env-file "$DEPLOY_DIR/.env" \
+              up db-migrate
+            echo "=== Migrations complete ==="
+
+            # Start (or update) all remaining services.
+            # db-migrate already exited 0 so backend's depends_on is satisfied.
             IMAGE_TAG="$IMAGE_TAG" docker compose \
               -f "$DEPLOY_DIR/docker-compose.prod.yml" \
               --env-file "$DEPLOY_DIR/.env" \
