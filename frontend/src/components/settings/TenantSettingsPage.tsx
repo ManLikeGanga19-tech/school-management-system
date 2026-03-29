@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { KeyRound, Lock, RefreshCw } from "lucide-react";
+import { Building2, KeyRound, Lock, RefreshCw } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,11 @@ type DirectorUser = {
   full_name: string | null;
   is_active: boolean;
   roles: string[];
+};
+
+type PrintProfile = {
+  school_header: string | null;
+  logo_url: string | null;
 };
 
 const BADGE_MAX_BYTES = 2 * 1024 * 1024;
@@ -92,12 +97,15 @@ export function TenantSettingsPage({
   const [secretaryConfirmPassword, setSecretaryConfirmPassword] = useState("");
   const [savingSecretaryPassword, setSavingSecretaryPassword] = useState(false);
   const [loadingSecretaries, setLoadingSecretaries] = useState(false);
+
   const [badgePreviewUrl, setBadgePreviewUrl] = useState<string | null>(null);
   const [badgeFile, setBadgeFile] = useState<File | null>(null);
   const [loadingBadge, setLoadingBadge] = useState(false);
   const [savingBadge, setSavingBadge] = useState(false);
   const [deletingBadge, setDeletingBadge] = useState(false);
   const badgeInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [printProfile, setPrintProfile] = useState<PrintProfile | null>(null);
 
   const isDirector = roleContext === "director";
 
@@ -115,6 +123,29 @@ export function TenantSettingsPage({
     },
     [revokeObjectUrl]
   );
+
+  // Load print profile for school name
+  const loadPrintProfile = useCallback(async () => {
+    try {
+      const raw = await api.get<unknown>("/tenants/print-profile", {
+        tenantRequired: true,
+        noRedirect: true,
+      });
+      const obj = asObject(raw);
+      if (obj) {
+        setPrintProfile({
+          school_header: asString(obj.school_header) || null,
+          logo_url: asString(obj.logo_url) || null,
+        });
+      }
+    } catch {
+      // non-fatal — school name just won't show
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPrintProfile();
+  }, [loadPrintProfile]);
 
   const loadSecretaries = useCallback(async () => {
     if (!isDirector) return;
@@ -341,6 +372,8 @@ export function TenantSettingsPage({
     }
   }, [isDirector, secretaryConfirmPassword, secretaryNewPassword, selectedSecretaryId]);
 
+  const schoolName = printProfile?.school_header || null;
+
   return (
     <AppShell title={appTitle} nav={nav} activeHref={activeHref}>
       <div className="space-y-5">
@@ -351,31 +384,71 @@ export function TenantSettingsPage({
           </p>
         </div>
 
+        {/* ── School Identity ─────────────────────────────────────────── */}
         <section className="dashboard-surface rounded-[1.6rem] p-5">
           <div className="mb-4 flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-slate-900">School Badge</h2>
+            <Building2 className="h-4 w-4 text-slate-600" />
+            <h2 className="text-sm font-semibold text-slate-900">School Identity</h2>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-[220px_1fr]">
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3">
-              <div className="flex h-36 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="grid gap-6 md:grid-cols-[auto_1fr]">
+            {/* Preview panel — mirrors the AppShell sidebar brand */}
+            <div className="flex flex-col items-center gap-3">
+              <div className="flex h-[120px] w-[200px] items-center justify-center overflow-hidden rounded-xl border border-[#e1d4c0] bg-white shadow-sm">
                 {badgePreviewUrl ? (
                   <img
                     src={badgePreviewUrl}
                     alt="School badge preview"
-                    className="h-full w-full object-contain"
+                    className="h-full w-full object-contain p-2"
                   />
                 ) : (
-                  <span className="px-4 text-center text-xs text-slate-500">
-                    {loadingBadge ? "Loading badge..." : "No school badge uploaded"}
-                  </span>
+                  <div className="flex flex-col items-center gap-0.5 px-4 text-center">
+                    {loadingBadge ? (
+                      <span className="text-xs text-slate-400">Loading…</span>
+                    ) : (
+                      <>
+                        <span className="text-[10px] uppercase tracking-wide text-[#7c4b24]">
+                          Platform
+                        </span>
+                        <span className="text-sm font-semibold text-[#132129]">
+                          {appTitle}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
+
+              {/* School name beneath the badge preview */}
+              <div className="flex w-[200px] items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                {schoolName ? (
+                  <span className="truncate text-xs font-medium text-slate-800">{schoolName}</span>
+                ) : (
+                  <span className="truncate text-xs text-slate-400 italic">School name not set</span>
+                )}
+              </div>
+
+              <p className="w-[200px] text-center text-[10px] text-slate-400">
+                Sidebar preview
+              </p>
             </div>
 
-            <div className="space-y-3">
+            {/* Upload controls */}
+            <div className="space-y-4">
+              <div>
+                <p className="mb-1 text-sm font-medium text-slate-700">
+                  {schoolName ?? <span className="italic text-slate-400">School name not set</span>}
+                </p>
+                <p className="text-xs text-slate-500">
+                  Upload a PNG, JPG, WEBP or GIF badge (max 2 MB) to replace the default
+                  "Platform" label in the sidebar. The badge is stored server-side and shared
+                  across all users of this tenant.
+                </p>
+              </div>
+
               <div className="space-y-1.5">
-                <Label htmlFor="school-badge-upload">Upload Badge Image</Label>
+                <Label htmlFor="school-badge-upload">Badge Image</Label>
                 <Input
                   id="school-badge-upload"
                   ref={badgeInputRef}
@@ -384,9 +457,6 @@ export function TenantSettingsPage({
                   onChange={onBadgeFileChange}
                   disabled={!isDirector || savingBadge || deletingBadge}
                 />
-                <p className="text-xs text-slate-500">
-                  Allowed formats: PNG, JPG, WEBP, GIF. Max size: 2MB.
-                </p>
               </div>
 
               {isDirector ? (
@@ -396,7 +466,7 @@ export function TenantSettingsPage({
                     onClick={() => void uploadBadge()}
                     disabled={!badgeFile || savingBadge || deletingBadge}
                   >
-                    {savingBadge ? "Uploading..." : "Save Badge"}
+                    {savingBadge ? "Uploading…" : "Save Badge"}
                   </Button>
                   <Button
                     type="button"
@@ -404,7 +474,7 @@ export function TenantSettingsPage({
                     onClick={() => void deleteBadge()}
                     disabled={!badgePreviewUrl || savingBadge || deletingBadge}
                   >
-                    {deletingBadge ? "Removing..." : "Remove Badge"}
+                    {deletingBadge ? "Removing…" : "Remove Badge"}
                   </Button>
                 </div>
               ) : (
@@ -416,6 +486,7 @@ export function TenantSettingsPage({
           </div>
         </section>
 
+        {/* ── Password & Security ──────────────────────────────────────── */}
         <section className="dashboard-surface rounded-[1.6rem] p-5">
           <div className="mb-4 flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-slate-600" />
