@@ -6,6 +6,7 @@ import { Building2, KeyRound, Lock, RefreshCw } from "lucide-react";
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -508,9 +509,8 @@ export function TenantSettingsPage({
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="self-current-password">Current Password (optional)</Label>
-                    <Input
+                    <PasswordInput
                       id="self-current-password"
-                      type="password"
                       value={selfCurrentPassword}
                       onChange={(event) => setSelfCurrentPassword(event.target.value)}
                       placeholder="Enter current password"
@@ -518,9 +518,8 @@ export function TenantSettingsPage({
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="self-new-password">New Password</Label>
-                    <Input
+                    <PasswordInput
                       id="self-new-password"
-                      type="password"
                       value={selfNewPassword}
                       onChange={(event) => setSelfNewPassword(event.target.value)}
                       placeholder="8+ chars, letters + numbers"
@@ -528,9 +527,8 @@ export function TenantSettingsPage({
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="self-confirm-password">Confirm Password</Label>
-                    <Input
+                    <PasswordInput
                       id="self-confirm-password"
-                      type="password"
                       value={selfConfirmPassword}
                       onChange={(event) => setSelfConfirmPassword(event.target.value)}
                       placeholder="Re-enter new password"
@@ -588,9 +586,8 @@ export function TenantSettingsPage({
 
                   <div className="space-y-1.5">
                     <Label htmlFor="secretary-new-password">New Password</Label>
-                    <Input
+                    <PasswordInput
                       id="secretary-new-password"
-                      type="password"
                       value={secretaryNewPassword}
                       onChange={(event) => setSecretaryNewPassword(event.target.value)}
                       placeholder="8+ chars, letters + numbers"
@@ -598,9 +595,8 @@ export function TenantSettingsPage({
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="secretary-confirm-password">Confirm Password</Label>
-                    <Input
+                    <PasswordInput
                       id="secretary-confirm-password"
-                      type="password"
                       value={secretaryConfirmPassword}
                       onChange={(event) => setSecretaryConfirmPassword(event.target.value)}
                       placeholder="Re-enter new password"
