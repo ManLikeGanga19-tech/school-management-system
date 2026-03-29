@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 
@@ -116,9 +117,8 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
 
           <div className="space-y-2">
             <Label>Password</Label>
-            <Input
-              placeholder="********"
-              type="password"
+            <PasswordInput
+              placeholder="Enter your password"
               {...form.register("password", { required: true })}
             />
           </div>
