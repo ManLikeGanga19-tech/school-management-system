@@ -82,6 +82,8 @@ services:
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-1}
       GUNICORN_LOG_LEVEL: ${GUNICORN_LOG_LEVEL:-info}
     command: ["gunicorn", "app.main:app", "--config", "/app/gunicorn.conf.py"]
+    volumes:
+      - backend_storage:/app/storage
     ports:
       - "${BACKEND_PORT:-127.0.0.1:8000}:8000"
     depends_on:
@@ -181,6 +183,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  backend_storage:
 
 networks:
   backend-net:

@@ -11782,6 +11782,22 @@ def secretary_audit(
         )
     ],
 )
+@router.get(
+    "/secretary/finance/setup",
+    dependencies=[
+        Depends(
+            _require_any_permission(
+                "admin.dashboard.view_tenant",
+                "finance.policy.view",
+                "finance.fees.view",
+                "finance.invoices.view",
+                "finance.payments.view",
+                "finance.scholarships.view",
+                "enrollment.manage",
+            )
+        )
+    ],
+)
 def secretary_finance(
     request: Request,
     db: Session = Depends(get_db),
@@ -11998,6 +12014,21 @@ def secretary_finance(
 
 @router.post(
     "/secretary/finance",
+    dependencies=[
+        Depends(
+            _require_any_permission(
+                "admin.dashboard.view_tenant",
+                "finance.policy.manage",
+                "finance.fees.manage",
+                "finance.invoices.manage",
+                "finance.payments.manage",
+                "finance.scholarships.manage",
+            )
+        )
+    ],
+)
+@router.post(
+    "/secretary/finance/setup",
     dependencies=[
         Depends(
             _require_any_permission(
@@ -12393,6 +12424,21 @@ def secretary_finance_action(
 
 @router.get(
     "/director/finance",
+    dependencies=[
+        Depends(
+            _require_any_permission(
+                "admin.dashboard.view_tenant",
+                "finance.policy.view",
+                "finance.fees.view",
+                "finance.invoices.view",
+                "finance.payments.view",
+                "finance.scholarships.view",
+            )
+        )
+    ],
+)
+@router.get(
+    "/director/finance/setup",
     dependencies=[
         Depends(
             _require_any_permission(

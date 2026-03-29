@@ -49,6 +49,11 @@ COPY --from=builder /app/alembic.ini /app/alembic.ini
 COPY --from=builder /app/alambic /app/alambic
 COPY --from=builder /app/gunicorn.conf.py /app/gunicorn.conf.py
 
+# Create writable storage directory for tenant badge uploads and chown to appuser.
+# The volume declared in docker-compose.prod.yml mounts here so badges survive redeploys.
+RUN mkdir -p /app/storage/tenant_badges && \
+    chown -R appuser:appgroup /app/storage
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
