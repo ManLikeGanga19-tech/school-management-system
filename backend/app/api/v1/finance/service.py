@@ -24,7 +24,9 @@ from app.models.scholarship import Scholarship
 from app.models.scholarship_allocation import ScholarshipAllocation
 from app.models.invoice import Invoice, InvoiceLine
 from app.models.payment import Payment, PaymentAllocation
+from app.models.student import Student
 from app.models.tenant import Tenant
+from app.models.tenant_payment_settings import TenantPaymentSettings
 from app.models.tenant_print_profile import TenantPrintProfile
 from app.models.document_sequence import DocumentSequence
 
@@ -559,7 +561,8 @@ def create_fee_item(
     category_id: UUID,
     code: str,
     name: str,
-    is_active: bool
+    charge_frequency: str = "PER_TERM",
+    is_active: bool = True,
 ) -> FeeItem:
     category = db.execute(
         select(FeeCategory).where(
@@ -578,11 +581,16 @@ def create_fee_item(
     if existing:
         raise ValueError("Fee item code already exists for this tenant")
 
+    valid_freq = {"PER_TERM", "ONCE_PER_YEAR", "ONCE_EVER"}
+    if charge_frequency not in valid_freq:
+        raise ValueError(f"charge_frequency must be one of {valid_freq}")
+
     row = FeeItem(
         tenant_id=tenant_id,
         category_id=category_id,
         code=norm_code,
         name=name.strip(),
+        charge_frequency=charge_frequency,
         is_active=is_active,
     )
     db.add(row)
@@ -636,6 +644,11 @@ def update_fee_item(
         row.code = norm
     if "name" in updates and updates["name"]:
         row.name = str(updates["name"]).strip()
+    if "charge_frequency" in updates and updates["charge_frequency"]:
+        valid_freq = {"PER_TERM", "ONCE_PER_YEAR", "ONCE_EVER"}
+        if updates["charge_frequency"] not in valid_freq:
+            raise ValueError(f"charge_frequency must be one of {valid_freq}")
+        row.charge_frequency = updates["charge_frequency"]
     if "is_active" in updates:
         row.is_active = bool(updates["is_active"])
     db.flush()
@@ -735,29 +748,33 @@ def create_fee_structure(
     tenant_id: UUID,
     actor_user_id: Optional[UUID],
     class_code: str,
-    term_code: str,
+    academic_year: int,
+    student_type: str,
     name: str,
-    is_active: bool
+    is_active: bool = True,
 ) -> FeeStructure:
     norm_class = _norm_upper(class_code)
-    norm_term = _normalize_term_code(term_code)
     if not norm_class:
         raise ValueError("class_code is required")
+    if student_type not in ("NEW", "RETURNING"):
+        raise ValueError("student_type must be NEW or RETURNING")
 
     existing = db.execute(
         select(FeeStructure).where(
             FeeStructure.tenant_id == tenant_id,
             FeeStructure.class_code == norm_class,
-            FeeStructure.term_code == norm_term,
+            FeeStructure.academic_year == academic_year,
+            FeeStructure.student_type == student_type,
         )
     ).scalar_one_or_none()
     if existing:
-        raise ValueError("Fee structure already exists for this class and term")
+        raise ValueError("Fee structure already exists for this class, year, and student type")
 
     row = FeeStructure(
         tenant_id=tenant_id,
         class_code=norm_class,
-        term_code=norm_term,
+        academic_year=academic_year,
+        student_type=student_type,
         name=name.strip(),
         is_active=is_active,
     )
@@ -778,7 +795,7 @@ def create_fee_structure(
         action="fees.structure.create",
         resource="fee_structure",
         resource_id=row.id,
-        payload={"class_code": row.class_code, "term_code": row.term_code},
+        payload={"class_code": row.class_code, "academic_year": row.academic_year, "student_type": row.student_type},
         meta=None,
     )
     return row
@@ -803,25 +820,34 @@ def update_fee_structure(
     structure = _get_structure_or_error(db, tenant_id=tenant_id, structure_id=structure_id)
 
     next_class_code = structure.class_code
-    next_term_code = structure.term_code
+    next_academic_year = structure.academic_year
+    next_student_type = structure.student_type
     if "class_code" in updates and updates["class_code"] is not None:
         next_class_code = _norm_upper(str(updates["class_code"]))
-    if "term_code" in updates and updates["term_code"] is not None:
-        next_term_code = _normalize_term_code(str(updates["term_code"]))
+    if "academic_year" in updates and updates["academic_year"] is not None:
+        next_academic_year = int(updates["academic_year"])
+    if "student_type" in updates and updates["student_type"] is not None:
+        next_student_type = str(updates["student_type"]).upper()
+        if next_student_type not in ("NEW", "RETURNING"):
+            raise ValueError("student_type must be NEW or RETURNING")
 
-    if (next_class_code, next_term_code) != (structure.class_code, structure.term_code):
+    if (next_class_code, next_academic_year, next_student_type) != (
+        structure.class_code, structure.academic_year, structure.student_type
+    ):
         duplicate = db.execute(
             select(FeeStructure).where(
                 FeeStructure.tenant_id == tenant_id,
                 FeeStructure.class_code == next_class_code,
-                FeeStructure.term_code == next_term_code,
+                FeeStructure.academic_year == next_academic_year,
+                FeeStructure.student_type == next_student_type,
                 FeeStructure.id != structure_id,
             )
         ).scalar_one_or_none()
         if duplicate:
-            raise ValueError("Another fee structure already exists for this class and term")
+            raise ValueError("Another fee structure already exists for this class, year, and student type")
         structure.class_code = next_class_code
-        structure.term_code = next_term_code
+        structure.academic_year = next_academic_year
+        structure.student_type = next_student_type
 
     if "name" in updates and updates["name"] is not None:
         structure.name = str(updates["name"]).strip()
@@ -838,7 +864,8 @@ def update_fee_structure(
         resource_id=structure.id,
         payload={
             "class_code": structure.class_code,
-            "term_code": structure.term_code,
+            "academic_year": structure.academic_year,
+            "student_type": structure.student_type,
             "name": structure.name,
             "is_active": structure.is_active,
         },
@@ -879,9 +906,12 @@ def _list_structure_items_detailed(db: Session, *, tenant_id: UUID, structure_id
     rows = db.execute(
         select(
             FeeStructureItem.fee_item_id,
-            FeeStructureItem.amount,
+            FeeStructureItem.term_1_amount,
+            FeeStructureItem.term_2_amount,
+            FeeStructureItem.term_3_amount,
             FeeItem.code.label("fee_item_code"),
             FeeItem.name.label("fee_item_name"),
+            FeeItem.charge_frequency,
             FeeCategory.id.label("category_id"),
             FeeCategory.code.label("category_code"),
             FeeCategory.name.label("category_name"),
@@ -902,7 +932,10 @@ def _list_structure_items_detailed(db: Session, *, tenant_id: UUID, structure_id
     return [
         {
             "fee_item_id": row.fee_item_id,
-            "amount": row.amount,
+            "term_1_amount": row.term_1_amount,
+            "term_2_amount": row.term_2_amount,
+            "term_3_amount": row.term_3_amount,
+            "charge_frequency": row.charge_frequency,
             "fee_item_code": row.fee_item_code,
             "fee_item_name": row.fee_item_name,
             "category_id": row.category_id,
@@ -918,9 +951,9 @@ def upsert_fee_structure_items(db: Session, *, tenant_id: UUID, actor_user_id: O
 
     seen_fee_item_ids: set[UUID] = set()
     for it in items:
-        amount = Decimal(it["amount"])
-        if amount <= 0:
-            raise ValueError("Each structure item amount must be > 0")
+        for col in ("term_1_amount", "term_2_amount", "term_3_amount"):
+            if Decimal(it[col]) < 0:
+                raise ValueError(f"Each structure item {col} must be >= 0")
         fee_item_id = it["fee_item_id"]
         if fee_item_id in seen_fee_item_ids:
             raise ValueError("Duplicate fee items are not allowed in a structure")
@@ -940,7 +973,17 @@ def upsert_fee_structure_items(db: Session, *, tenant_id: UUID, actor_user_id: O
     db.query(FeeStructureItem).filter(FeeStructureItem.structure_id == structure_id).delete()
 
     for it in items:
-        db.add(FeeStructureItem(structure_id=structure_id, fee_item_id=it["fee_item_id"], amount=it["amount"]))
+        t1 = Decimal(it["term_1_amount"])
+        t2 = Decimal(it["term_2_amount"])
+        t3 = Decimal(it["term_3_amount"])
+        db.add(FeeStructureItem(
+            structure_id=structure_id,
+            fee_item_id=it["fee_item_id"],
+            term_1_amount=t1,
+            term_2_amount=t2,
+            term_3_amount=t3,
+            amount=t1,  # keep legacy column in sync
+        ))
     db.flush()
 
     log_event(
@@ -958,9 +1001,12 @@ def upsert_fee_structure_items(db: Session, *, tenant_id: UUID, actor_user_id: O
 def add_or_update_structure_item(db: Session, *, tenant_id: UUID, actor_user_id: Optional[UUID], structure_id: UUID, item: dict) -> dict:
     _get_structure_or_error(db, tenant_id=tenant_id, structure_id=structure_id)
 
-    amount = Decimal(item["amount"])
-    if amount <= 0:
-        raise ValueError("Amount must be > 0")
+    t1 = Decimal(item["term_1_amount"])
+    t2 = Decimal(item["term_2_amount"])
+    t3 = Decimal(item["term_3_amount"])
+    for col, val in (("term_1_amount", t1), ("term_2_amount", t2), ("term_3_amount", t3)):
+        if val < 0:
+            raise ValueError(f"{col} must be >= 0")
 
     fee_item_id = item.get("fee_item_id")
     inline_fee_item = item.get("fee_item")
@@ -981,6 +1027,7 @@ def add_or_update_structure_item(db: Session, *, tenant_id: UUID, actor_user_id:
         code = str(inline_fee_item["code"]).lower().strip()
         name = str(inline_fee_item["name"]).strip()
         is_active = bool(inline_fee_item.get("is_active", True))
+        freq = str(inline_fee_item.get("charge_frequency", "PER_TERM"))
 
         existing_fee_item = db.execute(
             select(FeeItem).where(
@@ -1004,6 +1051,7 @@ def add_or_update_structure_item(db: Session, *, tenant_id: UUID, actor_user_id:
                 category_id=category.id,
                 code=code,
                 name=name,
+                charge_frequency=freq,
                 is_active=is_active,
             )
             fee_item_id = created_fee_item.id
@@ -1028,9 +1076,19 @@ def add_or_update_structure_item(db: Session, *, tenant_id: UUID, actor_user_id:
     ).scalar_one_or_none()
 
     if link:
-        link.amount = amount
+        link.term_1_amount = t1
+        link.term_2_amount = t2
+        link.term_3_amount = t3
+        link.amount = t1  # keep legacy in sync
     else:
-        db.add(FeeStructureItem(structure_id=structure_id, fee_item_id=fee_item_id, amount=amount))
+        db.add(FeeStructureItem(
+            structure_id=structure_id,
+            fee_item_id=fee_item_id,
+            term_1_amount=t1,
+            term_2_amount=t2,
+            term_3_amount=t3,
+            amount=t1,
+        ))
     db.flush()
 
     log_event(
@@ -1040,7 +1098,7 @@ def add_or_update_structure_item(db: Session, *, tenant_id: UUID, actor_user_id:
         action="fees.structure.item.upsert",
         resource="fee_structure",
         resource_id=structure_id,
-        payload={"fee_item_id": str(fee_item_id), "amount": str(amount)},
+        payload={"fee_item_id": str(fee_item_id), "term_1_amount": str(t1)},
         meta=None,
     )
 
@@ -1736,6 +1794,7 @@ def build_invoice_document(
         db.flush()
 
     enrollment = None
+    enrollment_payload: dict = {}
     if getattr(inv, "enrollment_id", None):
         enrollment = db.execute(
             select(Enrollment).where(
@@ -1743,7 +1802,42 @@ def build_invoice_document(
                 Enrollment.id == inv.enrollment_id,
             )
         ).scalar_one_or_none()
-    student_name = _extract_student_name(getattr(enrollment, "payload", None))
+        enrollment_payload = getattr(enrollment, "payload", None) or {}
+
+    student_name = _extract_student_name(enrollment_payload)
+
+    # Try to load student admission_no and class_code from Student record or payload
+    admission_no = (
+        str(enrollment_payload.get("admission_no") or enrollment_payload.get("admissionNo") or "")
+    )
+    class_code = str(
+        enrollment_payload.get("class_code")
+        or enrollment_payload.get("classCode")
+        or enrollment_payload.get("class")
+        or ""
+    )
+    # Also try to get parent/guardian name from payload
+    parent_name = str(
+        enrollment_payload.get("parent_name")
+        or enrollment_payload.get("parentName")
+        or enrollment_payload.get("guardian_name")
+        or ""
+    )
+
+    # If enrollment links to a student record, get admission_no from there
+    if not admission_no and enrollment and getattr(enrollment, "student_id", None):
+        s = db.execute(
+            select(Student).where(
+                Student.id == enrollment.student_id,
+                Student.tenant_id == tenant_id,
+            )
+        ).scalar_one_or_none()
+        if s:
+            admission_no = str(getattr(s, "admission_no", "") or "")
+            if not student_name or student_name == "Unknown student":
+                fn = str(getattr(s, "first_name", "") or "").strip()
+                ln = str(getattr(s, "last_name", "") or "").strip()
+                student_name = f"{fn} {ln}".strip() or student_name
 
     rows = db.execute(
         select(InvoiceLine).where(InvoiceLine.invoice_id == inv.id).order_by(InvoiceLine.id.asc())
@@ -1757,6 +1851,22 @@ def build_invoice_document(
     ]
 
     profile = get_tenant_print_profile(db, tenant_id=tenant_id)
+
+    # Load payment settings for the invoice PDF footer
+    payment_settings = get_payment_settings(db, tenant_id=tenant_id)
+    ps_dict: dict[str, Any] = {}
+    if payment_settings:
+        ps_dict = {
+            "mpesa_paybill": getattr(payment_settings, "mpesa_paybill", None),
+            "mpesa_business_no": getattr(payment_settings, "mpesa_business_no", None),
+            "mpesa_account_format": getattr(payment_settings, "mpesa_account_format", None),
+            "bank_name": getattr(payment_settings, "bank_name", None),
+            "bank_account_name": getattr(payment_settings, "bank_account_name", None),
+            "bank_account_number": getattr(payment_settings, "bank_account_number", None),
+            "bank_branch": getattr(payment_settings, "bank_branch", None),
+            "cash_payment_instructions": getattr(payment_settings, "cash_payment_instructions", None),
+        }
+
     checksum = _document_checksum(
         tenant_id=tenant_id,
         document_id=inv.id,
@@ -1782,8 +1892,14 @@ def build_invoice_document(
         "tenant_id": str(tenant_id),
         "profile": profile,
         "student_name": student_name,
+        "admission_no": admission_no,
+        "class_code": class_code,
+        "parent_name": parent_name,
         "invoice_type": str(getattr(inv, "invoice_type", "") or ""),
         "status": str(getattr(inv, "status", "") or ""),
+        "term_number": getattr(inv, "term_number", None),
+        "academic_year": getattr(inv, "academic_year", None),
+        "student_type_snapshot": getattr(inv, "student_type_snapshot", None),
         "currency": str(getattr(inv, "currency", "KES") or "KES"),
         "total_amount": str(getattr(inv, "total_amount", 0) or 0),
         "paid_amount": str(getattr(inv, "paid_amount", 0) or 0),
@@ -1794,6 +1910,7 @@ def build_invoice_document(
             else None
         ),
         "lines": lines,
+        "payment_settings": ps_dict,
         "checksum": checksum,
         "qr_payload": qr_payload,
     }
@@ -2261,10 +2378,18 @@ def _render_timetable_pdf(payload: dict[str, Any]) -> bytes:
 def render_document_pdf(payload: dict[str, Any]) -> bytes:
     dtype = str(payload.get("document_type") or "").upper()
 
-    # Enterprise invoice template (A4, school header + QR + fee items table)
+    # Fee structure sheet PDF
+    if dtype == "FEE_STRUCTURE":
+        try:
+            from app.utils.fee_structure_pdf import generate_fee_structure_pdf
+            return generate_fee_structure_pdf(payload)
+        except Exception as exc:
+            logger.exception("fee_structure_pdf rendering failed, falling back to plain-text: %s", exc)
+
+    # Enterprise invoice template (A4, school header + fee items table + payment block)
     if dtype == "INVOICE":
         try:
-            from app.utils.receipt_pdf import generate_invoice_pdf
+            from app.utils.invoice_pdf import generate_invoice_pdf
             return generate_invoice_pdf(payload)
         except Exception as exc:
             logger.exception("invoice_pdf rendering failed, falling back to plain-text: %s", exc)
@@ -2856,3 +2981,409 @@ def get_tenant_subscription_payment_status(db: Session, *, tenant_id: UUID, chec
     if not isinstance(res, dict):
         raise ValueError("M-Pesa query_stk_status returned invalid response")
     return res
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tenant Payment Settings
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_fee_structure_document(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    structure_id: UUID,
+) -> dict[str, Any]:
+    """Build full data dict for the fee structure PDF."""
+    structure = _get_structure_or_error(db, tenant_id=tenant_id, structure_id=structure_id)
+    items = _list_structure_items_detailed(db, tenant_id=tenant_id, structure_id=structure_id)
+
+    profile = get_tenant_print_profile(db, tenant_id=tenant_id)
+    payment_settings = get_payment_settings(db, tenant_id=tenant_id)
+    ps_dict: dict[str, Any] = {}
+    if payment_settings:
+        ps_dict = {
+            "mpesa_paybill": getattr(payment_settings, "mpesa_paybill", None),
+            "mpesa_business_no": getattr(payment_settings, "mpesa_business_no", None),
+            "mpesa_account_format": getattr(payment_settings, "mpesa_account_format", None),
+            "bank_name": getattr(payment_settings, "bank_name", None),
+            "bank_account_name": getattr(payment_settings, "bank_account_name", None),
+            "bank_account_number": getattr(payment_settings, "bank_account_number", None),
+            "bank_branch": getattr(payment_settings, "bank_branch", None),
+            "cash_payment_instructions": getattr(payment_settings, "cash_payment_instructions", None),
+            "uniform_details_text": getattr(payment_settings, "uniform_details_text", None),
+            "assessment_books_amount": getattr(payment_settings, "assessment_books_amount", None),
+            "assessment_books_note": getattr(payment_settings, "assessment_books_note", None),
+        }
+
+    school_name = str(profile.get("school_name") or profile.get("name") or "School") if profile else "School"
+    school_address = str(profile.get("address") or "") if profile else ""
+    school_phone = str(profile.get("phone") or "") if profile else ""
+
+    return {
+        "document_type": "FEE_STRUCTURE",
+        "document_id": str(structure.id),
+        "school_name": school_name,
+        "school_address": school_address,
+        "school_phone": school_phone,
+        "class_code": structure.class_code,
+        "academic_year": structure.academic_year,
+        "student_type": structure.student_type,
+        "structure_no": structure.structure_no,
+        "items": [
+            {
+                "fee_item_name": it["fee_item_name"],
+                "charge_frequency": it["charge_frequency"],
+                "term_1_amount": str(it["term_1_amount"]),
+                "term_2_amount": str(it["term_2_amount"]),
+                "term_3_amount": str(it["term_3_amount"]),
+            }
+            for it in items
+        ],
+        "payment_settings": ps_dict,
+    }
+
+
+def get_payment_settings(db: Session, *, tenant_id: UUID) -> TenantPaymentSettings | None:
+    return db.execute(
+        select(TenantPaymentSettings).where(TenantPaymentSettings.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+
+
+def upsert_payment_settings(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    data: dict,
+) -> TenantPaymentSettings:
+    row = get_payment_settings(db, tenant_id=tenant_id)
+    if not row:
+        row = TenantPaymentSettings(tenant_id=tenant_id)
+        db.add(row)
+
+    updatable = (
+        "mpesa_paybill", "mpesa_business_no", "mpesa_account_format",
+        "bank_name", "bank_account_name", "bank_account_number", "bank_branch",
+        "cash_payment_instructions", "uniform_details_text",
+        "assessment_books_amount", "assessment_books_note",
+    )
+    for field in updatable:
+        if field in data:
+            setattr(row, field, data[field])
+
+    db.flush()
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="finance.payment_settings.upsert",
+        resource="tenant_payment_settings",
+        resource_id=row.id,
+        payload=None,
+        meta=None,
+    )
+    return row
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Smart Invoice Generator v2
+# Detects student type from admission_year, picks correct fee structure,
+# applies per-term amounts, enforces ONCE_PER_YEAR / ONCE_EVER guards,
+# and creates one invoice per term (duplicate-guarded at DB level).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _detect_student_type(admission_year: int, academic_year: int) -> str:
+    """NEW if first year, RETURNING otherwise."""
+    return "NEW" if admission_year >= academic_year else "RETURNING"
+
+
+def _get_term_amount(item: Any, term_number: int) -> Decimal:
+    col = f"term_{term_number}_amount"
+    return Decimal(getattr(item, col, 0) or 0)
+
+
+def _once_per_year_already_invoiced(
+    db: Session, *, tenant_id: UUID, enrollment_id: UUID, academic_year: int, fee_item_id: UUID
+) -> bool:
+    """Check if a ONCE_PER_YEAR item was already invoiced in any term this year."""
+    result = db.execute(
+        sa_func.count(InvoiceLine.id).select().select_from(InvoiceLine)
+        .join(Invoice, Invoice.id == InvoiceLine.invoice_id)
+        .where(
+            Invoice.tenant_id == tenant_id,
+            Invoice.enrollment_id == enrollment_id,
+            Invoice.academic_year == academic_year,
+            Invoice.invoice_type == "SCHOOL_FEES",
+            InvoiceLine.meta["fee_item_id"].astext == str(fee_item_id),
+        )
+    ).scalar()
+    return (result or 0) > 0
+
+
+def _once_ever_already_invoiced(
+    db: Session, *, tenant_id: UUID, enrollment_id: UUID, fee_item_id: UUID
+) -> bool:
+    """Check if a ONCE_EVER item was ever invoiced for this enrollment."""
+    result = db.execute(
+        sa_func.count(InvoiceLine.id).select().select_from(InvoiceLine)
+        .join(Invoice, Invoice.id == InvoiceLine.invoice_id)
+        .where(
+            Invoice.tenant_id == tenant_id,
+            Invoice.enrollment_id == enrollment_id,
+            Invoice.invoice_type == "SCHOOL_FEES",
+            InvoiceLine.meta["fee_item_id"].astext == str(fee_item_id),
+        )
+    ).scalar()
+    return (result or 0) > 0
+
+
+def generate_school_fees_invoice_v2(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    enrollment_id: UUID,
+    term_number: int,
+    academic_year: int,
+    scholarship_id: Optional[UUID] = None,
+    scholarship_amount: Optional[Decimal] = None,
+    scholarship_reason: Optional[str] = None,
+) -> Invoice:
+    """
+    Smart invoice generator:
+    - Loads enrollment → student → admission_year
+    - Detects NEW vs RETURNING based on admission_year vs academic_year
+    - Finds matching fee structure (class_code + academic_year + student_type)
+    - Applies term-specific amounts
+    - Skips ONCE_PER_YEAR / ONCE_EVER items already invoiced
+    - Creates one SCHOOL_FEES invoice per enrollment per term (DB-enforced unique index)
+    """
+    if term_number not in (1, 2, 3):
+        raise ValueError("term_number must be 1, 2, or 3")
+
+    # Load enrollment
+    enrollment = db.execute(
+        select(Enrollment).where(
+            Enrollment.id == enrollment_id,
+            Enrollment.tenant_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if not enrollment:
+        raise ValueError("Enrollment not found")
+
+    enrollment_payload = getattr(enrollment, "payload", None) or {}
+    student_id = getattr(enrollment, "student_id", None)
+
+    # class_code lives in payload JSONB (not a direct column on Enrollment)
+    class_code = str(
+        enrollment_payload.get("class_code")
+        or enrollment_payload.get("classCode")
+        or enrollment_payload.get("class")
+        or ""
+    ).strip() or None
+    if not class_code:
+        raise ValueError("Enrollment has no class_code in payload — cannot determine fee structure")
+
+    # Duplicate guard: one SCHOOL_FEES invoice per enrollment per term per year
+    existing_invoice = db.execute(
+        select(Invoice).where(
+            Invoice.tenant_id == tenant_id,
+            Invoice.enrollment_id == enrollment_id,
+            Invoice.term_number == term_number,
+            Invoice.academic_year == academic_year,
+            Invoice.invoice_type == "SCHOOL_FEES",
+        )
+    ).scalar_one_or_none()
+    if existing_invoice:
+        raise ValueError(
+            f"A SCHOOL_FEES invoice already exists for this student in "
+            f"Term {term_number} {academic_year} "
+            f"(invoice: {existing_invoice.invoice_no or str(existing_invoice.id)[:8]})"
+        )
+
+    # Load student for admission_year
+    student = db.execute(
+        select(Student).where(Student.id == student_id, Student.tenant_id == tenant_id)
+    ).scalar_one_or_none() if student_id else None
+
+    admission_year = getattr(student, "admission_year", academic_year) if student else academic_year
+    student_type = _detect_student_type(admission_year, academic_year)
+
+    # Find fee structure
+    norm_class = _norm_upper(str(class_code))
+    structure = db.execute(
+        select(FeeStructure).where(
+            FeeStructure.tenant_id == tenant_id,
+            FeeStructure.class_code == norm_class,
+            FeeStructure.academic_year == academic_year,
+            FeeStructure.student_type == student_type,
+            FeeStructure.is_active == True,
+        )
+    ).scalar_one_or_none()
+    if not structure:
+        raise ValueError(
+            f"No active fee structure found for class '{norm_class}', "
+            f"year {academic_year}, student type {student_type}"
+        )
+
+    # Pull structure items with fee item details
+    items = db.execute(
+        select(
+            FeeStructureItem.fee_item_id,
+            FeeStructureItem.term_1_amount,
+            FeeStructureItem.term_2_amount,
+            FeeStructureItem.term_3_amount,
+            FeeItem.name.label("fee_item_name"),
+            FeeItem.code.label("fee_item_code"),
+            FeeItem.charge_frequency,
+        )
+        .select_from(FeeStructureItem)
+        .join(FeeItem, FeeItem.id == FeeStructureItem.fee_item_id)
+        .where(
+            FeeStructureItem.structure_id == structure.id,
+            FeeItem.tenant_id == tenant_id,
+        )
+    ).all()
+    if not items:
+        raise ValueError("Fee structure has no items")
+
+    lines: list[dict] = []
+    for it in items:
+        freq = it.charge_frequency or "PER_TERM"
+
+        if freq == "PER_TERM":
+            amount = _get_term_amount(it, term_number)
+        elif freq == "ONCE_PER_YEAR":
+            if term_number != 1:
+                # ONCE_PER_YEAR is only charged in Term 1
+                continue
+            if _once_per_year_already_invoiced(
+                db, tenant_id=tenant_id, enrollment_id=enrollment_id,
+                academic_year=academic_year, fee_item_id=it.fee_item_id
+            ):
+                continue
+            amount = it.term_1_amount  # canonical value for once-per-year items
+        elif freq == "ONCE_EVER":
+            if _once_ever_already_invoiced(
+                db, tenant_id=tenant_id, enrollment_id=enrollment_id, fee_item_id=it.fee_item_id
+            ):
+                continue
+            amount = it.term_1_amount  # canonical value
+        else:
+            amount = _get_term_amount(it, term_number)
+
+        if Decimal(amount or 0) == 0:
+            continue
+
+        lines.append({
+            "description": f"{it.fee_item_name} ({norm_class})",
+            "amount": Decimal(amount),
+            "meta": {
+                "fee_item_id": str(it.fee_item_id),
+                "fee_item_code": it.fee_item_code,
+                "charge_frequency": freq,
+            },
+        })
+
+    if not lines:
+        raise ValueError("No chargeable fee items for this term (all items already invoiced or zero-amount)")
+
+    # Create the invoice
+    inv = Invoice(
+        tenant_id=tenant_id,
+        invoice_type="SCHOOL_FEES",
+        enrollment_id=enrollment_id,
+        status="DRAFT",
+        term_number=term_number,
+        academic_year=academic_year,
+        student_type_snapshot=student_type,
+    )
+    db.add(inv)
+    db.flush()
+
+    inv.invoice_no = _next_document_number(
+        db,
+        tenant_id=tenant_id,
+        doc_type="INV",
+        created_at=getattr(inv, "created_at", None),
+    )
+    db.flush()
+
+    for ln in lines:
+        db.add(InvoiceLine(
+            invoice_id=inv.id,
+            description=ln["description"],
+            amount=ln["amount"],
+            meta=ln.get("meta"),
+        ))
+    db.flush()
+    _recalc_invoice_amounts(db, inv)
+    db.flush()
+
+    # Store fee structure context in meta
+    inv.meta = {
+        **(inv.meta or {}),
+        "fee_structure_id": str(structure.id),
+        "class_code": structure.class_code,
+        "student_type": student_type,
+        "academic_year": academic_year,
+        "term_number": term_number,
+    }
+    db.flush()
+
+    # Apply scholarship discount if provided
+    if scholarship_id:
+        sch = db.execute(
+            select(Scholarship).where(
+                Scholarship.id == scholarship_id,
+                Scholarship.tenant_id == tenant_id,
+                Scholarship.is_active == True,
+            )
+        ).scalar_one_or_none()
+        if not sch:
+            raise ValueError("Scholarship not found or inactive")
+
+        if scholarship_amount is None:
+            if sch.type == "PERCENTAGE":
+                scholarship_amount = (inv.total_amount * Decimal(sch.value) / 100).quantize(Decimal("0.01"))
+            else:
+                scholarship_amount = Decimal(sch.value)
+
+        if scholarship_amount > 0:
+            db.add(InvoiceLine(
+                invoice_id=inv.id,
+                description=f"Scholarship: {sch.name}{(' - ' + scholarship_reason) if scholarship_reason else ''}",
+                amount=-abs(scholarship_amount),
+                meta={"scholarship_id": str(scholarship_id), "scholarship_type": sch.type},
+            ))
+            db.flush()
+            _recalc_invoice_amounts(db, inv)
+            db.flush()
+
+            allocation = ScholarshipAllocation(
+                tenant_id=tenant_id,
+                scholarship_id=scholarship_id,
+                enrollment_id=enrollment_id,
+                invoice_id=inv.id,
+                amount=scholarship_amount,
+                reason=scholarship_reason,
+            )
+            db.add(allocation)
+            db.flush()
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="invoice.create.v2",
+        resource="invoice",
+        resource_id=inv.id,
+        payload={
+            "type": inv.invoice_type,
+            "term_number": term_number,
+            "academic_year": academic_year,
+            "student_type": student_type,
+        },
+        meta=None,
+    )
+    return inv

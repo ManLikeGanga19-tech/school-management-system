@@ -82,7 +82,10 @@ export async function GET() {
     string,
     {
       fee_item_id: string;
-      amount: string | number;
+      term_1_amount: string | number;
+      term_2_amount: string | number;
+      term_3_amount: string | number;
+      charge_frequency: string;
       fee_item_code: string;
       fee_item_name: string;
       category_id: string;
@@ -101,7 +104,10 @@ export async function GET() {
       : [];
     fee_structure_items[entry.id] = items.map((item) => ({
       fee_item_id: String(item?.fee_item_id ?? ""),
-      amount: (item?.amount as string | number) ?? 0,
+      term_1_amount: (item?.term_1_amount as string | number) ?? 0,
+      term_2_amount: (item?.term_2_amount as string | number) ?? 0,
+      term_3_amount: (item?.term_3_amount as string | number) ?? 0,
+      charge_frequency: String(item?.charge_frequency ?? "PER_TERM"),
       fee_item_code: String(item?.fee_item_code ?? ""),
       fee_item_name: String(item?.fee_item_name ?? ""),
       category_id: String(item?.category_id ?? ""),

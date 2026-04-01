@@ -89,6 +89,9 @@ type FeeStructure = {
   id: string;
   structure_no?: string | null;
   class_code: string;
+  academic_year?: number | null;
+  student_type?: string | null;
+  /** @deprecated kept for display fallback only */
   term_code?: string;
   name: string;
   is_active: boolean;
@@ -1184,7 +1187,7 @@ function TenantFinancePageContent() {
           <div><strong>Document No:</strong> ${escapeHtml(structure.structure_no || "Pending")}</div>
           <div><strong>Structure Name:</strong> ${escapeHtml(structure.name)}</div>
           <div><strong>Class:</strong> ${escapeHtml(structure.class_code)}</div>
-          <div><strong>Term:</strong> ${escapeHtml(structure.term_code || "GENERAL")}</div>
+          <div><strong>Year / Type:</strong> ${structure.academic_year ?? "—"} · ${escapeHtml(structure.student_type || "—")}</div>
           <div><strong>Status:</strong> ${structure.is_active ? "Active" : "Inactive"}</div>
         </div>
       </div>
@@ -1633,9 +1636,9 @@ function TenantFinancePageContent() {
                                       key={s.id}
                                       value={s.id}
                                       className="max-w-[520px] truncate"
-                                      title={`${s.class_code} · ${s.term_code || "GENERAL"} · ${s.name}`}
+                                      title={`${s.class_code} · ${s.academic_year ?? ""} ${s.student_type ?? ""} · ${s.name}`}
                                     >
-                                      {s.class_code} · {s.term_code || "GENERAL"} · {s.name}
+                                      {s.class_code} · {s.academic_year ?? ""} {s.student_type ?? ""} · {s.name}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
