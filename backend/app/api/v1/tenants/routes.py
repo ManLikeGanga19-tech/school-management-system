@@ -1060,6 +1060,7 @@ def _serialize_fee_item(row: Any) -> dict:
         "category_id": str(getattr(row, "category_id")),
         "code": str(getattr(row, "code", "") or ""),
         "name": str(getattr(row, "name", "") or ""),
+        "charge_frequency": str(getattr(row, "charge_frequency", "PER_TERM") or "PER_TERM"),
         "is_active": bool(getattr(row, "is_active", True)),
     }
 
@@ -1073,7 +1074,8 @@ def _serialize_fee_structure(row: Any) -> dict:
             else None
         ),
         "class_code": str(getattr(row, "class_code", "") or ""),
-        "term_code": str(getattr(row, "term_code", "GENERAL") or "GENERAL"),
+        "academic_year": int(getattr(row, "academic_year", 0) or 0),
+        "student_type": str(getattr(row, "student_type", "RETURNING") or "RETURNING"),
         "name": str(getattr(row, "name", "") or ""),
         "is_active": bool(getattr(row, "is_active", True)),
     }
@@ -1082,7 +1084,10 @@ def _serialize_fee_structure(row: Any) -> dict:
 def _serialize_structure_item(item: dict[str, Any]) -> dict:
     return {
         "fee_item_id": str(item.get("fee_item_id") or ""),
-        "amount": str(item.get("amount") or 0),
+        "term_1_amount": str(item.get("term_1_amount") or 0),
+        "term_2_amount": str(item.get("term_2_amount") or 0),
+        "term_3_amount": str(item.get("term_3_amount") or 0),
+        "charge_frequency": str(item.get("charge_frequency") or "PER_TERM"),
         "fee_item_code": str(item.get("fee_item_code") or ""),
         "fee_item_name": str(item.get("fee_item_name") or ""),
         "category_id": str(item.get("category_id") or ""),
@@ -12061,6 +12066,7 @@ def secretary_finance_action(
     required_permissions = {
         "create_invoice": "finance.invoices.manage",
         "generate_fees_invoice": "finance.invoices.manage",
+        "generate_fees_invoice_v2": "finance.invoices.manage",
         "record_payment": "finance.payments.manage",
         "update_policy": "finance.policy.manage",
         "create_fee_category": "finance.fees.manage",
@@ -12085,7 +12091,7 @@ def secretary_finance_action(
             status_code=400,
             detail=(
                 "Invalid action. Use "
-                "create_invoice|generate_fees_invoice|record_payment|update_policy|"
+                "create_invoice|generate_fees_invoice|generate_fees_invoice_v2|record_payment|update_policy|"
                 "create_fee_category|update_fee_category|delete_fee_category|"
                 "create_fee_item|update_fee_item|delete_fee_item|"
                 "create_fee_structure|update_fee_structure|delete_fee_structure|"
@@ -12183,6 +12189,51 @@ def secretary_finance_action(
                 scholarship_id=scholarship_id,
                 scholarship_amount=scholarship_amount,
                 scholarship_reason=scholarship_reason,
+            )
+            db.commit()
+            db.refresh(row)
+            data = _serialize_invoice(row)
+
+        elif action == "generate_fees_invoice_v2":
+            enrollment_id = _parse_uuid(payload.get("enrollment_id"), field="payload.enrollment_id")
+            term_number_raw = payload.get("term_number")
+            try:
+                term_number = int(term_number_raw)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="payload.term_number must be 1, 2, or 3")
+            academic_year_raw = payload.get("academic_year")
+            try:
+                invoice_academic_year = int(academic_year_raw)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="payload.academic_year must be an integer")
+
+            v2_scholarship_raw = payload.get("scholarship_id")
+            v2_scholarship_id = None
+            v2_scholarship_amount = None
+            v2_scholarship_reason = None
+            if v2_scholarship_raw not in (None, ""):
+                v2_scholarship_id = _parse_uuid(v2_scholarship_raw, field="payload.scholarship_id")
+                v2_scholarship_amount = _parse_decimal(
+                    payload.get("scholarship_amount"),
+                    field="payload.scholarship_amount",
+                )
+                v2_scholarship_reason_raw = payload.get("scholarship_reason")
+                v2_scholarship_reason = (
+                    str(v2_scholarship_reason_raw).strip()
+                    if v2_scholarship_reason_raw not in (None, "")
+                    else None
+                )
+
+            row = finance_service.generate_school_fees_invoice_v2(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                enrollment_id=enrollment_id,
+                term_number=term_number,
+                academic_year=invoice_academic_year,
+                scholarship_id=v2_scholarship_id,
+                scholarship_amount=v2_scholarship_amount,
+                scholarship_reason=v2_scholarship_reason,
             )
             db.commit()
             db.refresh(row)
@@ -12331,12 +12382,21 @@ def secretary_finance_action(
             data = {"ok": True}
 
         elif action == "create_fee_structure":
+            academic_year_raw = payload.get("academic_year")
+            try:
+                academic_year_int = int(academic_year_raw)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="payload.academic_year must be an integer")
+            student_type_val = str(payload.get("student_type") or "RETURNING").upper()
+            if student_type_val not in ("NEW", "RETURNING"):
+                raise HTTPException(status_code=400, detail="payload.student_type must be NEW or RETURNING")
             row = finance_service.create_fee_structure(
                 db,
                 tenant_id=tenant.id,
                 actor_user_id=user.id,
                 class_code=str(payload.get("class_code") or ""),
-                term_code=str(payload.get("term_code") or "GENERAL"),
+                academic_year=academic_year_int,
+                student_type=student_type_val,
                 name=str(payload.get("name") or ""),
                 is_active=bool(payload.get("is_active", True)),
             )
@@ -12391,9 +12451,17 @@ def secretary_finance_action(
                 )
                 normalized_item["fee_item"] = fee_item_payload
 
-            normalized_item["amount"] = _parse_decimal(
-                normalized_item.get("amount"),
-                field="payload.item.amount",
+            normalized_item["term_1_amount"] = _parse_decimal(
+                normalized_item.get("term_1_amount"),
+                field="payload.item.term_1_amount",
+            )
+            normalized_item["term_2_amount"] = _parse_decimal(
+                normalized_item.get("term_2_amount"),
+                field="payload.item.term_2_amount",
+            )
+            normalized_item["term_3_amount"] = _parse_decimal(
+                normalized_item.get("term_3_amount"),
+                field="payload.item.term_3_amount",
             )
 
             row = finance_service.add_or_update_structure_item(
@@ -12438,9 +12506,17 @@ def secretary_finance_action(
                             item.get("fee_item_id"),
                             field=f"payload.items[{idx}].fee_item_id",
                         ),
-                        "amount": _parse_decimal(
-                            item.get("amount"),
-                            field=f"payload.items[{idx}].amount",
+                        "term_1_amount": _parse_decimal(
+                            item.get("term_1_amount"),
+                            field=f"payload.items[{idx}].term_1_amount",
+                        ),
+                        "term_2_amount": _parse_decimal(
+                            item.get("term_2_amount"),
+                            field=f"payload.items[{idx}].term_2_amount",
+                        ),
+                        "term_3_amount": _parse_decimal(
+                            item.get("term_3_amount"),
+                            field=f"payload.items[{idx}].term_3_amount",
                         ),
                     }
                 )
