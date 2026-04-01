@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, Numeric, text
+from sqlalchemy import Column, Enum, SmallInteger, String, DateTime, ForeignKey, Numeric, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 
@@ -17,6 +17,14 @@ class Invoice(Base):
     status = Column(String(30), nullable=False, server_default=text("'DRAFT'"))
 
     enrollment_id = Column(UUID(as_uuid=True), ForeignKey("core.enrollments.id", ondelete="SET NULL"), nullable=True)
+
+    # Term/year context (SCHOOL_FEES invoices)
+    term_number = Column(SmallInteger(), nullable=True)      # 1 | 2 | 3
+    academic_year = Column(SmallInteger(), nullable=True)    # e.g. 2026
+    student_type_snapshot = Column(
+        Enum("NEW", "RETURNING", name="student_type", schema="core", create_type=False),
+        nullable=True,
+    )
 
     currency = Column(String(10), nullable=False, server_default=text("'KES'"))
     total_amount = Column(Numeric(12, 2), nullable=False, server_default=text("0"))

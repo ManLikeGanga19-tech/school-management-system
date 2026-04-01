@@ -1,8 +1,14 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, UniqueConstraint, text
+from sqlalchemy import Column, Enum, String, Boolean, DateTime, ForeignKey, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
 from app.core.database import Base
+
+ChargeFrequency = Enum(
+    "PER_TERM", "ONCE_PER_YEAR", "ONCE_EVER",
+    name="charge_frequency",
+    schema="core",
+)
 
 
 class FeeCategory(Base):
@@ -36,6 +42,11 @@ class FeeItem(Base):
 
     code = Column(String(60), nullable=False)
     name = Column(String(160), nullable=False)
+    charge_frequency = Column(
+        ChargeFrequency,
+        nullable=False,
+        server_default=text("'PER_TERM'"),
+    )
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())

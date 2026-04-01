@@ -59,7 +59,7 @@ services:
         required: false
     environment:
       DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
-    command: ["python", "-m", "alembic", "upgrade", "head"]
+    command: ["python", "-m", "alembic", "upgrade", "heads"]
     depends_on:
       postgres:
         condition: service_healthy

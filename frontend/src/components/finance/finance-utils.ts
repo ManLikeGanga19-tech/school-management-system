@@ -7,11 +7,15 @@ export type FeeCategory = {
   is_active: boolean;
 };
 
+export type ChargeFrequency = "PER_TERM" | "ONCE_PER_YEAR" | "ONCE_EVER";
+export type StudentType = "NEW" | "RETURNING";
+
 export type FeeItem = {
   id: string;
   category_id: string;
   code: string;
   name: string;
+  charge_frequency: ChargeFrequency;
   is_active: boolean;
 };
 
@@ -19,14 +23,18 @@ export type FeeStructure = {
   id: string;
   structure_no?: string | null;
   class_code: string;
-  term_code?: string | null;
+  academic_year: number;
+  student_type: StudentType;
   name: string;
   is_active: boolean;
 };
 
 export type FeeStructureItem = {
   fee_item_id: string;
-  amount: string | number;
+  term_1_amount: string | number;
+  term_2_amount: string | number;
+  term_3_amount: string | number;
+  charge_frequency: ChargeFrequency;
   fee_item_code: string;
   fee_item_name: string;
   category_id: string;
@@ -58,7 +66,10 @@ export type StructureRowDraft = {
   category_id: string;
   category_code: string;
   category_name: string;
-  amount: string;
+  term_1_amount: string;
+  term_2_amount: string;
+  term_3_amount: string;
+  charge_frequency: ChargeFrequency;
 };
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────

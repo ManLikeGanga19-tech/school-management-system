@@ -70,7 +70,7 @@ services:
     environment:
       DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/school_manager_db}
     command: >
-      python -m alembic upgrade head
+      python -m alembic upgrade heads
     volumes:
       - ./backend/alambic:/app/alambic  # always use local migration files so new migrations are visible without a rebuild
     depends_on:

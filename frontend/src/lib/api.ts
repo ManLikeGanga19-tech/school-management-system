@@ -550,4 +550,17 @@ export const api = {
       method: "DELETE",
       body: serializeBody(body),
     }),
+
+  /** Fetch a binary resource (e.g. PDF) and trigger a browser download. */
+  downloadFile: async (path: string, filename: string, opts?: ApiOptions): Promise<void> => {
+    const resp = await apiFetchRaw(path, { ...opts, method: "GET" });
+    if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };
