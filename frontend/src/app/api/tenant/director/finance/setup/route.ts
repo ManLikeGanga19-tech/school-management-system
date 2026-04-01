@@ -58,7 +58,10 @@ export async function GET() {
     string,
     {
       fee_item_id: string;
-      amount: string | number;
+      term_1_amount: string | number;
+      term_2_amount: string | number;
+      term_3_amount: string | number;
+      charge_frequency: string;
       fee_item_code: string;
       fee_item_name: string;
       category_id: string;

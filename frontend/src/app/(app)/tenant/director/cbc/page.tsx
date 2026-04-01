@@ -11,7 +11,7 @@ export default function DirectorCbcPage() {
         </div>
       }
     >
-      <CbcModulePage appTitle="Director" nav={directorNav} canManageCurriculum={true} />
+      <CbcModulePage title="Director" nav={directorNav} canManageCurriculum={true} />
     </Suspense>
   );
 }
