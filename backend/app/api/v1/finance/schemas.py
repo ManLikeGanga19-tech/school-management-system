@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from typing import Optional, List, Dict, Any
+from typing import Literal, Optional, List, Dict, Any
 from uuid import UUID
 from decimal import Decimal
 
@@ -46,6 +46,7 @@ class FeeItemCreate(BaseModel):
     category_id: UUID
     code: str
     name: str
+    charge_frequency: Literal["PER_TERM", "ONCE_PER_YEAR", "ONCE_EVER"] = "PER_TERM"
     is_active: bool = True
 
 
@@ -57,6 +58,7 @@ class FeeItemUpdate(BaseModel):
     category_id: Optional[UUID] = None
     code: Optional[str] = None
     name: Optional[str] = None
+    charge_frequency: Optional[Literal["PER_TERM", "ONCE_PER_YEAR", "ONCE_EVER"]] = None
     is_active: Optional[bool] = None
 
 
@@ -65,37 +67,49 @@ class FeeItemUpdate(BaseModel):
 # -------------------------
 class FeeStructureCreate(BaseModel):
     class_code: str
-    term_code: str = "GENERAL"
+    academic_year: int
+    student_type: Literal["NEW", "RETURNING"]
     name: str
     is_active: bool = True
 
 
 class FeeStructureUpdate(BaseModel):
     class_code: Optional[str] = None
-    term_code: Optional[str] = None
+    academic_year: Optional[int] = None
+    student_type: Optional[Literal["NEW", "RETURNING"]] = None
     name: Optional[str] = None
     is_active: Optional[bool] = None
 
 
-class FeeStructureOut(ORMOutModel, FeeStructureCreate):
+class FeeStructureOut(ORMOutModel):
     id: UUID
+    class_code: str
+    academic_year: int
+    student_type: str
+    name: str
+    is_active: bool
     structure_no: Optional[str] = None
 
 
 class FeeStructureItemUpsert(BaseModel):
     fee_item_id: UUID
-    amount: Decimal
+    term_1_amount: Decimal
+    term_2_amount: Decimal
+    term_3_amount: Decimal
 
 
 class FeeStructureItemInlineFeeItem(BaseModel):
     category_id: UUID
     code: str
     name: str
+    charge_frequency: Literal["PER_TERM", "ONCE_PER_YEAR", "ONCE_EVER"] = "PER_TERM"
     is_active: bool = True
 
 
 class FeeStructureItemAdd(BaseModel):
-    amount: Decimal
+    term_1_amount: Decimal
+    term_2_amount: Decimal
+    term_3_amount: Decimal
     fee_item_id: Optional[UUID] = None
     fee_item: Optional[FeeStructureItemInlineFeeItem] = None
 
@@ -110,7 +124,10 @@ class FeeStructureItemAdd(BaseModel):
 
 class FeeStructureItemOut(BaseModel):
     fee_item_id: UUID
-    amount: Decimal
+    term_1_amount: Decimal
+    term_2_amount: Decimal
+    term_3_amount: Decimal
+    charge_frequency: str
     fee_item_code: str
     fee_item_name: str
     category_id: UUID
@@ -165,6 +182,9 @@ class InvoiceOut(ORMOutModel):
     invoice_type: str
     status: str
     enrollment_id: Optional[UUID] = None
+    term_number: Optional[int] = None
+    academic_year: Optional[int] = None
+    student_type_snapshot: Optional[str] = None
     currency: str
     total_amount: Decimal
     paid_amount: Decimal
@@ -178,6 +198,15 @@ class GenerateFeesInvoiceRequest(BaseModel):
     enrollment_id: UUID
     class_code: str
     term_code: Optional[str] = None
+    scholarship_id: Optional[UUID] = None
+    scholarship_amount: Optional[Decimal] = None
+    scholarship_reason: Optional[str] = None
+
+
+class GenerateFeesInvoiceV2Request(BaseModel):
+    enrollment_id: UUID
+    term_number: int = Field(..., ge=1, le=3)
+    academic_year: int = Field(..., ge=2000, le=2100)
     scholarship_id: Optional[UUID] = None
     scholarship_amount: Optional[Decimal] = None
     scholarship_reason: Optional[str] = None
@@ -235,3 +264,25 @@ class PaymentAllocationOut(BaseModel):
 
 class PaymentWithAllocationsOut(PaymentOut):
     allocations: List[PaymentAllocationOut] = Field(default_factory=list)
+
+
+# -------------------------
+# Tenant Payment Settings
+# -------------------------
+class TenantPaymentSettingsUpsert(BaseModel):
+    mpesa_paybill: Optional[str] = None
+    mpesa_business_no: Optional[str] = None
+    mpesa_account_format: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    bank_branch: Optional[str] = None
+    cash_payment_instructions: Optional[str] = None
+    uniform_details_text: Optional[str] = None
+    assessment_books_amount: Optional[Decimal] = None
+    assessment_books_note: Optional[str] = None
+
+
+class TenantPaymentSettingsOut(ORMOutModel, TenantPaymentSettingsUpsert):
+    id: UUID
+    tenant_id: UUID

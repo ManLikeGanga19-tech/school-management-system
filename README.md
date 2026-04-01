@@ -198,11 +198,15 @@ Public paths (health checks, SaaS auth, payment callbacks) bypass tenant resolut
 |---|---|
 | **Dashboard** | Enrolment pipeline KPIs, fee collection summary, calendar view |
 | **Enrolments** | Full DRAFT → SUBMITTED → APPROVED → REJECTED workflow |
-| **Fee structures** | Per-class, per-term fee schedules with line items |
+| **Fee structures (v2)** | Per-class fee schedules keyed by academic year + student type (NEW / RETURNING) with per-term amounts (T1/T2/T3) and charge-frequency rules (PER_TERM, ONCE_PER_YEAR, ONCE_EVER) |
+| **Fee structure PDF** | Downloadable A4 PDF summary of any fee structure |
+| **Payment settings** | Per-tenant minimum payment amounts, partial-payment policy, and collection rules |
 | **Finance policies** | Partial-payment rules, minimum amounts, interview-fee gates |
-| **Invoices** | Auto-generated interview and school-fee invoices |
-| **Payment recording** | Cash, M-Pesa, bank transfer, and cheque entries |
-| **Scholarships** | Discount allocations per student |
+| **Invoices (v2)** | Smart auto-generated school-fees invoices — student type auto-detected from admission year; once-per-year and once-ever items deduplicated across terms |
+| **Invoice PDF** | Downloadable A4 PDF invoice per student |
+| **Payment recording** | Cash, M-Pesa, bank transfer, and cheque entries with printable receipts |
+| **Scholarships** | Discount allocations per student (fixed amount or percentage) |
+| **CBC module** | Competency-Based Curriculum management — strands, sub-strands, learning outcomes, performance levels, and assessment reports |
 | **School calendar** | School-specific events (half-terms, exams) overlaid on SaaS calendar |
 | **Audit log** | Tenant-scoped action log for compliance |
 | **Support** | Raise and track tickets with the platform operator |
@@ -212,7 +216,9 @@ Public paths (health checks, SaaS auth, payment callbacks) bypass tenant resolut
 | Feature | Description |
 |---|---|
 | **Dashboard** | Daily collection summary, outstanding balances |
-| **Finance** | Record payments, view invoices, track allocations |
+| **Finance (v2)** | Generate school-fees invoices by term number + academic year; record payments; download PDF invoices and receipts |
+| **Payment settings** | View and update tenant-level payment configuration |
+| **CBC module** | View and manage CBC curriculum data and student assessment reports |
 
 ### Prospect / Public
 
@@ -230,6 +236,7 @@ Public paths (health checks, SaaS auth, payment callbacks) bypass tenant resolut
 | **Rate limiting** | Tenant-aware per-minute buckets (slowapi + Redis) |
 | **Audit logging** | Async queue with sanitised payloads; auto-pruned at 90 days |
 | **Session management** | Redis-backed token blacklist and permission cache |
+| **Pure-Python PDF generation** | A4 PDF invoices, receipts, and fee-structure documents generated server-side with no external library dependencies |
 | **i18n** | Cookie-based locale switching (next-intl) |
 | **Structured logging** | JSON logs in non-dev environments |
 | **Health checks** | `/healthz` (liveness) and `/readyz` (DB + Redis readiness) |
@@ -383,24 +390,35 @@ school-management-system/
 │   │   ├── models/                 # SQLAlchemy ORM models (core schema)
 │   │   │   ├── auth.py             # AuthSession
 │   │   │   ├── audit_log.py        # AuditLog
-│   │   │   ├── enrollment.py       # Enrollment
+│   │   │   ├── cbc.py              # CBC curriculum models (strands, sub-strands, learning outcomes, performance levels)
+│   │   │   ├── enrollment.py       # Enrollment (with admission_year → student type detection)
+│   │   │   ├── fee_catalog.py      # FeeCatalog (tenant item library)
+│   │   │   ├── fee_structure.py    # FeeStructure, FeeStructureItem (per-term amounts, charge_frequency)
 │   │   │   ├── finance_policy.py   # FinancePolicy
-│   │   │   ├── invoice.py          # Invoice, InvoiceLine, Payment, PaymentAllocation
+│   │   │   ├── invoice.py          # Invoice, InvoiceLine, Payment, PaymentAllocation (with term_number, academic_year, student_type)
 │   │   │   ├── membership.py       # Membership (tenant ↔ user link)
 │   │   │   ├── prospect.py         # ProspectAccount, ProspectRequest
 │   │   │   ├── rbac.py             # Role, Permission, UserRole, Override
+│   │   │   ├── student.py          # Student (with admission_year for NEW/RETURNING classification)
 │   │   │   ├── subscription.py     # Subscription, SubscriptionPayment
 │   │   │   ├── tenant.py           # Tenant
+│   │   │   ├── tenant_payment_settings.py  # TenantPaymentSettings (per-tenant collection rules)
 │   │   │   └── user.py             # User
-│   │   ├── utils/                  # hashing, tokens, helpers
+│   │   ├── utils/
+│   │   │   ├── cbc_report_pdf.py   # Pure-Python A4 CBC assessment report PDF
+│   │   │   ├── fee_structure_pdf.py # Pure-Python A4 fee structure PDF
+│   │   │   ├── invoice_pdf.py      # Pure-Python A4 invoice / receipt PDF
+│   │   │   └── ...                 # hashing, tokens, helpers
 │   │   └── main.py                 # FastAPI app factory, lifespan, router mount
-│   ├── alambic/                    # Alembic migration versions
-│   ├── tests/                      # pytest test suite
+│   ├── alambic/                    # Alembic migration versions (multiple branches: finance v2 + CBC)
+│   ├── tests/                      # pytest test suite (~325 tests)
 │   │   ├── conftest.py             # Shared fixtures (DB, client, rate limiter)
 │   │   ├── helpers.py              # create_tenant(), make_actor()
 │   │   ├── test_auth.py
+│   │   ├── test_cbc_phase3b.py     # CBC curriculum + assessment report tests
 │   │   ├── test_enrollments.py
-│   │   ├── test_finance.py
+│   │   ├── test_finance.py         # Finance v1 regression tests (updated for v2 schema)
+│   │   ├── test_finance_v2.py      # Finance v2: charge frequency, per-term amounts, smart invoice engine, payment settings
 │   │   ├── test_payments.py
 │   │   ├── test_public.py
 │   │   ├── test_security.py
@@ -417,10 +435,26 @@ school-management-system/
 │   │   │   ├── (app)/
 │   │   │   │   ├── saas/           # SaaS Admin portal pages
 │   │   │   │   └── tenant/
-│   │   │   │       ├── director/   # Director portal pages
-│   │   │   │       └── secretary/  # Secretary portal pages
-│   │   │   └── api/auth/           # Next.js API routes (auth proxy)
+│   │   │   │       ├── director/
+│   │   │   │       │   ├── finance/
+│   │   │   │       │   │   └── payment-settings/  # Director payment settings page
+│   │   │   │       │   └── cbc/    # Director CBC module page
+│   │   │   │       └── secretary/
+│   │   │   │           ├── finance/
+│   │   │   │           │   └── payment-settings/  # Secretary payment settings page
+│   │   │   │           └── cbc/    # Secretary CBC module page
+│   │   │   └── api/
+│   │   │       ├── auth/           # Next.js API routes (auth proxy)
+│   │   │       └── tenant/
+│   │   │           ├── director/finance/  # BFF proxy: finance actions + v2 invoice generation
+│   │   │           └── secretary/finance/ # BFF proxy: finance actions + v2 invoice generation
 │   │   ├── components/
+│   │   │   ├── cbc/
+│   │   │   │   └── CbcModulePage.tsx     # Shared CBC module UI (director + secretary)
+│   │   │   ├── finance/
+│   │   │   │   ├── FeeStructuresPage.tsx  # Fee structure management (v2)
+│   │   │   │   ├── PaymentSettingsPage.tsx # Tenant payment settings UI
+│   │   │   │   └── finance-utils.ts       # Shared finance helpers
 │   │   │   ├── layout/             # AppShell, navigation, sidebar
 │   │   │   └── ui/                 # Reusable UI components
 │   │   ├── i18n/                   # next-intl config + request handler
@@ -466,13 +500,15 @@ pip install -r requirements-dev.txt
 pytest -q tests/
 ```
 
-The test suite covers:
+The test suite covers ~325 tests across all modules:
 
 | Module | Tests |
 |---|---|
 | Auth (tenant + SaaS) | Login, refresh, logout, token blacklisting, rate limits |
 | Enrolments | Create, submit, approve, reject, permission gates |
-| Finance | Fee structures, policies, invoices, payment allocation |
+| Finance v1 | Fee structures, categories, items, policies, invoices, payment allocation, scholarships |
+| Finance v2 | Charge frequency (PER_TERM / ONCE_PER_YEAR / ONCE_EVER), per-term amounts, smart invoice engine, NEW/RETURNING student type detection, duplicate invoice guard, payment settings |
+| CBC | Strand/sub-strand/learning outcome CRUD, performance level management, assessment report generation and PDF download |
 | Payments | Daraja callback token validation, subscription billing, rate limits |
 | Public (prospect) | Registration, login, OAuth, refresh, logout, request CRUD |
 | Support | Ticket creation, messaging, unread counts |

@@ -13,6 +13,7 @@ from app.api.v1.public.routes import router as public_router
 from app.api.v1.students.routes import router as students_router
 from app.api.v1.attendance.routes import router as attendance_router
 from app.api.v1.reports.routes import router as reports_router
+from app.api.v1.cbc.routes import router as cbc_router
 
 api_router = APIRouter()
 
@@ -47,3 +48,6 @@ api_router.include_router(attendance_router, prefix="/attendance", tags=["attend
 
 # Reports (8-4-4 Report Cards)
 api_router.include_router(reports_router, prefix="/reports", tags=["reports"])
+
+# CBC Assessments (Phase 3B)
+api_router.include_router(cbc_router, prefix="/cbc", tags=["cbc"])

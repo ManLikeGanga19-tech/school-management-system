@@ -16,7 +16,9 @@ from app.api.v1.finance.schemas import (
     ScholarshipCreate, ScholarshipOut, ScholarshipUpdate,
     InvoiceCreate, InvoiceOut,
     GenerateFeesInvoiceRequest,
+    GenerateFeesInvoiceV2Request,
     PaymentCreate, PaymentOut, PaymentWithAllocationsOut,
+    TenantPaymentSettingsUpsert, TenantPaymentSettingsOut,
 )
 
 router = APIRouter()
@@ -162,6 +164,7 @@ def create_fee_item(
             category_id=payload.category_id,
             code=payload.code,
             name=payload.name,
+            charge_frequency=payload.charge_frequency,
             is_active=payload.is_active,
         )
         db.commit()
@@ -270,18 +273,22 @@ def create_fee_structure(
     tenant=Depends(get_tenant),
     user=Depends(get_current_user),
 ):
-    row = service.create_fee_structure(
-        db,
-        tenant_id=tenant.id,
-        actor_user_id=user.id,
-        class_code=payload.class_code,
-        term_code=payload.term_code,
-        name=payload.name,
-        is_active=payload.is_active,
-    )
-    db.commit()
-    db.refresh(row)
-    return row
+    try:
+        row = service.create_fee_structure(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            class_code=payload.class_code,
+            academic_year=payload.academic_year,
+            student_type=payload.student_type,
+            name=payload.name,
+            is_active=payload.is_active,
+        )
+        db.commit()
+        db.refresh(row)
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/fee-structures", response_model=list[FeeStructureOut], dependencies=[Depends(require_permission("finance.fees.view"))])
@@ -414,9 +421,11 @@ def get_structure(
         return FeeStructureWithItemsOut(
             id=s.id,
             class_code=s.class_code,
-            term_code=s.term_code,
+            academic_year=s.academic_year,
+            student_type=s.student_type,
             name=s.name,
             is_active=s.is_active,
+            structure_no=getattr(s, "structure_no", None),
             items=items,
         )
     except ValueError as e:
@@ -573,6 +582,33 @@ def generate_fees_invoice(
         db.refresh(inv)
         return inv
     except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/invoices/generate/fees/v2", response_model=InvoiceOut, dependencies=[Depends(require_permission("finance.invoices.manage"))])
+def generate_fees_invoice_v2(
+    payload: GenerateFeesInvoiceV2Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    try:
+        inv = service.generate_school_fees_invoice_v2(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            enrollment_id=payload.enrollment_id,
+            term_number=payload.term_number,
+            academic_year=payload.academic_year,
+            scholarship_id=payload.scholarship_id,
+            scholarship_amount=payload.scholarship_amount,
+            scholarship_reason=payload.scholarship_reason,
+        )
+        db.commit()
+        db.refresh(inv)
+        return inv
+    except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -790,7 +826,10 @@ def download_fee_structure_pdf(
         )
         pdf = service.render_document_pdf(payload)
         db.commit()
-        filename = f"{payload.get('document_no') or 'fee-structure'}.pdf"
+        cls = str(payload.get("class_code") or "structure").replace("/", "-").replace(" ", "_")
+        yr = str(payload.get("academic_year") or "")
+        stype = str(payload.get("student_type") or "")
+        filename = f"fee-structure-{cls}-{yr}-{stype}.pdf".lower()
         return Response(
             content=pdf,
             media_type="application/pdf",
@@ -922,3 +961,49 @@ def subscription_payment_status(
     except RuntimeError as exc:
         db.rollback()
         raise HTTPException(status_code=503, detail=str(exc))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Payment Settings (Director manages, Secretary reads)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/payment-settings",
+    response_model=TenantPaymentSettingsOut,
+    dependencies=[Depends(require_permission("finance.policy.view"))],
+)
+def get_payment_settings(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    row = service.get_payment_settings(db, tenant_id=tenant.id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Payment settings not configured")
+    return row
+
+
+@router.put(
+    "/payment-settings",
+    response_model=TenantPaymentSettingsOut,
+    dependencies=[Depends(require_permission("finance.policy.manage"))],
+)
+def upsert_payment_settings(
+    payload: TenantPaymentSettingsUpsert,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    try:
+        row = service.upsert_payment_settings(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            data=payload.model_dump(exclude_unset=True),
+        )
+        db.commit()
+        db.refresh(row)
+        return row
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))

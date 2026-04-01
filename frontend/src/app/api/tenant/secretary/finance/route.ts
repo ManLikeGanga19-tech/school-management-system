@@ -4,6 +4,7 @@ import { backendFetch } from "@/server/backend/client";
 type FinanceAction =
   | "create_invoice"
   | "generate_fees_invoice"
+  | "generate_fees_invoice_v2"
   | "record_payment"
   | "update_policy"
   | "create_fee_category"
@@ -179,6 +180,9 @@ export async function POST(req: Request) {
       break;
     case "generate_fees_invoice":
       path = "/api/v1/finance/invoices/generate/fees";
+      break;
+    case "generate_fees_invoice_v2":
+      path = "/api/v1/finance/invoices/generate/fees/v2";
       break;
     case "record_payment":
       path = "/api/v1/finance/payments";

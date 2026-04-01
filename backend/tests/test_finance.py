@@ -200,7 +200,12 @@ class TestFeeStructures:
     def _create_structure(self, client, headers, class_code="GRADE_1") -> dict:
         resp = client.post(
             f"{BASE}/fee-structures",
-            json={"class_code": class_code, "term_code": "TERM_1", "name": f"{class_code} Term 1"},
+            json={
+                "class_code": class_code,
+                "academic_year": 2026,
+                "student_type": "RETURNING",
+                "name": f"{class_code} 2026 Returning",
+            },
             headers=headers,
         )
         assert resp.status_code == 200
@@ -249,7 +254,12 @@ class TestFeeStructures:
 
         resp = client.post(
             f"{BASE}/fee-structures/{structure['id']}/items",
-            json={"fee_item_id": item_id, "amount": "2500.00"},
+            json={
+                "fee_item_id": item_id,
+                "term_1_amount": "2500.00",
+                "term_2_amount": "2500.00",
+                "term_3_amount": "2500.00",
+            },
             headers=headers,
         )
         assert resp.status_code == 200
