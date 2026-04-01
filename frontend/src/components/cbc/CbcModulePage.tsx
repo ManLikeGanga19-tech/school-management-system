@@ -37,7 +37,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
@@ -131,17 +130,17 @@ function normalizeAssessments(data: unknown): Assessment[] {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 type CbcModulePageProps = {
-  appTitle: string;
+  title: string;
   nav: AppNavItem[];
   canManageCurriculum?: boolean;
 };
 
-export function CbcModulePage({ appTitle, nav, canManageCurriculum = false }: CbcModulePageProps) {
+export function CbcModulePage({ title, nav, canManageCurriculum = false }: CbcModulePageProps) {
   const searchParams = useSearchParams();
   const section = (searchParams.get("section") ?? "assessments") as "assessments" | "curriculum" | "reports";
 
   return (
-    <AppShell appTitle={appTitle} nav={nav}>
+    <AppShell title={title} nav={nav}>
       <div className="p-4 md:p-6 space-y-4">
         {section === "curriculum" && (
           <CurriculumTab canManage={canManageCurriculum} />

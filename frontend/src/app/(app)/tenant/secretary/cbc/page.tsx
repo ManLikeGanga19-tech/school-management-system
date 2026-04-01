@@ -11,7 +11,7 @@ export default function SecretaryCbcPage() {
         </div>
       }
     >
-      <CbcModulePage appTitle="Secretary" nav={secretaryNav} canManageCurriculum={false} />
+      <CbcModulePage title="Secretary" nav={secretaryNav} canManageCurriculum={false} />
     </Suspense>
   );
 }
