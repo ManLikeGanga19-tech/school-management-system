@@ -12,6 +12,7 @@ export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" 
 export type StudentSection = "all" | "fee-balance" | "clearance" | "attendance";
 export type HrSection = "staff" | "teachers" | "assets";
 export type ExamSection = "setup" | "timetable" | "enter-marks" | "marks-review" | "report-cards";
+export type CbcSection = "assessments" | "curriculum" | "reports";
 
 // ───────────────────────────────────────────────────────────────
 // Director (App Router) paths: /tenant/director/*
@@ -57,6 +58,10 @@ export function directorEventsHref() {
   return "/tenant/director/events";
 }
 
+export function directorCbcHref(section: CbcSection = "assessments") {
+  return `/tenant/director/cbc?section=${section}`;
+}
+
 // ───────────────────────────────────────────────────────────────
 // Secretary paths remain under /tenant/secretary/*
 // ───────────────────────────────────────────────────────────────
@@ -99,6 +104,10 @@ export function secretaryExamsHref(section: ExamSection = "setup") {
 
 export function secretaryEventsHref() {
   return "/tenant/secretary/events";
+}
+
+export function secretaryCbcHref(section: CbcSection = "assessments") {
+  return `/tenant/secretary/cbc?section=${section}`;
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -194,6 +203,7 @@ export const directorNav: AppNavItem[] = [
       { href: "/tenant/director/finance/categories", label: "Categories & Items", icon: "Tag" },
       { href: "/tenant/director/finance/scholarships", label: "Scholarships", icon: "GraduationCap" },
       { href: "/tenant/director/finance/policy", label: "Finance Policy", icon: "SlidersHorizontal" },
+      { href: "/tenant/director/finance/payment-settings", label: "Payment Settings", icon: "CreditCard" },
       { href: directorFinanceHref("invoices"), label: "Invoices", icon: "FileText" },
       { href: directorFinanceHref("payments"), label: "Payments", icon: "HandCoins" },
       { href: directorFinanceHref("receipts"), label: "Receipts", icon: "Receipt" },
@@ -210,6 +220,16 @@ export const directorNav: AppNavItem[] = [
       { href: directorExamsHref("enter-marks"), label: "Enter Marks", icon: "PenLine" },
       { href: directorExamsHref("marks-review"), label: "Marks Review", icon: "ClipboardList" },
       { href: directorExamsHref("report-cards"), label: "Report Cards", icon: "FileBarChart" },
+    ],
+  },
+  {
+    href: directorCbcHref("assessments"),
+    label: "CBC",
+    icon: "BookOpenCheck",
+    children: [
+      { href: directorCbcHref("assessments"), label: "Assessments", icon: "ClipboardList" },
+      { href: directorCbcHref("curriculum"),  label: "Curriculum", icon: "BookOpenText" },
+      { href: directorCbcHref("reports"),     label: "Progress Reports", icon: "FileBarChart" },
     ],
   },
   {
@@ -297,6 +317,7 @@ export const secretaryNav: AppNavItem[] = [
       { href: "/tenant/secretary/finance/fee-structures", label: "Fee Structures", icon: "FileSpreadsheet" },
       { href: "/tenant/secretary/finance/categories", label: "Categories & Items", icon: "Tag" },
       { href: "/tenant/secretary/finance/scholarships", label: "Scholarships", icon: "GraduationCap" },
+      { href: "/tenant/secretary/finance/payment-settings", label: "Payment Settings", icon: "CreditCard" },
       { href: secretaryFinanceHref("invoices"), label: "Invoices", icon: "FileText" },
       { href: secretaryFinanceHref("payments"), label: "Payments", icon: "HandCoins" },
       { href: secretaryFinanceHref("receipts"), label: "Receipts", icon: "Receipt" },
@@ -313,6 +334,16 @@ export const secretaryNav: AppNavItem[] = [
       { href: secretaryExamsHref("enter-marks"), label: "Enter Marks", icon: "PenLine" },
       { href: secretaryExamsHref("marks-review"), label: "Marks Review", icon: "ClipboardList" },
       { href: secretaryExamsHref("report-cards"), label: "Report Cards", icon: "FileBarChart" },
+    ],
+  },
+  {
+    href: secretaryCbcHref("assessments"),
+    label: "CBC",
+    icon: "BookOpenCheck",
+    children: [
+      { href: secretaryCbcHref("assessments"), label: "Assessments", icon: "ClipboardList" },
+      { href: secretaryCbcHref("curriculum"),  label: "Curriculum", icon: "BookOpenText" },
+      { href: secretaryCbcHref("reports"),     label: "Progress Reports", icon: "FileBarChart" },
     ],
   },
   {

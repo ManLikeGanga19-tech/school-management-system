@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, String, Text, text
+from sqlalchemy import Boolean, Column, Date, DateTime, SmallInteger, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -32,6 +32,7 @@ class Student(Base):
     previous_school = Column(String(200))
     previous_class = Column(String(80))
 
+    admission_year = Column(SmallInteger(), nullable=False, server_default=text("EXTRACT(YEAR FROM now())::smallint"))
     status = Column(String(30), nullable=False, server_default=text("'ACTIVE'"))
     archived_at = Column(DateTime(timezone=True))
 

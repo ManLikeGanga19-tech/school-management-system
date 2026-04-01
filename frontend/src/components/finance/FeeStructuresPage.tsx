@@ -10,6 +10,7 @@ import {
   ChevronRight,
   X,
   Package,
+  Download,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -48,6 +49,7 @@ import {
   type FeeStructureItem,
   type FeeItem,
   type FeeCategory,
+  type StudentType,
   formatAmount,
   toNumber,
   normalizeClassCode,
@@ -62,6 +64,8 @@ type Props = {
   activeHref: string;
 };
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 function StatusBadge({ active }: { active: boolean }) {
   return (
     <span
@@ -75,6 +79,26 @@ function StatusBadge({ active }: { active: boolean }) {
       {active ? "Active" : "Inactive"}
     </span>
   );
+}
+
+function StudentTypeBadge({ type }: { type: StudentType }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+        type === "NEW"
+          ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+          : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+      }`}
+    >
+      {type === "NEW" ? "New" : "Returning"}
+    </span>
+  );
+}
+
+function FreqBadge({ freq }: { freq: string }) {
+  if (freq === "ONCE_PER_YEAR") return <span className="text-xs text-amber-600">Once/yr</span>;
+  if (freq === "ONCE_EVER") return <span className="text-xs text-purple-600">One-time</span>;
+  return <span className="text-xs text-slate-400">Per term</span>;
 }
 
 function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
@@ -92,7 +116,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
     role === "secretary"
       ? "/tenants/secretary/finance/setup"
       : "/tenants/director/finance/setup";
-  const readonly = role === "director";
+  const canManage = role === "director";
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const [structures, setStructures] = useState<FeeStructure[]>([]);
@@ -110,15 +134,24 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
   const [structureForm, setStructureForm] = useState({
     name: "",
     class_code: "",
-    term_code: "",
+    academic_year: String(CURRENT_YEAR),
+    student_type: "NEW" as StudentType,
     is_active: true,
   });
   const [editingStructureId, setEditingStructureId] = useState<string | null>(null);
   const [deletingStructureId, setDeletingStructureId] = useState<string | null>(null);
 
   // ── Add item to structure ────────────────────────────────────────────────────
-  const [addItemForm, setAddItemForm] = useState({ fee_item_id: "", amount: "" });
+  const [addItemForm, setAddItemForm] = useState({
+    fee_item_id: "",
+    term_1_amount: "",
+    term_2_amount: "",
+    term_3_amount: "",
+  });
   const [removingItemId, setRemovingItemId] = useState<string | null>(null);
+
+  // ── PDF download ──────────────────────────────────────────────────────────────
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   // ── Load ─────────────────────────────────────────────────────────────────────
   const load = useCallback(
@@ -168,7 +201,13 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
 
   // ── Structure CRUD ───────────────────────────────────────────────────────────
   function openCreateStructure() {
-    setStructureForm({ name: "", class_code: "", term_code: "", is_active: true });
+    setStructureForm({
+      name: "",
+      class_code: "",
+      academic_year: String(CURRENT_YEAR),
+      student_type: "NEW",
+      is_active: true,
+    });
     setEditingStructureId(null);
     setStructureDialog("create");
   }
@@ -177,7 +216,8 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
     setStructureForm({
       name: s.name,
       class_code: s.class_code,
-      term_code: s.term_code ?? "",
+      academic_year: String(s.academic_year),
+      student_type: s.student_type,
       is_active: s.is_active,
     });
     setEditingStructureId(s.id);
@@ -187,25 +227,41 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
   async function saveStructure() {
     const name = structureForm.name.trim();
     const class_code = normalizeClassCode(structureForm.class_code);
+    const academic_year = parseInt(structureForm.academic_year, 10);
     if (!name || !class_code) {
       toast.error("Name and Class Code are required.");
       return;
     }
-    const term_code = structureForm.term_code.trim().toUpperCase() || null;
+    if (!academic_year || academic_year < 2000 || academic_year > 2100) {
+      toast.error("Enter a valid academic year (e.g. 2026).");
+      return;
+    }
 
     if (editingStructureId) {
       await postAction(
         "update_fee_structure",
         {
           structure_id: editingStructureId,
-          updates: { name, class_code, term_code, is_active: structureForm.is_active },
+          updates: {
+            name,
+            class_code,
+            academic_year,
+            student_type: structureForm.student_type,
+            is_active: structureForm.is_active,
+          },
         },
         "Fee structure updated."
       );
     } else {
       await postAction(
         "create_fee_structure",
-        { name, class_code, term_code, is_active: structureForm.is_active },
+        {
+          name,
+          class_code,
+          academic_year,
+          student_type: structureForm.student_type,
+          is_active: structureForm.is_active,
+        },
         "Fee structure created."
       );
     }
@@ -221,29 +277,43 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
   // ── Items management ─────────────────────────────────────────────────────────
   const selectedItems: FeeStructureItem[] = selectedId ? (structureItems[selectedId] ?? []) : [];
 
-  // Fee items NOT already in the selected structure
   const availableItems = feeItems.filter(
-    (fi) =>
-      fi.is_active && !selectedItems.some((si) => si.fee_item_id === fi.id)
+    (fi) => fi.is_active && !selectedItems.some((si) => si.fee_item_id === fi.id)
   );
+
+  function handleSelectFeeItem(feeItemId: string) {
+    const fi = feeItems.find((f) => f.id === feeItemId);
+    if (!fi) return;
+    // Pre-fill: ONCE_PER_YEAR / ONCE_EVER get T2/T3 = 0
+    setAddItemForm((p) => ({
+      ...p,
+      fee_item_id: feeItemId,
+      term_2_amount: fi.charge_frequency !== "PER_TERM" ? "0" : p.term_2_amount,
+      term_3_amount: fi.charge_frequency !== "PER_TERM" ? "0" : p.term_3_amount,
+    }));
+  }
 
   async function addItem() {
     if (!selectedId) return;
-    const { fee_item_id, amount } = addItemForm;
+    const { fee_item_id, term_1_amount, term_2_amount, term_3_amount } = addItemForm;
     if (!fee_item_id) {
       toast.error("Select a fee item.");
       return;
     }
-    if (!amount || toNumber(amount) <= 0) {
-      toast.error("Enter a valid amount (> 0).");
-      return;
-    }
     await postAction(
       "add_structure_item",
-      { structure_id: selectedId, item: { fee_item_id, amount } },
+      {
+        structure_id: selectedId,
+        item: {
+          fee_item_id,
+          term_1_amount: toNumber(term_1_amount),
+          term_2_amount: toNumber(term_2_amount),
+          term_3_amount: toNumber(term_3_amount),
+        },
+      },
       "Item added to structure."
     );
-    setAddItemForm({ fee_item_id: "", amount: "" });
+    setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" });
   }
 
   async function removeItem(feeItemId: string) {
@@ -256,13 +326,29 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
     setRemovingItemId(null);
   }
 
+  // ── PDF download ──────────────────────────────────────────────────────────────
+  async function downloadStructurePdf(structureId: string) {
+    setDownloadingId(structureId);
+    try {
+      await api.downloadFile(
+        `/finance/documents/fee-structures/${structureId}/pdf`,
+        `fee-structure-${structureId}.pdf`,
+        { tenantRequired: true }
+      );
+    } catch {
+      toast.error("Failed to download PDF.");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
   // ── Derived helpers ──────────────────────────────────────────────────────────
   const selectedStructure = structures.find((s) => s.id === selectedId) ?? null;
   const categoryName = (categoryId: string) =>
     categories.find((c) => c.id === categoryId)?.name ?? categoryId;
 
-  const structureTotal = (id: string) =>
-    (structureItems[id] ?? []).reduce((sum, i) => sum + toNumber(i.amount), 0);
+  const structureTotal1 = (id: string) =>
+    (structureItems[id] ?? []).reduce((sum, i) => sum + toNumber(i.term_1_amount), 0);
 
   // ── Loading state ─────────────────────────────────────────────────────────────
   if (loading) {
@@ -291,7 +377,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
       <div className="space-y-6">
         <TenantPageHeader
           title="Fee Structures"
-          description="Define fee structures per class (and optionally per term) and manage their line items."
+          description="Define per-class fee structures (academic year + student type) with per-term amounts."
           badges={[{ label: "Finance Setup" }]}
           metrics={[
             { label: "Total", value: structures.length },
@@ -319,13 +405,11 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                 <h2 className="text-sm font-semibold text-slate-900">Fee Structures</h2>
                 <p className="text-xs text-slate-400">
                   {structures.length} structure{structures.length !== 1 ? "s" : ""} defined
-                  {selectedId && (
-                    <span className="ml-1.5 text-blue-500">· 1 selected</span>
-                  )}
+                  {selectedId && <span className="ml-1.5 text-blue-500">· 1 selected</span>}
                 </p>
               </div>
             </div>
-            {!readonly && (
+            {canManage && (
               <Button size="sm" onClick={openCreateStructure} disabled={saving}>
                 <Plus className="mr-1.5 h-3.5 w-3.5" />
                 New Structure
@@ -339,13 +423,12 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                 <TableRow className="bg-slate-50">
                   <TableHead className="text-xs">Name</TableHead>
                   <TableHead className="text-xs">Class</TableHead>
-                  <TableHead className="text-xs">Term</TableHead>
+                  <TableHead className="text-xs">Year</TableHead>
+                  <TableHead className="text-xs">Type</TableHead>
                   <TableHead className="text-xs">Items</TableHead>
-                  <TableHead className="text-xs">Total</TableHead>
+                  <TableHead className="text-xs">Term 1 Total</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
-                  <TableHead className="text-right text-xs">
-                    {readonly ? "Items" : "Actions"}
-                  </TableHead>
+                  <TableHead className="text-right text-xs">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -356,9 +439,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                     <TableRow
                       key={s.id}
                       className={`cursor-pointer transition-colors ${
-                        isSelected
-                          ? "bg-blue-50 hover:bg-blue-50"
-                          : "hover:bg-slate-50"
+                        isSelected ? "bg-blue-50 hover:bg-blue-50" : "hover:bg-slate-50"
                       }`}
                       onClick={() => setSelectedId(isSelected ? null : s.id)}
                     >
@@ -377,14 +458,15 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                           {s.class_code}
                         </span>
                       </TableCell>
-                      <TableCell className="text-xs text-slate-500">
-                        {s.term_code ?? <span className="italic">All terms</span>}
+                      <TableCell className="text-sm text-slate-600">{s.academic_year}</TableCell>
+                      <TableCell>
+                        <StudentTypeBadge type={s.student_type} />
                       </TableCell>
                       <TableCell className="text-sm text-slate-600">
                         {itemCount} item{itemCount !== 1 ? "s" : ""}
                       </TableCell>
                       <TableCell className="text-sm font-semibold text-slate-700">
-                        {formatAmount(structureTotal(s.id))}
+                        {formatAmount(structureTotal1(s.id))}
                       </TableCell>
                       <TableCell>
                         <StatusBadge active={s.is_active} />
@@ -394,7 +476,15 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                           className="flex justify-end gap-1"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {!readonly && (
+                          <button
+                            onClick={() => void downloadStructurePdf(s.id)}
+                            disabled={downloadingId === s.id}
+                            title="Download PDF"
+                            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition disabled:opacity-40"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                          {canManage && (
                             <>
                               <button
                                 onClick={() => openEditStructure(s)}
@@ -429,7 +519,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                 })}
                 {structures.length === 0 && (
                   <EmptyRow
-                    colSpan={7}
+                    colSpan={8}
                     message="No fee structures yet. Create one to start defining fee line items per class."
                   />
                 )}
@@ -438,30 +528,23 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
           </div>
         </div>
 
-        {/* ── Items panel (shown when a structure is selected) ── */}
+        {/* ── Items panel ── */}
         {selectedId && selectedStructure && (
           <div className="rounded-2xl border border-blue-100 bg-white shadow-sm">
             <div className="flex items-center justify-between border-b border-blue-100 bg-blue-50/40 px-6 py-4">
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">
-                  Items —{" "}
-                  <span className="text-blue-700">{selectedStructure.name}</span>
+                  Items — <span className="text-blue-700">{selectedStructure.name}</span>
                 </h2>
                 <p className="text-xs text-slate-500">
                   Class{" "}
                   <span className="font-mono font-medium">{selectedStructure.class_code}</span>
-                  {selectedStructure.term_code && (
-                    <>
-                      {" "}
-                      · Term{" "}
-                      <span className="font-mono font-medium">{selectedStructure.term_code}</span>
-                    </>
-                  )}
-                  {" "}· {selectedItems.length} item{selectedItems.length !== 1 ? "s" : ""} ·{" "}
-                  <span className="font-semibold text-slate-700">
-                    {formatAmount(structureTotal(selectedId))}
-                  </span>{" "}
-                  total
+                  {" · "}
+                  {selectedStructure.academic_year}
+                  {" · "}
+                  <StudentTypeBadge type={selectedStructure.student_type} />
+                  {" · "}
+                  {selectedItems.length} item{selectedItems.length !== 1 ? "s" : ""}
                 </p>
               </div>
               <button
@@ -478,11 +561,11 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                   <TableRow className="bg-slate-50">
                     <TableHead className="text-xs">Fee Item</TableHead>
                     <TableHead className="text-xs">Category</TableHead>
-                    <TableHead className="text-xs">Code</TableHead>
-                    <TableHead className="text-xs">Amount</TableHead>
-                    {!readonly && (
-                      <TableHead className="text-right text-xs">Remove</TableHead>
-                    )}
+                    <TableHead className="text-xs">Frequency</TableHead>
+                    <TableHead className="text-xs">Term 1</TableHead>
+                    <TableHead className="text-xs">Term 2</TableHead>
+                    <TableHead className="text-xs">Term 3</TableHead>
+                    {canManage && <TableHead className="text-right text-xs">Remove</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -495,14 +578,22 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                         {item.category_name || categoryName(item.category_id)}
                       </TableCell>
                       <TableCell>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-mono text-slate-600">
-                          {item.fee_item_code}
-                        </span>
+                        <FreqBadge freq={item.charge_frequency} />
                       </TableCell>
-                      <TableCell className="text-sm font-semibold text-slate-700">
-                        {formatAmount(item.amount)}
+                      <TableCell className="text-sm font-medium text-slate-700">
+                        {formatAmount(item.term_1_amount)}
                       </TableCell>
-                      {!readonly && (
+                      <TableCell className="text-sm text-slate-600">
+                        {item.charge_frequency === "PER_TERM"
+                          ? formatAmount(item.term_2_amount)
+                          : <span className="text-slate-300">—</span>}
+                      </TableCell>
+                      <TableCell className="text-sm text-slate-600">
+                        {item.charge_frequency === "PER_TERM"
+                          ? formatAmount(item.term_3_amount)
+                          : <span className="text-slate-300">—</span>}
+                      </TableCell>
+                      {canManage && (
                         <TableCell className="text-right">
                           <button
                             onClick={() => setRemovingItemId(item.fee_item_id)}
@@ -517,7 +608,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                   ))}
                   {selectedItems.length === 0 && (
                     <EmptyRow
-                      colSpan={readonly ? 4 : 5}
+                      colSpan={canManage ? 7 : 6}
                       message="No items in this structure yet."
                     />
                   )}
@@ -526,17 +617,17 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
             </div>
 
             {/* Add item row */}
-            {!readonly && (
+            {canManage && (
               <div className="border-t border-slate-100 bg-slate-50/50 px-6 py-4">
                 <p className="mb-3 text-xs font-medium text-slate-500 uppercase tracking-wide">
                   Add Item
                 </p>
-                <div className="flex items-end gap-3">
-                  <div className="flex-1 space-y-1.5">
+                <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 items-end">
+                  <div className="space-y-1.5">
                     <Label className="text-xs">Fee Item</Label>
                     <Select
                       value={addItemForm.fee_item_id}
-                      onValueChange={(v) => setAddItemForm((p) => ({ ...p, fee_item_id: v }))}
+                      onValueChange={handleSelectFeeItem}
                     >
                       <SelectTrigger className="h-8 text-sm">
                         <SelectValue placeholder="Select fee item…" />
@@ -553,6 +644,9 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                               <SelectItem key={fi.id} value={fi.id}>
                                 {fi.name}
                                 {cat ? ` (${cat.name})` : ""}
+                                {fi.charge_frequency !== "PER_TERM"
+                                  ? ` — ${fi.charge_frequency === "ONCE_PER_YEAR" ? "once/yr" : "one-time"}`
+                                  : ""}
                               </SelectItem>
                             );
                           })
@@ -560,21 +654,35 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="w-36 space-y-1.5">
-                    <Label className="text-xs">Amount (KES)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      placeholder="e.g. 5000"
-                      className="h-8 text-sm"
-                      value={addItemForm.amount}
-                      onChange={(e) => setAddItemForm((p) => ({ ...p, amount: e.target.value }))}
-                    />
-                  </div>
+                  {(["term_1_amount", "term_2_amount", "term_3_amount"] as const).map(
+                    (col, idx) => {
+                      const selectedFeeItem = feeItems.find(
+                        (fi) => fi.id === addItemForm.fee_item_id
+                      );
+                      const isDisabled =
+                        selectedFeeItem?.charge_frequency !== "PER_TERM" && idx > 0;
+                      return (
+                        <div key={col} className="w-28 space-y-1.5">
+                          <Label className="text-xs">Term {idx + 1} (KES)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            placeholder="0"
+                            className="h-8 text-sm"
+                            disabled={isDisabled}
+                            value={isDisabled ? "0" : addItemForm[col]}
+                            onChange={(e) =>
+                              setAddItemForm((p) => ({ ...p, [col]: e.target.value }))
+                            }
+                          />
+                        </div>
+                      );
+                    }
+                  )}
                   <Button
                     size="sm"
                     onClick={() => void addItem()}
-                    disabled={saving || !addItemForm.fee_item_id || !addItemForm.amount}
+                    disabled={saving || !addItemForm.fee_item_id}
                     className="h-8"
                   >
                     <Plus className="mr-1 h-3.5 w-3.5" />
@@ -595,7 +703,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
               {structureDialog === "edit" ? "Edit Fee Structure" : "New Fee Structure"}
             </DialogTitle>
             <DialogDescription>
-              Fee structures define the set of fees charged to a class, optionally per term.
+              Create a fee structure for a specific class, academic year, and student type (New or Returning).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -604,7 +712,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                 Name <span className="text-red-500">*</span>
               </Label>
               <Input
-                placeholder="e.g. Grade 9 Term 1 Fees"
+                placeholder="e.g. PP1 New Student Fees 2026"
                 value={structureForm.name}
                 onChange={(e) => setStructureForm((p) => ({ ...p, name: e.target.value }))}
               />
@@ -615,7 +723,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                   Class Code <span className="text-red-500">*</span>
                 </Label>
                 <Input
-                  placeholder="e.g. G9A"
+                  placeholder="e.g. PP1"
                   value={structureForm.class_code}
                   onChange={(e) =>
                     setStructureForm((p) => ({ ...p, class_code: e.target.value }))
@@ -623,15 +731,37 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Term Code (optional)</Label>
+                <Label>
+                  Academic Year <span className="text-red-500">*</span>
+                </Label>
                 <Input
-                  placeholder="e.g. T1-2025"
-                  value={structureForm.term_code}
+                  type="number"
+                  min={2000}
+                  max={2100}
+                  placeholder={String(CURRENT_YEAR)}
+                  value={structureForm.academic_year}
                   onChange={(e) =>
-                    setStructureForm((p) => ({ ...p, term_code: e.target.value }))
+                    setStructureForm((p) => ({ ...p, academic_year: e.target.value }))
                   }
                 />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Student Type</Label>
+              <Select
+                value={structureForm.student_type}
+                onValueChange={(v) =>
+                  setStructureForm((p) => ({ ...p, student_type: v as StudentType }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NEW">New Student (admitted this year)</SelectItem>
+                  <SelectItem value="RETURNING">Returning Student (admitted previously)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
@@ -666,7 +796,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
             <DialogTitle>Delete Fee Structure</DialogTitle>
             <DialogDescription>
               This will permanently delete the fee structure and all its line items. Invoices
-              already generated from this structure are not affected.
+              already generated are not affected.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -690,8 +820,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
           <DialogHeader>
             <DialogTitle>Remove Item</DialogTitle>
             <DialogDescription>
-              Remove this fee item from the structure? The fee item definition itself is not
-              deleted.
+              Remove this fee item from the structure? The fee item itself is not deleted.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

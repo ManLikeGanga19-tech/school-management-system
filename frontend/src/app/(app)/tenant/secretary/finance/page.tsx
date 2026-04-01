@@ -19,6 +19,7 @@ import {
   type FinanceSection,
 } from "@/components/layout/nav-config";
 import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome";
+import { FileDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,6 +84,9 @@ type FeeItem = {
 type FeeStructure = {
   id: string;
   class_code: string;
+  academic_year?: number | null;
+  student_type?: string | null;
+  /** @deprecated kept for display fallback only */
   term_code?: string;
   name: string;
   is_active: boolean;
@@ -149,6 +153,7 @@ type FinanceResponse = {
 type FinanceAction =
   | "create_invoice"
   | "generate_fees_invoice"
+  | "generate_fees_invoice_v2"
   | "record_payment"
   | "update_policy"
   | "create_fee_category"
@@ -691,8 +696,8 @@ function SecretaryFinancePageContent() {
   });
   const [feesInvoiceForm, setFeesInvoiceForm] = useState({
     enrollment_id: "",
-    class_code: "",
-    term_code: "",
+    term_number: "1",
+    academic_year: String(new Date().getFullYear()),
     scholarship_id: "",
     scholarship_amount: "",
     scholarship_reason: "",
@@ -921,27 +926,7 @@ function SecretaryFinancePageContent() {
   }, [selectedStructureId, data.fee_structure_items]);
 
   useEffect(() => {
-    const enrollment = data.enrollments.find(
-      (row) => row.id === feesInvoiceForm.enrollment_id
-    );
-    if (!enrollment) return;
-
-    const guessedClassCode = enrollmentClassCode(enrollment.payload || {});
-    const guessedTermCode = enrollmentTermCode(enrollment.payload || {});
-    setFeesInvoiceForm((prev) => {
-      let changed = false;
-      const next = { ...prev };
-
-      if (!prev.class_code.trim() && guessedClassCode) {
-        next.class_code = guessedClassCode;
-        changed = true;
-      }
-      if (!prev.term_code.trim() && guessedTermCode) {
-        next.term_code = normalizeCode(guessedTermCode);
-        changed = true;
-      }
-      return changed ? next : prev;
-    });
+    // No auto-fill needed for v2 form (term_number + academic_year are manually selected)
   }, [feesInvoiceForm.enrollment_id, data.enrollments]);
 
   async function postAction(
@@ -1471,8 +1456,18 @@ function SecretaryFinancePageContent() {
   }
 
   async function generateFeesInvoice() {
-    if (!feesInvoiceForm.enrollment_id || !feesInvoiceForm.class_code.trim()) {
-      setError("Enrollment and class code are required.");
+    if (!feesInvoiceForm.enrollment_id) {
+      setError("Student enrollment is required.");
+      return;
+    }
+    const termNum = parseInt(feesInvoiceForm.term_number, 10);
+    if (!termNum || termNum < 1 || termNum > 3) {
+      setError("Term number must be 1, 2, or 3.");
+      return;
+    }
+    const acadYear = parseInt(feesInvoiceForm.academic_year, 10);
+    if (!acadYear || acadYear < 2000) {
+      setError("A valid academic year is required.");
       return;
     }
 
@@ -1493,13 +1488,11 @@ function SecretaryFinancePageContent() {
     }
 
     await postAction(
-      "generate_fees_invoice",
+      "generate_fees_invoice_v2",
       {
         enrollment_id: feesInvoiceForm.enrollment_id,
-        class_code: normalizeCode(feesInvoiceForm.class_code),
-        term_code: feesInvoiceForm.term_code.trim()
-          ? normalizeCode(feesInvoiceForm.term_code)
-          : null,
+        term_number: termNum,
+        academic_year: acadYear,
         scholarship_id: feesInvoiceForm.scholarship_id || null,
         scholarship_amount: scholarshipSelected
           ? feesInvoiceForm.scholarship_amount.trim()
@@ -1681,7 +1674,7 @@ function SecretaryFinancePageContent() {
               {/* Fees Invoice */}
               <SectionCard
                 title="Generate School Fees Invoice"
-                description="Creates an invoice for a student based on their class fee structure."
+                description="Creates a term invoice. Student type (New/Returning) is auto-detected from their admission year."
               >
                 <div className="space-y-3">
                   <FormField label="Student Enrollment" required>
@@ -1708,28 +1701,32 @@ function SecretaryFinancePageContent() {
                     </Select>
                   </FormField>
                   <div className="grid gap-3 sm:grid-cols-3">
-                    <FormField
-                      label="Class Code"
-                      hint="Auto-filled if available from enrollment"
-                      required
-                    >
-                      <Input
-                        placeholder="e.g. GRADE_7"
-                        value={feesInvoiceForm.class_code}
-                        onChange={(e) =>
-                          setFeesInvoiceForm((p) => ({ ...p, class_code: e.target.value }))
+                    <FormField label="Term" hint="Which term to invoice for" required>
+                      <Select
+                        value={feesInvoiceForm.term_number}
+                        onValueChange={(value) =>
+                          setFeesInvoiceForm((p) => ({ ...p, term_number: value }))
                         }
-                        />
-                      </FormField>
-                    <FormField
-                      label="Term Code"
-                      hint="Optional, but recommended for term-specific structures"
-                    >
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select term" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1">Term 1</SelectItem>
+                          <SelectItem value="2">Term 2</SelectItem>
+                          <SelectItem value="3">Term 3</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                    <FormField label="Academic Year" hint="e.g. 2026" required>
                       <Input
-                        placeholder="e.g. TERM_1_2026"
-                        value={feesInvoiceForm.term_code}
+                        type="number"
+                        min={2000}
+                        max={2100}
+                        placeholder="e.g. 2026"
+                        value={feesInvoiceForm.academic_year}
                         onChange={(e) =>
-                          setFeesInvoiceForm((p) => ({ ...p, term_code: e.target.value }))
+                          setFeesInvoiceForm((p) => ({ ...p, academic_year: e.target.value }))
                         }
                       />
                     </FormField>
@@ -1813,7 +1810,7 @@ function SecretaryFinancePageContent() {
                   )}
                   <ActionButton
                     onClick={generateFeesInvoice}
-                    loading={pendingAction === "generate_fees_invoice"}
+                    loading={pendingAction === "generate_fees_invoice_v2"}
                     loadingText="Generating…"
                     className="w-full"
                   >
@@ -2055,6 +2052,7 @@ function SecretaryFinancePageContent() {
                       <TableHead className="text-xs text-right">Total</TableHead>
                       <TableHead className="text-xs text-right">Paid</TableHead>
                       <TableHead className="text-xs text-right">Balance</TableHead>
+                      <TableHead className="text-xs text-right">PDF</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2090,12 +2088,30 @@ function SecretaryFinancePageContent() {
                           <TableCell className="text-right text-sm font-medium text-red-600">
                             {formatAmount(invoice.balance_amount)}
                           </TableCell>
+                          <TableCell className="text-right">
+                            <button
+                              title="Download invoice PDF"
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+                              onClick={() => {
+                                const name = enrollment
+                                  ? enrollmentName(enrollment.payload || {})
+                                  : "invoice";
+                                void api.downloadFile(
+                                  `/finance/documents/invoices/${invoice.id}/pdf`,
+                                  `${name.replace(/\s+/g, "_")}_invoice.pdf`,
+                                  { tenantRequired: true }
+                                ).catch(() => toast.error("Failed to download invoice PDF."));
+                              }}
+                            >
+                              <FileDown className="h-3.5 w-3.5" />
+                            </button>
+                          </TableCell>
                         </TableRow>
                       );
                     })}
 
                     {filteredInvoices.length === 0 && (
-                      <EmptyRow colSpan={6} message="No invoices match the current filters." />
+                      <EmptyRow colSpan={7} message="No invoices match the current filters." />
                     )}
                   </TableBody>
                 </Table>
@@ -2401,6 +2417,7 @@ function SecretaryFinancePageContent() {
                       <TableHead className="text-xs">Status</TableHead>
                       <TableHead className="text-xs text-right">Total</TableHead>
                       <TableHead className="text-xs text-right">Paid</TableHead>
+                      <TableHead className="text-xs text-right">PDF</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2428,11 +2445,29 @@ function SecretaryFinancePageContent() {
                             <TableCell className="text-right text-sm font-medium text-emerald-700">
                               {formatAmount(invoice.paid_amount)}
                             </TableCell>
+                            <TableCell className="text-right">
+                              <button
+                                title="Download invoice PDF"
+                                className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+                                onClick={() => {
+                                  const name = enrollment
+                                    ? enrollmentName(enrollment.payload || {})
+                                    : "invoice";
+                                  void api.downloadFile(
+                                    `/finance/documents/invoices/${invoice.id}/pdf`,
+                                    `${name.replace(/\s+/g, "_")}_invoice.pdf`,
+                                    { tenantRequired: true }
+                                  ).catch(() => toast.error("Failed to download invoice PDF."));
+                                }}
+                              >
+                                <FileDown className="h-3.5 w-3.5" />
+                              </button>
+                            </TableCell>
                           </TableRow>
                         );
                       })}
                     {data.invoices.filter((i) => i.status.toUpperCase() === "PAID").length === 0 && (
-                      <EmptyRow colSpan={5} message="No paid receipts yet." />
+                      <EmptyRow colSpan={6} message="No paid receipts yet." />
                     )}
                   </TableBody>
                 </Table>
@@ -2450,6 +2485,7 @@ function SecretaryFinancePageContent() {
                       <TableHead className="text-xs">Reference</TableHead>
                       <TableHead className="text-xs text-right">Amount</TableHead>
                       <TableHead className="text-xs">Invoices</TableHead>
+                      <TableHead className="text-xs text-right">PDF</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2476,9 +2512,24 @@ function SecretaryFinancePageContent() {
                           {Array.isArray(payment.allocations) ? payment.allocations.length : 0}{" "}
                           invoice{payment.allocations?.length !== 1 ? "s" : ""}
                         </TableCell>
+                        <TableCell className="text-right">
+                          <button
+                            title="Download receipt PDF"
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+                            onClick={() => {
+                              void api.downloadFile(
+                                `/finance/documents/payments/${payment.id}/pdf`,
+                                `receipt_${String(payment.id).slice(0, 8).toUpperCase()}.pdf`,
+                                { tenantRequired: true }
+                              ).catch(() => toast.error("Failed to download receipt PDF."));
+                            }}
+                          >
+                            <FileDown className="h-3.5 w-3.5" />
+                          </button>
+                        </TableCell>
                       </TableRow>
                     ))}
-                    {data.payments.length === 0 && <EmptyRow colSpan={6} message="No payments yet." />}
+                    {data.payments.length === 0 && <EmptyRow colSpan={7} message="No payments yet." />}
                   </TableBody>
                 </Table>
               </div>
