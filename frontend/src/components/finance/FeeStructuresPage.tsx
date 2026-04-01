@@ -116,7 +116,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
     role === "secretary"
       ? "/tenants/secretary/finance/setup"
       : "/tenants/director/finance/setup";
-  const canManage = role === "director";
+  const canManage = true;
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const [structures, setStructures] = useState<FeeStructure[]>([]);
@@ -142,6 +142,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
   const [deletingStructureId, setDeletingStructureId] = useState<string | null>(null);
 
   // ── Add item to structure ────────────────────────────────────────────────────
+  const [addItemDialog, setAddItemDialog] = useState(false);
   const [addItemForm, setAddItemForm] = useState({
     fee_item_id: "",
     term_1_amount: "",
@@ -314,6 +315,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
       "Item added to structure."
     );
     setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" });
+    setAddItemDialog(false);
   }
 
   async function removeItem(feeItemId: string) {
@@ -547,12 +549,27 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                   {selectedItems.length} item{selectedItems.length !== 1 ? "s" : ""}
                 </p>
               </div>
-              <button
-                onClick={() => setSelectedId(null)}
-                className="rounded-md p-1.5 text-slate-400 hover:bg-blue-100 hover:text-slate-700 transition"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {canManage && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" });
+                      setAddItemDialog(true);
+                    }}
+                    disabled={saving}
+                  >
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    Add Item
+                  </Button>
+                )}
+                <button
+                  onClick={() => setSelectedId(null)}
+                  className="rounded-md p-1.5 text-slate-400 hover:bg-blue-100 hover:text-slate-700 transition"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -616,81 +633,6 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
               </Table>
             </div>
 
-            {/* Add item row */}
-            {canManage && (
-              <div className="border-t border-slate-100 bg-slate-50/50 px-6 py-4">
-                <p className="mb-3 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Add Item
-                </p>
-                <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 items-end">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Fee Item</Label>
-                    <Select
-                      value={addItemForm.fee_item_id}
-                      onValueChange={handleSelectFeeItem}
-                    >
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue placeholder="Select fee item…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableItems.length === 0 ? (
-                          <SelectItem value="__none__" disabled>
-                            All fee items already added
-                          </SelectItem>
-                        ) : (
-                          availableItems.map((fi) => {
-                            const cat = categories.find((c) => c.id === fi.category_id);
-                            return (
-                              <SelectItem key={fi.id} value={fi.id}>
-                                {fi.name}
-                                {cat ? ` (${cat.name})` : ""}
-                                {fi.charge_frequency !== "PER_TERM"
-                                  ? ` — ${fi.charge_frequency === "ONCE_PER_YEAR" ? "once/yr" : "one-time"}`
-                                  : ""}
-                              </SelectItem>
-                            );
-                          })
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {(["term_1_amount", "term_2_amount", "term_3_amount"] as const).map(
-                    (col, idx) => {
-                      const selectedFeeItem = feeItems.find(
-                        (fi) => fi.id === addItemForm.fee_item_id
-                      );
-                      const isDisabled =
-                        selectedFeeItem?.charge_frequency !== "PER_TERM" && idx > 0;
-                      return (
-                        <div key={col} className="w-28 space-y-1.5">
-                          <Label className="text-xs">Term {idx + 1} (KES)</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            placeholder="0"
-                            className="h-8 text-sm"
-                            disabled={isDisabled}
-                            value={isDisabled ? "0" : addItemForm[col]}
-                            onChange={(e) =>
-                              setAddItemForm((p) => ({ ...p, [col]: e.target.value }))
-                            }
-                          />
-                        </div>
-                      );
-                    }
-                  )}
-                  <Button
-                    size="sm"
-                    onClick={() => void addItem()}
-                    disabled={saving || !addItemForm.fee_item_id}
-                    className="h-8"
-                  >
-                    <Plus className="mr-1 h-3.5 w-3.5" />
-                    Add
-                  </Button>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -833,6 +775,98 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
               disabled={saving}
             >
               {saving ? "Removing…" : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add item dialog ── */}
+      <Dialog
+        open={addItemDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAddItemDialog(false);
+            setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" });
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Fee Item</DialogTitle>
+            <DialogDescription>
+              {selectedStructure
+                ? `Add a fee item to ${selectedStructure.name} (${selectedStructure.class_code} · ${selectedStructure.academic_year})`
+                : "Add a fee item to this structure."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Fee Item <span className="text-red-500">*</span></Label>
+              <Select value={addItemForm.fee_item_id} onValueChange={handleSelectFeeItem}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select fee item…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableItems.length === 0 ? (
+                    <SelectItem value="__none__" disabled>
+                      All fee items already added
+                    </SelectItem>
+                  ) : (
+                    availableItems.map((fi) => {
+                      const cat = categories.find((c) => c.id === fi.category_id);
+                      return (
+                        <SelectItem key={fi.id} value={fi.id}>
+                          {fi.name}
+                          {cat ? ` (${cat.name})` : ""}
+                          {fi.charge_frequency !== "PER_TERM"
+                            ? ` — ${fi.charge_frequency === "ONCE_PER_YEAR" ? "once/yr" : "one-time"}`
+                            : ""}
+                        </SelectItem>
+                      );
+                    })
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            {(["term_1_amount", "term_2_amount", "term_3_amount"] as const).map((col, idx) => {
+              const selectedFeeItem = feeItems.find((fi) => fi.id === addItemForm.fee_item_id);
+              const isDisabled = selectedFeeItem?.charge_frequency !== "PER_TERM" && idx > 0;
+              return (
+                <div key={col} className="space-y-1.5">
+                  <Label>
+                    Term {idx + 1} Amount (KES)
+                    {idx === 0 && <span className="text-red-500"> *</span>}
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    disabled={isDisabled}
+                    value={isDisabled ? "0" : addItemForm[col]}
+                    onChange={(e) => setAddItemForm((p) => ({ ...p, [col]: e.target.value }))}
+                  />
+                  {isDisabled && (
+                    <p className="text-xs text-slate-400">Not applicable for this charge frequency</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAddItemDialog(false);
+                setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void addItem()}
+              disabled={saving || !addItemForm.fee_item_id}
+            >
+              {saving ? "Adding…" : "Add Item"}
             </Button>
           </DialogFooter>
         </DialogContent>

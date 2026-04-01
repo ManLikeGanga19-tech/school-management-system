@@ -331,9 +331,15 @@ function CurriculumTab({ canManage }: CurriculumTabProps) {
           </Button>
           {canManage && (
             <>
-              <Button variant="outline" size="sm" onClick={handleSeed} disabled={seeding}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSeed}
+                disabled={seeding || curriculum.learning_areas.length > 0}
+                title={curriculum.learning_areas.length > 0 ? "Curriculum already seeded" : undefined}
+              >
                 <Sprout className="h-3.5 w-3.5 mr-1" />
-                {seeding ? "Seeding…" : "Seed Kenya CBC"}
+                {seeding ? "Seeding…" : curriculum.learning_areas.length > 0 ? "Already Seeded" : "Seed Kenya CBC"}
               </Button>
               <Button size="sm" onClick={() => { setEditTarget(null); setLaForm({ name: "", code: "", grade_band: "LOWER_PRIMARY", display_order: 0 }); setLaDialog(true); }}>
                 <Plus className="h-3.5 w-3.5 mr-1" />
