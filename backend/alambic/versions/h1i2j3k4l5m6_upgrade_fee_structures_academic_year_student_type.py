@@ -56,6 +56,39 @@ def upgrade() -> None:
         WHERE student_type IS NULL
     """)
 
+    # Deduplicate: old schema allowed one structure per (tenant, class, term_code).
+    # New schema is one per (tenant, class, academic_year, student_type).
+    # Keep the earliest-created structure in each duplicate group; delete the rest
+    # along with their items so the unique constraint can be applied cleanly.
+    op.execute("""
+        DELETE FROM core.fee_structure_items
+        WHERE fee_structure_id IN (
+            SELECT id FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY tenant_id, class_code, academic_year, student_type
+                           ORDER BY created_at ASC
+                       ) AS rn
+                FROM core.fee_structures
+            ) ranked
+            WHERE rn > 1
+        )
+    """)
+    op.execute("""
+        DELETE FROM core.fee_structures
+        WHERE id IN (
+            SELECT id FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY tenant_id, class_code, academic_year, student_type
+                           ORDER BY created_at ASC
+                       ) AS rn
+                FROM core.fee_structures
+            ) ranked
+            WHERE rn > 1
+        )
+    """)
+
     op.alter_column("fee_structures", "academic_year", nullable=False, schema="core")
     op.alter_column("fee_structures", "student_type", nullable=False, schema="core")
 
@@ -67,7 +100,6 @@ def upgrade() -> None:
     )
 
     # New unique constraint: tenant + class + academic_year + student_type
-    # term_code is no longer part of uniqueness (it's now per-item amounts)
     op.create_unique_constraint(
         "uq_fee_structures_tenant_class_year_type",
         "fee_structures",
