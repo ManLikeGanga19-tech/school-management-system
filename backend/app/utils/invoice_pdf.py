@@ -84,7 +84,7 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
     Returns raw PDF bytes.
     """
     W, H = 595.0, 842.0
-    ML, MR, MT, MB = 40.0, 40.0, 40.0, 40.0
+    ML, MR, MT, MB = 20.0, 20.0, 20.0, 20.0
 
     stream_lines: list[str] = []
 
@@ -306,7 +306,7 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
     compressed = zlib.compress(stream_content)
 
     objects: dict[int, bytes] = {}
-    objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>"
+    objects[1] = b"<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /PrintScaling /None >> >>"
     objects[2] = b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>"
     objects[3] = (
         f"<< /Type /Page /Parent 2 0 R "

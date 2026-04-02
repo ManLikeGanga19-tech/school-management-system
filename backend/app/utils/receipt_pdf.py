@@ -241,12 +241,12 @@ def _generate_a4_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
 
     buf = io.BytesIO()
     page_w, page_h = A4
-    lm = rm = 18 * mm
+    lm = rm = 10 * mm
     usable_w = page_w - lm - rm
 
     doc_pdf = SimpleDocTemplate(
         buf, pagesize=A4,
-        topMargin=12 * mm, bottomMargin=15 * mm,
+        topMargin=8 * mm, bottomMargin=10 * mm,
         leftMargin=lm, rightMargin=rm,
     )
 
@@ -606,12 +606,12 @@ def generate_invoice_pdf(doc: dict[str, Any]) -> bytes:
 
     buf = io.BytesIO()
     page_w, page_h = A4
-    lm = rm = 18 * mm
+    lm = rm = 10 * mm
     usable_w = page_w - lm - rm
 
     doc_pdf = SimpleDocTemplate(
         buf, pagesize=A4,
-        topMargin=12 * mm, bottomMargin=15 * mm,
+        topMargin=8 * mm, bottomMargin=10 * mm,
         leftMargin=lm, rightMargin=rm,
     )
 

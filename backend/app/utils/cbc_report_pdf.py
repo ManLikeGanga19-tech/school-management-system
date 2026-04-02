@@ -85,7 +85,7 @@ def generate_cbc_report_pdf(data: dict[str, Any], school_name: str = "School") -
     """
     # Page dimensions (A4 in points: 595 x 842)
     W, H = 595.0, 842.0
-    ML, MR, MT, MB = 36.0, 36.0, 36.0, 36.0  # margins
+    ML, MR, MT, MB = 20.0, 20.0, 20.0, 20.0  # margins
 
     # We'll accumulate stream content
     stream_lines: list[str] = []
@@ -233,7 +233,7 @@ def generate_cbc_report_pdf(data: dict[str, Any], school_name: str = "School") -
     objects: dict[int, bytes] = {}
 
     # 1 — Catalog
-    objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>"
+    objects[1] = b"<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /PrintScaling /None >> >>"
 
     # 2 — Pages
     objects[2] = b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>"
