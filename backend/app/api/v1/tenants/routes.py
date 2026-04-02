@@ -11009,6 +11009,61 @@ def create_tenant(
 # as the tenant_id path parameter.
 # ---------------------------------------------------------------------
 
+@router.get(
+    "/profile",
+    dependencies=[
+        Depends(
+            _require_any_permission(
+                "admin.dashboard.view_tenant",
+                "finance.fees.view",
+                "finance.fees.manage",
+            )
+        )
+    ],
+)
+def get_tenant_profile(
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    return {
+        "curriculum_type": getattr(tenant, "curriculum_type", "CBC") or "CBC",
+        "name": str(getattr(tenant, "name", "") or ""),
+    }
+
+
+@router.put(
+    "/profile",
+    dependencies=[Depends(require_permission("admin.dashboard.view_tenant"))],
+)
+def put_tenant_profile(
+    payload: TenantSelfUpdate,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    t = db.get(Tenant, tenant.id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    if payload.curriculum_type is not None:
+        val = payload.curriculum_type.strip().upper()
+        canonical = {"CBC": "CBC", "844": "8-4-4", "8-4-4": "8-4-4", "IGCSE": "IGCSE"}
+        if val not in canonical:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid curriculum_type '{payload.curriculum_type}'. Must be one of: CBC, 8-4-4, IGCSE",
+            )
+        t.curriculum_type = canonical[val]
+        t.updated_at = _now_utc()
+
+    db.commit()
+    db.refresh(t)
+    return {
+        "curriculum_type": getattr(t, "curriculum_type", "CBC") or "CBC",
+        "name": str(getattr(t, "name", "") or ""),
+    }
+
+
 @router.patch(
     "/me",
     dependencies=[Depends(require_permission("admin.dashboard.view_tenant"))],
