@@ -265,8 +265,9 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
                 parts.append(f"Account No: {ps['mpesa_business_no']}")
             if ps.get("mpesa_account_format"):
                 parts.append(f"(Use {ps['mpesa_account_format']})")
-            txt(ML + 6, y, "  ".join(parts), size=9)
-            y -= 14
+            for chunk in _wrap_text("  ".join(parts), int((UW - 6) / 4.8)):
+                txt(ML + 6, y, chunk, size=9)
+                y -= 13
 
         if ps.get("bank_name") or ps.get("bank_account_number"):
             bparts = []
@@ -278,8 +279,9 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
                 bparts.append(f"A/C Name: {ps['bank_account_name']}")
             if ps.get("bank_account_number"):
                 bparts.append(f"A/C No: {ps['bank_account_number']}")
-            txt(ML + 6, y, "  |  ".join(bparts), size=9)
-            y -= 14
+            for chunk in _wrap_text("  |  ".join(bparts), int((UW - 6) / 4.8)):
+                txt(ML + 6, y, chunk, size=9)
+                y -= 13
 
         if ps.get("cash_payment_instructions"):
             for item in _parse_structured_lines(str(ps["cash_payment_instructions"])):

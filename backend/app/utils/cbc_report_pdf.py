@@ -73,7 +73,11 @@ _LEVEL_COLOR = {
 def _safe(text: str | None) -> str:
     if not text:
         return ""
-    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    s = str(text)
+    s = s.replace("\u2014", "-").replace("\u2013", "-").replace("\u2019", "'").replace("\u2018", "'")
+    s = s.replace("\u201c", '"').replace("\u201d", '"').replace("\u2026", "...").replace("\u00a0", " ")
+    s = s.encode("latin-1", errors="replace").decode("latin-1")
+    return s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
 # ── Main generator ────────────────────────────────────────────────────────────
@@ -109,10 +113,10 @@ def generate_cbc_report_pdf(data: dict[str, Any], school_name: str = "School") -
 
     # Banner background
     colored_rect(ML, y - 40, W - ML - MR, 44, 0.12, 0.45, 0.72)
+    stream_lines.append("1 1 1 rg")
     txt(ML + 4, y - 14, school_name, size=13, bold=True)
-    stream_lines.append(f"1 1 1 rg")
     txt(ML + 4, y - 28, "CBC LEARNER PROGRESS REPORT", size=10, bold=True)
-    stream_lines.append(f"0 0 0 rg")
+    stream_lines.append("0 0 0 rg")
 
     y -= 52
 
@@ -193,7 +197,7 @@ def generate_cbc_report_pdf(data: dict[str, Any], school_name: str = "School") -
                 # Observations (truncated to fit)
                 if obs:
                     max_chars = 55
-                    obs_disp = obs[:max_chars] + ("…" if len(obs) > max_chars else "")
+                    obs_disp = obs[:max_chars] + ("..." if len(obs) > max_chars else "")
                     txt(ML + col_subject_w + col_level_w + 4, y - 10, obs_disp, size=7)
 
                 rule(ML, y - row_h + 3, W - MR, y - row_h + 3, w=0.15)
