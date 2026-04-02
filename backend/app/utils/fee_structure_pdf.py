@@ -238,9 +238,15 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
             y -= 14
 
         if uniform_text:
-            for chunk in _wrap_text(uniform_text, 100):
-                txt(ML + 6, y, chunk, size=9)
-                y -= 13
+            for item in _parse_structured_lines(uniform_text):
+                y -= item["space_before"]
+                x_item = ML + 6 + item["indent"]
+                available = int((UW - 6 - item["indent"]) / 4.8)
+                for i, chunk in enumerate(_wrap_text(item["text"], max(40, available))):
+                    # continuation lines indent slightly more
+                    x_chunk = x_item + (12 if i > 0 else 0)
+                    txt(x_chunk, y, chunk, size=9, bold=item["bold"])
+                    y -= 13
         y -= 8
 
     # ── Payment instructions ──────────────────────────────────────────────────
@@ -276,9 +282,14 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
             y -= 14
 
         if ps.get("cash_payment_instructions"):
-            for chunk in _wrap_text(str(ps["cash_payment_instructions"]), 100):
-                txt(ML + 6, y, chunk, size=9)
-                y -= 13
+            for item in _parse_structured_lines(str(ps["cash_payment_instructions"])):
+                y -= item["space_before"]
+                x_item = ML + 6 + item["indent"]
+                available = int((UW - 6 - item["indent"]) / 4.8)
+                for i, chunk in enumerate(_wrap_text(item["text"], max(40, available))):
+                    x_chunk = x_item + (12 if i > 0 else 0)
+                    txt(x_chunk, y, chunk, size=9, bold=item["bold"])
+                    y -= 13
         y -= 6
 
     # ── Footer ────────────────────────────────────────────────────────────────
@@ -325,3 +336,48 @@ def _wrap_text(text: str, max_chars: int) -> list[str]:
     if current:
         lines.append(current)
     return lines or [""]
+
+
+def _parse_structured_lines(text: str) -> list[dict]:
+    """
+    Parse structured text into renderable line dicts.
+
+    Splits on:
+    - ALL-CAPS section headers ending with colon: BOYS:, GIRLS:, P.E KITS:, NOTE:
+    - Numbered list items: 1. 2. 3. etc.
+
+    Returns list of: {text, indent, bold, space_before}
+    """
+    import re
+
+    # Normalise whitespace
+    t = " ".join(text.split())
+
+    # Insert a marker before ALL-CAPS section headers in the middle of the string.
+    # Pattern: preceded by non-alpha (space, dot, closing paren), then
+    # one or more ALL-CAPS words (letters, dots, spaces) ending with colon.
+    t = re.sub(
+        r"(?<=[.\)\s])([A-Z][A-Z\.]{1,}(?:\s+[A-Z\.]+){0,3}:)\s*",
+        r"\n##HDR##\1\n",
+        t,
+    )
+    # Handle header at very start of string
+    t = re.sub(r"^([A-Z][A-Z\.]{1,}(?:\s+[A-Z\.]+){0,3}:)\s*", r"##HDR##\1\n", t)
+
+    # Insert newline before numbered items like " 2. " in the middle of text
+    t = re.sub(r"\s+(\d+\.\s)", r"\n\1", t)
+
+    result = []
+    for raw in t.split("\n"):
+        raw = raw.strip()
+        if not raw:
+            continue
+        if raw.startswith("##HDR##"):
+            label = raw[7:].strip()
+            result.append({"text": label, "indent": 0, "bold": True, "space_before": 10})
+        elif re.match(r"^\d+\.\s", raw):
+            result.append({"text": raw, "indent": 14, "bold": False, "space_before": 2})
+        else:
+            result.append({"text": raw, "indent": 6, "bold": False, "space_before": 0})
+
+    return result
