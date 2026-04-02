@@ -3015,8 +3015,8 @@ def build_fee_structure_document(
             "assessment_books_note": getattr(payment_settings, "assessment_books_note", None),
         }
 
-    school_name = str(profile.get("school_name") or profile.get("name") or "School") if profile else "School"
-    school_address = str(profile.get("address") or "") if profile else ""
+    school_name = str(profile.get("school_header") or profile.get("school_name") or profile.get("name") or "School") if profile else "School"
+    school_address = str(profile.get("physical_address") or profile.get("po_box") or profile.get("address") or "") if profile else ""
     school_phone = str(profile.get("phone") or "") if profile else ""
 
     return {
