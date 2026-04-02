@@ -110,7 +110,7 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
         rule(ML, y_top, ML + UW, y_top, w=0.5)
         rule(ML, y_top - bar_h, ML + UW, y_top - bar_h, w=0.5)
         txt(ML + 6, y_top - 13, label, size=10, bold=True)
-        return y_top - bar_h - 8
+        return y_top - bar_h - 14
 
     # ── Extract data ──────────────────────────────────────────────────────────
     school_name = str(data.get("school_name") or "School")
@@ -241,7 +241,7 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
             for item in _parse_structured_lines(uniform_text):
                 y -= item["space_before"]
                 x_item = ML + 6 + item["indent"]
-                available = int((UW - 6 - item["indent"]) / 4.8)
+                available = int((UW - 6 - item["indent"]) / 5.5)
                 for i, chunk in enumerate(_wrap_text(item["text"], max(40, available))):
                     # continuation lines indent slightly more
                     x_chunk = x_item + (12 if i > 0 else 0)
@@ -265,7 +265,7 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
                 parts.append(f"Account No: {ps['mpesa_business_no']}")
             if ps.get("mpesa_account_format"):
                 parts.append(f"(Use {ps['mpesa_account_format']})")
-            for chunk in _wrap_text("  ".join(parts), int((UW - 6) / 4.8)):
+            for chunk in _wrap_text("  ".join(parts), int((UW - 6) / 5.5)):
                 txt(ML + 6, y, chunk, size=9)
                 y -= 13
 
@@ -279,7 +279,7 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
                 bparts.append(f"A/C Name: {ps['bank_account_name']}")
             if ps.get("bank_account_number"):
                 bparts.append(f"A/C No: {ps['bank_account_number']}")
-            for chunk in _wrap_text("  |  ".join(bparts), int((UW - 6) / 4.8)):
+            for chunk in _wrap_text("  |  ".join(bparts), int((UW - 6) / 5.5)):
                 txt(ML + 6, y, chunk, size=9)
                 y -= 13
 
@@ -287,7 +287,7 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
             for item in _parse_structured_lines(str(ps["cash_payment_instructions"])):
                 y -= item["space_before"]
                 x_item = ML + 6 + item["indent"]
-                available = int((UW - 6 - item["indent"]) / 4.8)
+                available = int((UW - 6 - item["indent"]) / 5.5)
                 for i, chunk in enumerate(_wrap_text(item["text"], max(40, available))):
                     x_chunk = x_item + (12 if i > 0 else 0)
                     txt(x_chunk, y, chunk, size=9, bold=item["bold"])

@@ -280,7 +280,7 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
             if ps.get("mpesa_account_format"):
                 mpesa_parts.append(f"(Use {ps['mpesa_account_format']})")
             UW = W - ML - MR
-            for chunk in _wrap_text("  ".join(mpesa_parts), int(UW / 4.8)):
+            for chunk in _wrap_text("  ".join(mpesa_parts), int(UW / 5.5)):
                 txt(ML, y, chunk, size=9)
                 y -= 13
 
@@ -295,7 +295,7 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
             if ps.get("bank_account_number"):
                 bank_parts.append(f"A/C No: {ps['bank_account_number']}")
             UW = W - ML - MR
-            for chunk in _wrap_text("  |  ".join(bank_parts), int(UW / 4.8)):
+            for chunk in _wrap_text("  |  ".join(bank_parts), int(UW / 5.5)):
                 txt(ML, y, chunk, size=9)
                 y -= 13
 
@@ -304,7 +304,7 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
             for item in _parse_structured_lines(str(ps["cash_payment_instructions"])):
                 y -= item["space_before"]
                 x_item = ML + item["indent"]
-                available = int((UW - item["indent"]) / 4.8)
+                available = int((UW - item["indent"]) / 5.5)
                 for i, chunk in enumerate(_wrap_text(item["text"], max(40, available))):
                     txt(x_item + (12 if i > 0 else 0), y, chunk, size=8, bold=item["bold"])
                     y -= 12
