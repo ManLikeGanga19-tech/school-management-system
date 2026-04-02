@@ -113,7 +113,7 @@ class TestTenantSupport:
             headers=headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["message"] == "Follow-up message"
+        assert resp.json()["body"] == "Follow-up message"
 
     def test_list_messages(self, client: TestClient, db_session: Session):
         tenant = create_tenant(db_session)
@@ -215,7 +215,7 @@ class TestAdminSupport:
             headers=admin_headers,
         )
         assert resp.status_code == 200
-        assert resp.json()["message"] == "Admin response here"
+        assert resp.json()["body"] == "Admin response here"
 
     def test_admin_mark_thread_read(self, client: TestClient, db_session: Session):
         tenant = create_tenant(db_session)
