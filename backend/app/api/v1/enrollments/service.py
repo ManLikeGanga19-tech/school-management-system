@@ -111,6 +111,107 @@ def _clean_create_payload(payload: dict) -> dict:
     return {k: v for k, v in payload.items() if k not in private_keys}
 
 
+def _find_returning_fee_structure(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    class_code: str,
+):
+    """
+    Find the most recent active RETURNING fee structure for a class.
+    Returns None if no structure exists (enrollment still created; fee can be
+    attached manually later by the secretary).
+    """
+    from app.models.fee_structure import FeeStructure
+
+    return db.execute(
+        select(FeeStructure)
+        .where(
+            FeeStructure.tenant_id == tenant_id,
+            FeeStructure.class_code == class_code,
+            FeeStructure.student_type == "RETURNING",
+            FeeStructure.is_active == True,
+        )
+        .order_by(FeeStructure.academic_year.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _create_student_for_existing_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    enrollment: Enrollment,
+    admission_no: str,
+) -> None:
+    """
+    Create a core.students record for an EXISTING_STUDENT enrollment and
+    link it back to the enrollment.  Skips silently if a student with the
+    same admission_no already exists for this tenant.
+    """
+    # Avoid creating a duplicate if admission_no already exists.
+    existing = db.execute(
+        sa.text(
+            "SELECT id FROM core.students "
+            "WHERE tenant_id = :tid AND admission_no = :adm LIMIT 1"
+        ),
+        {"tid": str(tenant_id), "adm": admission_no},
+    ).mappings().first()
+
+    if existing:
+        enrollment.student_id = existing["id"]
+        db.flush()
+        return
+
+    payload = enrollment.payload or {}
+    full_name = str(payload.get("student_name") or "").strip()
+    parts = full_name.split(None, 1)
+    first_name = parts[0] if parts else "Unknown"
+    last_name = parts[1] if len(parts) > 1 else ""
+
+    import datetime
+    admission_year = datetime.date.today().year
+
+    # Derive admission_year from the free-text admission_term if possible
+    term_label = str(payload.get("admission_term") or "")
+    for token in term_label.split():
+        if token.isdigit() and 1990 <= int(token) <= 2100:
+            admission_year = int(token)
+            break
+
+    gender = str(payload.get("gender") or "").strip().upper() or None
+    dob_raw = str(payload.get("date_of_birth") or "").strip() or None
+    previous_school = str(payload.get("previous_school") or "").strip() or None
+
+    student_id = db.execute(
+        sa.text(
+            """
+            INSERT INTO core.students
+                (tenant_id, admission_no, first_name, last_name,
+                 gender, date_of_birth, previous_school,
+                 admission_year, status)
+            VALUES
+                (:tid, :adm, :fn, :ln, :gender, :dob, :prev_school,
+                 :adm_year, 'ACTIVE')
+            RETURNING id
+            """
+        ),
+        {
+            "tid": str(tenant_id),
+            "adm": admission_no,
+            "fn": first_name,
+            "ln": last_name,
+            "gender": gender,
+            "dob": dob_raw,
+            "prev_school": previous_school,
+            "adm_year": admission_year,
+        },
+    ).scalar_one()
+
+    enrollment.student_id = student_id
+    db.flush()
+
+
 def _load_admission_number_map(
     db: Session,
     *,
@@ -183,18 +284,39 @@ def create_enrollment(
     fee_structure_id: str | None = (
         payload.get("_fee_structure_id") or payload.get("fee_structure_id")
     )
+    is_existing_student = (
+        str(payload.get("enrollment_source", "")).upper() == "EXISTING_STUDENT"
+    )
     clean_payload = _clean_create_payload(payload)
+
+    # Existing students skip the interview/approval pipeline — they are already
+    # enrolled; we just need to register them and attach the right fee structure.
+    initial_status = "ENROLLED" if is_existing_student else "DRAFT"
 
     row = Enrollment(
         tenant_id=tenant_id,
         payload=clean_payload,
-        status="DRAFT",
+        status=initial_status,
         created_by=actor_user_id,
         updated_by=actor_user_id,
     )
     db.add(row)
     db.flush()
 
+    # For existing students: assign an admission number and create the SIS
+    # student record immediately so the profile and carry-forward features work.
+    if is_existing_student:
+        adm_no = str(clean_payload.get("admission_number") or "").strip()
+        if not adm_no:
+            adm_no = _next_admission_number(db, tenant_id=tenant_id)
+        row.admission_number = adm_no
+        row.payload = {**clean_payload, "admission_number": adm_no}
+        db.flush()
+        _create_student_for_existing_enrollment(
+            db, tenant_id=tenant_id, enrollment=row, admission_no=adm_no
+        )
+
+    # Attach an explicit fee structure if one was provided.
     if fee_structure_id:
         finance_service.assign_fee_structure_to_enrollment(
             db,
@@ -204,6 +326,23 @@ def create_enrollment(
             fee_structure_id=UUID(str(fee_structure_id)),
             generate_invoice=False,
         )
+    elif is_existing_student:
+        # Auto-find the RETURNING fee structure for this class (most recent
+        # active academic year) so the secretary can immediately manage fees.
+        class_code = str(clean_payload.get("admission_class") or "").strip().upper()
+        if class_code:
+            returning_structure = _find_returning_fee_structure(
+                db, tenant_id=tenant_id, class_code=class_code
+            )
+            if returning_structure is not None:
+                finance_service.assign_fee_structure_to_enrollment(
+                    db,
+                    tenant_id=tenant_id,
+                    actor_user_id=actor_user_id,
+                    enrollment_id=row.id,
+                    fee_structure_id=returning_structure.id,
+                    generate_invoice=False,
+                )
 
     log_event(
         db,
