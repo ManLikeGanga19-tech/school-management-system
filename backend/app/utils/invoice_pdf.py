@@ -37,9 +37,13 @@ from typing import Any
 def _safe(text: str | None) -> str:
     if not text:
         return ""
+    s = str(text)
+    # Replace non-latin-1 unicode chars with safe ASCII equivalents
+    s = s.replace("\u2014", "-").replace("\u2013", "-").replace("\u2019", "'").replace("\u2018", "'")
+    s = s.replace("\u201c", '"').replace("\u201d", '"').replace("\u2022", "*").replace("\u00a0", " ")
+    s = s.encode("latin-1", errors="replace").decode("latin-1")
     return (
-        str(text)
-        .replace("\\", "\\\\")
+        s.replace("\\", "\\\\")
         .replace("(", "\\(")
         .replace(")", "\\)")
     )
@@ -84,7 +88,7 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
     Returns raw PDF bytes.
     """
     W, H = 595.0, 842.0
-    ML, MR, MT, MB = 40.0, 40.0, 40.0, 40.0
+    ML, MR, MT, MB = 20.0, 20.0, 20.0, 20.0
 
     stream_lines: list[str] = []
 
@@ -106,9 +110,9 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
     # ── Extract data ──────────────────────────────────────────────────────────
     profile = data.get("profile") or {}
     school_name = str(
-        profile.get("school_name") or profile.get("name") or "School"
+        profile.get("school_header") or profile.get("school_name") or profile.get("name") or "School"
     )
-    school_address = str(profile.get("address") or "")
+    school_address = str(profile.get("physical_address") or profile.get("po_box") or profile.get("address") or "")
     school_phone = str(profile.get("phone") or "")
     school_email = str(profile.get("email") or "")
 
@@ -137,7 +141,7 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
 
     term_label = f"Term {term_number}" if term_number else ""
     year_label = str(academic_year) if academic_year else ""
-    term_year = f"{term_label} — {year_label}" if term_label and year_label else (term_label or year_label)
+    term_year = f"{term_label} - {year_label}" if term_label and year_label else (term_label or year_label)
 
     student_type_label = ("New Student" if student_type == "NEW"
                           else "Returning Student" if student_type == "RETURNING"
@@ -264,19 +268,21 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
         y -= 8
         rule(ML, y, W - MR, y)
         y -= 14
-        txt(ML, y, "HOW TO PAY", size=9, bold=True)
-        y -= 14
+        txt(ML, y, "HOW TO PAY", size=10, bold=True)
+        y -= 15
 
         if ps.get("mpesa_paybill") or ps.get("mpesa_business_no"):
-            mpesa_parts = ["M-PESA Paybill:"]
+            mpesa_parts = []
             if ps.get("mpesa_paybill"):
-                mpesa_parts.append(str(ps["mpesa_paybill"]))
+                mpesa_parts.append(f"M-PESA Paybill: {ps['mpesa_paybill']}")
             if ps.get("mpesa_business_no"):
-                mpesa_parts.append(f"  Account No: {ps['mpesa_business_no']}")
+                mpesa_parts.append(f"Account No: {ps['mpesa_business_no']}")
             if ps.get("mpesa_account_format"):
-                mpesa_parts.append(f"  Use: {ps['mpesa_account_format']}")
-            txt(ML, y, "  ".join(mpesa_parts), size=8)
-            y -= 13
+                mpesa_parts.append(f"(Use {ps['mpesa_account_format']})")
+            UW = W - ML - MR
+            for chunk in _wrap_text("  ".join(mpesa_parts), int(UW / 5.5)):
+                txt(ML, y, chunk, size=9)
+                y -= 13
 
         if ps.get("bank_name") or ps.get("bank_account_number"):
             bank_parts = []
@@ -288,12 +294,20 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
                 bank_parts.append(f"A/C Name: {ps['bank_account_name']}")
             if ps.get("bank_account_number"):
                 bank_parts.append(f"A/C No: {ps['bank_account_number']}")
-            txt(ML, y, "  |  ".join(bank_parts), size=8)
-            y -= 13
+            UW = W - ML - MR
+            for chunk in _wrap_text("  |  ".join(bank_parts), int(UW / 5.5)):
+                txt(ML, y, chunk, size=9)
+                y -= 13
 
         if ps.get("cash_payment_instructions"):
-            txt(ML, y, str(ps["cash_payment_instructions"]), size=8)
-            y -= 13
+            UW = W - ML - MR
+            for item in _parse_structured_lines(str(ps["cash_payment_instructions"])):
+                y -= item["space_before"]
+                x_item = ML + item["indent"]
+                available = int((UW - item["indent"]) / 5.5)
+                for i, chunk in enumerate(_wrap_text(item["text"], max(40, available))):
+                    txt(x_item + (12 if i > 0 else 0), y, chunk, size=8, bold=item["bold"])
+                    y -= 12
 
     # ── Footer / signature ────────────────────────────────────────────────────
     y -= 10
@@ -306,7 +320,7 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
     compressed = zlib.compress(stream_content)
 
     objects: dict[int, bytes] = {}
-    objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>"
+    objects[1] = b"<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /PrintScaling /None >> >>"
     objects[2] = b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>"
     objects[3] = (
         f"<< /Type /Page /Parent 2 0 R "
@@ -323,3 +337,54 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
     objects[6] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"
 
     return _build_pdf(objects, root_id=1)
+
+
+def _wrap_text(text: str, max_chars: int) -> list[str]:
+    """Naive word-boundary line wrap."""
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for w in words:
+        if current and len(current) + 1 + len(w) > max_chars:
+            lines.append(current)
+            current = w
+        else:
+            current = f"{current} {w}".strip() if current else w
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def _parse_structured_lines(text: str) -> list[dict]:
+    """
+    Split structured text at ALL-CAPS section headers (BOYS:, NOTE:, etc.)
+    and numbered items (1. 2. 3.) into renderable line dicts.
+    """
+    import re
+
+    t = " ".join(text.split())
+
+    # Insert marker before ALL-CAPS section headers in the middle of text
+    t = re.sub(
+        r"(?<=[.\)\s])([A-Z][A-Z\.]{1,}(?:\s+[A-Z\.]+){0,3}:)\s*",
+        r"\n##HDR##\1\n",
+        t,
+    )
+    # Handle header at very start
+    t = re.sub(r"^([A-Z][A-Z\.]{1,}(?:\s+[A-Z\.]+){0,3}:)\s*", r"##HDR##\1\n", t)
+    # Insert newline before numbered items like " 2. "
+    t = re.sub(r"\s+(\d+\.\s)", r"\n\1", t)
+
+    result: list[dict] = []
+    for raw in t.split("\n"):
+        raw = raw.strip()
+        if not raw:
+            continue
+        if raw.startswith("##HDR##"):
+            result.append({"text": raw[7:].strip(), "indent": 0, "bold": True, "space_before": 8})
+        elif re.match(r"^\d+\.\s", raw):
+            result.append({"text": raw, "indent": 14, "bold": False, "space_before": 2})
+        else:
+            result.append({"text": raw, "indent": 4, "bold": False, "space_before": 0})
+
+    return result

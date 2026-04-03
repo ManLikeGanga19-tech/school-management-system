@@ -3098,17 +3098,16 @@ function SecretaryEnrollmentsPageContent() {
                       onChange={(v) => setExistingStudentDraft((p) => ({ ...p, admission_class: v }))}
                       classes={tenantClasses} loadingClasses={loadingClasses} />
                   </FormField>
-                  <FormField label="Admission Term" hint="Academic term for this student">
-                    <TermSelect
+                  <FormField label="Admission Term" hint="e.g. Term 2 2019 — enter the term when this student was first admitted">
+                    <Input
+                      placeholder="e.g. Term 2 2019"
                       value={existingStudentDraft.admission_term}
-                      onChange={(v) =>
+                      onChange={(e) =>
                         setExistingStudentDraft((p) => ({
                           ...p,
-                          admission_term: v,
+                          admission_term: e.target.value,
                         }))
                       }
-                      terms={tenantTerms}
-                      loadingTerms={loadingTerms}
                     />
                   </FormField>
                   <FormField label="Intake Date" hint="Date student was originally registered">

@@ -116,7 +116,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
     role === "secretary"
       ? "/tenants/secretary/finance/setup"
       : "/tenants/director/finance/setup";
-  const canManage = role === "director";
+  const canManage = true;
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const [structures, setStructures] = useState<FeeStructure[]>([]);
@@ -142,6 +142,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
   const [deletingStructureId, setDeletingStructureId] = useState<string | null>(null);
 
   // ── Add item to structure ────────────────────────────────────────────────────
+  const [addItemDialog, setAddItemDialog] = useState(false);
   const [addItemForm, setAddItemForm] = useState({
     fee_item_id: "",
     term_1_amount: "",
@@ -149,6 +150,10 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
     term_3_amount: "",
   });
   const [removingItemId, setRemovingItemId] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<FeeStructureItem | null>(null);
+  const [editItemForm, setEditItemForm] = useState({ term_1_amount: "", term_2_amount: "", term_3_amount: "" });
+  const [bulkDialog, setBulkDialog] = useState(false);
+  const [bulkAmounts, setBulkAmounts] = useState<Record<string, { t1: string; t2: string; t3: string; selected: boolean }>>({});
 
   // ── PDF download ──────────────────────────────────────────────────────────────
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -314,6 +319,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
       "Item added to structure."
     );
     setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" });
+    setAddItemDialog(false);
   }
 
   async function removeItem(feeItemId: string) {
@@ -324,6 +330,64 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
       "Item removed."
     );
     setRemovingItemId(null);
+  }
+
+  function openEditItem(item: FeeStructureItem) {
+    setEditingItem(item);
+    setEditItemForm({
+      term_1_amount: String(item.term_1_amount),
+      term_2_amount: String(item.term_2_amount),
+      term_3_amount: String(item.term_3_amount),
+    });
+  }
+
+  async function saveEditItem() {
+    if (!selectedId || !editingItem) return;
+    await postAction(
+      "add_structure_item",
+      {
+        structure_id: selectedId,
+        item: {
+          fee_item_id: editingItem.fee_item_id,
+          term_1_amount: toNumber(editItemForm.term_1_amount),
+          term_2_amount: toNumber(editItemForm.term_2_amount),
+          term_3_amount: toNumber(editItemForm.term_3_amount),
+        },
+      },
+      "Item updated."
+    );
+    setEditingItem(null);
+  }
+
+  function openBulkDialog() {
+    const init: Record<string, { t1: string; t2: string; t3: string; selected: boolean }> = {};
+    for (const fi of availableItems) {
+      init[fi.id] = { t1: "", t2: "", t3: "", selected: false };
+    }
+    setBulkAmounts(init);
+    setBulkDialog(true);
+  }
+
+  async function bulkAdd() {
+    if (!selectedId) return;
+    const items = Object.entries(bulkAmounts)
+      .filter(([, v]) => v.selected && v.t1.trim() !== "")
+      .map(([fee_item_id, v]) => ({
+        fee_item_id,
+        term_1_amount: toNumber(v.t1),
+        term_2_amount: toNumber(v.t2),
+        term_3_amount: toNumber(v.t3),
+      }));
+    if (items.length === 0) {
+      toast.error("Select at least one item and enter a Term 1 amount.");
+      return;
+    }
+    await postAction(
+      "upsert_structure_items",
+      { structure_id: selectedId, items },
+      `${items.length} item(s) added to structure.`
+    );
+    setBulkDialog(false);
   }
 
   // ── PDF download ──────────────────────────────────────────────────────────────
@@ -547,12 +611,39 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                   {selectedItems.length} item{selectedItems.length !== 1 ? "s" : ""}
                 </p>
               </div>
-              <button
-                onClick={() => setSelectedId(null)}
-                className="rounded-md p-1.5 text-slate-400 hover:bg-blue-100 hover:text-slate-700 transition"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {canManage && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={openBulkDialog}
+                      disabled={saving || availableItems.length === 0}
+                      title={availableItems.length === 0 ? "All fee items already added" : undefined}
+                    >
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />
+                      Bulk Add
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" });
+                        setAddItemDialog(true);
+                      }}
+                      disabled={saving}
+                    >
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />
+                      Add Item
+                    </Button>
+                  </>
+                )}
+                <button
+                  onClick={() => setSelectedId(null)}
+                  className="rounded-md p-1.5 text-slate-400 hover:bg-blue-100 hover:text-slate-700 transition"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -565,7 +656,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                     <TableHead className="text-xs">Term 1</TableHead>
                     <TableHead className="text-xs">Term 2</TableHead>
                     <TableHead className="text-xs">Term 3</TableHead>
-                    {canManage && <TableHead className="text-right text-xs">Remove</TableHead>}
+                    {canManage && <TableHead className="text-right text-xs">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -595,13 +686,24 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                       </TableCell>
                       {canManage && (
                         <TableCell className="text-right">
-                          <button
-                            onClick={() => setRemovingItemId(item.fee_item_id)}
-                            disabled={saving}
-                            className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 transition disabled:opacity-40"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          <div className="flex justify-end gap-1">
+                            <button
+                              onClick={() => openEditItem(item)}
+                              disabled={saving}
+                              title="Edit amounts"
+                              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition disabled:opacity-40"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setRemovingItemId(item.fee_item_id)}
+                              disabled={saving}
+                              title="Remove item"
+                              className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 transition disabled:opacity-40"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </TableCell>
                       )}
                     </TableRow>
@@ -616,81 +718,6 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
               </Table>
             </div>
 
-            {/* Add item row */}
-            {canManage && (
-              <div className="border-t border-slate-100 bg-slate-50/50 px-6 py-4">
-                <p className="mb-3 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Add Item
-                </p>
-                <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 items-end">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Fee Item</Label>
-                    <Select
-                      value={addItemForm.fee_item_id}
-                      onValueChange={handleSelectFeeItem}
-                    >
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue placeholder="Select fee item…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableItems.length === 0 ? (
-                          <SelectItem value="__none__" disabled>
-                            All fee items already added
-                          </SelectItem>
-                        ) : (
-                          availableItems.map((fi) => {
-                            const cat = categories.find((c) => c.id === fi.category_id);
-                            return (
-                              <SelectItem key={fi.id} value={fi.id}>
-                                {fi.name}
-                                {cat ? ` (${cat.name})` : ""}
-                                {fi.charge_frequency !== "PER_TERM"
-                                  ? ` — ${fi.charge_frequency === "ONCE_PER_YEAR" ? "once/yr" : "one-time"}`
-                                  : ""}
-                              </SelectItem>
-                            );
-                          })
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {(["term_1_amount", "term_2_amount", "term_3_amount"] as const).map(
-                    (col, idx) => {
-                      const selectedFeeItem = feeItems.find(
-                        (fi) => fi.id === addItemForm.fee_item_id
-                      );
-                      const isDisabled =
-                        selectedFeeItem?.charge_frequency !== "PER_TERM" && idx > 0;
-                      return (
-                        <div key={col} className="w-28 space-y-1.5">
-                          <Label className="text-xs">Term {idx + 1} (KES)</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            placeholder="0"
-                            className="h-8 text-sm"
-                            disabled={isDisabled}
-                            value={isDisabled ? "0" : addItemForm[col]}
-                            onChange={(e) =>
-                              setAddItemForm((p) => ({ ...p, [col]: e.target.value }))
-                            }
-                          />
-                        </div>
-                      );
-                    }
-                  )}
-                  <Button
-                    size="sm"
-                    onClick={() => void addItem()}
-                    disabled={saving || !addItemForm.fee_item_id}
-                    className="h-8"
-                  >
-                    <Plus className="mr-1 h-3.5 w-3.5" />
-                    Add
-                  </Button>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -833,6 +860,223 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
               disabled={saving}
             >
               {saving ? "Removing…" : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit item dialog ── */}
+      <Dialog open={editingItem !== null} onOpenChange={(open) => { if (!open) setEditingItem(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Item Amounts</DialogTitle>
+            <DialogDescription>
+              {editingItem
+                ? `Update the amounts for "${editingItem.fee_item_name}" in this structure.`
+                : "Update fee item amounts."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {(["term_1_amount", "term_2_amount", "term_3_amount"] as const).map((col, idx) => {
+              const isDisabled = editingItem?.charge_frequency !== "PER_TERM" && idx > 0;
+              return (
+                <div key={col} className="space-y-1.5">
+                  <Label>
+                    Term {idx + 1} Amount (KES)
+                    {idx === 0 && <span className="text-red-500"> *</span>}
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    disabled={isDisabled}
+                    value={isDisabled ? "0" : editItemForm[col]}
+                    onChange={(e) => setEditItemForm((p) => ({ ...p, [col]: e.target.value }))}
+                  />
+                  {isDisabled && (
+                    <p className="text-xs text-slate-400">Not applicable for this charge frequency</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingItem(null)}>Cancel</Button>
+            <Button onClick={() => void saveEditItem()} disabled={saving}>
+              {saving ? "Saving…" : "Update Amounts"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Bulk add items dialog ── */}
+      <Dialog open={bulkDialog} onOpenChange={(open) => { if (!open) setBulkDialog(false); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Bulk Add Items</DialogTitle>
+            <DialogDescription>
+              {selectedStructure
+                ? `Select multiple fee items to add to ${selectedStructure.name}. Enter amounts for each.`
+                : "Select items to add."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {availableItems.length === 0 ? (
+              <p className="text-sm text-slate-500 text-center py-6">All fee items are already in this structure.</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-[auto_1fr_80px_80px_80px] gap-2 px-1 text-xs font-medium text-slate-500 uppercase tracking-wide border-b pb-2">
+                  <span></span>
+                  <span>Fee Item</span>
+                  <span>Term 1</span>
+                  <span>Term 2</span>
+                  <span>Term 3</span>
+                </div>
+                {availableItems.map((fi) => {
+                  const entry = bulkAmounts[fi.id];
+                  if (!entry) return null;
+                  const isNonTerm = fi.charge_frequency !== "PER_TERM";
+                  const cat = categories.find((c) => c.id === fi.category_id);
+                  return (
+                    <div key={fi.id} className="grid grid-cols-[auto_1fr_80px_80px_80px] gap-2 items-center">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300"
+                        checked={entry.selected}
+                        onChange={(e) =>
+                          setBulkAmounts((p) => ({ ...p, [fi.id]: { ...p[fi.id], selected: e.target.checked } }))
+                        }
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">{fi.name}</p>
+                        <p className="text-xs text-slate-400">{cat?.name ?? ""} · {fi.charge_frequency === "PER_TERM" ? "Per term" : fi.charge_frequency === "ONCE_PER_YEAR" ? "Once/yr" : "One-time"}</p>
+                      </div>
+                      <Input
+                        type="number" min={0} placeholder="0"
+                        className="h-8 text-sm"
+                        disabled={!entry.selected}
+                        value={entry.t1}
+                        onChange={(e) => setBulkAmounts((p) => ({ ...p, [fi.id]: { ...p[fi.id], t1: e.target.value } }))}
+                      />
+                      <Input
+                        type="number" min={0} placeholder="0"
+                        className="h-8 text-sm"
+                        disabled={!entry.selected || isNonTerm}
+                        value={isNonTerm ? "0" : entry.t2}
+                        onChange={(e) => setBulkAmounts((p) => ({ ...p, [fi.id]: { ...p[fi.id], t2: e.target.value } }))}
+                      />
+                      <Input
+                        type="number" min={0} placeholder="0"
+                        className="h-8 text-sm"
+                        disabled={!entry.selected || isNonTerm}
+                        value={isNonTerm ? "0" : entry.t3}
+                        onChange={(e) => setBulkAmounts((p) => ({ ...p, [fi.id]: { ...p[fi.id], t3: e.target.value } }))}
+                      />
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDialog(false)}>Cancel</Button>
+            <Button
+              onClick={() => void bulkAdd()}
+              disabled={saving || availableItems.length === 0 || !Object.values(bulkAmounts).some((v) => v.selected)}
+            >
+              {saving ? "Adding…" : `Add ${Object.values(bulkAmounts).filter((v) => v.selected).length} Item(s)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add item dialog ── */}
+      <Dialog
+        open={addItemDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAddItemDialog(false);
+            setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" });
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Fee Item</DialogTitle>
+            <DialogDescription>
+              {selectedStructure
+                ? `Add a fee item to ${selectedStructure.name} (${selectedStructure.class_code} · ${selectedStructure.academic_year})`
+                : "Add a fee item to this structure."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Fee Item <span className="text-red-500">*</span></Label>
+              <Select value={addItemForm.fee_item_id} onValueChange={handleSelectFeeItem}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select fee item…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableItems.length === 0 ? (
+                    <SelectItem value="__none__" disabled>
+                      All fee items already added
+                    </SelectItem>
+                  ) : (
+                    availableItems.map((fi) => {
+                      const cat = categories.find((c) => c.id === fi.category_id);
+                      return (
+                        <SelectItem key={fi.id} value={fi.id}>
+                          {fi.name}
+                          {cat ? ` (${cat.name})` : ""}
+                          {fi.charge_frequency !== "PER_TERM"
+                            ? ` — ${fi.charge_frequency === "ONCE_PER_YEAR" ? "once/yr" : "one-time"}`
+                            : ""}
+                        </SelectItem>
+                      );
+                    })
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            {(["term_1_amount", "term_2_amount", "term_3_amount"] as const).map((col, idx) => {
+              const selectedFeeItem = feeItems.find((fi) => fi.id === addItemForm.fee_item_id);
+              const isDisabled = selectedFeeItem?.charge_frequency !== "PER_TERM" && idx > 0;
+              return (
+                <div key={col} className="space-y-1.5">
+                  <Label>
+                    Term {idx + 1} Amount (KES)
+                    {idx === 0 && <span className="text-red-500"> *</span>}
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    disabled={isDisabled}
+                    value={isDisabled ? "0" : addItemForm[col]}
+                    onChange={(e) => setAddItemForm((p) => ({ ...p, [col]: e.target.value }))}
+                  />
+                  {isDisabled && (
+                    <p className="text-xs text-slate-400">Not applicable for this charge frequency</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAddItemDialog(false);
+                setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void addItem()}
+              disabled={saving || !addItemForm.fee_item_id}
+            >
+              {saving ? "Adding…" : "Add Item"}
             </Button>
           </DialogFooter>
         </DialogContent>

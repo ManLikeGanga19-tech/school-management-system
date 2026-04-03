@@ -35,10 +35,57 @@ type Props = {
   activeHref: string;
 };
 
+function FieldGroup({ children }: { children: React.ReactNode }) {
+  return <div className="space-y-4">{children}</div>;
+}
+
+function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div className="border-b border-slate-100 pb-3">
+      <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+      {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  field,
+  placeholder,
+  hint,
+  type = "text",
+  form,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  field: keyof PaymentSettings;
+  placeholder?: string;
+  hint?: string;
+  type?: string;
+  form: PaymentSettings;
+  disabled: boolean;
+  onChange: (field: keyof PaymentSettings, value: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-sm">{label}</Label>
+      <Input
+        type={type}
+        placeholder={placeholder}
+        value={(form[field] as string) ?? ""}
+        onChange={(e) => onChange(field, e.target.value)}
+        disabled={disabled}
+        className="max-w-sm"
+      />
+      {hint && <p className="text-xs text-slate-400">{hint}</p>}
+    </div>
+  );
+}
+
 export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
   const canManage = role === "director";
 
-  const [settings, setSettings] = useState<PaymentSettings>({});
   const [form, setForm] = useState<PaymentSettings>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -50,7 +97,6 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
       const body = await api.get<unknown>("/finance/payment-settings", { tenantRequired: true });
       const obj = asObject(body) as PaymentSettings | null;
       if (obj) {
-        setSettings(obj);
         setForm(obj);
       }
     } catch (err: unknown) {
@@ -85,48 +131,6 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
     } finally {
       setSaving(false);
     }
-  }
-
-  function FieldGroup({ children }: { children: React.ReactNode }) {
-    return <div className="space-y-4">{children}</div>;
-  }
-
-  function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
-    return (
-      <div className="border-b border-slate-100 pb-3">
-        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
-        {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
-      </div>
-    );
-  }
-
-  function Field({
-    label,
-    field,
-    placeholder,
-    hint,
-    type = "text",
-  }: {
-    label: string;
-    field: keyof PaymentSettings;
-    placeholder?: string;
-    hint?: string;
-    type?: string;
-  }) {
-    return (
-      <div className="space-y-1.5">
-        <Label className="text-sm">{label}</Label>
-        <Input
-          type={type}
-          placeholder={placeholder}
-          value={(form[field] as string) ?? ""}
-          onChange={(e) => updateField(field, e.target.value)}
-          disabled={!canManage}
-          className="max-w-sm"
-        />
-        {hint && <p className="text-xs text-slate-400">{hint}</p>}
-      </div>
-    );
   }
 
   if (loading) {
@@ -191,13 +195,14 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
                 subtitle="Used on fee structure sheets and invoices."
               />
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <Field label="Paybill Number" field="mpesa_paybill" placeholder="e.g. 522522" />
-                <Field label="Business / Till Number" field="mpesa_business_no" placeholder="e.g. 1234567" />
+                <Field label="Paybill Number" field="mpesa_paybill" placeholder="e.g. 522522" form={form} disabled={!canManage} onChange={updateField} />
+                <Field label="Business / Till Number" field="mpesa_business_no" placeholder="e.g. 1234567" form={form} disabled={!canManage} onChange={updateField} />
                 <Field
                   label="Account Reference Format"
                   field="mpesa_account_format"
                   placeholder="e.g. Admission No."
                   hint="Instructions for what to enter as account reference."
+                  form={form} disabled={!canManage} onChange={updateField}
                 />
               </div>
             </FieldGroup>
@@ -206,10 +211,10 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
             <FieldGroup>
               <SectionHeader title="Bank Account Details" />
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Bank Name" field="bank_name" placeholder="e.g. Equity Bank" />
-                <Field label="Branch" field="bank_branch" placeholder="e.g. Westlands" />
-                <Field label="Account Name" field="bank_account_name" placeholder="e.g. NOVEL JUNIOR SCHOOL" />
-                <Field label="Account Number" field="bank_account_number" placeholder="e.g. 0123456789" />
+                <Field label="Bank Name" field="bank_name" placeholder="e.g. Equity Bank" form={form} disabled={!canManage} onChange={updateField} />
+                <Field label="Branch" field="bank_branch" placeholder="e.g. Westlands" form={form} disabled={!canManage} onChange={updateField} />
+                <Field label="Account Name" field="bank_account_name" placeholder="e.g. NOVEL JUNIOR SCHOOL" form={form} disabled={!canManage} onChange={updateField} />
+                <Field label="Account Number" field="bank_account_number" placeholder="e.g. 0123456789" form={form} disabled={!canManage} onChange={updateField} />
               </div>
             </FieldGroup>
 
@@ -263,11 +268,13 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
                   field="assessment_books_amount"
                   placeholder="e.g. 350"
                   type="number"
+                  form={form} disabled={!canManage} onChange={updateField}
                 />
                 <Field
                   label="Description"
                   field="assessment_books_note"
                   placeholder="e.g. Assessment books (once per year)"
+                  form={form} disabled={!canManage} onChange={updateField}
                 />
               </div>
             </FieldGroup>

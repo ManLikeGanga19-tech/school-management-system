@@ -62,7 +62,7 @@ def upgrade() -> None:
     # along with their items so the unique constraint can be applied cleanly.
     op.execute("""
         DELETE FROM core.fee_structure_items
-        WHERE fee_structure_id IN (
+        WHERE structure_id IN (
             SELECT id FROM (
                 SELECT id,
                        ROW_NUMBER() OVER (

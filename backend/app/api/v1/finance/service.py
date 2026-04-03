@@ -3015,8 +3015,8 @@ def build_fee_structure_document(
             "assessment_books_note": getattr(payment_settings, "assessment_books_note", None),
         }
 
-    school_name = str(profile.get("school_name") or profile.get("name") or "School") if profile else "School"
-    school_address = str(profile.get("address") or "") if profile else ""
+    school_name = str(profile.get("school_header") or profile.get("school_name") or profile.get("name") or "School") if profile else "School"
+    school_address = str(profile.get("physical_address") or profile.get("po_box") or profile.get("address") or "") if profile else ""
     school_phone = str(profile.get("phone") or "") if profile else ""
 
     return {
@@ -3148,6 +3148,7 @@ def generate_school_fees_invoice_v2(
     scholarship_id: Optional[UUID] = None,
     scholarship_amount: Optional[Decimal] = None,
     scholarship_reason: Optional[str] = None,
+    include_carry_forward: bool = False,
 ) -> Invoice:
     """
     Smart invoice generator:
@@ -3316,6 +3317,29 @@ def generate_school_fees_invoice_v2(
             amount=ln["amount"],
             meta=ln.get("meta"),
         ))
+
+    # Attach pending carry-forward balances as invoice lines
+    if include_carry_forward and student_id:
+        from app.models.student_carry_forward import StudentCarryForward
+        cf_rows = db.execute(
+            select(StudentCarryForward).where(
+                StudentCarryForward.tenant_id == tenant_id,
+                StudentCarryForward.student_id == student_id,
+                StudentCarryForward.status == "PENDING",
+            )
+        ).scalars().all()
+        for cf in cf_rows:
+            label = cf.term_label or "Previous Balance"
+            db.add(InvoiceLine(
+                invoice_id=inv.id,
+                description=f"Arrears: {label}",
+                amount=Decimal(str(cf.amount)),
+                meta={"line_type": "CARRY_FORWARD", "carry_forward_id": str(cf.id)},
+            ))
+            cf.status = "INCLUDED"
+            cf.invoice_id = inv.id
+        db.flush()
+
     db.flush()
     _recalc_invoice_amounts(db, inv)
     db.flush()
@@ -3387,3 +3411,158 @@ def generate_school_fees_invoice_v2(
         meta=None,
     )
     return inv
+
+
+# ── Carry-Forward Balances ─────────────────────────────────────────────────────
+
+def _serialize_carry_forward(row: Any) -> dict:
+    return {
+        "id": str(row.id),
+        "student_id": str(row.student_id),
+        "term_label": str(row.term_label or ""),
+        "academic_year": row.academic_year,
+        "term_number": row.term_number,
+        "amount": str(row.amount or "0"),
+        "description": str(row.description or ""),
+        "status": str(row.status or "PENDING"),
+        "invoice_id": str(row.invoice_id) if row.invoice_id else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def list_carry_forward(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+) -> list[dict]:
+    from app.models.student_carry_forward import StudentCarryForward
+    rows = db.execute(
+        select(StudentCarryForward)
+        .where(
+            StudentCarryForward.tenant_id == tenant_id,
+            StudentCarryForward.student_id == student_id,
+        )
+        .order_by(
+            StudentCarryForward.academic_year.desc(),
+            StudentCarryForward.term_number.desc(),
+            StudentCarryForward.created_at.desc(),
+        )
+    ).scalars().all()
+    return [_serialize_carry_forward(r) for r in rows]
+
+
+def get_carry_forward_summary(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+) -> dict:
+    """Return total PENDING carry-forward amount and count for a student."""
+    from app.models.student_carry_forward import StudentCarryForward
+    rows = db.execute(
+        select(StudentCarryForward)
+        .where(
+            StudentCarryForward.tenant_id == tenant_id,
+            StudentCarryForward.student_id == student_id,
+            StudentCarryForward.status == "PENDING",
+        )
+    ).scalars().all()
+    total = sum(Decimal(str(r.amount or 0)) for r in rows)
+    return {
+        "pending_count": len(rows),
+        "pending_total": str(total),
+        "items": [_serialize_carry_forward(r) for r in rows],
+    }
+
+
+def add_carry_forward(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+    actor_user_id: Optional[UUID],
+    term_label: str,
+    academic_year: Optional[int],
+    term_number: Optional[int],
+    amount: Decimal,
+    description: Optional[str],
+) -> dict:
+    from app.models.student_carry_forward import StudentCarryForward
+    from app.models.student import Student
+
+    student = db.execute(
+        select(Student).where(Student.id == student_id, Student.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    if not student:
+        raise ValueError("Student not found")
+    if amount <= 0:
+        raise ValueError("Amount must be greater than zero")
+
+    row = StudentCarryForward(
+        tenant_id=tenant_id,
+        student_id=student_id,
+        term_label=term_label.strip(),
+        academic_year=academic_year,
+        term_number=term_number,
+        amount=amount,
+        description=description.strip() if description else None,
+        status="PENDING",
+        recorded_by=actor_user_id,
+    )
+    db.add(row)
+    db.flush()
+    return _serialize_carry_forward(row)
+
+
+def edit_carry_forward(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    balance_id: UUID,
+    amount: Optional[Decimal],
+    term_label: Optional[str],
+    description: Optional[str],
+) -> dict:
+    from app.models.student_carry_forward import StudentCarryForward
+    row = db.execute(
+        select(StudentCarryForward).where(
+            StudentCarryForward.id == balance_id,
+            StudentCarryForward.tenant_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise ValueError("Balance record not found")
+    if row.status != "PENDING":
+        raise ValueError("Only PENDING balances can be edited")
+    if amount is not None:
+        if amount <= 0:
+            raise ValueError("Amount must be greater than zero")
+        row.amount = amount
+    if term_label is not None:
+        row.term_label = term_label.strip()
+    if description is not None:
+        row.description = description.strip() if description.strip() else None
+    db.flush()
+    return _serialize_carry_forward(row)
+
+
+def delete_carry_forward(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    balance_id: UUID,
+) -> None:
+    from app.models.student_carry_forward import StudentCarryForward
+    row = db.execute(
+        select(StudentCarryForward).where(
+            StudentCarryForward.id == balance_id,
+            StudentCarryForward.tenant_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise ValueError("Balance record not found")
+    if row.status != "PENDING":
+        raise ValueError("Only PENDING balances can be deleted")
+    db.delete(row)
+    db.flush()

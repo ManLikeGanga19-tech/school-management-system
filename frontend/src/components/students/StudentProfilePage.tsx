@@ -15,9 +15,12 @@ import {
   Plus,
   Save,
   X,
+  History,
+  AlertTriangle,
 } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
+import { CarryForwardDialog } from "@/components/finance/CarryForwardDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -301,6 +304,11 @@ export function StudentProfilePage({
 
   const [tab, setTab] = useState<Tab>("overview");
 
+  // Carry-forward
+  const [cfDialogOpen, setCfDialogOpen] = useState(false);
+  const [cfPendingCount, setCfPendingCount] = useState(0);
+  const [cfPendingTotal, setCfPendingTotal] = useState("0");
+
   // SIS data
   const [sisStudent, setSisStudent] = useState<SisStudent | null>(null);
   const [sisLoading, setSisLoading] = useState(false);
@@ -386,6 +394,26 @@ export function StudentProfilePage({
 
   // ── Load SIS data when student_id is available ────────────────────────────────
   const studentId = enrollment?.student_id ?? null;
+
+  // ── Load carry-forward summary ────────────────────────────────────────────────
+  const loadCfSummary = useCallback(async () => {
+    if (!studentId) return;
+    try {
+      const res = await api.post<{ data?: { data?: { pending_count?: number; pending_total?: string } } }>("/secretary/finance/setup", {
+        action: "get_carry_forward_summary",
+        payload: { student_id: studentId },
+      });
+      const d = res.data?.data;
+      setCfPendingCount(d?.pending_count ?? 0);
+      setCfPendingTotal(d?.pending_total ?? "0");
+    } catch {
+      // non-critical — silently ignore
+    }
+  }, [studentId]);
+
+  useEffect(() => {
+    if (studentId) void loadCfSummary();
+  }, [studentId, loadCfSummary]);
 
   const loadSis = useCallback(async () => {
     if (!studentId) return;
@@ -736,6 +764,51 @@ export function StudentProfilePage({
                       </div>
                     </div>
                   </div>
+                  {/* ── Carry-Forward Balances ── */}
+                  <div>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Carry-Forward Balances
+                      </h3>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 gap-1.5 text-xs"
+                        onClick={() => setCfDialogOpen(true)}
+                      >
+                        <History className="h-3 w-3" />
+                        Manage
+                      </Button>
+                    </div>
+                    {cfPendingCount > 0 ? (
+                      <button
+                        className="w-full text-left rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 hover:bg-amber-100 transition-colors"
+                        onClick={() => setCfDialogOpen(true)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                          <div>
+                            <p className="text-sm font-semibold text-amber-800">
+                              {cfPendingCount} pending {cfPendingCount === 1 ? "balance" : "balances"}
+                            </p>
+                            <p className="text-xs text-amber-700">
+                              Outstanding: KES {parseFloat(cfPendingTotal).toLocaleString("en-KE", { minimumFractionDigits: 2 })}
+                              {" "}— will be included in next invoice if selected
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    ) : (
+                      <button
+                        className="w-full text-left rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 hover:bg-slate-100 transition-colors"
+                        onClick={() => setCfDialogOpen(true)}
+                      >
+                        <p className="text-sm text-slate-400">No pending carry-forward balances</p>
+                        <p className="text-xs text-slate-400 mt-0.5">Click to record outstanding balances from previous terms</p>
+                      </button>
+                    )}
+                  </div>
+
                   <div>
                     <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Exam Summary</h3>
                     <div className="grid gap-3 sm:grid-cols-3">
@@ -1149,6 +1222,17 @@ export function StudentProfilePage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Carry-Forward Dialog ── */}
+      {studentId && (
+        <CarryForwardDialog
+          open={cfDialogOpen}
+          onOpenChange={setCfDialogOpen}
+          studentId={studentId}
+          studentName={enrollment?.student_name ?? "Student"}
+          onChanged={() => void loadCfSummary()}
+        />
+      )}
     </AppShell>
   );
 }
