@@ -152,11 +152,11 @@ export function CarryForwardDialog({
     if (!studentId) return;
     setLoading(true);
     try {
-      const res = await api.post<{ data?: { data?: { items?: unknown[] } } }>("/secretary/finance/setup", {
+      const res = await api.post<{ data?: { items?: unknown[] } }>("/secretary/finance/setup", {
         action: "list_carry_forward",
         payload: { student_id: studentId },
       });
-      const items = ((res.data?.data?.items ?? []) as unknown[]) as CarryForwardEntry[];
+      const items = ((res.data?.items ?? []) as unknown[]) as CarryForwardEntry[];
       setEntries(items);
     } catch {
       toast.error("Failed to load carry-forward balances");

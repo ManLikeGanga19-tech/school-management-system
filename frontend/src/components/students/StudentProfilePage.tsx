@@ -224,7 +224,7 @@ function normalizeSisStudent(obj: Record<string, unknown>): SisStudent {
 
 function normalizeGuardian(obj: Record<string, unknown>): Guardian {
   return {
-    parent_id: str(obj.parent_id),
+    parent_id: str(obj.id) || str(obj.parent_id),
     relationship: strOrNull(obj.relationship),
     first_name: strOrNull(obj.first_name),
     last_name: strOrNull(obj.last_name),
@@ -335,7 +335,8 @@ export function StudentProfilePage({
 
   // Documents
   const [docDialog, setDocDialog] = useState(false);
-  const [docForm, setDocForm] = useState({ document_type: "OTHER", title: "", file_url: "", notes: "" });
+  const [docForm, setDocForm] = useState({ document_type: "OTHER", title: "", notes: "" });
+  const [docFile, setDocFile] = useState<File | null>(null);
   const [savingDoc, setSavingDoc] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
 
@@ -399,11 +400,11 @@ export function StudentProfilePage({
   const loadCfSummary = useCallback(async () => {
     if (!studentId) return;
     try {
-      const res = await api.post<{ data?: { data?: { pending_count?: number; pending_total?: string } } }>("/secretary/finance/setup", {
+      const res = await api.post<{ data?: { pending_count?: number; pending_total?: string } }>("/secretary/finance/setup", {
         action: "get_carry_forward_summary",
         payload: { student_id: studentId },
       });
-      const d = res.data?.data;
+      const d = res.data;
       setCfPendingCount(d?.pending_count ?? 0);
       setCfPendingTotal(d?.pending_total ?? "0");
     } catch {
@@ -590,22 +591,33 @@ export function StudentProfilePage({
   // ── Documents ─────────────────────────────────────────────────────────────────
   async function saveDocument() {
     if (!studentId) return;
-    if (!docForm.title.trim() || !docForm.file_url.trim()) {
-      toast.error("Title and URL are required.");
+    if (!docFile) {
+      toast.error("Please select a file to upload.");
+      return;
+    }
+    if (!docForm.title.trim()) {
+      toast.error("Document title is required.");
       return;
     }
     setSavingDoc(true);
     try {
+      const formData = new FormData();
+      formData.append("file", docFile);
+      formData.append("document_type", docForm.document_type);
+      formData.append("title", docForm.title.trim());
+      formData.append("notes", docForm.notes.trim());
       await api.post<unknown>(
-        `/students/${encodeURIComponent(studentId)}/documents`,
-        docForm,
+        `/students/${encodeURIComponent(studentId)}/documents/upload`,
+        formData,
         { tenantRequired: true }
       );
       await loadSis();
       setDocDialog(false);
-      toast.success("Document registered.");
+      setDocFile(null);
+      setDocForm({ document_type: "OTHER", title: "", notes: "" });
+      toast.success("Document uploaded.");
     } catch {
-      toast.error("Failed to register document.");
+      toast.error("Failed to upload document.");
     } finally {
       setSavingDoc(false);
     }
@@ -1057,7 +1069,7 @@ export function StudentProfilePage({
                   <div className="mb-4 flex items-center justify-between">
                     <p className="text-sm text-slate-500">{documents.length} document{documents.length !== 1 ? "s" : ""}</p>
                     <Button size="sm" onClick={() => setDocDialog(true)} disabled={savingDoc}>
-                      <Plus className="mr-1.5 h-3.5 w-3.5" />Register Document
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />Upload Document
                     </Button>
                   </div>
                   {sisLoading ? (
@@ -1082,7 +1094,16 @@ export function StudentProfilePage({
                                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">{d.document_type}</span>
                               </TableCell>
                               <TableCell>
-                                <a href={d.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">View</a>
+                                {d.file_url.startsWith("/api/v1/") ? (
+                                  <button
+                                    className="text-xs text-blue-600 hover:underline"
+                                    onClick={() => void api.downloadFile(d.file_url, d.title || "document")}
+                                  >
+                                    Download
+                                  </button>
+                                ) : (
+                                  <a href={d.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">View</a>
+                                )}
                               </TableCell>
                               <TableCell className="text-xs text-slate-500">{d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString() : "—"}</TableCell>
                               <TableCell className="text-right">
@@ -1168,12 +1189,12 @@ export function StudentProfilePage({
         </DialogContent>
       </Dialog>
 
-      {/* ── Document register dialog ── */}
-      <Dialog open={docDialog} onOpenChange={setDocDialog}>
+      {/* ── Document upload dialog ── */}
+      <Dialog open={docDialog} onOpenChange={(o) => { setDocDialog(o); if (!o) { setDocFile(null); setDocForm({ document_type: "OTHER", title: "", notes: "" }); } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Register Document</DialogTitle>
-            <DialogDescription>Link a document URL for this student.</DialogDescription>
+            <DialogTitle>Upload Document</DialogTitle>
+            <DialogDescription>Upload a document file from your computer for this student (PDF, image — max 10 MB).</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
@@ -1190,18 +1211,32 @@ export function StudentProfilePage({
               <Input value={docForm.title} onChange={(e) => setDocForm((p) => ({ ...p, title: e.target.value }))} placeholder="e.g. Birth Certificate 2024" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">File URL *</Label>
-              <Input value={docForm.file_url} onChange={(e) => setDocForm((p) => ({ ...p, file_url: e.target.value }))} placeholder="https://…" />
+              <Label className="text-xs">File *</Label>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.txt"
+                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-xs file:font-medium hover:file:bg-slate-200"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  setDocFile(f);
+                  if (f && !docForm.title.trim()) {
+                    setDocForm((p) => ({ ...p, title: f.name.replace(/\.[^.]+$/, "").replace(/[_-]/g, " ") }));
+                  }
+                }}
+              />
+              {docFile && (
+                <p className="text-xs text-slate-500">{docFile.name} ({(docFile.size / 1024).toFixed(0)} KB)</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Notes</Label>
-              <Input value={docForm.notes} onChange={(e) => setDocForm((p) => ({ ...p, notes: e.target.value }))} />
+              <Input value={docForm.notes} onChange={(e) => setDocForm((p) => ({ ...p, notes: e.target.value }))} placeholder="Optional note about this document" />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDocDialog(false)}>Cancel</Button>
-            <Button onClick={() => void saveDocument()} disabled={savingDoc}>
-              {savingDoc ? "Saving…" : "Register"}
+            <Button variant="outline" onClick={() => { setDocDialog(false); setDocFile(null); setDocForm({ document_type: "OTHER", title: "", notes: "" }); }}>Cancel</Button>
+            <Button onClick={() => void saveDocument()} disabled={savingDoc || !docFile}>
+              {savingDoc ? "Uploading…" : "Upload"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1212,7 +1247,7 @@ export function StudentProfilePage({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Remove Document</DialogTitle>
-            <DialogDescription>Remove this document record? The file at the URL will not be deleted.</DialogDescription>
+            <DialogDescription>Remove this document record? Uploaded files will also be deleted from the server.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeletingDocId(null)}>Cancel</Button>

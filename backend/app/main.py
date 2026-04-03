@@ -42,6 +42,11 @@ _MAX_BODY_BYTES = 2 * 1024 * 1024  # 2 MB
 
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
+        # Skip size enforcement for multipart file uploads (handled per-endpoint)
+        ct = request.headers.get("content-type", "")
+        if ct.startswith("multipart/form-data"):
+            return await call_next(request)
+
         cl = request.headers.get("content-length")
         if cl is not None:
             try:

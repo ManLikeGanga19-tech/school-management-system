@@ -1,29 +1,40 @@
 """SIS Students API — Phase 1.
 
 Endpoints:
-  GET    /students/{student_id}                         — full profile
-  PATCH  /students/{student_id}/biodata                 — update bio-data
-  GET    /students/{student_id}/guardian                — guardian list
-  PATCH  /students/{student_id}/guardian/{parent_id}    — update guardian contacts
-  GET    /students/{student_id}/emergency-contacts      — list emergency contacts
-  POST   /students/{student_id}/emergency-contacts      — add contact
-  PATCH  /students/{student_id}/emergency-contacts/{id} — update contact
-  DELETE /students/{student_id}/emergency-contacts/{id} — delete contact
-  GET    /students/{student_id}/documents               — list documents
-  POST   /students/{student_id}/documents               — register document
-  DELETE /students/{student_id}/documents/{id}          — delete document
+  GET    /students/{student_id}                                — full profile
+  PATCH  /students/{student_id}/biodata                        — update bio-data
+  GET    /students/{student_id}/guardian                       — guardian list
+  PATCH  /students/{student_id}/guardian/{parent_id}           — update guardian contacts
+  GET    /students/{student_id}/emergency-contacts             — list emergency contacts
+  POST   /students/{student_id}/emergency-contacts             — add contact
+  PATCH  /students/{student_id}/emergency-contacts/{id}        — update contact
+  DELETE /students/{student_id}/emergency-contacts/{id}        — delete contact
+  GET    /students/{student_id}/documents                      — list documents
+  POST   /students/{student_id}/documents                      — register document (URL)
+  POST   /students/{student_id}/documents/upload               — upload document file
+  GET    /students/{student_id}/documents/{doc_id}/download    — download uploaded file
+  DELETE /students/{student_id}/documents/{id}                 — delete document
 """
 from __future__ import annotations
 
+import mimetypes
+import os
+import shutil
 from datetime import date, datetime, timezone
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_tenant, require_permission
+
+# Directory inside the container where uploaded files are persisted.
+# Matches the host mount: ./backend/media/student-docs/
+_MEDIA_ROOT = Path("/app/media/student-docs")
 
 from .schemas import (
     EmergencyContactCreate,
@@ -647,6 +658,15 @@ def delete_document(
 ):
     _require_student(db, student_id=student_id, tenant_id=tenant.id)
 
+    # Read storage_key before deleting so we can remove the file afterward
+    storage_row = db.execute(
+        sa.text(
+            "SELECT storage_key FROM core.student_documents "
+            "WHERE id = :id AND student_id = :student_id AND tenant_id = :tenant_id"
+        ),
+        {"id": str(doc_id), "student_id": str(student_id), "tenant_id": str(tenant.id)},
+    ).mappings().first()
+
     deleted = db.execute(
         sa.text(
             "DELETE FROM core.student_documents "
@@ -658,3 +678,164 @@ def delete_document(
     db.commit()
     if not (deleted.rowcount or 0):
         raise HTTPException(status_code=404, detail="Document not found")
+
+    # Remove the physical file if it was an uploaded file
+    if storage_row and storage_row.get("storage_key"):
+        try:
+            Path(storage_row["storage_key"]).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+# ── File upload + download ─────────────────────────────────────────────────────
+
+_ALLOWED_MIME_PREFIXES = ("image/", "application/pdf", "text/plain")
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB per file
+
+
+@router.post(
+    "/{student_id}/documents/upload",
+    response_model=StudentDocumentOut,
+    status_code=201,
+    dependencies=[Depends(require_permission("students.documents.manage"))],
+)
+async def upload_document(
+    student_id: UUID,
+    file: UploadFile,
+    document_type: str = Form(default="OTHER"),
+    title: str = Form(default=""),
+    notes: str = Form(default=""),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    _require_student(db, student_id=student_id, tenant_id=tenant.id)
+
+    doc_type = document_type.strip().upper() or "OTHER"
+    if doc_type not in _VALID_DOC_TYPES:
+        doc_type = "OTHER"
+
+    content_type = file.content_type or "application/octet-stream"
+    # Allow common document and image types
+    if not any(content_type.startswith(pfx) for pfx in _ALLOWED_MIME_PREFIXES):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF, image, and plain-text files are allowed.",
+        )
+
+    # Read and size-check
+    file_bytes = await file.read()
+    if len(file_bytes) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB).")
+
+    # Determine extension
+    ext = Path(file.filename or "").suffix.lower() or (
+        mimetypes.guess_extension(content_type) or ".bin"
+    )
+
+    doc_id = str(uuid4())
+    dest_dir = _MEDIA_ROOT / str(tenant.id) / str(student_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / f"{doc_id}{ext}"
+    dest_path.write_bytes(file_bytes)
+
+    # download URL that the frontend can call with a Bearer token
+    file_url = f"/api/v1/students/{student_id}/documents/{doc_id}/download"
+    storage_key = str(dest_path)
+
+    doc_title = title.strip() or (Path(file.filename or "").stem.replace("_", " ") or "Document")
+
+    db.execute(
+        sa.text(
+            """
+            INSERT INTO core.student_documents
+                (id, tenant_id, student_id, document_type, title, file_url,
+                 storage_key, content_type, size_bytes, notes, uploaded_by_user_id)
+            VALUES
+                (:id, :tenant_id, :student_id, :document_type, :title, :file_url,
+                 :storage_key, :content_type, :size_bytes, :notes, :uploaded_by)
+            """
+        ),
+        {
+            "id": doc_id,
+            "tenant_id": str(tenant.id),
+            "student_id": str(student_id),
+            "document_type": doc_type,
+            "title": doc_title,
+            "file_url": file_url,
+            "storage_key": storage_key,
+            "content_type": content_type,
+            "size_bytes": len(file_bytes),
+            "notes": notes.strip() or None,
+            "uploaded_by": str(user.id) if user else None,
+        },
+    )
+    db.commit()
+
+    row = db.execute(
+        sa.text(
+            "SELECT id, student_id, document_type, title, file_url, storage_key, "
+            "content_type, size_bytes, notes, "
+            "CAST(uploaded_by_user_id AS TEXT) AS uploaded_by, "
+            "CAST(uploaded_at AS TEXT) AS uploaded_at "
+            "FROM core.student_documents WHERE id = :id"
+        ),
+        {"id": doc_id},
+    ).mappings().first()
+
+    return StudentDocumentOut(
+        id=_str(row["id"]) or "",
+        student_id=_str(row["student_id"]) or "",
+        document_type=str(row["document_type"]),
+        title=_str(row.get("title")),
+        file_url=str(row["file_url"]),
+        storage_key=_str(row.get("storage_key")),
+        content_type=_str(row.get("content_type")),
+        size_bytes=row.get("size_bytes"),
+        notes=_str(row.get("notes")),
+        uploaded_by=_str(row.get("uploaded_by")),
+        uploaded_at=_str(row.get("uploaded_at")),
+    )
+
+
+@router.get(
+    "/{student_id}/documents/{doc_id}/download",
+    dependencies=[Depends(require_permission("students.documents.read"))],
+)
+def download_document(
+    student_id: UUID,
+    doc_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    _require_student(db, student_id=student_id, tenant_id=tenant.id)
+
+    row = db.execute(
+        sa.text(
+            "SELECT title, file_url, storage_key, content_type "
+            "FROM core.student_documents "
+            "WHERE id = :id AND student_id = :student_id AND tenant_id = :tenant_id"
+        ),
+        {"id": str(doc_id), "student_id": str(student_id), "tenant_id": str(tenant.id)},
+    ).mappings().first()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    storage_key = row.get("storage_key")
+    if not storage_key:
+        raise HTTPException(status_code=404, detail="No file stored for this document")
+
+    file_path = Path(storage_key)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on server")
+
+    content_type = row.get("content_type") or "application/octet-stream"
+    filename = (row.get("title") or "document") + file_path.suffix
+
+    return FileResponse(
+        path=str(file_path),
+        media_type=content_type,
+        filename=filename,
+    )
