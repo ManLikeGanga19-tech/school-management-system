@@ -399,11 +399,11 @@ export function StudentProfilePage({
   const loadCfSummary = useCallback(async () => {
     if (!studentId) return;
     try {
-      const res = await api.post("/secretary/finance/setup", {
+      const res = await api.post<{ data?: { data?: { pending_count?: number; pending_total?: string } } }>("/secretary/finance/setup", {
         action: "get_carry_forward_summary",
         payload: { student_id: studentId },
       });
-      const d = res.data?.data as { pending_count?: number; pending_total?: string } | undefined;
+      const d = res.data?.data;
       setCfPendingCount(d?.pending_count ?? 0);
       setCfPendingTotal(d?.pending_total ?? "0");
     } catch {
