@@ -236,6 +236,74 @@ def _create_student_for_existing_enrollment(
     enrollment.student_id = student_id
     db.flush()
 
+    # Seed guardian from payload (guardian_name / guardian_phone / guardian_email)
+    guardian_full = str(payload.get("guardian_name") or "").strip()
+    guardian_phone = str(payload.get("guardian_phone") or "").strip() or None
+    guardian_email = str(payload.get("guardian_email") or "").strip() or None
+
+    if guardian_full:
+        g_parts = guardian_full.split(None, 1)
+        g_first = g_parts[0]
+        g_last = g_parts[1] if len(g_parts) > 1 else ""
+
+        parent_id = db.execute(
+            sa.text(
+                """
+                INSERT INTO core.parents
+                    (tenant_id, first_name, last_name, phone, email, is_active)
+                VALUES
+                    (:tid, :fn, :ln, :phone, :email, true)
+                RETURNING id
+                """
+            ),
+            {
+                "tid": str(tenant_id),
+                "fn": g_first,
+                "ln": g_last,
+                "phone": guardian_phone,
+                "email": guardian_email,
+            },
+        ).scalar_one()
+
+        db.execute(
+            sa.text(
+                """
+                INSERT INTO core.parent_students
+                    (tenant_id, parent_id, student_id, relationship, is_active)
+                VALUES
+                    (:tid, :parent_id, :student_id, 'GUARDIAN', true)
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {
+                "tid": str(tenant_id),
+                "parent_id": str(parent_id),
+                "student_id": str(student_id),
+            },
+        )
+
+        # Also seed as emergency contact so the emergency contact tab has data
+        if guardian_phone:
+            db.execute(
+                sa.text(
+                    """
+                    INSERT INTO core.student_emergency_contacts
+                        (tenant_id, student_id, name, relationship, phone, email, is_primary)
+                    VALUES
+                        (:tid, :student_id, :name, 'GUARDIAN', :phone, :email, true)
+                    """
+                ),
+                {
+                    "tid": str(tenant_id),
+                    "student_id": str(student_id),
+                    "name": guardian_full,
+                    "phone": guardian_phone,
+                    "email": guardian_email,
+                },
+            )
+
+    db.flush()
+
 
 def _load_admission_number_map(
     db: Session,

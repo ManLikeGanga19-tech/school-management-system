@@ -5777,6 +5777,101 @@ def tenant_student_clearance_approve_transfer(
     )
 
 
+def _maybe_seed_guardian_from_payload(
+    db: Session,
+    *,
+    tenant_id: Any,
+    student_id: str,
+    payload: dict[str, Any],
+) -> None:
+    """
+    If a student has no guardian record yet, seed one from the enrollment payload
+    (guardian_name / guardian_phone / guardian_email).  Idempotent — does nothing if
+    a guardian already exists.
+    """
+    guardian_full = str(payload.get("guardian_name") or "").strip()
+    guardian_phone = str(payload.get("guardian_phone") or "").strip() or None
+    guardian_email = str(payload.get("guardian_email") or "").strip() or None
+
+    if not guardian_full:
+        return
+
+    # Skip if already linked
+    existing_link = db.execute(
+        sa.text(
+            "SELECT 1 FROM core.parent_students "
+            "WHERE student_id = :sid AND tenant_id = :tid LIMIT 1"
+        ),
+        {"sid": student_id, "tid": str(tenant_id)},
+    ).first()
+    if existing_link:
+        return
+
+    g_parts = guardian_full.split(None, 1)
+    g_first = g_parts[0]
+    g_last = g_parts[1] if len(g_parts) > 1 else ""
+
+    parent_id = db.execute(
+        sa.text(
+            """
+            INSERT INTO core.parents
+                (tenant_id, first_name, last_name, phone, email, is_active)
+            VALUES
+                (:tid, :fn, :ln, :phone, :email, true)
+            RETURNING id
+            """
+        ),
+        {
+            "tid": str(tenant_id),
+            "fn": g_first,
+            "ln": g_last,
+            "phone": guardian_phone,
+            "email": guardian_email,
+        },
+    ).scalar_one()
+
+    db.execute(
+        sa.text(
+            """
+            INSERT INTO core.parent_students
+                (tenant_id, parent_id, student_id, relationship, is_active)
+            VALUES
+                (:tid, :parent_id, :student_id, 'GUARDIAN', true)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"tid": str(tenant_id), "parent_id": str(parent_id), "student_id": student_id},
+    )
+
+    # Seed emergency contact too if it doesn't exist
+    if guardian_phone:
+        existing_ec = db.execute(
+            sa.text(
+                "SELECT 1 FROM core.student_emergency_contacts "
+                "WHERE student_id = :sid AND tenant_id = :tid LIMIT 1"
+            ),
+            {"sid": student_id, "tid": str(tenant_id)},
+        ).first()
+        if not existing_ec:
+            db.execute(
+                sa.text(
+                    """
+                    INSERT INTO core.student_emergency_contacts
+                        (tenant_id, student_id, name, relationship, phone, email, is_primary)
+                    VALUES
+                        (:tid, :student_id, :name, 'GUARDIAN', :phone, :email, true)
+                    """
+                ),
+                {
+                    "tid": str(tenant_id),
+                    "student_id": student_id,
+                    "name": guardian_full,
+                    "phone": guardian_phone,
+                    "email": guardian_email,
+                },
+            )
+
+
 @router.get(
     "/students/{enrollment_id}/profile",
     dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
@@ -5823,6 +5918,17 @@ def tenant_student_profile(
         ).mappings().first()
         if sis_row:
             sis_student_id = str(sis_row["id"])
+            # Retroactively seed guardian if the SIS record exists but has no guardian data yet.
+            try:
+                _maybe_seed_guardian_from_payload(
+                    db,
+                    tenant_id=tenant.id,
+                    student_id=sis_student_id,
+                    payload=payload,
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
         elif enrollment_status in ("ENROLLED", "ENROLLED_PARTIAL"):
             # Auto-create the SIS record from the enrollment payload.
             try:
