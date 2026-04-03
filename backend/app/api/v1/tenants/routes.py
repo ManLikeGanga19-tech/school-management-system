@@ -12139,6 +12139,11 @@ def secretary_finance_action(
         "create_scholarship": "finance.scholarships.manage",
         "update_scholarship": "finance.scholarships.manage",
         "delete_scholarship": "finance.scholarships.manage",
+        "list_carry_forward": "finance.invoices.view",
+        "get_carry_forward_summary": "finance.invoices.view",
+        "add_carry_forward": "finance.invoices.manage",
+        "edit_carry_forward": "finance.invoices.manage",
+        "delete_carry_forward": "finance.invoices.manage",
     }
 
     if action not in required_permissions:
@@ -12279,6 +12284,7 @@ def secretary_finance_action(
                     else None
                 )
 
+            include_cf = bool(payload.get("include_carry_forward", False))
             row = finance_service.generate_school_fees_invoice_v2(
                 db,
                 tenant_id=tenant.id,
@@ -12289,6 +12295,7 @@ def secretary_finance_action(
                 scholarship_id=v2_scholarship_id,
                 scholarship_amount=v2_scholarship_amount,
                 scholarship_reason=v2_scholarship_reason,
+                include_carry_forward=include_cf,
             )
             db.commit()
             db.refresh(row)
@@ -12624,6 +12631,70 @@ def secretary_finance_action(
                 actor_user_id=user.id,
                 scholarship_id=scholarship_id,
             )
+            db.commit()
+            data = {"ok": True}
+
+        elif action == "list_carry_forward":
+            student_id = _parse_uuid(payload.get("student_id"), field="payload.student_id")
+            items = finance_service.list_carry_forward(db, tenant_id=tenant.id, student_id=student_id)
+            data = {"items": items}
+
+        elif action == "get_carry_forward_summary":
+            student_id = _parse_uuid(payload.get("student_id"), field="payload.student_id")
+            data = finance_service.get_carry_forward_summary(db, tenant_id=tenant.id, student_id=student_id)
+
+        elif action == "add_carry_forward":
+            student_id = _parse_uuid(payload.get("student_id"), field="payload.student_id")
+            term_label_raw = str(payload.get("term_label") or "").strip()
+            if not term_label_raw:
+                raise HTTPException(status_code=400, detail="payload.term_label is required")
+            amount = _parse_decimal(payload.get("amount"), field="payload.amount")
+            academic_year_raw = payload.get("academic_year")
+            term_number_raw = payload.get("term_number")
+            try:
+                cf_academic_year = int(academic_year_raw) if academic_year_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                cf_academic_year = None
+            try:
+                cf_term_number = int(term_number_raw) if term_number_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                cf_term_number = None
+            description_raw = payload.get("description")
+            description = str(description_raw).strip() if description_raw not in (None, "") else None
+            data = finance_service.add_carry_forward(
+                db,
+                tenant_id=tenant.id,
+                student_id=student_id,
+                actor_user_id=user.id,
+                term_label=term_label_raw,
+                academic_year=cf_academic_year,
+                term_number=cf_term_number,
+                amount=amount,
+                description=description,
+            )
+            db.commit()
+
+        elif action == "edit_carry_forward":
+            balance_id = _parse_uuid(payload.get("balance_id"), field="payload.balance_id")
+            amount_raw = payload.get("amount")
+            edit_amount = _parse_decimal(amount_raw, field="payload.amount") if amount_raw not in (None, "") else None
+            term_label_raw = payload.get("term_label")
+            edit_term_label = str(term_label_raw).strip() if term_label_raw not in (None, "") else None
+            description_raw = payload.get("description")
+            edit_description = str(description_raw) if description_raw is not None else None
+            data = finance_service.edit_carry_forward(
+                db,
+                tenant_id=tenant.id,
+                balance_id=balance_id,
+                amount=edit_amount,
+                term_label=edit_term_label,
+                description=edit_description,
+            )
+            db.commit()
+
+        elif action == "delete_carry_forward":
+            balance_id = _parse_uuid(payload.get("balance_id"), field="payload.balance_id")
+            finance_service.delete_carry_forward(db, tenant_id=tenant.id, balance_id=balance_id)
             db.commit()
             data = {"ok": True}
 
