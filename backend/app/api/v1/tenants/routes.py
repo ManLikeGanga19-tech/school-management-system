@@ -5808,8 +5808,11 @@ def tenant_student_profile(
     enrollment_class = _enrollment_class_code(payload)
     enrollment_term = _enrollment_term_bucket(payload)
 
-    # Resolve SIS student_id from core.students via admission_no
+    # Resolve SIS student_id from core.students via admission_no.
+    # If none exists yet for an enrolled student, auto-create it so the
+    # profile tabs and carry-forward work immediately.
     sis_student_id: str | None = None
+    enrollment_status = str(getattr(enrollment, "status", "") or "").upper()
     if admission_number:
         sis_row = db.execute(
             sa.text(
@@ -5820,6 +5823,28 @@ def tenant_student_profile(
         ).mappings().first()
         if sis_row:
             sis_student_id = str(sis_row["id"])
+        elif enrollment_status in ("ENROLLED", "ENROLLED_PARTIAL"):
+            # Auto-create the SIS record from the enrollment payload.
+            try:
+                enrollment_service._create_student_for_existing_enrollment(
+                    db,
+                    tenant_id=tenant.id,
+                    enrollment=enrollment,
+                    admission_no=admission_number,
+                )
+                db.commit()
+                # Re-read the newly created student id.
+                new_row = db.execute(
+                    sa.text(
+                        "SELECT id FROM core.students "
+                        "WHERE tenant_id = :tenant_id AND admission_no = :admission_no LIMIT 1"
+                    ),
+                    {"tenant_id": str(tenant.id), "admission_no": admission_number},
+                ).mappings().first()
+                if new_row:
+                    sis_student_id = str(new_row["id"])
+            except Exception:
+                db.rollback()
 
     invoices: list[dict[str, Any]] = []
     payments: list[dict[str, Any]] = []

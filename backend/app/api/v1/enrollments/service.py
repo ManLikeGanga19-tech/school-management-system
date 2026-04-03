@@ -843,6 +843,12 @@ def mark_enrolled(
     enrollment.updated_by = actor_user_id
     db.flush()
 
+    # Create SIS student record so the profile page and carry-forward work.
+    if not getattr(enrollment, "student_id", None):
+        _create_student_for_existing_enrollment(
+            db, tenant_id=tenant_id, enrollment=enrollment, admission_no=admission_number
+        )
+
     log_event(
         db, tenant_id=tenant_id, actor_user_id=actor_user_id,
         action="enrollment.enroll", resource="enrollment",
