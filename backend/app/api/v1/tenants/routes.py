@@ -3416,6 +3416,71 @@ def tenant_update_print_profile(
     return _tenant_print_profile_to_out(tenant=tenant, row=row)
 
 
+@router.get("/admission-settings")
+def get_admission_settings(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Return the tenant's admission number configuration."""
+    row = db.execute(
+        sa.text(
+            "SELECT prefix, last_number FROM core.tenant_admission_settings "
+            "WHERE tenant_id = :tid LIMIT 1"
+        ),
+        {"tid": str(tenant.id)},
+    ).mappings().first()
+    if row:
+        return {"prefix": str(row["prefix"] or "ADM-"), "last_number": int(row["last_number"] or 0)}
+    return {"prefix": "ADM-", "last_number": 0}
+
+
+@router.put("/admission-settings")
+def save_admission_settings(
+    body: dict,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Save the tenant's admission number prefix and last issued number."""
+    if not _is_director_context(request):
+        raise HTTPException(status_code=403, detail="Only the director can update admission settings.")
+
+    raw_prefix = str(body.get("prefix") or "ADM-").strip()[:30]
+    raw_last = int(body.get("last_number") or 0)
+    if raw_last < 0:
+        raise HTTPException(status_code=400, detail="last_number cannot be negative")
+
+    existing = db.execute(
+        sa.text(
+            "SELECT id FROM core.tenant_admission_settings WHERE tenant_id = :tid LIMIT 1"
+        ),
+        {"tid": str(tenant.id)},
+    ).mappings().first()
+
+    if existing:
+        db.execute(
+            sa.text(
+                "UPDATE core.tenant_admission_settings "
+                "SET prefix = :prefix, last_number = :last_number, updated_at = now() "
+                "WHERE tenant_id = :tid"
+            ),
+            {"tid": str(tenant.id), "prefix": raw_prefix, "last_number": raw_last},
+        )
+    else:
+        db.execute(
+            sa.text(
+                "INSERT INTO core.tenant_admission_settings (tenant_id, prefix, last_number) "
+                "VALUES (:tid, :prefix, :last_number)"
+            ),
+            {"tid": str(tenant.id), "prefix": raw_prefix, "last_number": raw_last},
+        )
+
+    db.commit()
+    return {"prefix": raw_prefix, "last_number": raw_last}
+
+
 @router.get("/settings/badge")
 def tenant_settings_get_badge(
     db: Session = Depends(get_db),
@@ -5743,8 +5808,11 @@ def tenant_student_profile(
     enrollment_class = _enrollment_class_code(payload)
     enrollment_term = _enrollment_term_bucket(payload)
 
-    # Resolve SIS student_id from core.students via admission_no
+    # Resolve SIS student_id from core.students via admission_no.
+    # If none exists yet for an enrolled student, auto-create it so the
+    # profile tabs and carry-forward work immediately.
     sis_student_id: str | None = None
+    enrollment_status = str(getattr(enrollment, "status", "") or "").upper()
     if admission_number:
         sis_row = db.execute(
             sa.text(
@@ -5755,6 +5823,28 @@ def tenant_student_profile(
         ).mappings().first()
         if sis_row:
             sis_student_id = str(sis_row["id"])
+        elif enrollment_status in ("ENROLLED", "ENROLLED_PARTIAL"):
+            # Auto-create the SIS record from the enrollment payload.
+            try:
+                enrollment_service._create_student_for_existing_enrollment(
+                    db,
+                    tenant_id=tenant.id,
+                    enrollment=enrollment,
+                    admission_no=admission_number,
+                )
+                db.commit()
+                # Re-read the newly created student id.
+                new_row = db.execute(
+                    sa.text(
+                        "SELECT id FROM core.students "
+                        "WHERE tenant_id = :tenant_id AND admission_no = :admission_no LIMIT 1"
+                    ),
+                    {"tenant_id": str(tenant.id), "admission_no": admission_number},
+                ).mappings().first()
+                if new_row:
+                    sis_student_id = str(new_row["id"])
+            except Exception:
+                db.rollback()
 
     invoices: list[dict[str, Any]] = []
     payments: list[dict[str, Any]] = []

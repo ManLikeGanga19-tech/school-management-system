@@ -8,7 +8,7 @@ export type FinanceSection =
   | "receipts"
   | "scan-receipt";
 export type EnrollmentSection = "intake" | "students";
-export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings" | "curriculum";
+export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings" | "curriculum" | "admission-number";
 export type StudentSection = "all" | "fee-balance" | "clearance" | "attendance";
 export type HrSection = "staff" | "teachers" | "assets";
 export type ExamSection = "setup" | "timetable" | "enter-marks" | "marks-review" | "report-cards";
@@ -249,6 +249,7 @@ export const directorNav: AppNavItem[] = [
       { href: directorSchoolSetupHref("timetable"), label: "School Timetable", icon: "CalendarDays" },
       { href: directorSchoolSetupHref("calendar"), label: "Calendar & Exams", icon: "CalendarDays" },
       { href: directorSchoolSetupHref("print-settings"), label: "Print Settings", icon: "Printer" },
+      { href: directorSchoolSetupHref("admission-number"), label: "Admission Number Counter", icon: "Hash" },
     ],
   },
   {
@@ -362,6 +363,7 @@ export const secretaryNav: AppNavItem[] = [
       { href: secretarySchoolSetupHref("subjects"), label: "Subjects", icon: "BookOpenText" },
       { href: secretarySchoolSetupHref("timetable"), label: "School Timetable", icon: "CalendarDays" },
       { href: secretarySchoolSetupHref("calendar"), label: "Calendar & Exams", icon: "CalendarDays" },
+      { href: secretarySchoolSetupHref("admission-number"), label: "Admission Number Counter", icon: "Hash" },
     ],
   },
   {
