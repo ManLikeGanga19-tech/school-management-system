@@ -400,7 +400,7 @@ export function StudentProfilePage({
   const loadCfSummary = useCallback(async () => {
     if (!studentId) return;
     try {
-      const res = await api.post<{ data?: { pending_count?: number; pending_total?: string } }>("/secretary/finance/setup", {
+      const res = await api.post<{ data?: { pending_count?: number; pending_total?: string } }>("/tenants/secretary/finance/setup", {
         action: "get_carry_forward_summary",
         payload: { student_id: studentId },
       });

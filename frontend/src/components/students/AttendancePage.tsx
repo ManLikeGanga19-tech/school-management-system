@@ -137,6 +137,7 @@ export function AttendancePage({ appTitle, nav, activeHref }: Props) {
 
   // Sessions state
   const [sessClassId, setSessClassId] = useState("");
+  const [sessTermId, setSessTermId] = useState("");
   const [sessDate, setSessDate] = useState(new Date().toISOString().slice(0, 10));
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessLoading, setSessLoading] = useState(false);
@@ -173,7 +174,7 @@ export function AttendancePage({ appTitle, nav, activeHref }: Props) {
 
       const ts = normalizeTermsFromSetup(termsRaw);
       setTerms(ts);
-      if (ts[0]) { setRosterTermId(ts[0].id); setEnrollTermId(ts[0].id); setReportTermId(ts[0].id); }
+      if (ts[0]) { setRosterTermId(ts[0].id); setEnrollTermId(ts[0].id); setReportTermId(ts[0].id); setSessTermId(ts[0].id); }
     } catch {
       toast.error("Failed to load classes/terms.");
     } finally {
@@ -257,11 +258,11 @@ export function AttendancePage({ appTitle, nav, activeHref }: Props) {
 
   // ── Load sessions ──────────────────────────────────────────────────────────
   const loadSessions = useCallback(async () => {
-    if (!sessClassId) return;
+    if (!sessClassId || !sessTermId) return;
     setSessLoading(true);
     try {
       const raw = await api.get<unknown>(
-        `/attendance/sessions?class_id=${encodeURIComponent(sessClassId)}&session_date=${sessDate}`,
+        `/attendance/sessions?class_id=${encodeURIComponent(sessClassId)}&term_id=${encodeURIComponent(sessTermId)}&session_date=${sessDate}`,
         { tenantRequired: true }
       );
       setSessions(
@@ -286,19 +287,21 @@ export function AttendancePage({ appTitle, nav, activeHref }: Props) {
     } finally {
       setSessLoading(false);
     }
-  }, [sessClassId, sessDate]);
+  }, [sessClassId, sessTermId, sessDate]);
 
   useEffect(() => { if (tab === "sessions") void loadSessions(); }, [tab, loadSessions]);
 
   // ── Create session ─────────────────────────────────────────────────────────
   async function createSession() {
     if (!sessClassId) { toast.error("Select a class first."); return; }
+    if (!sessTermId) { toast.error("Select a term first."); return; }
     setSavingSess(true);
     try {
       await api.post<unknown>(
         "/attendance/sessions",
         {
           class_id: sessClassId,
+          term_id: sessTermId,
           session_date: sessForm.session_date,
           session_type: sessForm.session_type,
           period_number: sessForm.period_number ? Number(sessForm.period_number) : null,
@@ -670,6 +673,15 @@ export function AttendancePage({ appTitle, nav, activeHref }: Props) {
                     <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select class…" /></SelectTrigger>
                     <SelectContent>
                       {classes.map((c) => <SelectItem key={c.id} value={c.id}>{c.name || c.code}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-40 space-y-1.5">
+                  <Label className="text-xs">Term</Label>
+                  <Select value={sessTermId} onValueChange={setSessTermId}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select term…" /></SelectTrigger>
+                    <SelectContent>
+                      {terms.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>

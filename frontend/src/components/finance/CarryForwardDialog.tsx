@@ -152,7 +152,7 @@ export function CarryForwardDialog({
     if (!studentId) return;
     setLoading(true);
     try {
-      const res = await api.post<{ data?: { items?: unknown[] } }>("/secretary/finance/setup", {
+      const res = await api.post<{ data?: { items?: unknown[] } }>("/tenants/secretary/finance/setup", {
         action: "list_carry_forward",
         payload: { student_id: studentId },
       });
@@ -192,7 +192,7 @@ export function CarryForwardDialog({
     }
     setSaving(true);
     try {
-      await api.post("/secretary/finance/setup", {
+      await api.post("/tenants/secretary/finance/setup", {
         action: "add_carry_forward",
         payload: {
           student_id: studentId,
@@ -235,7 +235,7 @@ export function CarryForwardDialog({
     }
     setEditSaving(true);
     try {
-      await api.post("/secretary/finance/setup", {
+      await api.post("/tenants/secretary/finance/setup", {
         action: "edit_carry_forward",
         payload: {
           balance_id: editingId,
@@ -261,7 +261,7 @@ export function CarryForwardDialog({
     if (!deletingId) return;
     setDeleteLoading(true);
     try {
-      await api.post("/secretary/finance/setup", {
+      await api.post("/tenants/secretary/finance/setup", {
         action: "delete_carry_forward",
         payload: { balance_id: deletingId },
       });
