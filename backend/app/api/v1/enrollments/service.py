@@ -32,6 +32,20 @@ _ADM_PREFIX = "ADM-"
 _ADM_PATTERN = re.compile(r"^(?:ADM-)?(\d+)$", re.IGNORECASE)
 
 
+def _get_admission_settings(db: Session, *, tenant_id: UUID) -> tuple[str, int]:
+    """Return (prefix, last_number) from tenant_admission_settings. Defaults to ('ADM-', 0)."""
+    row = db.execute(
+        sa.text(
+            "SELECT prefix, last_number FROM core.tenant_admission_settings "
+            "WHERE tenant_id = :tid LIMIT 1"
+        ),
+        {"tid": str(tenant_id)},
+    ).mappings().first()
+    if row:
+        return str(row["prefix"] or "ADM-"), int(row["last_number"] or 0)
+    return "ADM-", 0
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -45,10 +59,16 @@ def _require_payload_fields(enrollment: Enrollment, fields: list[str]) -> None:
 
 def _next_admission_number(db: Session, *, tenant_id: UUID) -> str:
     """
-    Derive the next ADM-XXXX number for a tenant by scanning existing
-    admission_number values via a DB query (safe for concurrent requests
-    within a normal HTTP request/commit cycle).
+    Generate the next admission number for a tenant using the configured
+    prefix and last_number from tenant_admission_settings.
+
+    Falls back to scanning existing enrollment admission numbers if no
+    settings row exists yet, so existing tenants are not disrupted.
     """
+    prefix, configured_last = _get_admission_settings(db, tenant_id=tenant_id)
+
+    # Scan existing enrollment numbers to find the actual highest issued.
+    # This guards against DB inconsistency (e.g. manual imports).
     rows: list[str] = []
     try:
         rows = [
@@ -76,9 +96,6 @@ def _next_admission_number(db: Session, *, tenant_id: UUID) -> str:
         )
         if not missing_adm_col:
             raise
-
-        # Compatibility fallback for environments where admission_number
-        # has not been promoted to a dedicated column yet.
         db.rollback()
         rows = [
             str(v or "")
@@ -94,15 +111,23 @@ def _next_admission_number(db: Session, *, tenant_id: UUID) -> str:
             ).scalars().all()
         ]
 
-    highest = 0
+    # Build a pattern that strips the configured prefix before extracting digits.
+    escaped_prefix = re.escape(prefix)
+    pattern = re.compile(rf"^(?:{escaped_prefix})?(\d+)$", re.IGNORECASE)
+
+    highest = configured_last
     for raw in rows:
-        m = _ADM_PATTERN.match(raw or "")
+        m = pattern.match(raw or "")
         if m:
             n = int(m.group(1))
             if n > highest:
                 highest = n
 
-    return f"{_ADM_PREFIX}{highest + 1:04d}"
+    next_num = highest + 1
+    # Format: plain number if prefix is empty, otherwise prefix + zero-padded 4-digit
+    if not prefix:
+        return str(next_num)
+    return f"{prefix}{next_num:04d}"
 
 
 def _clean_create_payload(payload: dict) -> dict:
