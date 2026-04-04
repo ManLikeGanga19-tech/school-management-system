@@ -7,13 +7,19 @@ import { backendFetch } from "@/server/backend/client";
  * Proxies to backend GET /api/v1/finance/scholarships/{id}/allocations
  * Returns a list of students who received a specific scholarship.
  */
+// Next.js 15+: params is a Promise — must be awaited before accessing properties
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteContext
 ) {
+  const { id } = await params;
   try {
     const res = await backendFetch(
-      `/api/v1/finance/scholarships/${params.id}/allocations`,
+      `/api/v1/finance/scholarships/${id}/allocations`,
       { method: "GET" }
     );
     const data = await res.json().catch(() => null);
