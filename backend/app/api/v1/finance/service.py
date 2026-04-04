@@ -1254,13 +1254,25 @@ def create_scholarship(
     name: str,
     type_: str,
     value: Decimal,
-    is_active: bool
+    is_active: bool,
+    max_recipients: int | None = None,
+    description: str | None = None,
 ) -> Scholarship:
     t = type_.upper().strip()
     if t not in ("PERCENTAGE", "FIXED"):
         raise ValueError("Scholarship type must be PERCENTAGE or FIXED")
+    if max_recipients is not None and max_recipients < 1:
+        raise ValueError("max_recipients must be at least 1")
 
-    row = Scholarship(tenant_id=tenant_id, name=name.strip(), type=t, value=value, is_active=is_active)
+    row = Scholarship(
+        tenant_id=tenant_id,
+        name=name.strip(),
+        type=t,
+        value=value,
+        is_active=is_active,
+        max_recipients=max_recipients,
+        description=description,
+    )
     db.add(row)
     db.flush()
 
@@ -1303,6 +1315,15 @@ def update_scholarship(
             row.value = Decimal(str(updates["value"]))
         except InvalidOperation:
             raise ValueError("Invalid scholarship value")
+    if "max_recipients" in updates:
+        mr = updates["max_recipients"]
+        if mr is not None:
+            mr = int(mr)
+            if mr < 1:
+                raise ValueError("max_recipients must be at least 1")
+        row.max_recipients = mr
+    if "description" in updates:
+        row.description = updates["description"]
     if "is_active" in updates:
         row.is_active = bool(updates["is_active"])
     db.flush()
@@ -1349,6 +1370,61 @@ def list_scholarships(db: Session, *, tenant_id: UUID) -> list[Scholarship]:
     return db.execute(
         select(Scholarship).where(Scholarship.tenant_id == tenant_id).order_by(Scholarship.created_at.desc())
     ).scalars().all()
+
+
+def list_scholarship_allocations(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    scholarship_id: UUID,
+) -> list[dict[str, Any]]:
+    """Return a list of students who received this scholarship, with amounts."""
+    rows = db.execute(
+        __import__("sqlalchemy").text(
+            """
+            SELECT
+                sa.id                   AS allocation_id,
+                sa.amount,
+                sa.reason,
+                sa.created_at,
+                sa.invoice_id,
+                sa.enrollment_id,
+                sa.student_id,
+                COALESCE(
+                    s.first_name || ' ' || s.last_name,
+                    ep.payload->>'first_name' || ' ' || ep.payload->>'last_name',
+                    ep.payload->>'student_name',
+                    ep.payload->>'full_name',
+                    'Unknown Student'
+                ) AS student_name,
+                COALESCE(s.admission_no, ep.payload->>'admission_no', '') AS admission_no,
+                inv.invoice_no
+            FROM core.scholarship_allocations sa
+            LEFT JOIN core.students s         ON s.id = sa.student_id AND s.tenant_id = :tid
+            LEFT JOIN core.enrollments ep     ON ep.id = sa.enrollment_id
+            LEFT JOIN core.invoices inv       ON inv.id = sa.invoice_id
+            WHERE sa.scholarship_id = :sid
+              AND sa.tenant_id = :tid
+            ORDER BY sa.created_at DESC
+            """
+        ),
+        {"tid": str(tenant_id), "sid": str(scholarship_id)},
+    ).mappings().all()
+
+    return [
+        {
+            "allocation_id": str(r["allocation_id"]),
+            "student_name": r["student_name"] or "Unknown Student",
+            "admission_no": r["admission_no"] or "",
+            "amount": str(r["amount"] or "0"),
+            "reason": r["reason"] or "",
+            "invoice_no": r["invoice_no"] or "",
+            "enrollment_id": str(r["enrollment_id"]) if r["enrollment_id"] else None,
+            "student_id": str(r["student_id"]) if r["student_id"] else None,
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
 
 
 def scholarship_usage_map(
@@ -2083,15 +2159,32 @@ def build_fee_structure_document(
         sort_keys=True,
     )
 
+    # Load tenant branding fields for the PDF header
+    tenant_row = db.get(Tenant, tenant_id)
+    school_name = str(getattr(tenant_row, "name", "") or "")
+    school_address = str(getattr(tenant_row, "school_address", "") or "")
+    school_phone = str(getattr(tenant_row, "school_phone", "") or "")
+    school_email = str(getattr(tenant_row, "school_email", "") or "")
+    brand_color = str(getattr(tenant_row, "brand_color", "") or "")
+
     return {
         "document_type": "FEE_STRUCTURE",
         "document_id": str(structure.id),
         "document_no": str(structure.structure_no),
         "tenant_id": str(tenant_id),
         "profile": profile,
+        # Branding fields used by the PDF generator
+        "school_name": school_name,
+        "school_address": school_address,
+        "school_phone": school_phone,
+        "school_email": school_email,
+        "brand_color": brand_color,
         "class_code": str(getattr(structure, "class_code", "") or ""),
         "term_code": str(getattr(structure, "term_code", "GENERAL") or "GENERAL"),
+        "academic_year": str(getattr(structure, "academic_year", "") or ""),
+        "student_type": str(getattr(structure, "student_type", "") or ""),
         "name": str(getattr(structure, "name", "") or ""),
+        "structure_no": str(getattr(structure, "structure_no", "") or ""),
         "is_active": bool(getattr(structure, "is_active", True)),
         "created_at": (
             getattr(structure, "created_at").isoformat()
@@ -2103,6 +2196,10 @@ def build_fee_structure_document(
                 "fee_item_code": str(i.get("fee_item_code") or ""),
                 "fee_item_name": str(i.get("fee_item_name") or ""),
                 "amount": str(i.get("amount") or 0),
+                "term_1_amount": str(i.get("term_1_amount") or 0),
+                "term_2_amount": str(i.get("term_2_amount") or 0),
+                "term_3_amount": str(i.get("term_3_amount") or 0),
+                "charge_frequency": str(i.get("charge_frequency") or "PER_TERM"),
             }
             for i in items
         ],
@@ -3175,15 +3272,57 @@ def generate_school_fees_invoice_v2(
     enrollment_payload = getattr(enrollment, "payload", None) or {}
     student_id = getattr(enrollment, "student_id", None)
 
-    # class_code lives in payload JSONB (not a direct column on Enrollment)
+    # ── class_code resolution (multi-level fallback) ──────────────────────────
+    # 1) Check common payload keys from the intake / application form
     class_code = str(
         enrollment_payload.get("class_code")
         or enrollment_payload.get("classCode")
         or enrollment_payload.get("class")
+        or enrollment_payload.get("admission_class")
+        or enrollment_payload.get("grade")
         or ""
     ).strip() or None
+
+    # 2) Check the student's current class via student_class_enrollments
+    if not class_code and student_id:
+        sce_row = db.execute(
+            __import__("sqlalchemy").text(
+                """
+                SELECT tc.code
+                FROM core.student_class_enrollments sce
+                JOIN core.tenant_classes tc ON tc.id = sce.class_id
+                WHERE sce.student_id = :sid
+                  AND sce.tenant_id  = :tid
+                ORDER BY sce.created_at DESC
+                LIMIT 1
+                """
+            ),
+            {"sid": str(student_id), "tid": str(tenant_id)},
+        ).mappings().first()
+        if sce_row:
+            class_code = str(sce_row["code"]).strip() or None
+
+    # 3) Check the assigned fee structure for this enrollment
     if not class_code:
-        raise ValueError("Enrollment has no class_code in payload — cannot determine fee structure")
+        from app.models.student_fee_assignment import StudentFeeAssignment
+        sfa_row = db.execute(
+            select(FeeStructure)
+            .join(StudentFeeAssignment, StudentFeeAssignment.fee_structure_id == FeeStructure.id)
+            .where(
+                StudentFeeAssignment.tenant_id == tenant_id,
+                StudentFeeAssignment.enrollment_id == enrollment_id,
+            )
+            .order_by(StudentFeeAssignment.assigned_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if sfa_row:
+            class_code = sfa_row.class_code
+
+    if not class_code:
+        raise ValueError(
+            "Cannot determine class for this enrollment. "
+            "Please ensure the student is assigned to a class or the enrollment form includes a class."
+        )
 
     # Duplicate guard: one SCHOOL_FEES invoice per enrollment per term per year
     existing_invoice = db.execute(
@@ -3289,6 +3428,21 @@ def generate_school_fees_invoice_v2(
     if not lines:
         raise ValueError("No chargeable fee items for this term (all items already invoiced or zero-amount)")
 
+    # ── Interview fee credit for NEW students (Term 1 only) ───────────────────
+    # If this student already paid an interview fee, carry it forward as a
+    # negative line so the school fees invoice shows the correct balance owed.
+    interview_credit: Decimal = Decimal("0")
+    if student_type == "NEW" and term_number == 1:
+        interview_inv = db.execute(
+            select(Invoice).where(
+                Invoice.tenant_id == tenant_id,
+                Invoice.enrollment_id == enrollment_id,
+                Invoice.invoice_type == "INTERVIEW",
+            ).order_by(Invoice.created_at.desc()).limit(1)
+        ).scalar_one_or_none()
+        if interview_inv and Decimal(interview_inv.paid_amount or 0) > 0:
+            interview_credit = Decimal(str(interview_inv.paid_amount))
+
     # Create the invoice
     inv = Invoice(
         tenant_id=tenant_id,
@@ -3316,6 +3470,15 @@ def generate_school_fees_invoice_v2(
             description=ln["description"],
             amount=ln["amount"],
             meta=ln.get("meta"),
+        ))
+
+    # Add interview fee credit line
+    if interview_credit > 0:
+        db.add(InvoiceLine(
+            invoice_id=inv.id,
+            description="Interview Fee Credit (already paid)",
+            amount=-interview_credit,
+            meta={"line_type": "INTERVIEW_CREDIT", "interview_invoice_id": str(interview_inv.id)},
         ))
 
     # Attach pending carry-forward balances as invoice lines
@@ -3370,15 +3533,27 @@ def generate_school_fees_invoice_v2(
         if scholarship_amount is None:
             if sch.type == "PERCENTAGE":
                 scholarship_amount = (inv.total_amount * Decimal(sch.value) / 100).quantize(Decimal("0.01"))
+            elif sch.max_recipients and sch.max_recipients > 1:
+                # Pool scholarship: divide equally among all recipients
+                scholarship_amount = (Decimal(sch.value) / Decimal(sch.max_recipients)).quantize(Decimal("0.01"))
             else:
                 scholarship_amount = Decimal(sch.value)
 
         if scholarship_amount > 0:
+            recipient_note = (
+                f" (1 of {sch.max_recipients} recipients)"
+                if sch.max_recipients and sch.max_recipients > 1
+                else ""
+            )
             db.add(InvoiceLine(
                 invoice_id=inv.id,
-                description=f"Scholarship: {sch.name}{(' - ' + scholarship_reason) if scholarship_reason else ''}",
+                description=f"Scholarship: {sch.name}{recipient_note}{(' — ' + scholarship_reason) if scholarship_reason else ''}",
                 amount=-abs(scholarship_amount),
-                meta={"scholarship_id": str(scholarship_id), "scholarship_type": sch.type},
+                meta={
+                    "scholarship_id": str(scholarship_id),
+                    "scholarship_type": sch.type,
+                    "max_recipients": sch.max_recipients,
+                },
             ))
             db.flush()
             _recalc_invoice_amounts(db, inv)
@@ -3388,9 +3563,10 @@ def generate_school_fees_invoice_v2(
                 tenant_id=tenant_id,
                 scholarship_id=scholarship_id,
                 enrollment_id=enrollment_id,
+                student_id=student_id,
                 invoice_id=inv.id,
                 amount=scholarship_amount,
-                reason=scholarship_reason,
+                reason=scholarship_reason or "",
             )
             db.add(allocation)
             db.flush()

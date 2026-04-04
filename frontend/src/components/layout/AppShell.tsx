@@ -72,6 +72,8 @@ type AppNavLink = {
   icon?: string;
   showUnreadBadge?: boolean;
   badgeKey?: AppBadgeKey;
+  /** If set, only show this item when the tenant's curriculum_type matches one of these values */
+  curriculumGate?: string[];
 };
 
 export type AppNavItem = AppNavLink & {
@@ -256,6 +258,7 @@ export function AppShell({
   }, [active.full, active.path, nav]);
 
   const [expandedModuleKey, setExpandedModuleKey] = useState<string | null>(activeModuleKey);
+  const [curriculumType, setCurriculumType] = useState<string | null>(null);
   const [badgeCounts, setBadgeCounts] = useState<BadgeCounts>(EMPTY_BADGE_COUNTS);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [accountMenuOpenDesktop, setAccountMenuOpenDesktop] = useState(false);
@@ -362,6 +365,29 @@ export function AppShell({
     };
   }, [pathname]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const path = pathname || "/";
+    if (!path.startsWith("/tenant/")) return;
+
+    async function loadCurriculumType() {
+      try {
+        const raw = await api.get<unknown>("/tenants/profile", {
+          tenantRequired: true,
+          noRedirect: true,
+        });
+        const obj = asObject(raw);
+        const ct = asString(obj?.curriculum_type).toUpperCase() || "8-4-4";
+        if (!cancelled) setCurriculumType(ct);
+      } catch {
+        // Leave null — show all nav items
+      }
+    }
+
+    void loadCurriculumType();
+    return () => { cancelled = true; };
+  }, [pathname]);
+
   const handleLogout = useCallback(async () => {
     if (loggingOut) return;
     setLoggingOut(true);
@@ -434,9 +460,17 @@ export function AppShell({
     };
   }, [sidebarBadgeUrl, revokeObjectUrl]);
 
+  const filteredNav = useMemo(() => {
+    if (!curriculumType) return nav; // Not yet loaded — show all
+    return nav.filter((item) => {
+      if (!item.curriculumGate) return true;
+      return item.curriculumGate.includes(curriculumType);
+    });
+  }, [nav, curriculumType]);
+
   const requestedBadgeKeys = useMemo(() => {
     const keys = new Set<AppBadgeKey>();
-    for (const item of nav) {
+    for (const item of filteredNav) {
       const itemBadgeKey = resolveBadgeKey(item);
       if (itemBadgeKey) keys.add(itemBadgeKey);
       for (const child of item.children || []) {
@@ -445,7 +479,7 @@ export function AppShell({
       }
     }
     return keys;
-  }, [nav]);
+  }, [filteredNav]);
 
   useEffect(() => {
     if (requestedBadgeKeys.size === 0) {
@@ -703,7 +737,7 @@ export function AppShell({
         <Separator />
 
         <nav className="flex-1 space-y-1 px-3 py-3">
-          {nav.map((item) => {
+          {filteredNav.map((item) => {
             const key = parseHref(item.href).path;
             const hasChildren = Boolean(item.children && item.children.length > 0);
             const childIsActive = (item.children || []).some((child) => isExactActive(child.href));
@@ -852,7 +886,7 @@ export function AppShell({
             </div>
             <Separator />
             <nav className="max-h-[calc(100vh-130px)] space-y-1 overflow-y-auto px-3 py-3">
-              {nav.map((item) => {
+              {filteredNav.map((item) => {
                 const key = parseHref(item.href).path;
                 const hasChildren = Boolean(item.children && item.children.length > 0);
                 const childIsActive = (item.children || []).some((child) => isExactActive(child.href));

@@ -14,6 +14,7 @@ from app.api.v1.students.routes import router as students_router
 from app.api.v1.attendance.routes import router as attendance_router
 from app.api.v1.reports.routes import router as reports_router
 from app.api.v1.cbc.routes import router as cbc_router
+from app.api.v1.igcse.routes import router as igcse_router
 
 api_router = APIRouter()
 
@@ -51,3 +52,6 @@ api_router.include_router(reports_router, prefix="/reports", tags=["reports"])
 
 # CBC Assessments (Phase 3B)
 api_router.include_router(cbc_router, prefix="/cbc", tags=["cbc"])
+
+# IGCSE Assessments
+api_router.include_router(igcse_router, prefix="/igcse", tags=["igcse"])

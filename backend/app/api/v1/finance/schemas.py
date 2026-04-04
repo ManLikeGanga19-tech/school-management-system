@@ -146,6 +146,8 @@ class ScholarshipCreate(BaseModel):
     name: str
     type: str  # PERCENTAGE|FIXED
     value: Decimal
+    max_recipients: Optional[int] = None  # if set, value / max_recipients = per-student amount
+    description: Optional[str] = None
     is_active: bool = True
 
 
@@ -157,7 +159,21 @@ class ScholarshipUpdate(BaseModel):
     name: Optional[str] = None
     type: Optional[str] = None
     value: Optional[Decimal] = None
+    max_recipients: Optional[int] = None
+    description: Optional[str] = None
     is_active: Optional[bool] = None
+
+
+class ScholarshipAllocationOut(BaseModel):
+    allocation_id: str
+    student_name: str
+    admission_no: str
+    amount: str
+    reason: str
+    invoice_no: str
+    enrollment_id: Optional[str] = None
+    student_id: Optional[str] = None
+    created_at: Optional[str] = None
 
 
 # -------------------------

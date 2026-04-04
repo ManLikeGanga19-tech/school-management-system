@@ -479,6 +479,8 @@ def create_scholarship(
             type_=payload.type,
             value=payload.value,
             is_active=payload.is_active,
+            max_recipients=payload.max_recipients,
+            description=payload.description,
         )
         db.commit()
         db.refresh(row)
@@ -531,6 +533,21 @@ def delete_scholarship(
         db.commit()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/scholarships/{scholarship_id}/allocations",
+    dependencies=[Depends(require_permission("finance.scholarships.view"))],
+)
+def list_scholarship_allocations(
+    scholarship_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    """Return a list of students who have received this scholarship."""
+    rows = service.list_scholarship_allocations(db, tenant_id=tenant.id, scholarship_id=scholarship_id)
+    return {"ok": True, "scholarship_id": str(scholarship_id), "allocations": rows}
 
 
 # -------------------------

@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_tenant, require_permission
-from app.utils.cbc_report_pdf import generate_cbc_report_pdf
+from app.utils.cbc_report_pdf import generate_cbc_report_pdf, merge_pdfs
 
 from . import service
 from .schemas import (
@@ -278,19 +278,113 @@ def download_learner_pdf(
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
-    # Get school/tenant name for header
-    school_name = db.execute(
-        __import__("sqlalchemy").text("SELECT name FROM core.tenants WHERE id = :tid"),
+    import sqlalchemy as sa
+    branding_row = db.execute(
+        sa.text(
+            "SELECT name, brand_color, school_address, school_phone, school_email "
+            "FROM core.tenants WHERE id = :tid"
+        ),
         {"tid": str(tenant.id)},
-    ).scalar_one_or_none() or "School"
+    ).mappings().first()
+    branding = {
+        "school_name": (branding_row["name"] if branding_row else None) or "School",
+        "brand_color": (branding_row["brand_color"] if branding_row else None) or "#1A4C8B",
+        "school_address": (branding_row["school_address"] if branding_row else None) or "",
+        "school_phone": (branding_row["school_phone"] if branding_row else None) or "",
+        "school_email": (branding_row["school_email"] if branding_row else None) or "",
+    }
 
     report_data = service.get_learner_report(
         db, tenant_id=tenant.id, enrollment_id=enrollment_id, term_id=term_id
     )
-    pdf_bytes = generate_cbc_report_pdf(report_data, school_name=school_name)
+    pdf_bytes = generate_cbc_report_pdf(report_data, branding=branding)
     filename = f"cbc_report_{enrollment_id}_{term_id}.pdf"
     return Response(
         content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/classes/{class_id}/term/{term_id}/bulk-pdf",
+    response_class=Response,
+    dependencies=[Depends(require_permission("cbc.reports.generate"))],
+)
+def download_class_bulk_pdf(
+    class_id: UUID,
+    term_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    """
+    Generate a merged PDF with one report card page per student in the class.
+    The class_id must be the tenant_class UUID.
+    """
+    import sqlalchemy as sa
+
+    branding_row = db.execute(
+        sa.text(
+            "SELECT name, brand_color, school_address, school_phone, school_email "
+            "FROM core.tenants WHERE id = :tid"
+        ),
+        {"tid": str(tenant.id)},
+    ).mappings().first()
+    branding = {
+        "school_name": (branding_row["name"] if branding_row else None) or "School",
+        "brand_color": (branding_row["brand_color"] if branding_row else None) or "#1A4C8B",
+        "school_address": (branding_row["school_address"] if branding_row else None) or "",
+        "school_phone": (branding_row["school_phone"] if branding_row else None) or "",
+        "school_email": (branding_row["school_email"] if branding_row else None) or "",
+    }
+
+    # Get all enrollments for this class + term
+    enrollments = db.execute(
+        sa.text(
+            """
+            SELECT sce.id AS enrollment_id, s.first_name || ' ' || s.last_name AS student_name
+            FROM core.student_class_enrollments sce
+            JOIN core.students s ON s.id = sce.student_id
+            WHERE sce.class_id = :cid
+              AND sce.term_id  = :trid
+              AND sce.tenant_id = :tid
+            ORDER BY s.last_name, s.first_name
+            """
+        ),
+        {"cid": str(class_id), "trid": str(term_id), "tid": str(tenant.id)},
+    ).mappings().all()
+
+    if not enrollments:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="No students found for this class and term")
+
+    pdf_pages: list[bytes] = []
+    for row in enrollments:
+        try:
+            report_data = service.get_learner_report(
+                db,
+                tenant_id=tenant.id,
+                enrollment_id=row["enrollment_id"],
+                term_id=term_id,
+            )
+            pdf_pages.append(generate_cbc_report_pdf(report_data, branding=branding))
+        except Exception:
+            # Skip students with no assessments
+            continue
+
+    if not pdf_pages:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=404,
+            detail="No report data available for students in this class"
+        )
+
+    merged = merge_pdfs(pdf_pages)
+    class_name = str(class_id)[:8]
+    filename = f"cbc_bulk_report_{class_name}_{term_id}.pdf"
+    return Response(
+        content=merged,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

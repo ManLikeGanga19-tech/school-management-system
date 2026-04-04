@@ -242,6 +242,14 @@ class LearnerReportOut(BaseModel):
     student_id: UUID
     student_name: str
     admission_no: str
+    gender: str = ""
+    date_of_birth: str = ""
     class_name: str
+    class_code: str = ""
     term_name: str
+    academic_year: str = ""
+    class_teacher_comment: str = ""
+    principal_comment: str = ""
+    conduct: str = ""
+    next_term_begins: str = ""
     learning_areas: list[ReportLearningArea] = []

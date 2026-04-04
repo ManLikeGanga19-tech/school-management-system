@@ -47,7 +47,21 @@ export type Scholarship = {
   name: string;
   type: string;
   value: string | number;
+  max_recipients?: number | null;
+  description?: string | null;
   is_active: boolean;
+};
+
+export type ScholarshipAllocation = {
+  allocation_id: string;
+  student_name: string;
+  admission_no: string;
+  amount: string;
+  reason: string;
+  invoice_no: string;
+  enrollment_id: string | null;
+  student_id: string | null;
+  created_at: string | null;
 };
 
 export type FinanceSetupData = {

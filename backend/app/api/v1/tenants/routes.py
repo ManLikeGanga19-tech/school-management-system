@@ -1100,11 +1100,14 @@ def _serialize_scholarship(row: Any, *, allocated_amount: Decimal | None = None)
     total = Decimal(getattr(row, "value", 0) or 0)
     allocated = Decimal(allocated_amount or 0)
     remaining = max(Decimal("0"), total - allocated)
+    max_rec = getattr(row, "max_recipients", None)
     return {
         "id": str(getattr(row, "id")),
         "name": str(getattr(row, "name", "") or ""),
         "type": str(getattr(row, "type", "") or ""),
         "value": str(total),
+        "max_recipients": int(max_rec) if max_rec is not None else None,
+        "description": str(getattr(row, "description", "") or "") or None,
         "allocated_amount": str(allocated),
         "remaining_amount": str(remaining),
         "is_active": bool(getattr(row, "is_active", True)),
@@ -3433,6 +3436,81 @@ def get_admission_settings(
     if row:
         return {"prefix": str(row["prefix"] or "ADM-"), "last_number": int(row["last_number"] or 0)}
     return {"prefix": "ADM-", "last_number": 0}
+
+
+@router.get("/branding")
+def get_branding(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Return school branding and contact info used in all PDF documents."""
+    row = db.execute(
+        sa.text(
+            "SELECT name, brand_color, school_address, school_phone, school_email, curriculum_type "
+            "FROM core.tenants WHERE id = :tid LIMIT 1"
+        ),
+        {"tid": str(tenant.id)},
+    ).mappings().first()
+    if not row:
+        return {"school_name": str(tenant.name), "brand_color": "#1A3C6B",
+                "school_address": "", "school_phone": "", "school_email": "",
+                "curriculum_type": "CBC"}
+    return {
+        "school_name": str(row["name"] or ""),
+        "brand_color": str(row["brand_color"] or "#1A3C6B"),
+        "school_address": str(row["school_address"] or ""),
+        "school_phone": str(row["school_phone"] or ""),
+        "school_email": str(row["school_email"] or ""),
+        "curriculum_type": str(row["curriculum_type"] or "CBC"),
+    }
+
+
+@router.patch("/branding")
+def update_branding(
+    body: dict,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Update school branding and contact details. Director-only."""
+    if not _is_director_context(request):
+        raise HTTPException(status_code=403, detail="Only directors may update school branding.")
+
+    import re as _re
+    brand_color = str(body.get("brand_color") or "").strip()
+    if brand_color and not _re.match(r"^#[0-9A-Fa-f]{6}$", brand_color):
+        raise HTTPException(status_code=400, detail="brand_color must be a 6-digit hex colour, e.g. #1A3C6B")
+
+    school_address = str(body.get("school_address") or "").strip() or None
+    school_phone = str(body.get("school_phone") or "").strip() or None
+    school_email = str(body.get("school_email") or "").strip() or None
+
+    updates: list[str] = []
+    params: dict = {"tid": str(tenant.id)}
+
+    if brand_color:
+        updates.append("brand_color = :brand_color")
+        params["brand_color"] = brand_color
+    if school_address is not None:
+        updates.append("school_address = :school_address")
+        params["school_address"] = school_address
+    if school_phone is not None:
+        updates.append("school_phone = :school_phone")
+        params["school_phone"] = school_phone
+    if school_email is not None:
+        updates.append("school_email = :school_email")
+        params["school_email"] = school_email
+
+    if updates:
+        db.execute(
+            sa.text(f"UPDATE core.tenants SET {', '.join(updates)} WHERE id = :tid"),
+            params,
+        )
+        db.commit()
+
+    return {"ok": True}
 
 
 @router.put("/admission-settings")
@@ -12266,6 +12344,32 @@ def secretary_finance(
         "payments": payments,
         "health": health,
     }
+
+
+@router.get(
+    "/secretary/finance/scholarships/{scholarship_id}/allocations",
+    dependencies=[
+        Depends(
+            _require_any_permission(
+                "admin.dashboard.view_tenant",
+                "finance.scholarships.view",
+                "finance.scholarships.manage",
+            )
+        )
+    ],
+)
+def secretary_scholarship_allocations(
+    scholarship_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    """List all students who have received a specific scholarship."""
+    from app.api.v1.finance import service as finance_service
+    rows = finance_service.list_scholarship_allocations(
+        db, tenant_id=tenant.id, scholarship_id=scholarship_id
+    )
+    return {"ok": True, "scholarship_id": str(scholarship_id), "allocations": rows}
 
 
 @router.post(

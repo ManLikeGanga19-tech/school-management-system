@@ -13,6 +13,7 @@ export type StudentSection = "all" | "fee-balance" | "clearance" | "attendance";
 export type HrSection = "staff" | "teachers" | "assets";
 export type ExamSection = "setup" | "timetable" | "enter-marks" | "marks-review" | "report-cards";
 export type CbcSection = "assessments" | "curriculum" | "reports";
+export type IgcseSection = "assessments" | "subjects" | "reports";
 
 // ───────────────────────────────────────────────────────────────
 // Director (App Router) paths: /tenant/director/*
@@ -62,6 +63,10 @@ export function directorCbcHref(section: CbcSection = "assessments") {
   return `/tenant/director/cbc?section=${section}`;
 }
 
+export function directorIgcseHref(section: IgcseSection = "assessments") {
+  return `/tenant/director/igcse?section=${section}`;
+}
+
 // ───────────────────────────────────────────────────────────────
 // Secretary paths remain under /tenant/secretary/*
 // ───────────────────────────────────────────────────────────────
@@ -108,6 +113,10 @@ export function secretaryEventsHref() {
 
 export function secretaryCbcHref(section: CbcSection = "assessments") {
   return `/tenant/secretary/cbc?section=${section}`;
+}
+
+export function secretaryIgcseHref(section: IgcseSection = "assessments") {
+  return `/tenant/secretary/igcse?section=${section}`;
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -214,6 +223,7 @@ export const directorNav: AppNavItem[] = [
     href: directorExamsHref("setup"),
     label: "Exams",
     icon: "CalendarDays",
+    curriculumGate: ["8-4-4"],
     children: [
       { href: directorExamsHref("setup"), label: "Exam Setup", icon: "FileSpreadsheet" },
       { href: directorExamsHref("timetable"), label: "Exam Timetable", icon: "CalendarDays" },
@@ -226,10 +236,22 @@ export const directorNav: AppNavItem[] = [
     href: directorCbcHref("assessments"),
     label: "CBC",
     icon: "BookOpenCheck",
+    curriculumGate: ["CBC"],
     children: [
       { href: directorCbcHref("assessments"), label: "Assessments", icon: "ClipboardList" },
       { href: directorCbcHref("curriculum"),  label: "Curriculum", icon: "BookOpenText" },
       { href: directorCbcHref("reports"),     label: "Progress Reports", icon: "FileBarChart" },
+    ],
+  },
+  {
+    href: directorIgcseHref("assessments"),
+    label: "IGCSE",
+    icon: "BookOpenCheck",
+    curriculumGate: ["IGCSE"],
+    children: [
+      { href: directorIgcseHref("assessments"), label: "Assessments", icon: "ClipboardList" },
+      { href: directorIgcseHref("subjects"),    label: "Subjects", icon: "BookOpenText" },
+      { href: directorIgcseHref("reports"),     label: "Progress Reports", icon: "FileBarChart" },
     ],
   },
   {
@@ -329,6 +351,7 @@ export const secretaryNav: AppNavItem[] = [
     href: secretaryExamsHref("setup"),
     label: "Exams",
     icon: "CalendarDays",
+    curriculumGate: ["8-4-4"],
     children: [
       { href: secretaryExamsHref("setup"), label: "Exam Setup", icon: "FileSpreadsheet" },
       { href: secretaryExamsHref("timetable"), label: "Exam Timetable", icon: "CalendarDays" },
@@ -341,10 +364,22 @@ export const secretaryNav: AppNavItem[] = [
     href: secretaryCbcHref("assessments"),
     label: "CBC",
     icon: "BookOpenCheck",
+    curriculumGate: ["CBC"],
     children: [
       { href: secretaryCbcHref("assessments"), label: "Assessments", icon: "ClipboardList" },
       { href: secretaryCbcHref("curriculum"),  label: "Curriculum", icon: "BookOpenText" },
       { href: secretaryCbcHref("reports"),     label: "Progress Reports", icon: "FileBarChart" },
+    ],
+  },
+  {
+    href: secretaryIgcseHref("assessments"),
+    label: "IGCSE",
+    icon: "BookOpenCheck",
+    curriculumGate: ["IGCSE"],
+    children: [
+      { href: secretaryIgcseHref("assessments"), label: "Assessments", icon: "ClipboardList" },
+      { href: secretaryIgcseHref("subjects"),    label: "Subjects", icon: "BookOpenText" },
+      { href: secretaryIgcseHref("reports"),     label: "Progress Reports", icon: "FileBarChart" },
     ],
   },
   {
