@@ -21,6 +21,7 @@ export default async function DirectorStudentProfileRoute({
       activeHref={directorStudentsHref("all")}
       enrollmentId={enrollmentId}
       backHref={directorStudentsHref("all")}
+      canHardDelete={true}
     />
   );
 }

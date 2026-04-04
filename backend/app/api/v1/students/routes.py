@@ -1,4 +1,4 @@
-"""SIS Students API — Phase 1.
+"""SIS Students API — Phase 1 + Phase 4 (hard-delete).
 
 Endpoints:
   GET    /students/{student_id}                                — full profile
@@ -14,6 +14,7 @@ Endpoints:
   POST   /students/{student_id}/documents/upload               — upload document file
   GET    /students/{student_id}/documents/{doc_id}/download    — download uploaded file
   DELETE /students/{student_id}/documents/{id}                 — delete document
+  DELETE /students/{student_id}                                — permanently delete student (director only)
 """
 from __future__ import annotations
 
@@ -839,3 +840,36 @@ def download_document(
         media_type=content_type,
         filename=filename,
     )
+
+
+# ── Hard delete (Phase 4) ─────────────────────────────────────────────────────
+
+from app.api.v1.discipline.service import hard_delete_student
+from app.api.v1.discipline.schemas import StudentHardDeleteRequest, StudentHardDeleteResult
+
+
+@router.delete(
+    "/{student_id}",
+    response_model=StudentHardDeleteResult,
+    dependencies=[Depends(require_permission("students.hard_delete"))],
+)
+def delete_student(
+    student_id: UUID,
+    payload: StudentHardDeleteRequest,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    """
+    Permanently delete a student and ALL their records.
+    Requires body: { "confirm": "DELETE {admission_no}" }
+    This action is IRREVERSIBLE.
+    """
+    result = hard_delete_student(
+        db,
+        tenant_id=tenant.id,
+        student_id=student_id,
+        confirm=payload.confirm,
+    )
+    db.commit()
+    return result

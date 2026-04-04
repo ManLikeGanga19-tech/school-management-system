@@ -14,6 +14,7 @@ export type HrSection = "staff" | "teachers" | "assets";
 export type ExamSection = "setup" | "timetable" | "enter-marks" | "marks-review" | "report-cards";
 export type CbcSection = "assessments" | "curriculum" | "reports";
 export type IgcseSection = "assessments" | "subjects" | "reports";
+export type DisciplineSection = "incidents" | "new";
 
 // ───────────────────────────────────────────────────────────────
 // Director (App Router) paths: /tenant/director/*
@@ -67,6 +68,10 @@ export function directorIgcseHref(section: IgcseSection = "assessments") {
   return `/tenant/director/igcse?section=${section}`;
 }
 
+export function directorDisciplineHref(section: DisciplineSection = "incidents") {
+  return `/tenant/director/discipline?section=${section}`;
+}
+
 // ───────────────────────────────────────────────────────────────
 // Secretary paths remain under /tenant/secretary/*
 // ───────────────────────────────────────────────────────────────
@@ -117,6 +122,10 @@ export function secretaryCbcHref(section: CbcSection = "assessments") {
 
 export function secretaryIgcseHref(section: IgcseSection = "assessments") {
   return `/tenant/secretary/igcse?section=${section}`;
+}
+
+export function secretaryDisciplineHref(section: DisciplineSection = "incidents") {
+  return `/tenant/secretary/discipline?section=${section}`;
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -255,6 +264,15 @@ export const directorNav: AppNavItem[] = [
     ],
   },
   {
+    href: directorDisciplineHref("incidents"),
+    label: "Discipline",
+    icon: "Shield",
+    children: [
+      { href: directorDisciplineHref("incidents"), label: "Incidents", icon: "ClipboardList" },
+      { href: directorDisciplineHref("new"), label: "New Incident", icon: "Plus" },
+    ],
+  },
+  {
     href: directorEventsHref(),
     label: "Events",
     icon: "CalendarDays",
@@ -380,6 +398,15 @@ export const secretaryNav: AppNavItem[] = [
       { href: secretaryIgcseHref("assessments"), label: "Assessments", icon: "ClipboardList" },
       { href: secretaryIgcseHref("subjects"),    label: "Subjects", icon: "BookOpenText" },
       { href: secretaryIgcseHref("reports"),     label: "Progress Reports", icon: "FileBarChart" },
+    ],
+  },
+  {
+    href: secretaryDisciplineHref("incidents"),
+    label: "Discipline",
+    icon: "Shield",
+    children: [
+      { href: secretaryDisciplineHref("incidents"), label: "Incidents", icon: "ClipboardList" },
+      { href: secretaryDisciplineHref("new"), label: "New Incident", icon: "Plus" },
     ],
   },
   {

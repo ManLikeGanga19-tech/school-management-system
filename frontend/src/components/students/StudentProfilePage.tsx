@@ -60,6 +60,7 @@ type StudentProfilePageProps = {
   activeHref: string;
   enrollmentId: string;
   backHref: string;
+  canHardDelete?: boolean;
 };
 
 type EnrollmentInfo = {
@@ -296,6 +297,7 @@ export function StudentProfilePage({
   activeHref,
   enrollmentId,
   backHref,
+  canHardDelete = false,
 }: StudentProfilePageProps) {
   const [loading, setLoading] = useState(true);
   const [enrollment, setEnrollment] = useState<EnrollmentInfo | null>(null);
@@ -339,6 +341,11 @@ export function StudentProfilePage({
   const [docFile, setDocFile] = useState<File | null>(null);
   const [savingDoc, setSavingDoc] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+
+  // Student hard-delete
+  const [hardDeleteDialog, setHardDeleteDialog] = useState(false);
+  const [hardDeleteConfirm, setHardDeleteConfirm] = useState("");
+  const [hardDeleting, setHardDeleting] = useState(false);
 
   // ── Load profile ──────────────────────────────────────────────────────────────
   const loadProfile = useCallback(async () => {
@@ -641,6 +648,31 @@ export function StudentProfilePage({
     }
   }
 
+  // ── Student hard-delete ───────────────────────────────────────────────────────
+  async function hardDeleteStudent() {
+    if (!studentId || !enrollment?.admission_number) return;
+    const expected = `DELETE ${enrollment.admission_number}`;
+    if (hardDeleteConfirm !== expected) {
+      toast.error(`Type exactly: ${expected}`);
+      return;
+    }
+    setHardDeleting(true);
+    try {
+      await api.delete<unknown>(
+        `/students/${encodeURIComponent(studentId)}`,
+        { confirm: hardDeleteConfirm },
+        { tenantRequired: true }
+      );
+      toast.success(`${enrollment.student_name} permanently deleted.`);
+      window.location.href = backHref;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to delete student.";
+      toast.error(msg);
+    } finally {
+      setHardDeleting(false);
+    }
+  }
+
   // ── Tabs config ───────────────────────────────────────────────────────────────
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", icon: <ClipboardList className="h-3.5 w-3.5" /> },
@@ -838,6 +870,32 @@ export function StudentProfilePage({
                       </div>
                     </div>
                   </div>
+
+                  {/* ── Danger Zone ── */}
+                  {canHardDelete && studentId && (
+                    <div>
+                      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-red-500">Danger Zone</h3>
+                      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-red-800">Permanently Delete Student</p>
+                            <p className="mt-0.5 text-xs text-red-700">
+                              Removes the student and all associated records: invoices, payments, marks, attendance, discipline links, documents, and guardians. This action cannot be undone.
+                            </p>
+                          </div>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => { setHardDeleteConfirm(""); setHardDeleteDialog(true); }}
+                          >
+                            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                            Delete Student
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1268,6 +1326,45 @@ export function StudentProfilePage({
           onChanged={() => void loadCfSummary()}
         />
       )}
+
+      {/* ── Hard-delete confirm dialog ── */}
+      <Dialog open={hardDeleteDialog} onOpenChange={(o) => { if (!hardDeleting) setHardDeleteDialog(o); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-700">Permanently Delete Student</DialogTitle>
+            <DialogDescription>
+              This will remove <strong>{enrollment?.student_name}</strong> and all their records from the system — invoices, payments, exam marks, attendance, discipline history, documents, and guardian links. <strong>This cannot be undone.</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <p className="text-xs text-slate-600">
+              To confirm, type exactly:{" "}
+              <span className="font-mono font-bold text-red-700">
+                DELETE {enrollment?.admission_number}
+              </span>
+            </p>
+            <Input
+              value={hardDeleteConfirm}
+              onChange={(e) => setHardDeleteConfirm(e.target.value)}
+              placeholder={`DELETE ${enrollment?.admission_number ?? ""}`}
+              className="font-mono text-sm"
+              disabled={hardDeleting}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHardDeleteDialog(false)} disabled={hardDeleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void hardDeleteStudent()}
+              disabled={hardDeleting || hardDeleteConfirm !== `DELETE ${enrollment?.admission_number}`}
+            >
+              {hardDeleting ? "Deleting…" : "Delete Permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
