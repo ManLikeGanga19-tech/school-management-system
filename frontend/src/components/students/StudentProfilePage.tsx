@@ -17,6 +17,7 @@ import {
   X,
   History,
   AlertTriangle,
+  Shield,
 } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -272,7 +273,21 @@ const DOC_TYPES = [
   "OTHER",
 ];
 
-type Tab = "overview" | "biodata" | "guardian" | "emergency" | "documents";
+type Tab = "overview" | "biodata" | "guardian" | "emergency" | "documents" | "discipline";
+
+type DisciplineRecord = {
+  id: string;
+  incident_date: string;
+  incident_type: string;
+  severity: string;
+  title: string;
+  status: string;
+  location: string | null;
+  role: string;
+  action_taken: string | null;
+  parent_notified: boolean;
+  created_at: string;
+};
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
@@ -346,6 +361,10 @@ export function StudentProfilePage({
   const [hardDeleteDialog, setHardDeleteDialog] = useState(false);
   const [hardDeleteConfirm, setHardDeleteConfirm] = useState("");
   const [hardDeleting, setHardDeleting] = useState(false);
+
+  // Discipline history
+  const [disciplineRecords, setDisciplineRecords] = useState<DisciplineRecord[]>([]);
+  const [disciplineLoading, setDisciplineLoading] = useState(false);
 
   // ── Load profile ──────────────────────────────────────────────────────────────
   const loadProfile = useCallback(async () => {
@@ -467,6 +486,36 @@ export function StudentProfilePage({
       void loadSis();
     }
   }, [tab, studentId, loadSis]);
+
+  // ── Discipline history ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (tab !== "discipline" || !studentId) return;
+    setDisciplineLoading(true);
+    api.get<unknown>(`/students/${encodeURIComponent(studentId)}/discipline`, { tenantRequired: true, noRedirect: true })
+      .then((raw) => {
+        const items = asArray<unknown>(raw).flatMap((r) => {
+          if (!r || typeof r !== "object") return [];
+          const o = r as Record<string, unknown>;
+          const item: DisciplineRecord = {
+            id: String(o.id ?? ""),
+            incident_date: String(o.incident_date ?? ""),
+            incident_type: String(o.incident_type ?? ""),
+            severity: String(o.severity ?? ""),
+            title: String(o.title ?? ""),
+            status: String(o.status ?? ""),
+            location: o.location ? String(o.location) : null,
+            role: String(o.role ?? ""),
+            action_taken: o.action_taken ? String(o.action_taken) : null,
+            parent_notified: Boolean(o.parent_notified),
+            created_at: String(o.created_at ?? ""),
+          };
+          return item.id ? [item] : [];
+        });
+        setDisciplineRecords(items);
+      })
+      .catch(() => toast.error("Failed to load discipline history."))
+      .finally(() => setDisciplineLoading(false));
+  }, [tab, studentId]);
 
   // ── Bio data save ─────────────────────────────────────────────────────────────
   function openEditBio() {
@@ -680,6 +729,7 @@ export function StudentProfilePage({
     { id: "guardian", label: "Guardian", icon: <Users className="h-3.5 w-3.5" /> },
     { id: "emergency", label: "Emergency Contacts", icon: <Phone className="h-3.5 w-3.5" /> },
     { id: "documents", label: "Documents", icon: <FileText className="h-3.5 w-3.5" /> },
+    { id: "discipline", label: "Discipline", icon: <Shield className="h-3.5 w-3.5" /> },
   ];
 
   const hasSis = Boolean(studentId);
@@ -754,7 +804,7 @@ export function StudentProfilePage({
             <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
               <div className="flex gap-1 border-b border-slate-100 px-4 pt-3">
                 {tabs.map((t) => {
-                  const disabled = !hasSis && t.id !== "overview";
+                  const disabled = !hasSis && t.id !== "overview" && t.id !== "discipline";
                   return (
                     <button
                       key={t.id}
@@ -1114,6 +1164,72 @@ export function StudentProfilePage({
                               <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-400">No emergency contacts yet.</TableCell>
                             </TableRow>
                           )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── DISCIPLINE TAB ── */}
+              {tab === "discipline" && (
+                <div className="p-6">
+                  {disciplineLoading ? (
+                    <div className="py-10 text-center text-sm text-slate-400">Loading…</div>
+                  ) : disciplineRecords.length === 0 ? (
+                    <div className="py-10 text-center text-sm text-slate-400">No discipline records found.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50">
+                            <TableHead className="text-xs">Date</TableHead>
+                            <TableHead className="text-xs">Incident</TableHead>
+                            <TableHead className="text-xs">Severity</TableHead>
+                            <TableHead className="text-xs">Role</TableHead>
+                            <TableHead className="text-xs">Action Taken</TableHead>
+                            <TableHead className="text-xs">Parent Notified</TableHead>
+                            <TableHead className="text-xs">Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {disciplineRecords.map((d) => (
+                            <TableRow key={d.id}>
+                              <TableCell className="text-xs font-mono text-slate-600">{d.incident_date}</TableCell>
+                              <TableCell>
+                                <div className="text-sm font-medium text-slate-800">{d.title}</div>
+                                <div className="text-[10px] text-slate-400">{d.incident_type.replace(/_/g, " ")}{d.location ? ` · ${d.location}` : ""}</div>
+                              </TableCell>
+                              <TableCell>
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                  d.severity === "CRITICAL" ? "bg-red-100 text-red-700" :
+                                  d.severity === "HIGH" ? "bg-orange-100 text-orange-700" :
+                                  d.severity === "MEDIUM" ? "bg-amber-100 text-amber-700" :
+                                  "bg-emerald-100 text-emerald-700"
+                                }`}>{d.severity}</span>
+                              </TableCell>
+                              <TableCell>
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                  d.role === "PERPETRATOR" ? "bg-red-50 text-red-600" :
+                                  d.role === "VICTIM" ? "bg-blue-50 text-blue-600" :
+                                  "bg-slate-100 text-slate-600"
+                                }`}>{d.role}</span>
+                              </TableCell>
+                              <TableCell className="text-xs text-slate-600">{d.action_taken ? d.action_taken.replace(/_/g, " ") : "—"}</TableCell>
+                              <TableCell>
+                                {d.parent_notified
+                                  ? <span className="text-xs font-medium text-emerald-700">Yes</span>
+                                  : <span className="text-xs text-slate-400">No</span>}
+                              </TableCell>
+                              <TableCell>
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                  d.status === "RESOLVED" || d.status === "CLOSED" ? "bg-emerald-100 text-emerald-700" :
+                                  d.status === "UNDER_REVIEW" ? "bg-amber-100 text-amber-700" :
+                                  "bg-slate-100 text-slate-600"
+                                }`}>{d.status.replace(/_/g, " ")}</span>
+                              </TableCell>
+                            </TableRow>
+                          ))}
                         </TableBody>
                       </Table>
                     </div>

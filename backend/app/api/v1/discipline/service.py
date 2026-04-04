@@ -495,58 +495,61 @@ def hard_delete_student(
         )
 
     counts: dict[str, int] = {}
+    sid_str = str(student_id)
+    tid_str = str(tenant_id)
 
-    # 3a. Collect class enrollment IDs (for marks/IGCSE/reports cleanup)
+    # 3. Collect class enrollment IDs (for marks/IGCSE/reports/fee_assignments cleanup)
     class_enrollment_ids = [
         str(r["id"])
         for r in db.execute(
             sa.text(
                 "SELECT id FROM core.student_class_enrollments WHERE student_id = :sid AND tenant_id = :tid"
             ),
-            {"sid": str(student_id), "tid": str(tenant_id)},
+            {"sid": sid_str, "tid": tid_str},
         ).mappings().all()
     ]
 
-    # 3b. Collect admission enrollment IDs (for invoice cleanup — invoices link to core.enrollments)
-    admission_enrollment_ids = [
-        str(r["id"])
-        for r in db.execute(
-            sa.text(
-                "SELECT id FROM core.enrollments WHERE student_id = :sid AND tenant_id = :tid"
-            ),
-            {"sid": str(student_id), "tid": str(tenant_id)},
-        ).mappings().all()
-    ]
+    # 4. Find invoice IDs via JOIN through core.enrollments (works regardless of whether
+    #    enrollment.student_id was set before the student record was created).
+    invoice_rows = db.execute(
+        sa.text(
+            """
+            SELECT i.id
+            FROM core.invoices i
+            JOIN core.enrollments e ON e.id = i.enrollment_id
+            WHERE e.student_id = :sid
+              AND i.tenant_id = :tid
+            """
+        ),
+        {"sid": sid_str, "tid": tid_str},
+    ).mappings().all()
+    invoice_ids = [str(r["id"]) for r in invoice_rows]
 
-    # Keep combined for backwards compat in remaining code
-    enrollment_ids = class_enrollment_ids  # alias used below for marks/etc
-
-    # 4. Collect invoice IDs (via admission enrollment_id in core.enrollments)
-    invoice_ids: list[str] = []
-    if admission_enrollment_ids:
-        eids_sql = _safe_uuid_list(admission_enrollment_ids)
-        invoice_rows = db.execute(
-            sa.text(
-                f"SELECT id FROM core.invoices WHERE enrollment_id IN ({eids_sql}) AND tenant_id = :tid"
-            ),
-            {"tid": str(tenant_id)},
-        ).mappings().all()
-        invoice_ids = [str(r["id"]) for r in invoice_rows]
-
-    # 5. Collect payment IDs (via invoice)
+    # 5. Collect payment IDs that are exclusively allocated to this student's invoices.
+    #    We only delete a payment if ALL its allocations are against invoices we're deleting,
+    #    so shared payments (covering multiple students) are not wiped.
     payment_ids: list[str] = []
     if invoice_ids:
         iids_sql = _safe_uuid_list(invoice_ids)
         payment_rows = db.execute(
             sa.text(
-                f"SELECT DISTINCT payment_id FROM core.payment_allocations WHERE invoice_id IN ({iids_sql})"
+                f"""
+                SELECT pa.payment_id
+                FROM core.payment_allocations pa
+                WHERE pa.invoice_id IN ({iids_sql})
+                GROUP BY pa.payment_id
+                HAVING COUNT(*) = (
+                    SELECT COUNT(*) FROM core.payment_allocations pa2
+                    WHERE pa2.payment_id = pa.payment_id
+                )
+                """
             ),
         ).mappings().all()
         payment_ids = [str(r["payment_id"]) for r in payment_rows]
 
     # ── TEARDOWN ──────────────────────────────────────────────────────────────
 
-    # 6. Payment allocations
+    # 6. Payment allocations (all allocations touching our invoices)
     if invoice_ids:
         iids_sql = _safe_uuid_list(invoice_ids)
         r = db.execute(
@@ -554,12 +557,12 @@ def hard_delete_student(
         )
         counts["payment_allocations"] = r.rowcount
 
-    # 7. Payments
+    # 7. Payments (only those that were exclusively for this student)
     if payment_ids:
         pids_sql = _safe_uuid_list(payment_ids)
         r = db.execute(
             sa.text(f"DELETE FROM core.payments WHERE id IN ({pids_sql}) AND tenant_id = :tid"),
-            {"tid": str(tenant_id)},
+            {"tid": tid_str},
         )
         counts["payments"] = r.rowcount
 
@@ -576,108 +579,115 @@ def hard_delete_student(
         iids_sql = _safe_uuid_list(invoice_ids)
         r = db.execute(
             sa.text(f"DELETE FROM core.invoices WHERE id IN ({iids_sql}) AND tenant_id = :tid"),
-            {"tid": str(tenant_id)},
+            {"tid": tid_str},
         )
         counts["invoices"] = r.rowcount
 
-    # 10. Exam marks (via enrollment)
-    if enrollment_ids:
-        eids_sql = _safe_uuid_list(enrollment_ids)
+    # 10. Admission enrollment application forms (now safe to delete — invoices FK is gone)
+    r = db.execute(
+        sa.text(
+            "DELETE FROM core.enrollments WHERE student_id = :sid AND tenant_id = :tid"
+        ),
+        {"sid": sid_str, "tid": tid_str},
+    )
+    counts["enrollment_applications"] = r.rowcount
+
+    # 11. Exam marks (via class enrollment)
+    if class_enrollment_ids:
+        eids_sql = _safe_uuid_list(class_enrollment_ids)
         r = db.execute(
             sa.text(
                 f"DELETE FROM core.tenant_exam_marks WHERE student_enrollment_id IN ({eids_sql}) AND tenant_id = :tid"
             ),
-            {"tid": str(tenant_id)},
+            {"tid": tid_str},
         )
         counts["exam_marks"] = r.rowcount
 
-    # 11. Term report remarks (via enrollment)
-    if enrollment_ids:
-        eids_sql = _safe_uuid_list(enrollment_ids)
+    # 12. Term report remarks (via class enrollment)
+    if class_enrollment_ids:
+        eids_sql = _safe_uuid_list(class_enrollment_ids)
         r = db.execute(
             sa.text(
                 f"DELETE FROM core.term_report_remarks WHERE student_enrollment_id IN ({eids_sql}) AND tenant_id = :tid"
             ),
-            {"tid": str(tenant_id)},
+            {"tid": tid_str},
         )
         counts["report_remarks"] = r.rowcount
 
-    # 12. IGCSE scores (via enrollment)
-    if enrollment_ids:
-        eids_sql = _safe_uuid_list(enrollment_ids)
+    # 13. IGCSE scores (via class enrollment)
+    if class_enrollment_ids:
+        eids_sql = _safe_uuid_list(class_enrollment_ids)
         r = db.execute(
             sa.text(
                 f"DELETE FROM core.igcse_scores WHERE enrollment_id IN ({eids_sql}) AND tenant_id = :tid"
             ),
-            {"tid": str(tenant_id)},
+            {"tid": tid_str},
         )
         counts["igcse_scores"] = r.rowcount
 
-    # 13. Attendance records
+    # 14. Attendance records
     r = db.execute(
         sa.text(
             "DELETE FROM core.attendance_records WHERE student_id = :sid AND tenant_id = :tid"
         ),
-        {"sid": str(student_id), "tid": str(tenant_id)},
+        {"sid": sid_str, "tid": tid_str},
     )
     counts["attendance_records"] = r.rowcount
 
-    # 14. Student fee assignments (keyed by enrollment_id from student_class_enrollments)
-    if enrollment_ids:
-        eids_sql = _safe_uuid_list(enrollment_ids)
+    # 15. Student fee assignments (keyed by class enrollment_id)
+    if class_enrollment_ids:
+        eids_sql = _safe_uuid_list(class_enrollment_ids)
         r = db.execute(
             sa.text(
                 f"DELETE FROM core.student_fee_assignments WHERE enrollment_id IN ({eids_sql}) AND tenant_id = :tid"
             ),
-            {"tid": str(tenant_id)},
+            {"tid": tid_str},
         )
         counts["fee_assignments"] = r.rowcount
-    else:
-        counts["fee_assignments"] = 0
 
-    # 15. Scholarship allocations — nullify student_id (preserve allocation record)
+    # 16. Scholarship allocations — nullify student_id (preserve the scholarship record)
     r = db.execute(
         sa.text(
             "UPDATE core.scholarship_allocations SET student_id = NULL WHERE student_id = :sid AND tenant_id = :tid"
         ),
-        {"sid": str(student_id), "tid": str(tenant_id)},
+        {"sid": sid_str, "tid": tid_str},
     )
     counts["scholarship_allocations_cleared"] = r.rowcount
 
-    # 16. Discipline student links
+    # 17. Discipline student links
     r = db.execute(
         sa.text(
             "DELETE FROM core.discipline_students WHERE student_id = :sid AND tenant_id = :tid"
         ),
-        {"sid": str(student_id), "tid": str(tenant_id)},
+        {"sid": sid_str, "tid": tid_str},
     )
     counts["discipline_links"] = r.rowcount
 
-    # 17. Parent-student links
+    # 18. Parent-student links
     r = db.execute(
         sa.text(
             "DELETE FROM core.parent_students WHERE student_id = :sid AND tenant_id = :tid"
         ),
-        {"sid": str(student_id), "tid": str(tenant_id)},
+        {"sid": sid_str, "tid": tid_str},
     )
     counts["parent_links"] = r.rowcount
 
-    # 18. Class enrollments
+    # 19. Class enrollments
     r = db.execute(
         sa.text(
             "DELETE FROM core.student_class_enrollments WHERE student_id = :sid AND tenant_id = :tid"
         ),
-        {"sid": str(student_id), "tid": str(tenant_id)},
+        {"sid": sid_str, "tid": tid_str},
     )
     counts["class_enrollments"] = r.rowcount
 
-    # 19. Delete the student — CASCADE handles:
+    # 20. Delete the student — CASCADE handles:
     #     emergency_contacts, documents, carry_forward_balances, cbc_assessments
     r = db.execute(
         sa.text(
             "DELETE FROM core.students WHERE id = :sid AND tenant_id = :tid"
         ),
-        {"sid": str(student_id), "tid": str(tenant_id)},
+        {"sid": sid_str, "tid": tid_str},
     )
     counts["student"] = r.rowcount
 

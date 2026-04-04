@@ -955,6 +955,99 @@ def request_transfer(
     return enrollment
 
 
+def delete_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    enrollment: Enrollment,
+) -> dict:
+    """
+    Permanently delete an enrollment application and any finance records linked to it.
+    Only allowed for non-enrolled applications (DRAFT, SUBMITTED, APPROVED, REJECTED,
+    TRANSFER_REQUESTED, TRANSFERRED). Enrolled students must be hard-deleted via the
+    students.hard_delete route which handles the full teardown.
+    """
+    _BLOCKED = frozenset({"ENROLLED", "ENROLLED_PARTIAL"})
+    if enrollment.status in _BLOCKED:
+        raise ValueError(
+            f"Cannot delete an active enrollment (status: {enrollment.status}). "
+            "Use the student hard-delete instead."
+        )
+
+    tid_str = str(tenant_id)
+    eid_str = str(enrollment.id)
+    counts: dict[str, int] = {}
+
+    # Collect invoices for this enrollment
+    invoice_rows = db.execute(
+        sa.text(
+            "SELECT id FROM core.invoices WHERE enrollment_id = :eid AND tenant_id = :tid"
+        ),
+        {"eid": eid_str, "tid": tid_str},
+    ).mappings().all()
+    invoice_ids = [str(r["id"]) for r in invoice_rows]
+
+    if invoice_ids:
+        from app.api.v1.discipline.service import _safe_uuid_list
+        iids_sql = _safe_uuid_list(invoice_ids)
+
+        # Collect payments exclusively covering these invoices
+        payment_rows = db.execute(
+            sa.text(
+                f"""
+                SELECT pa.payment_id
+                FROM core.payment_allocations pa
+                WHERE pa.invoice_id IN ({iids_sql})
+                GROUP BY pa.payment_id
+                HAVING COUNT(*) = (
+                    SELECT COUNT(*) FROM core.payment_allocations pa2
+                    WHERE pa2.payment_id = pa.payment_id
+                )
+                """
+            ),
+        ).mappings().all()
+        payment_ids = [str(r["payment_id"]) for r in payment_rows]
+
+        # Teardown finance chain
+        r = db.execute(sa.text(f"DELETE FROM core.payment_allocations WHERE invoice_id IN ({iids_sql})"))
+        counts["payment_allocations"] = r.rowcount
+
+        if payment_ids:
+            pids_sql = _safe_uuid_list(payment_ids)
+            r = db.execute(
+                sa.text(f"DELETE FROM core.payments WHERE id IN ({pids_sql}) AND tenant_id = :tid"),
+                {"tid": tid_str},
+            )
+            counts["payments"] = r.rowcount
+
+        r = db.execute(sa.text(f"DELETE FROM core.invoice_lines WHERE invoice_id IN ({iids_sql})"))
+        counts["invoice_lines"] = r.rowcount
+
+        r = db.execute(
+            sa.text(f"DELETE FROM core.invoices WHERE id IN ({iids_sql}) AND tenant_id = :tid"),
+            {"tid": tid_str},
+        )
+        counts["invoices"] = r.rowcount
+
+    # Delete the enrollment itself
+    db.execute(
+        sa.text("DELETE FROM core.enrollments WHERE id = :eid AND tenant_id = :tid"),
+        {"eid": eid_str, "tid": tid_str},
+    )
+    counts["enrollment"] = 1
+
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="enrollment.delete", resource="enrollment",
+        resource_id=enrollment.id,
+        payload={"status": enrollment.status, "records_removed": counts}, meta=None,
+    )
+
+    db.flush()
+    return {"ok": True, "records_removed": counts}
+
+
 def approve_transfer(
     db: Session,
     *,
