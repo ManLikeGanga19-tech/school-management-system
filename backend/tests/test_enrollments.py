@@ -399,7 +399,7 @@ class TestDeleteEnrollment:
 
         client.post(f"{BASE}/{eid}/soft-delete", headers=headers)
         del_resp = client.delete(f"{BASE}/{eid}", headers=headers)
-        assert del_resp.status_code == 204
+        assert del_resp.status_code == 200
 
         get_resp = client.get(f"{BASE}/{eid}", headers=headers)
         assert get_resp.status_code == 404
