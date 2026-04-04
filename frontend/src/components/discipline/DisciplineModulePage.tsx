@@ -106,10 +106,10 @@ function asStr(v: unknown): string { return typeof v === "string" ? v : ""; }
 function asArr(v: unknown): unknown[] { return Array.isArray(v) ? v : []; }
 
 function normIncidents(raw: unknown): IncidentListItem[] {
-  return asArr(raw).map((r) => {
+  return asArr(raw).flatMap((r) => {
     const o = asObject(r);
-    if (!o) return null;
-    return {
+    if (!o?.id) return [];
+    const item: IncidentListItem = {
       id: asStr(o.id),
       incident_date: asStr(o.incident_date),
       incident_type: asStr(o.incident_type),
@@ -120,7 +120,8 @@ function normIncidents(raw: unknown): IncidentListItem[] {
       student_count: Number(o.student_count ?? 0),
       created_at: asStr(o.created_at),
     };
-  }).filter((x): x is IncidentListItem => Boolean(x?.id));
+    return [item];
+  });
 }
 
 function normIncident(raw: unknown): Incident | null {
@@ -138,10 +139,10 @@ function normIncident(raw: unknown): Incident | null {
     reported_by_name: o.reported_by_name ? asStr(o.reported_by_name) : undefined,
     resolution_notes: o.resolution_notes ? asStr(o.resolution_notes) : undefined,
     resolved_at: o.resolved_at ? asStr(o.resolved_at) : undefined,
-    students: asArr(o.students).map((s) => {
+    students: asArr(o.students).flatMap((s) => {
       const so = asObject(s);
-      if (!so) return null;
-      return {
+      if (!so?.id) return [];
+      const link: IncidentStudent = {
         id: asStr(so.id),
         student_id: asStr(so.student_id),
         student_name: so.student_name ? asStr(so.student_name) : undefined,
@@ -153,18 +154,20 @@ function normIncident(raw: unknown): Incident | null {
         parent_notified: Boolean(so.parent_notified),
         parent_notified_at: so.parent_notified_at ? asStr(so.parent_notified_at) : undefined,
       };
-    }).filter((x): x is IncidentStudent => Boolean(x?.id)),
-    followups: asArr(o.followups).map((f) => {
+      return [link];
+    }),
+    followups: asArr(o.followups).flatMap((f) => {
       const fo = asObject(f);
-      if (!fo) return null;
-      return {
+      if (!fo?.id) return [];
+      const fu: Followup = {
         id: asStr(fo.id),
         followup_date: asStr(fo.followup_date),
         notes: asStr(fo.notes),
         created_by_name: fo.created_by_name ? asStr(fo.created_by_name) : undefined,
         created_at: asStr(fo.created_at),
       };
-    }).filter((x): x is Followup => Boolean(x?.id)),
+      return [fu];
+    }),
     created_at: asStr(o.created_at),
   };
 }
