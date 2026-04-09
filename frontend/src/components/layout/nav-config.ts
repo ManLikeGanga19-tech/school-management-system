@@ -15,6 +15,7 @@ export type ExamSection = "setup" | "timetable" | "enter-marks" | "marks-review"
 export type CbcSection = "assessments" | "curriculum" | "reports";
 export type IgcseSection = "assessments" | "subjects" | "reports";
 export type DisciplineSection = "incidents" | "new";
+export type SmsSection = "send" | "broadcast" | "history" | "templates" | "credits";
 
 // ───────────────────────────────────────────────────────────────
 // Director (App Router) paths: /tenant/director/*
@@ -72,6 +73,10 @@ export function directorDisciplineHref(section: DisciplineSection = "incidents")
   return `/tenant/director/discipline?section=${section}`;
 }
 
+export function directorSmsHref(section: SmsSection = "send") {
+  return `/tenant/director/messages?section=${section}`;
+}
+
 // ───────────────────────────────────────────────────────────────
 // Secretary paths remain under /tenant/secretary/*
 // ───────────────────────────────────────────────────────────────
@@ -126,6 +131,10 @@ export function secretaryIgcseHref(section: IgcseSection = "assessments") {
 
 export function secretaryDisciplineHref(section: DisciplineSection = "incidents") {
   return `/tenant/secretary/discipline?section=${section}`;
+}
+
+export function secretarySmsHref(section: SmsSection = "send") {
+  return `/tenant/secretary/messages?section=${section}`;
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -278,6 +287,18 @@ export const directorNav: AppNavItem[] = [
     icon: "CalendarDays",
   },
   {
+    href: directorSmsHref("send"),
+    label: "Messages",
+    icon: "MessageSquare",
+    children: [
+      { href: directorSmsHref("send"),      label: "Send Message",    icon: "Send" },
+      { href: directorSmsHref("broadcast"), label: "Broadcast",       icon: "Megaphone" },
+      { href: directorSmsHref("history"),   label: "Message History", icon: "History" },
+      { href: directorSmsHref("templates"), label: "Templates",       icon: "FileText" },
+      { href: directorSmsHref("credits"),   label: "Buy Credits",     icon: "Coins" },
+    ],
+  },
+  {
     href: directorSchoolSetupHref("terms"),
     label: "School Setup",
     icon: "Settings2",
@@ -413,6 +434,18 @@ export const secretaryNav: AppNavItem[] = [
     href: secretaryEventsHref(),
     label: "Events",
     icon: "CalendarDays",
+  },
+  {
+    href: secretarySmsHref("send"),
+    label: "Messages",
+    icon: "MessageSquare",
+    children: [
+      { href: secretarySmsHref("send"),      label: "Send Message",    icon: "Send" },
+      { href: secretarySmsHref("broadcast"), label: "Broadcast",       icon: "Megaphone" },
+      { href: secretarySmsHref("history"),   label: "Message History", icon: "History" },
+      { href: secretarySmsHref("templates"), label: "Templates",       icon: "FileText" },
+      { href: secretarySmsHref("credits"),   label: "Buy Credits",     icon: "Coins" },
+    ],
   },
   {
     href: secretarySchoolSetupHref("terms"),

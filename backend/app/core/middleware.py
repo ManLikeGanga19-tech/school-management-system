@@ -90,6 +90,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
             return True
         if path.startswith("/api/v1/admin/rbac"):
             return True
+        # SMS platform management (pricing, balances) is SaaS-level, no tenant required
+        if path.startswith("/api/v1/admin/sms"):
+            return True
         # Support inbox for SaaS operators (cross-tenant) must not require tenant headers
         if path.startswith("/api/v1/support/admin"):
             return True

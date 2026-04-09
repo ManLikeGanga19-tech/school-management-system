@@ -17,6 +17,8 @@ from app.api.v1.cbc.routes import router as cbc_router
 from app.api.v1.igcse.routes import router as igcse_router
 from app.api.v1.discipline.routes import router as discipline_router
 from app.api.v1.discipline.routes import students_router as discipline_students_router
+from app.api.v1.sms.routes import router as sms_router
+from app.api.v1.sms.routes import admin_router as sms_admin_router
 
 api_router = APIRouter()
 
@@ -61,3 +63,7 @@ api_router.include_router(igcse_router, prefix="/igcse", tags=["igcse"])
 # Discipline (Phase 4)
 api_router.include_router(discipline_router, prefix="/discipline", tags=["discipline"])
 api_router.include_router(discipline_students_router, prefix="/students", tags=["students"])
+
+# SMS Communications (Phase 5)
+api_router.include_router(sms_router, prefix="/sms", tags=["sms"])
+api_router.include_router(sms_admin_router, prefix="/admin/sms", tags=["admin-sms"])

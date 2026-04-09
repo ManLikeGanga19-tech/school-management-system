@@ -77,6 +77,19 @@ class Settings(BaseSettings):
     # 300 s (5 min) matches the M-Pesa STK prompt expiry.  Set to 0 to disable.
     DARAJA_DEDUP_WINDOW_SEC: int = 300
 
+    # Africa's Talking (SMS provider)
+    # ShuleHQ holds one AT account; all tenant SMS goes through it.
+    # Set AT_USE_MOCK=true for CI and local dev to skip real AT calls.
+    AT_USERNAME: str = ""
+    AT_API_KEY: str = ""
+    AT_SENDER_ID: str = "ShuleHQ"      # Registered alphanumeric sender
+    AT_SANDBOX: bool = True            # false in production
+    AT_USE_MOCK: bool = False          # true in CI/test
+    AT_TIMEOUT_SEC: int = 15
+    # Units to deduct per SMS segment (160 chars = 1 unit, >160 = 2+ units)
+    AT_UNITS_PER_SEGMENT: int = 1
+    AT_CHARS_PER_SEGMENT: int = 160
+
     # Audit log retention.  Rows older than this many days are deleted at
     # application startup.  90 days satisfies typical compliance requirements
     # while keeping the table size bounded.  Set to 0 to disable pruning.

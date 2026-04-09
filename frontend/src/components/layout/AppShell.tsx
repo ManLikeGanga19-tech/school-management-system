@@ -48,6 +48,14 @@ import {
   Users,
   WalletCards,
   X,
+  MessageSquare,
+  Send,
+  Megaphone,
+  History,
+  Coins,
+  Hash,
+  ScanLine,
+  BookUser,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -133,6 +141,14 @@ const NAV_ICON_REGISTRY: Record<string, LucideIcon> = {
   UserRoundPlus,
   Users,
   WalletCards,
+  MessageSquare,
+  Send,
+  Megaphone,
+  History,
+  Coins,
+  Hash,
+  ScanLine,
+  BookUser,
 };
 
 type NotificationPreview = {
