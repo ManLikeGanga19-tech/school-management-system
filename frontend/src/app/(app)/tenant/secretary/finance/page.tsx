@@ -2522,8 +2522,7 @@ function SecretaryFinancePageContent() {
                                   method: "GET",
                                   tenantRequired: true,
                                 }).then(async (res) => {
-                                  const html = await res.text();
-                                  const blob = new Blob([html], { type: "text/html" });
+                                  const blob = await res.blob();
                                   const url = window.URL.createObjectURL(blob);
                                   const tab = window.open(url, "_blank");
                                   if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");
