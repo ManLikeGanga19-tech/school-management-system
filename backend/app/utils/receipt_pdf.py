@@ -930,20 +930,50 @@ def generate_thermal_html(doc: dict[str, Any]) -> str:
 
     out.append("")
     out.append(sep())
-    out.append("")
-    out.append(centre(receipt_no))
-    out.append("")
-    out.append("")  # feed paper past cutter
 
     from html import escape
-    body = escape("\n".join(out))
-    rno  = escape(receipt_no)
+    pre_body = escape("\n".join(out))
+    rno_esc  = escape(receipt_no)
+
+    # ── QR code (base64 embedded PNG) ────────────────────────────────────────
+    qr_img_tag = ""
+    try:
+        tenant_slug = str(doc.get("tenant_slug") or "")
+        if tenant_slug:
+            verify_url = build_verify_url(
+                tenant_slug=tenant_slug,
+                token=create_receipt_verify_token(
+                    payment_id=str(doc.get("document_id") or ""),
+                    tenant_id=str(doc.get("tenant_id") or ""),
+                    tenant_slug=tenant_slug,
+                    receipt_no=receipt_no,
+                    amount=str(doc.get("amount") or "0"),
+                    student_name=student_name,
+                ),
+            )
+        else:
+            verify_url = str(doc.get("qr_payload") or "")
+        if verify_url:
+            import base64
+            qr_bytes  = _qr_png(verify_url, box_size=4)
+            qr_b64    = base64.b64encode(qr_bytes).decode()
+            qr_img_tag = (
+                f'<div style="text-align:center;margin:4px 0">'
+                f'<img src="data:image/png;base64,{qr_b64}" '
+                f'style="width:56mm;height:56mm" alt="QR"/>'
+                f'</div>'
+            )
+    except Exception:
+        pass  # QR is optional — receipt still prints without it
+
+    # Receipt number below QR + generous paper feed (≈40 mm) so it tears cleanly
+    post_body = escape(f"\n{centre(receipt_no)}\n\n\n\n\n\n\n\n")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Receipt {rno}</title>
+<title>Receipt {rno_esc}</title>
 <style>
   * {{ margin: 0; padding: 0; }}
   @page {{ size: 80mm auto; margin: 2mm 3mm; }}
@@ -954,9 +984,10 @@ def generate_thermal_html(doc: dict[str, Any]) -> str:
     color: #000;
     white-space: pre;
   }}
+  img {{ display: block; }}
 </style>
 </head>
-<body>{body}<script>
+<body>{pre_body}{qr_img_tag}<span>{post_body}</span><script>
 window.onload = function() {{
   window.print();
   window.onafterprint = function() {{ window.close(); }};
