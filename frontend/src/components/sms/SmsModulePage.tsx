@@ -242,7 +242,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
 
   // Broadcast enhancements: class filter + parent autofill
   const [classes, setClasses] = useState<TenantClassOption[]>([]);
-  const [selectedClassId, setSelectedClassId] = useState<string>("");
+  const [selectedClassId, setSelectedClassId] = useState<string>("__all__");
   const [loadingParents, setLoadingParents] = useState(false);
 
   // Top-up dialog
@@ -322,7 +322,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
   async function loadParents() {
     setLoadingParents(true);
     try {
-      const params = selectedClassId ? `?class_id=${selectedClassId}` : "";
+      const params = selectedClassId && selectedClassId !== "__all__" ? `?class_id=${selectedClassId}` : "";
       const res = await api.get<unknown[]>(`/tenants/sms/recipients${params}`, {
         tenantRequired: true,
       });
@@ -685,7 +685,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
               <SelectValue placeholder="All classes" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All classes</SelectItem>
+              <SelectItem value="__all__">All classes</SelectItem>
               {classes.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}
@@ -708,7 +708,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
             Load Parents
           </Button>
           <p className="text-xs text-gray-400">
-            Loads parent phone numbers{selectedClassId ? " for selected class" : " for all classes"}
+            Loads parent phone numbers{selectedClassId && selectedClassId !== "__all__" ? " for selected class" : " for all classes"}
           </p>
         </div>
       </div>

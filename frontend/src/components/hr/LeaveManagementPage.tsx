@@ -111,7 +111,7 @@ function statusBadge(status: string) {
 }
 
 const LEAVE_TYPES = ["ANNUAL", "SICK", "MATERNITY", "PATERNITY", "UNPAID", "OTHER"];
-const STATUS_FILTERS = ["", "PENDING", "APPROVED", "REJECTED", "CANCELLED"];
+const STATUS_FILTERS = ["__all__", "PENDING", "APPROVED", "REJECTED", "CANCELLED"];
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -128,8 +128,8 @@ export function LeaveManagementPage({ appTitle, nav, activeHref, canApprove = fa
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [staff, setStaff] = useState<TenantStaff[]>([]);
   const [loading, setLoading] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("");
-  const [staffFilter, setStaffFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("__all__");
+  const [staffFilter, setStaffFilter] = useState("__all__");
 
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false);
@@ -155,8 +155,8 @@ export function LeaveManagementPage({ appTitle, nav, activeHref, canApprove = fa
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (statusFilter) params.set("status", statusFilter);
-      if (staffFilter) params.set("staff_id", staffFilter);
+      if (statusFilter && statusFilter !== "__all__") params.set("status", statusFilter);
+      if (staffFilter && staffFilter !== "__all__") params.set("staff_id", staffFilter);
       const res = await api.get<unknown>(
         `/tenants/hr/leave${params.toString() ? `?${params}` : ""}`,
         { tenantRequired: true }
@@ -289,7 +289,7 @@ export function LeaveManagementPage({ appTitle, nav, activeHref, canApprove = fa
             <SelectContent>
               {STATUS_FILTERS.map((s) => (
                 <SelectItem key={s} value={s}>
-                  {s || "All statuses"}
+                  {s === "__all__" ? "All statuses" : s}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -299,7 +299,7 @@ export function LeaveManagementPage({ appTitle, nav, activeHref, canApprove = fa
               <SelectValue placeholder="All staff" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All staff</SelectItem>
+              <SelectItem value="__all__">All staff</SelectItem>
               {staff.map((s) => (
                 <SelectItem key={s.id} value={s.id}>
                   {s.full_name}
