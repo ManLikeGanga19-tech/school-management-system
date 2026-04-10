@@ -792,19 +792,37 @@ def generate_invoice_pdf(doc: dict[str, Any]) -> bytes:
 # ─── Thermal HTML receipt (auto-print) ───────────────────────────────────────
 
 def generate_thermal_html(doc: dict[str, Any]) -> str:
-    """Return an HTML page formatted for 80mm thermal paper that auto-prints on load."""
-    from html import escape
+    """Return a <pre>-formatted HTML receipt for 80 mm thermal paper.
+
+    Uses plain monospace text so any printer driver (including Generic/Text Only)
+    renders it correctly.  @page sets the paper to 80 mm wide × auto height so
+    Chrome prints the full receipt as a single continuous job.
+    """
+    W = 42  # character width that fits inside 80 mm at Courier 9 pt
+
+    def centre(text: str) -> str:
+        return text.center(W)
+
+    def sep() -> str:
+        return "-" * W
+
+    def row(label: str, value: str) -> str:
+        """Left-aligned label, right-aligned value, total W chars."""
+        label = label[:W]
+        value = value[:(W - len(label) - 1)]
+        gap = W - len(label) - len(value)
+        return label + " " * gap + value
 
     profile  = doc.get("profile") or {}
     currency = str(doc.get("currency") or profile.get("currency") or "KES")
 
-    school_name = escape(str(profile.get("school_header") or "SCHOOL").upper())
-    address     = escape(str(profile.get("physical_address") or ""))
-    phone       = escape(str(profile.get("phone") or ""))
-    footer_msg  = escape(str(profile.get("footer_message") or "Thank you for your payment."))
+    school_name = str(profile.get("school_header") or "SCHOOL").upper()
+    address     = str(profile.get("physical_address") or "")
+    phone       = str(profile.get("phone") or "")
+    footer_msg  = str(profile.get("footer_message") or "Thank you for your payment.")
 
-    receipt_no  = escape(str(doc.get("document_no") or ""))
-    amount_raw  = doc.get("amount") or "0"
+    receipt_no = str(doc.get("document_no") or "")
+    amount_raw = doc.get("amount") or "0"
     try:
         amount_fmt = f"{currency} {Decimal(str(amount_raw)):,.2f}"
     except InvalidOperation:
@@ -820,92 +838,88 @@ def generate_thermal_html(doc: dict[str, Any]) -> str:
     else:
         date_str = ""
 
-    provider  = escape(str(doc.get("provider") or "").upper())
-    reference = escape(str(doc.get("reference") or ""))
+    provider  = str(doc.get("provider") or "").upper()
+    reference = str(doc.get("reference") or "")
 
     allocations = doc.get("allocations") or []
     primary_student = ""
-    rows_html = ""
+    fee_lines: list[str] = []
     for alloc in allocations:
         if not primary_student:
-            primary_student = escape(str(alloc.get("student_name") or ""))
-        inv_no = escape(str(alloc.get("invoice_no") or ""))
-        lines  = alloc.get("lines") or []
+            primary_student = str(alloc.get("student_name") or "")
+        lines = alloc.get("lines") or []
         if lines:
             for line in lines:
-                desc   = escape(str(line.get("description") or "Fee"))
+                desc = str(line.get("description") or "Fee")
                 try:
                     line_amt = f"{currency} {Decimal(str(line.get('amount') or 0)):,.2f}"
                 except InvalidOperation:
                     line_amt = str(line.get("amount") or "")
-                rows_html += f'<tr><td>{desc}</td><td class="r">{line_amt}</td></tr>\n'
+                fee_lines.append(row(desc, line_amt))
         else:
+            inv_no = str(alloc.get("invoice_no") or "")
             try:
                 alloc_amt = f"{currency} {Decimal(str(alloc.get('amount') or 0)):,.2f}"
             except InvalidOperation:
                 alloc_amt = str(alloc.get("amount") or "")
             label = f"INV {inv_no}" if inv_no else "Payment"
-            rows_html += f'<tr><td>{label}</td><td class="r">{alloc_amt}</td></tr>\n'
+            fee_lines.append(row(label, alloc_amt))
 
-    html = f"""<!DOCTYPE html>
+    lines: list[str] = []
+    lines.append(centre(school_name))
+    if address:
+        lines.append(centre(address))
+    if phone:
+        lines.append(centre(f"Tel: {phone}"))
+    lines.append(sep())
+    lines.append(centre("PAYMENT RECEIPT"))
+    lines.append(sep())
+    lines.append(row("Receipt#", receipt_no))
+    lines.append(row("Date", date_str))
+    if primary_student:
+        lines.append(row("Student", primary_student))
+    lines.append(sep())
+    lines.extend(fee_lines)
+    lines.append(sep())
+    lines.append(row("TOTAL", amount_fmt))
+    lines.append(sep())
+    if provider:
+        lines.append(row("Method", provider))
+    if reference:
+        lines.append(row("Ref", reference))
+    lines.append(sep())
+    lines.append(centre(footer_msg))
+    lines.append("")  # trailing newline so printer feeds past text
+
+    from html import escape
+    body = escape("\n".join(lines))
+    rno  = escape(receipt_no)
+
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Receipt {receipt_no}</title>
+<title>Receipt {rno}</title>
 <style>
-  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-  @page {{ size: 80mm auto; margin: 3mm 2mm; }}
+  * {{ margin: 0; padding: 0; }}
+  @page {{ size: 80mm auto; margin: 2mm 3mm; }}
   body {{
     font-family: 'Courier New', Courier, monospace;
     font-size: 9pt;
-    width: 72mm;
+    line-height: 1.3;
     color: #000;
+    white-space: pre;
   }}
-  .center {{ text-align: center; }}
-  .bold   {{ font-weight: bold; }}
-  .sep    {{ border-top: 1px dashed #000; margin: 3px 0; }}
-  table   {{ width: 100%; border-collapse: collapse; }}
-  td      {{ padding: 1px 0; vertical-align: top; }}
-  td.r    {{ text-align: right; white-space: nowrap; }}
-  .total  {{ font-weight: bold; border-top: 1px solid #000; padding-top: 2px; }}
-  .small  {{ font-size: 7.5pt; }}
 </style>
 </head>
-<body>
-<p class="center bold" style="font-size:11pt">{school_name}</p>
-{'<p class="center small">' + address + '</p>' if address else ''}
-{'<p class="center small">Tel: ' + phone + '</p>' if phone else ''}
-<div class="sep"></div>
-<p class="center bold">PAYMENT RECEIPT</p>
-<div class="sep"></div>
-<table>
-  <tr><td>Receipt#</td><td class="r bold">{receipt_no}</td></tr>
-  <tr><td>Date</td><td class="r">{date_str}</td></tr>
-  {'<tr><td>Student</td><td class="r">' + primary_student + '</td></tr>' if primary_student else ''}
-</table>
-<div class="sep"></div>
-<table>
-{rows_html}</table>
-<div class="sep"></div>
-<table>
-  <tr class="total"><td>TOTAL</td><td class="r">{amount_fmt}</td></tr>
-</table>
-<div class="sep"></div>
-<table>
-  {'<tr><td>Method</td><td class="r">' + provider + '</td></tr>' if provider else ''}
-  {'<tr><td>Ref</td><td class="r">' + reference + '</td></tr>' if reference else ''}
-</table>
-<div class="sep"></div>
-<p class="center small">{footer_msg}</p>
-<script>
-  window.onload = function() {{
-    window.print();
-    window.onafterprint = function() {{ window.close(); }};
-  }};
+<body>{body}<script>
+window.onload = function() {{
+  window.print();
+  window.onafterprint = function() {{ window.close(); }};
+}};
 </script>
 </body>
 </html>"""
-    return html
 
 
 # ─── Public entrypoint ────────────────────────────────────────────────────────

@@ -811,26 +811,17 @@ def download_payment_thermal(
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
-    """Return an 80 mm thermal PDF inline so the browser opens it ready to print."""
+    """Return a plain-text HTML receipt sized for 80 mm thermal paper that auto-prints."""
     try:
-        from app.utils.receipt_pdf import generate_receipt_pdf
+        from app.utils.receipt_pdf import generate_thermal_html
         payload = service.build_payment_receipt_document(
             db,
             tenant_id=tenant.id,
             payment_id=payment_id,
         )
-        # Force thermal paper size regardless of tenant print profile setting
-        profile = dict(payload.get("profile") or {})
-        profile["paper_size"] = "THERMAL_80MM"
-        payload = {**payload, "profile": profile}
-        pdf = generate_receipt_pdf(payload)
+        html = generate_thermal_html(payload)
         db.commit()
-        filename = f"{payload.get('document_no') or 'receipt'}.pdf"
-        return Response(
-            content=pdf,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{filename}"'},
-        )
+        return Response(content=html, media_type="text/html")
     except ValueError as e:
         db.rollback()
         msg = str(e)
