@@ -10,7 +10,7 @@ export type FinanceSection =
 export type EnrollmentSection = "intake" | "students";
 export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings" | "curriculum" | "admission-number";
 export type StudentSection = "all" | "fee-balance" | "clearance" | "attendance";
-export type HrSection = "staff" | "teachers" | "assets";
+export type HrSection = "staff" | "teachers" | "assets" | "leave" | "payroll";
 export type ExamSection = "setup" | "timetable" | "enter-marks" | "marks-review" | "report-cards";
 export type CbcSection = "assessments" | "curriculum" | "reports";
 export type IgcseSection = "assessments" | "subjects" | "reports";
@@ -322,6 +322,8 @@ export const directorNav: AppNavItem[] = [
       { href: directorHrHref("staff"), label: "Staff Registry", icon: "IdCard" },
       { href: directorHrHref("teachers"), label: "Teacher Assignment", icon: "Presentation" },
       { href: directorHrHref("assets"), label: "School Assets", icon: "Package" },
+      { href: directorHrHref("leave"), label: "Leave Management", icon: "CalendarOff" },
+      { href: directorHrHref("payroll"), label: "Payroll", icon: "BadgeDollarSign" },
     ],
   },
   {
@@ -470,6 +472,7 @@ export const secretaryNav: AppNavItem[] = [
       { href: secretaryHrHref("staff"), label: "Staff Registry", icon: "IdCard" },
       { href: secretaryHrHref("teachers"), label: "Teacher Assignment", icon: "Presentation" },
       { href: secretaryHrHref("assets"), label: "School Assets", icon: "Package" },
+      { href: secretaryHrHref("leave"), label: "Leave Management", icon: "CalendarOff" },
     ],
   },
   {

@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Send,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 
@@ -29,9 +30,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
+import { normalizeClassOptions, type TenantClassOption } from "@/lib/hr";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -231,6 +240,11 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
   const [bcastRecipients, setBcastRecipients] = useState("");
   const [broadcasting, setBroadcasting] = useState(false);
 
+  // Broadcast enhancements: class filter + parent autofill
+  const [classes, setClasses] = useState<TenantClassOption[]>([]);
+  const [selectedClassId, setSelectedClassId] = useState<string>("");
+  const [loadingParents, setLoadingParents] = useState(false);
+
   // Top-up dialog
   const [topupOpen, setTopupOpen] = useState(false);
   const [topupPhone, setTopupPhone] = useState("");
@@ -296,12 +310,44 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
     }
   }, []);
 
+  const fetchClasses = useCallback(async () => {
+    try {
+      const res = await api.get<unknown>("/tenants/classes", { tenantRequired: true });
+      setClasses(normalizeClassOptions(res));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  async function loadParents() {
+    setLoadingParents(true);
+    try {
+      const params = selectedClassId ? `?class_id=${selectedClassId}` : "";
+      const res = await api.get<unknown[]>(`/tenants/sms/recipients${params}`, {
+        tenantRequired: true,
+      });
+      const lines = (Array.isArray(res) ? res : []).map((r) => {
+        const o = r as Record<string, unknown>;
+        const phone = String(o.phone ?? "");
+        const name = String(o.name ?? "").trim();
+        return name ? `${phone} ${name}` : phone;
+      });
+      setBcastRecipients(lines.join("\n"));
+      toast.success(`Loaded ${lines.length} parent(s)`);
+    } catch {
+      toast.error("Failed to load parents");
+    } finally {
+      setLoadingParents(false);
+    }
+  }
+
   useEffect(() => {
     fetchAccount();
     if (section === "history") fetchMessages();
     if (section === "credits") fetchTopupHistory();
     if (section === "templates") fetchTemplates();
-  }, [section, fetchAccount, fetchMessages, fetchTopupHistory, fetchTemplates]);
+    if (section === "broadcast") { fetchClasses(); fetchTemplates(); }
+  }, [section, fetchAccount, fetchMessages, fetchTopupHistory, fetchTemplates, fetchClasses]);
 
   // ── Top-up polling ─────────────────────────────────────────────────────────
 
@@ -629,7 +675,44 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
   );
 
   const renderBroadcastPanel = () => (
-    <div className="max-w-2xl">
+    <div className="max-w-2xl space-y-4">
+      {/* Parent phone autofill */}
+      <div className="rounded-lg border bg-white p-4 shadow-sm">
+        <p className="mb-3 text-sm font-medium text-gray-700">Load parents automatically</p>
+        <div className="flex items-center gap-2">
+          <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="All classes" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All classes</SelectItem>
+              {classes.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={loadParents}
+            disabled={loadingParents}
+            className="gap-2"
+          >
+            {loadingParents ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Users className="h-4 w-4" />
+            )}
+            Load Parents
+          </Button>
+          <p className="text-xs text-gray-400">
+            Loads parent phone numbers{selectedClassId ? " for selected class" : " for all classes"}
+          </p>
+        </div>
+      </div>
+
       <div className="rounded-lg border bg-white p-6 shadow-sm">
         <h3 className="mb-1 font-semibold text-gray-800">Broadcast SMS</h3>
         <p className="mb-4 text-sm text-gray-500">
@@ -651,7 +734,29 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
             </p>
           </div>
           <div>
-            <Label>Message</Label>
+            <div className="mb-1.5 flex items-center justify-between">
+              <Label>Message</Label>
+              {templates.length > 0 && (
+                <Select
+                  value=""
+                  onValueChange={(id) => {
+                    const tmpl = templates.find((t) => t.id === id);
+                    if (tmpl) setBcastBody(tmpl.body);
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-48 text-xs">
+                    <SelectValue placeholder="Use template…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((t) => (
+                      <SelectItem key={t.id} value={t.id} className="text-xs">
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
             <Textarea
               placeholder="Type your message…"
               rows={4}
