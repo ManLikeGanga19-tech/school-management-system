@@ -14,6 +14,12 @@ from app.api.v1.students.routes import router as students_router
 from app.api.v1.attendance.routes import router as attendance_router
 from app.api.v1.reports.routes import router as reports_router
 from app.api.v1.cbc.routes import router as cbc_router
+from app.api.v1.igcse.routes import router as igcse_router
+from app.api.v1.discipline.routes import router as discipline_router
+from app.api.v1.discipline.routes import students_router as discipline_students_router
+from app.api.v1.sms.routes import router as sms_router
+from app.api.v1.sms.routes import admin_router as sms_admin_router
+from app.api.v1.hr.routes import router as hr_router
 
 api_router = APIRouter()
 
@@ -51,3 +57,18 @@ api_router.include_router(reports_router, prefix="/reports", tags=["reports"])
 
 # CBC Assessments (Phase 3B)
 api_router.include_router(cbc_router, prefix="/cbc", tags=["cbc"])
+
+# IGCSE Assessments
+api_router.include_router(igcse_router, prefix="/igcse", tags=["igcse"])
+
+# Discipline (Phase 4)
+api_router.include_router(discipline_router, prefix="/discipline", tags=["discipline"])
+api_router.include_router(discipline_students_router, prefix="/students", tags=["students"])
+
+# SMS Communications (Phase 5)
+api_router.include_router(sms_router, prefix="/sms", tags=["sms"])
+api_router.include_router(sms_admin_router, prefix="/admin/sms", tags=["admin-sms"])
+
+# HR Module (Phase 6) — leave, payroll, SMS recipients
+api_router.include_router(hr_router, prefix="/tenants", tags=["hr"])
+api_router.include_router(hr_router, prefix="/tenant", tags=["hr-compat"])

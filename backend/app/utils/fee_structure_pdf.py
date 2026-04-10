@@ -89,6 +89,19 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
     # Usable width
     UW = W - ML - MR
 
+    # Brand color from data (fallback to default blue)
+    _hex = str(data.get("brand_color") or "#174E87").lstrip("#")
+    try:
+        _br = int(_hex[0:2], 16) / 255
+        _bg = int(_hex[2:4], 16) / 255
+        _bb = int(_hex[4:6], 16) / 255
+    except (ValueError, IndexError):
+        _br, _bg, _bb = 0.09, 0.38, 0.65
+    # Light tint for section headers
+    _lr = min(1.0, 1 - (1 - _br) * 0.12)
+    _lg = min(1.0, 1 - (1 - _bg) * 0.12)
+    _lb = min(1.0, 1 - (1 - _bb) * 0.12)
+
     stream_lines: list[str] = []
 
     def txt(x: float, y: float, text: str, size: int = 10, bold: bool = False) -> None:
@@ -104,12 +117,14 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
         )
 
     def section_header_bar(y_top: float, label: str) -> float:
-        """Draw a light-blue section header bar. Returns new y after bar."""
+        """Draw a branded section header bar. Returns new y after bar."""
         bar_h = 18.0
-        colored_rect(ML, y_top - bar_h, UW, bar_h, 0.86, 0.92, 0.98)
+        colored_rect(ML, y_top - bar_h, UW, bar_h, _lr, _lg, _lb)
         rule(ML, y_top, ML + UW, y_top, w=0.5)
         rule(ML, y_top - bar_h, ML + UW, y_top - bar_h, w=0.5)
+        stream_lines.append(f"{_br:.3f} {_bg:.3f} {_bb:.3f} rg")
         txt(ML + 6, y_top - 13, label, size=10, bold=True)
+        stream_lines.append("0 0 0 rg")
         return y_top - bar_h - 14
 
     # ── Extract data ──────────────────────────────────────────────────────────
@@ -131,7 +146,7 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
     # ── Header banner ─────────────────────────────────────────────────────────
     y = H - MT
     header_h = 66.0
-    colored_rect(ML, y - header_h, UW, header_h, 0.09, 0.38, 0.65)
+    colored_rect(ML, y - header_h, UW, header_h, _br, _bg, _bb)
     stream_lines.append("1 1 1 rg")
 
     # Left: school identity

@@ -21,6 +21,8 @@ class ScholarshipAllocation(Base):
         ForeignKey("core.enrollments.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Denormalized student_id for fast listing (may be null for legacy records)
+    student_id = Column(UUID(as_uuid=True), nullable=True)
     invoice_id = Column(
         UUID(as_uuid=True),
         ForeignKey("core.invoices.id", ondelete="SET NULL"),

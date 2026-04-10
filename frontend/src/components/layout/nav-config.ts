@@ -8,11 +8,14 @@ export type FinanceSection =
   | "receipts"
   | "scan-receipt";
 export type EnrollmentSection = "intake" | "students";
-export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings" | "curriculum";
+export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings" | "curriculum" | "admission-number";
 export type StudentSection = "all" | "fee-balance" | "clearance" | "attendance";
-export type HrSection = "staff" | "teachers" | "assets";
+export type HrSection = "staff" | "teachers" | "assets" | "leave" | "payroll";
 export type ExamSection = "setup" | "timetable" | "enter-marks" | "marks-review" | "report-cards";
 export type CbcSection = "assessments" | "curriculum" | "reports";
+export type IgcseSection = "assessments" | "subjects" | "reports";
+export type DisciplineSection = "incidents" | "new";
+export type SmsSection = "send" | "broadcast" | "history" | "templates" | "credits";
 
 // ───────────────────────────────────────────────────────────────
 // Director (App Router) paths: /tenant/director/*
@@ -60,6 +63,18 @@ export function directorEventsHref() {
 
 export function directorCbcHref(section: CbcSection = "assessments") {
   return `/tenant/director/cbc?section=${section}`;
+}
+
+export function directorIgcseHref(section: IgcseSection = "assessments") {
+  return `/tenant/director/igcse?section=${section}`;
+}
+
+export function directorDisciplineHref(section: DisciplineSection = "incidents") {
+  return `/tenant/director/discipline?section=${section}`;
+}
+
+export function directorSmsHref(section: SmsSection = "send") {
+  return `/tenant/director/messages?section=${section}`;
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -110,6 +125,18 @@ export function secretaryCbcHref(section: CbcSection = "assessments") {
   return `/tenant/secretary/cbc?section=${section}`;
 }
 
+export function secretaryIgcseHref(section: IgcseSection = "assessments") {
+  return `/tenant/secretary/igcse?section=${section}`;
+}
+
+export function secretaryDisciplineHref(section: DisciplineSection = "incidents") {
+  return `/tenant/secretary/discipline?section=${section}`;
+}
+
+export function secretarySmsHref(section: SmsSection = "send") {
+  return `/tenant/secretary/messages?section=${section}`;
+}
+
 // ───────────────────────────────────────────────────────────────
 // Principal paths under /tenant/principal/*
 // ───────────────────────────────────────────────────────────────
@@ -157,6 +184,7 @@ export const saasNav: AppNavItem[] = [
   { href: "/saas/rbac/roles", label: "Roles", icon: "Layers" },
   { href: "/saas/audit", label: "Audit Logs", icon: "ScrollText" },
   { href: "/saas/verify-receipt", label: "Verify Receipt", icon: "ShieldCheck" },
+  { href: "/saas/sms", label: "SMS Credits", icon: "MessageSquare" },
 ];
 
 export const directorNav: AppNavItem[] = [
@@ -214,6 +242,7 @@ export const directorNav: AppNavItem[] = [
     href: directorExamsHref("setup"),
     label: "Exams",
     icon: "CalendarDays",
+    curriculumGate: ["8-4-4"],
     children: [
       { href: directorExamsHref("setup"), label: "Exam Setup", icon: "FileSpreadsheet" },
       { href: directorExamsHref("timetable"), label: "Exam Timetable", icon: "CalendarDays" },
@@ -226,6 +255,7 @@ export const directorNav: AppNavItem[] = [
     href: directorCbcHref("assessments"),
     label: "CBC",
     icon: "BookOpenCheck",
+    curriculumGate: ["CBC"],
     children: [
       { href: directorCbcHref("assessments"), label: "Assessments", icon: "ClipboardList" },
       { href: directorCbcHref("curriculum"),  label: "Curriculum", icon: "BookOpenText" },
@@ -233,9 +263,41 @@ export const directorNav: AppNavItem[] = [
     ],
   },
   {
+    href: directorIgcseHref("assessments"),
+    label: "IGCSE",
+    icon: "BookOpenCheck",
+    curriculumGate: ["IGCSE"],
+    children: [
+      { href: directorIgcseHref("assessments"), label: "Assessments", icon: "ClipboardList" },
+      { href: directorIgcseHref("subjects"),    label: "Subjects", icon: "BookOpenText" },
+      { href: directorIgcseHref("reports"),     label: "Progress Reports", icon: "FileBarChart" },
+    ],
+  },
+  {
+    href: directorDisciplineHref("incidents"),
+    label: "Discipline",
+    icon: "Shield",
+    children: [
+      { href: directorDisciplineHref("incidents"), label: "Incidents", icon: "ClipboardList" },
+      { href: directorDisciplineHref("new"), label: "New Incident", icon: "Plus" },
+    ],
+  },
+  {
     href: directorEventsHref(),
     label: "Events",
     icon: "CalendarDays",
+  },
+  {
+    href: directorSmsHref("send"),
+    label: "Messages",
+    icon: "MessageSquare",
+    children: [
+      { href: directorSmsHref("send"),      label: "Send Message",    icon: "Send" },
+      { href: directorSmsHref("broadcast"), label: "Broadcast",       icon: "Megaphone" },
+      { href: directorSmsHref("history"),   label: "Message History", icon: "History" },
+      { href: directorSmsHref("templates"), label: "Templates",       icon: "FileText" },
+      { href: directorSmsHref("credits"),   label: "Buy Credits",     icon: "Coins" },
+    ],
   },
   {
     href: directorSchoolSetupHref("terms"),
@@ -249,6 +311,7 @@ export const directorNav: AppNavItem[] = [
       { href: directorSchoolSetupHref("timetable"), label: "School Timetable", icon: "CalendarDays" },
       { href: directorSchoolSetupHref("calendar"), label: "Calendar & Exams", icon: "CalendarDays" },
       { href: directorSchoolSetupHref("print-settings"), label: "Print Settings", icon: "Printer" },
+      { href: directorSchoolSetupHref("admission-number"), label: "Admission Number Counter", icon: "Hash" },
     ],
   },
   {
@@ -259,6 +322,8 @@ export const directorNav: AppNavItem[] = [
       { href: directorHrHref("staff"), label: "Staff Registry", icon: "IdCard" },
       { href: directorHrHref("teachers"), label: "Teacher Assignment", icon: "Presentation" },
       { href: directorHrHref("assets"), label: "School Assets", icon: "Package" },
+      { href: directorHrHref("leave"), label: "Leave Management", icon: "CalendarOff" },
+      { href: directorHrHref("payroll"), label: "Payroll", icon: "BadgeDollarSign" },
     ],
   },
   {
@@ -328,6 +393,7 @@ export const secretaryNav: AppNavItem[] = [
     href: secretaryExamsHref("setup"),
     label: "Exams",
     icon: "CalendarDays",
+    curriculumGate: ["8-4-4"],
     children: [
       { href: secretaryExamsHref("setup"), label: "Exam Setup", icon: "FileSpreadsheet" },
       { href: secretaryExamsHref("timetable"), label: "Exam Timetable", icon: "CalendarDays" },
@@ -340,6 +406,7 @@ export const secretaryNav: AppNavItem[] = [
     href: secretaryCbcHref("assessments"),
     label: "CBC",
     icon: "BookOpenCheck",
+    curriculumGate: ["CBC"],
     children: [
       { href: secretaryCbcHref("assessments"), label: "Assessments", icon: "ClipboardList" },
       { href: secretaryCbcHref("curriculum"),  label: "Curriculum", icon: "BookOpenText" },
@@ -347,9 +414,41 @@ export const secretaryNav: AppNavItem[] = [
     ],
   },
   {
+    href: secretaryIgcseHref("assessments"),
+    label: "IGCSE",
+    icon: "BookOpenCheck",
+    curriculumGate: ["IGCSE"],
+    children: [
+      { href: secretaryIgcseHref("assessments"), label: "Assessments", icon: "ClipboardList" },
+      { href: secretaryIgcseHref("subjects"),    label: "Subjects", icon: "BookOpenText" },
+      { href: secretaryIgcseHref("reports"),     label: "Progress Reports", icon: "FileBarChart" },
+    ],
+  },
+  {
+    href: secretaryDisciplineHref("incidents"),
+    label: "Discipline",
+    icon: "Shield",
+    children: [
+      { href: secretaryDisciplineHref("incidents"), label: "Incidents", icon: "ClipboardList" },
+      { href: secretaryDisciplineHref("new"), label: "New Incident", icon: "Plus" },
+    ],
+  },
+  {
     href: secretaryEventsHref(),
     label: "Events",
     icon: "CalendarDays",
+  },
+  {
+    href: secretarySmsHref("send"),
+    label: "Messages",
+    icon: "MessageSquare",
+    children: [
+      { href: secretarySmsHref("send"),      label: "Send Message",    icon: "Send" },
+      { href: secretarySmsHref("broadcast"), label: "Broadcast",       icon: "Megaphone" },
+      { href: secretarySmsHref("history"),   label: "Message History", icon: "History" },
+      { href: secretarySmsHref("templates"), label: "Templates",       icon: "FileText" },
+      { href: secretarySmsHref("credits"),   label: "Buy Credits",     icon: "Coins" },
+    ],
   },
   {
     href: secretarySchoolSetupHref("terms"),
@@ -362,6 +461,7 @@ export const secretaryNav: AppNavItem[] = [
       { href: secretarySchoolSetupHref("subjects"), label: "Subjects", icon: "BookOpenText" },
       { href: secretarySchoolSetupHref("timetable"), label: "School Timetable", icon: "CalendarDays" },
       { href: secretarySchoolSetupHref("calendar"), label: "Calendar & Exams", icon: "CalendarDays" },
+      { href: secretarySchoolSetupHref("admission-number"), label: "Admission Number Counter", icon: "Hash" },
     ],
   },
   {
@@ -372,6 +472,7 @@ export const secretaryNav: AppNavItem[] = [
       { href: secretaryHrHref("staff"), label: "Staff Registry", icon: "IdCard" },
       { href: secretaryHrHref("teachers"), label: "Teacher Assignment", icon: "Presentation" },
       { href: secretaryHrHref("assets"), label: "School Assets", icon: "Package" },
+      { href: secretaryHrHref("leave"), label: "Leave Management", icon: "CalendarOff" },
     ],
   },
   {

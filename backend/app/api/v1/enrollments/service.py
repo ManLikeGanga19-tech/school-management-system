@@ -32,6 +32,20 @@ _ADM_PREFIX = "ADM-"
 _ADM_PATTERN = re.compile(r"^(?:ADM-)?(\d+)$", re.IGNORECASE)
 
 
+def _get_admission_settings(db: Session, *, tenant_id: UUID) -> tuple[str, int]:
+    """Return (prefix, last_number) from tenant_admission_settings. Defaults to ('ADM-', 0)."""
+    row = db.execute(
+        sa.text(
+            "SELECT prefix, last_number FROM core.tenant_admission_settings "
+            "WHERE tenant_id = :tid LIMIT 1"
+        ),
+        {"tid": str(tenant_id)},
+    ).mappings().first()
+    if row:
+        return str(row["prefix"] or "ADM-"), int(row["last_number"] or 0)
+    return "ADM-", 0
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -45,10 +59,16 @@ def _require_payload_fields(enrollment: Enrollment, fields: list[str]) -> None:
 
 def _next_admission_number(db: Session, *, tenant_id: UUID) -> str:
     """
-    Derive the next ADM-XXXX number for a tenant by scanning existing
-    admission_number values via a DB query (safe for concurrent requests
-    within a normal HTTP request/commit cycle).
+    Generate the next admission number for a tenant using the configured
+    prefix and last_number from tenant_admission_settings.
+
+    Falls back to scanning existing enrollment admission numbers if no
+    settings row exists yet, so existing tenants are not disrupted.
     """
+    prefix, configured_last = _get_admission_settings(db, tenant_id=tenant_id)
+
+    # Scan existing enrollment numbers to find the actual highest issued.
+    # This guards against DB inconsistency (e.g. manual imports).
     rows: list[str] = []
     try:
         rows = [
@@ -76,9 +96,6 @@ def _next_admission_number(db: Session, *, tenant_id: UUID) -> str:
         )
         if not missing_adm_col:
             raise
-
-        # Compatibility fallback for environments where admission_number
-        # has not been promoted to a dedicated column yet.
         db.rollback()
         rows = [
             str(v or "")
@@ -94,21 +111,198 @@ def _next_admission_number(db: Session, *, tenant_id: UUID) -> str:
             ).scalars().all()
         ]
 
-    highest = 0
+    # Build a pattern that strips the configured prefix before extracting digits.
+    escaped_prefix = re.escape(prefix)
+    pattern = re.compile(rf"^(?:{escaped_prefix})?(\d+)$", re.IGNORECASE)
+
+    highest = configured_last
     for raw in rows:
-        m = _ADM_PATTERN.match(raw or "")
+        m = pattern.match(raw or "")
         if m:
             n = int(m.group(1))
             if n > highest:
                 highest = n
 
-    return f"{_ADM_PREFIX}{highest + 1:04d}"
+    next_num = highest + 1
+    # Format: plain number if prefix is empty, otherwise prefix + zero-padded 4-digit
+    if not prefix:
+        return str(next_num)
+    return f"{prefix}{next_num:04d}"
 
 
 def _clean_create_payload(payload: dict) -> dict:
     """Strip internal directive keys that must not be stored in JSONB."""
     private_keys = {"_fee_structure_id", "_fee_structure_code"}
     return {k: v for k, v in payload.items() if k not in private_keys}
+
+
+def _find_returning_fee_structure(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    class_code: str,
+):
+    """
+    Find the most recent active RETURNING fee structure for a class.
+    Returns None if no structure exists (enrollment still created; fee can be
+    attached manually later by the secretary).
+    """
+    from app.models.fee_structure import FeeStructure
+
+    return db.execute(
+        select(FeeStructure)
+        .where(
+            FeeStructure.tenant_id == tenant_id,
+            FeeStructure.class_code == class_code,
+            FeeStructure.student_type == "RETURNING",
+            FeeStructure.is_active == True,
+        )
+        .order_by(FeeStructure.academic_year.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _create_student_for_existing_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    enrollment: Enrollment,
+    admission_no: str,
+) -> None:
+    """
+    Create a core.students record for an EXISTING_STUDENT enrollment and
+    link it back to the enrollment.  Skips silently if a student with the
+    same admission_no already exists for this tenant.
+    """
+    # Avoid creating a duplicate if admission_no already exists.
+    existing = db.execute(
+        sa.text(
+            "SELECT id FROM core.students "
+            "WHERE tenant_id = :tid AND admission_no = :adm LIMIT 1"
+        ),
+        {"tid": str(tenant_id), "adm": admission_no},
+    ).mappings().first()
+
+    if existing:
+        enrollment.student_id = existing["id"]
+        db.flush()
+        return
+
+    payload = enrollment.payload or {}
+    full_name = str(payload.get("student_name") or "").strip()
+    parts = full_name.split(None, 1)
+    first_name = parts[0] if parts else "Unknown"
+    last_name = parts[1] if len(parts) > 1 else ""
+
+    import datetime
+    admission_year = datetime.date.today().year
+
+    # Derive admission_year from the free-text admission_term if possible
+    term_label = str(payload.get("admission_term") or "")
+    for token in term_label.split():
+        if token.isdigit() and 1990 <= int(token) <= 2100:
+            admission_year = int(token)
+            break
+
+    gender = str(payload.get("gender") or "").strip().upper() or None
+    dob_raw = str(payload.get("date_of_birth") or "").strip() or None
+    previous_school = str(payload.get("previous_school") or "").strip() or None
+
+    student_id = db.execute(
+        sa.text(
+            """
+            INSERT INTO core.students
+                (tenant_id, admission_no, first_name, last_name,
+                 gender, date_of_birth, previous_school,
+                 admission_year, status)
+            VALUES
+                (:tid, :adm, :fn, :ln, :gender, :dob, :prev_school,
+                 :adm_year, 'ACTIVE')
+            RETURNING id
+            """
+        ),
+        {
+            "tid": str(tenant_id),
+            "adm": admission_no,
+            "fn": first_name,
+            "ln": last_name,
+            "gender": gender,
+            "dob": dob_raw,
+            "prev_school": previous_school,
+            "adm_year": admission_year,
+        },
+    ).scalar_one()
+
+    enrollment.student_id = student_id
+    db.flush()
+
+    # Seed guardian from payload (guardian_name / guardian_phone / guardian_email)
+    guardian_full = str(payload.get("guardian_name") or "").strip()
+    guardian_phone = str(payload.get("guardian_phone") or "").strip() or None
+    guardian_email = str(payload.get("guardian_email") or "").strip() or None
+
+    if guardian_full:
+        g_parts = guardian_full.split(None, 1)
+        g_first = g_parts[0]
+        g_last = g_parts[1] if len(g_parts) > 1 else ""
+
+        parent_id = db.execute(
+            sa.text(
+                """
+                INSERT INTO core.parents
+                    (tenant_id, first_name, last_name, phone, email, is_active)
+                VALUES
+                    (:tid, :fn, :ln, :phone, :email, true)
+                RETURNING id
+                """
+            ),
+            {
+                "tid": str(tenant_id),
+                "fn": g_first,
+                "ln": g_last,
+                "phone": guardian_phone,
+                "email": guardian_email,
+            },
+        ).scalar_one()
+
+        db.execute(
+            sa.text(
+                """
+                INSERT INTO core.parent_students
+                    (tenant_id, parent_id, student_id, relationship, is_active)
+                VALUES
+                    (:tid, :parent_id, :student_id, 'GUARDIAN', true)
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {
+                "tid": str(tenant_id),
+                "parent_id": str(parent_id),
+                "student_id": str(student_id),
+            },
+        )
+
+        # Also seed as emergency contact so the emergency contact tab has data
+        if guardian_phone:
+            db.execute(
+                sa.text(
+                    """
+                    INSERT INTO core.student_emergency_contacts
+                        (tenant_id, student_id, name, relationship, phone, email, is_primary)
+                    VALUES
+                        (:tid, :student_id, :name, 'GUARDIAN', :phone, :email, true)
+                    """
+                ),
+                {
+                    "tid": str(tenant_id),
+                    "student_id": str(student_id),
+                    "name": guardian_full,
+                    "phone": guardian_phone,
+                    "email": guardian_email,
+                },
+            )
+
+    db.flush()
 
 
 def _load_admission_number_map(
@@ -183,18 +377,39 @@ def create_enrollment(
     fee_structure_id: str | None = (
         payload.get("_fee_structure_id") or payload.get("fee_structure_id")
     )
+    is_existing_student = (
+        str(payload.get("enrollment_source", "")).upper() == "EXISTING_STUDENT"
+    )
     clean_payload = _clean_create_payload(payload)
+
+    # Existing students skip the interview/approval pipeline — they are already
+    # enrolled; we just need to register them and attach the right fee structure.
+    initial_status = "ENROLLED" if is_existing_student else "DRAFT"
 
     row = Enrollment(
         tenant_id=tenant_id,
         payload=clean_payload,
-        status="DRAFT",
+        status=initial_status,
         created_by=actor_user_id,
         updated_by=actor_user_id,
     )
     db.add(row)
     db.flush()
 
+    # For existing students: assign an admission number and create the SIS
+    # student record immediately so the profile and carry-forward features work.
+    if is_existing_student:
+        adm_no = str(clean_payload.get("admission_number") or "").strip()
+        if not adm_no:
+            adm_no = _next_admission_number(db, tenant_id=tenant_id)
+        row.admission_number = adm_no
+        row.payload = {**clean_payload, "admission_number": adm_no}
+        db.flush()
+        _create_student_for_existing_enrollment(
+            db, tenant_id=tenant_id, enrollment=row, admission_no=adm_no
+        )
+
+    # Attach an explicit fee structure if one was provided.
     if fee_structure_id:
         finance_service.assign_fee_structure_to_enrollment(
             db,
@@ -204,6 +419,23 @@ def create_enrollment(
             fee_structure_id=UUID(str(fee_structure_id)),
             generate_invoice=False,
         )
+    elif is_existing_student:
+        # Auto-find the RETURNING fee structure for this class (most recent
+        # active academic year) so the secretary can immediately manage fees.
+        class_code = str(clean_payload.get("admission_class") or "").strip().upper()
+        if class_code:
+            returning_structure = _find_returning_fee_structure(
+                db, tenant_id=tenant_id, class_code=class_code
+            )
+            if returning_structure is not None:
+                finance_service.assign_fee_structure_to_enrollment(
+                    db,
+                    tenant_id=tenant_id,
+                    actor_user_id=actor_user_id,
+                    enrollment_id=row.id,
+                    fee_structure_id=returning_structure.id,
+                    generate_invoice=False,
+                )
 
     log_event(
         db,
@@ -679,6 +911,12 @@ def mark_enrolled(
     enrollment.updated_by = actor_user_id
     db.flush()
 
+    # Create SIS student record so the profile page and carry-forward work.
+    if not getattr(enrollment, "student_id", None):
+        _create_student_for_existing_enrollment(
+            db, tenant_id=tenant_id, enrollment=enrollment, admission_no=admission_number
+        )
+
     log_event(
         db, tenant_id=tenant_id, actor_user_id=actor_user_id,
         action="enrollment.enroll", resource="enrollment",
@@ -715,6 +953,99 @@ def request_transfer(
         payload={"status": enrollment.status}, meta=None,
     )
     return enrollment
+
+
+def delete_enrollment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    enrollment: Enrollment,
+) -> dict:
+    """
+    Permanently delete an enrollment application and any finance records linked to it.
+    Only allowed for non-enrolled applications (DRAFT, SUBMITTED, APPROVED, REJECTED,
+    TRANSFER_REQUESTED, TRANSFERRED). Enrolled students must be hard-deleted via the
+    students.hard_delete route which handles the full teardown.
+    """
+    _BLOCKED = frozenset({"ENROLLED", "ENROLLED_PARTIAL"})
+    if enrollment.status in _BLOCKED:
+        raise ValueError(
+            f"Cannot delete an active enrollment (status: {enrollment.status}). "
+            "Use the student hard-delete instead."
+        )
+
+    tid_str = str(tenant_id)
+    eid_str = str(enrollment.id)
+    counts: dict[str, int] = {}
+
+    # Collect invoices for this enrollment
+    invoice_rows = db.execute(
+        sa.text(
+            "SELECT id FROM core.invoices WHERE enrollment_id = :eid AND tenant_id = :tid"
+        ),
+        {"eid": eid_str, "tid": tid_str},
+    ).mappings().all()
+    invoice_ids = [str(r["id"]) for r in invoice_rows]
+
+    if invoice_ids:
+        from app.api.v1.discipline.service import _safe_uuid_list
+        iids_sql = _safe_uuid_list(invoice_ids)
+
+        # Collect payments exclusively covering these invoices
+        payment_rows = db.execute(
+            sa.text(
+                f"""
+                SELECT pa.payment_id
+                FROM core.payment_allocations pa
+                WHERE pa.invoice_id IN ({iids_sql})
+                GROUP BY pa.payment_id
+                HAVING COUNT(*) = (
+                    SELECT COUNT(*) FROM core.payment_allocations pa2
+                    WHERE pa2.payment_id = pa.payment_id
+                )
+                """
+            ),
+        ).mappings().all()
+        payment_ids = [str(r["payment_id"]) for r in payment_rows]
+
+        # Teardown finance chain
+        r = db.execute(sa.text(f"DELETE FROM core.payment_allocations WHERE invoice_id IN ({iids_sql})"))
+        counts["payment_allocations"] = r.rowcount
+
+        if payment_ids:
+            pids_sql = _safe_uuid_list(payment_ids)
+            r = db.execute(
+                sa.text(f"DELETE FROM core.payments WHERE id IN ({pids_sql}) AND tenant_id = :tid"),
+                {"tid": tid_str},
+            )
+            counts["payments"] = r.rowcount
+
+        r = db.execute(sa.text(f"DELETE FROM core.invoice_lines WHERE invoice_id IN ({iids_sql})"))
+        counts["invoice_lines"] = r.rowcount
+
+        r = db.execute(
+            sa.text(f"DELETE FROM core.invoices WHERE id IN ({iids_sql}) AND tenant_id = :tid"),
+            {"tid": tid_str},
+        )
+        counts["invoices"] = r.rowcount
+
+    # Delete the enrollment itself
+    db.execute(
+        sa.text("DELETE FROM core.enrollments WHERE id = :eid AND tenant_id = :tid"),
+        {"eid": eid_str, "tid": tid_str},
+    )
+    counts["enrollment"] = 1
+
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="enrollment.delete", resource="enrollment",
+        resource_id=enrollment.id,
+        payload={"status": enrollment.status, "records_removed": counts}, meta=None,
+    )
+
+    db.flush()
+    return {"ok": True, "records_removed": counts}
 
 
 def approve_transfer(

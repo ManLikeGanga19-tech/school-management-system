@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Numeric, UniqueConstraint, text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Numeric, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -18,6 +18,13 @@ class Scholarship(Base):
     name = Column(String(160), nullable=False)
     type = Column(String(20), nullable=False)  # PERCENT|FIXED
     value = Column(Numeric(12, 2), nullable=False)
+
+    # If set, the scholarship pool is divided equally among this many students.
+    # Per-student amount = value / max_recipients (FIXED type only).
+    # NULL means the full value/percentage applies to each student independently.
+    max_recipients = Column(Integer, nullable=True)
+
+    description = Column(String(500), nullable=True)
 
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
 

@@ -416,7 +416,7 @@ def get_learner_report(
     term_id: UUID,
 ) -> dict[str, Any]:
     """Build a structured report dict for the learner PDF/JSON report."""
-    # Enrollment + student info
+    # Enrollment + student info + term academic year
     row = db.execute(
         sa.text(
             """
@@ -425,8 +425,13 @@ def get_learner_report(
                 sce.student_id,
                 s.first_name || ' ' || s.last_name AS student_name,
                 s.admission_no,
+                s.gender,
+                TO_CHAR(s.date_of_birth, 'DD/MM/YYYY') AS date_of_birth,
                 tc.name         AS class_name,
-                tt.name         AS term_name
+                tc.code         AS class_code,
+                tt.name         AS term_name,
+                tt.start_date   AS term_start_date,
+                EXTRACT(YEAR FROM tt.start_date)::text AS academic_year
             FROM core.student_class_enrollments sce
             JOIN core.students s          ON s.id = sce.student_id
             JOIN core.tenant_classes tc   ON tc.id = sce.class_id
@@ -438,6 +443,41 @@ def get_learner_report(
     ).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Enrollment not found")
+
+    # Remarks (class teacher comment, principal comment, conduct, next_term_begins)
+    remarks_row = db.execute(
+        sa.text(
+            """
+            SELECT class_teacher_comment, principal_comment, conduct,
+                   TO_CHAR(next_term_begins, 'DD MMM YYYY') AS next_term_begins
+            FROM core.term_report_remarks
+            WHERE tenant_id = :tid
+              AND student_enrollment_id = :eid
+              AND term_id = :trid
+            LIMIT 1
+            """
+        ),
+        {"tid": str(tenant_id), "eid": str(enrollment_id), "trid": str(term_id)},
+    ).mappings().first()
+
+    # Auto-fill next_term_begins from the next sequential term if not in remarks
+    next_term_begins = remarks_row["next_term_begins"] if remarks_row else None
+    if not next_term_begins and row["term_start_date"]:
+        next_term_row = db.execute(
+            sa.text(
+                """
+                SELECT TO_CHAR(start_date, 'DD MMM YYYY') AS start_date
+                FROM core.tenant_terms
+                WHERE tenant_id = :tid
+                  AND start_date > :cur_start
+                ORDER BY start_date ASC
+                LIMIT 1
+                """
+            ),
+            {"tid": str(tenant_id), "cur_start": row["term_start_date"]},
+        ).mappings().first()
+        if next_term_row:
+            next_term_begins = next_term_row["start_date"]
 
     # All assessments for this enrollment + term
     assessments = db.execute(
@@ -508,8 +548,16 @@ def get_learner_report(
         "student_id": row["student_id"],
         "student_name": row["student_name"],
         "admission_no": row["admission_no"],
+        "gender": row["gender"] or "",
+        "date_of_birth": row["date_of_birth"] or "",
         "class_name": row["class_name"],
+        "class_code": row["class_code"],
         "term_name": row["term_name"],
+        "academic_year": row["academic_year"] or "",
+        "class_teacher_comment": (remarks_row["class_teacher_comment"] if remarks_row else None) or "",
+        "principal_comment": (remarks_row["principal_comment"] if remarks_row else None) or "",
+        "conduct": (remarks_row["conduct"] if remarks_row else None) or "",
+        "next_term_begins": next_term_begins or "",
         "learning_areas": learning_areas,
     }
 

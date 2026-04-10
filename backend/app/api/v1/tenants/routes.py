@@ -1100,11 +1100,14 @@ def _serialize_scholarship(row: Any, *, allocated_amount: Decimal | None = None)
     total = Decimal(getattr(row, "value", 0) or 0)
     allocated = Decimal(allocated_amount or 0)
     remaining = max(Decimal("0"), total - allocated)
+    max_rec = getattr(row, "max_recipients", None)
     return {
         "id": str(getattr(row, "id")),
         "name": str(getattr(row, "name", "") or ""),
         "type": str(getattr(row, "type", "") or ""),
         "value": str(total),
+        "max_recipients": int(max_rec) if max_rec is not None else None,
+        "description": str(getattr(row, "description", "") or "") or None,
         "allocated_amount": str(allocated),
         "remaining_amount": str(remaining),
         "is_active": bool(getattr(row, "is_active", True)),
@@ -3416,6 +3419,146 @@ def tenant_update_print_profile(
     return _tenant_print_profile_to_out(tenant=tenant, row=row)
 
 
+@router.get("/admission-settings")
+def get_admission_settings(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Return the tenant's admission number configuration."""
+    row = db.execute(
+        sa.text(
+            "SELECT prefix, last_number FROM core.tenant_admission_settings "
+            "WHERE tenant_id = :tid LIMIT 1"
+        ),
+        {"tid": str(tenant.id)},
+    ).mappings().first()
+    if row:
+        return {"prefix": str(row["prefix"] or "ADM-"), "last_number": int(row["last_number"] or 0)}
+    return {"prefix": "ADM-", "last_number": 0}
+
+
+@router.get("/branding")
+def get_branding(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Return school branding and contact info used in all PDF documents."""
+    row = db.execute(
+        sa.text(
+            "SELECT name, brand_color, school_address, school_phone, school_email, curriculum_type "
+            "FROM core.tenants WHERE id = :tid LIMIT 1"
+        ),
+        {"tid": str(tenant.id)},
+    ).mappings().first()
+    if not row:
+        return {"school_name": str(tenant.name), "brand_color": "#1A3C6B",
+                "school_address": "", "school_phone": "", "school_email": "",
+                "curriculum_type": "CBC"}
+    return {
+        "school_name": str(row["name"] or ""),
+        "brand_color": str(row["brand_color"] or "#1A3C6B"),
+        "school_address": str(row["school_address"] or ""),
+        "school_phone": str(row["school_phone"] or ""),
+        "school_email": str(row["school_email"] or ""),
+        "curriculum_type": str(row["curriculum_type"] or "CBC"),
+    }
+
+
+@router.patch("/branding")
+def update_branding(
+    body: dict,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Update school branding and contact details. Director-only."""
+    if not _is_director_context(request):
+        raise HTTPException(status_code=403, detail="Only directors may update school branding.")
+
+    import re as _re
+    brand_color = str(body.get("brand_color") or "").strip()
+    if brand_color and not _re.match(r"^#[0-9A-Fa-f]{6}$", brand_color):
+        raise HTTPException(status_code=400, detail="brand_color must be a 6-digit hex colour, e.g. #1A3C6B")
+
+    school_address = str(body.get("school_address") or "").strip() or None
+    school_phone = str(body.get("school_phone") or "").strip() or None
+    school_email = str(body.get("school_email") or "").strip() or None
+
+    updates: list[str] = []
+    params: dict = {"tid": str(tenant.id)}
+
+    if brand_color:
+        updates.append("brand_color = :brand_color")
+        params["brand_color"] = brand_color
+    if school_address is not None:
+        updates.append("school_address = :school_address")
+        params["school_address"] = school_address
+    if school_phone is not None:
+        updates.append("school_phone = :school_phone")
+        params["school_phone"] = school_phone
+    if school_email is not None:
+        updates.append("school_email = :school_email")
+        params["school_email"] = school_email
+
+    if updates:
+        db.execute(
+            sa.text(f"UPDATE core.tenants SET {', '.join(updates)} WHERE id = :tid"),
+            params,
+        )
+        db.commit()
+
+    return {"ok": True}
+
+
+@router.put("/admission-settings")
+def save_admission_settings(
+    body: dict,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Save the tenant's admission number prefix and last issued number."""
+    if not _is_director_context(request):
+        raise HTTPException(status_code=403, detail="Only the director can update admission settings.")
+
+    raw_prefix = str(body.get("prefix") or "ADM-").strip()[:30]
+    raw_last = int(body.get("last_number") or 0)
+    if raw_last < 0:
+        raise HTTPException(status_code=400, detail="last_number cannot be negative")
+
+    existing = db.execute(
+        sa.text(
+            "SELECT id FROM core.tenant_admission_settings WHERE tenant_id = :tid LIMIT 1"
+        ),
+        {"tid": str(tenant.id)},
+    ).mappings().first()
+
+    if existing:
+        db.execute(
+            sa.text(
+                "UPDATE core.tenant_admission_settings "
+                "SET prefix = :prefix, last_number = :last_number, updated_at = now() "
+                "WHERE tenant_id = :tid"
+            ),
+            {"tid": str(tenant.id), "prefix": raw_prefix, "last_number": raw_last},
+        )
+    else:
+        db.execute(
+            sa.text(
+                "INSERT INTO core.tenant_admission_settings (tenant_id, prefix, last_number) "
+                "VALUES (:tid, :prefix, :last_number)"
+            ),
+            {"tid": str(tenant.id), "prefix": raw_prefix, "last_number": raw_last},
+        )
+
+    db.commit()
+    return {"prefix": raw_prefix, "last_number": raw_last}
+
+
 @router.get("/settings/badge")
 def tenant_settings_get_badge(
     db: Session = Depends(get_db),
@@ -5712,6 +5855,101 @@ def tenant_student_clearance_approve_transfer(
     )
 
 
+def _maybe_seed_guardian_from_payload(
+    db: Session,
+    *,
+    tenant_id: Any,
+    student_id: str,
+    payload: dict[str, Any],
+) -> None:
+    """
+    If a student has no guardian record yet, seed one from the enrollment payload
+    (guardian_name / guardian_phone / guardian_email).  Idempotent — does nothing if
+    a guardian already exists.
+    """
+    guardian_full = str(payload.get("guardian_name") or "").strip()
+    guardian_phone = str(payload.get("guardian_phone") or "").strip() or None
+    guardian_email = str(payload.get("guardian_email") or "").strip() or None
+
+    if not guardian_full:
+        return
+
+    # Skip if already linked
+    existing_link = db.execute(
+        sa.text(
+            "SELECT 1 FROM core.parent_students "
+            "WHERE student_id = :sid AND tenant_id = :tid LIMIT 1"
+        ),
+        {"sid": student_id, "tid": str(tenant_id)},
+    ).first()
+    if existing_link:
+        return
+
+    g_parts = guardian_full.split(None, 1)
+    g_first = g_parts[0]
+    g_last = g_parts[1] if len(g_parts) > 1 else ""
+
+    parent_id = db.execute(
+        sa.text(
+            """
+            INSERT INTO core.parents
+                (tenant_id, first_name, last_name, phone, email, is_active)
+            VALUES
+                (:tid, :fn, :ln, :phone, :email, true)
+            RETURNING id
+            """
+        ),
+        {
+            "tid": str(tenant_id),
+            "fn": g_first,
+            "ln": g_last,
+            "phone": guardian_phone,
+            "email": guardian_email,
+        },
+    ).scalar_one()
+
+    db.execute(
+        sa.text(
+            """
+            INSERT INTO core.parent_students
+                (tenant_id, parent_id, student_id, relationship, is_active)
+            VALUES
+                (:tid, :parent_id, :student_id, 'GUARDIAN', true)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"tid": str(tenant_id), "parent_id": str(parent_id), "student_id": student_id},
+    )
+
+    # Seed emergency contact too if it doesn't exist
+    if guardian_phone:
+        existing_ec = db.execute(
+            sa.text(
+                "SELECT 1 FROM core.student_emergency_contacts "
+                "WHERE student_id = :sid AND tenant_id = :tid LIMIT 1"
+            ),
+            {"sid": student_id, "tid": str(tenant_id)},
+        ).first()
+        if not existing_ec:
+            db.execute(
+                sa.text(
+                    """
+                    INSERT INTO core.student_emergency_contacts
+                        (tenant_id, student_id, name, relationship, phone, email, is_primary)
+                    VALUES
+                        (:tid, :student_id, :name, 'GUARDIAN', :phone, :email, true)
+                    """
+                ),
+                {
+                    "tid": str(tenant_id),
+                    "student_id": student_id,
+                    "name": guardian_full,
+                    "phone": guardian_phone,
+                    "email": guardian_email,
+                },
+            )
+
+
 @router.get(
     "/students/{enrollment_id}/profile",
     dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
@@ -5743,8 +5981,11 @@ def tenant_student_profile(
     enrollment_class = _enrollment_class_code(payload)
     enrollment_term = _enrollment_term_bucket(payload)
 
-    # Resolve SIS student_id from core.students via admission_no
+    # Resolve SIS student_id from core.students via admission_no.
+    # If none exists yet for an enrolled student, auto-create it so the
+    # profile tabs and carry-forward work immediately.
     sis_student_id: str | None = None
+    enrollment_status = str(getattr(enrollment, "status", "") or "").upper()
     if admission_number:
         sis_row = db.execute(
             sa.text(
@@ -5755,6 +5996,39 @@ def tenant_student_profile(
         ).mappings().first()
         if sis_row:
             sis_student_id = str(sis_row["id"])
+            # Retroactively seed guardian if the SIS record exists but has no guardian data yet.
+            try:
+                _maybe_seed_guardian_from_payload(
+                    db,
+                    tenant_id=tenant.id,
+                    student_id=sis_student_id,
+                    payload=payload,
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+        elif enrollment_status in ("ENROLLED", "ENROLLED_PARTIAL"):
+            # Auto-create the SIS record from the enrollment payload.
+            try:
+                enrollment_service._create_student_for_existing_enrollment(
+                    db,
+                    tenant_id=tenant.id,
+                    enrollment=enrollment,
+                    admission_no=admission_number,
+                )
+                db.commit()
+                # Re-read the newly created student id.
+                new_row = db.execute(
+                    sa.text(
+                        "SELECT id FROM core.students "
+                        "WHERE tenant_id = :tenant_id AND admission_no = :admission_no LIMIT 1"
+                    ),
+                    {"tenant_id": str(tenant.id), "admission_no": admission_number},
+                ).mappings().first()
+                if new_row:
+                    sis_student_id = str(new_row["id"])
+            except Exception:
+                db.rollback()
 
     invoices: list[dict[str, Any]] = []
     payments: list[dict[str, Any]] = []
@@ -12070,6 +12344,32 @@ def secretary_finance(
         "payments": payments,
         "health": health,
     }
+
+
+@router.get(
+    "/secretary/finance/scholarships/{scholarship_id}/allocations",
+    dependencies=[
+        Depends(
+            _require_any_permission(
+                "admin.dashboard.view_tenant",
+                "finance.scholarships.view",
+                "finance.scholarships.manage",
+            )
+        )
+    ],
+)
+def secretary_scholarship_allocations(
+    scholarship_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    """List all students who have received a specific scholarship."""
+    from app.api.v1.finance import service as finance_service
+    rows = finance_service.list_scholarship_allocations(
+        db, tenant_id=tenant.id, scholarship_id=scholarship_id
+    )
+    return {"ok": True, "scholarship_id": str(scholarship_id), "allocations": rows}
 
 
 @router.post(

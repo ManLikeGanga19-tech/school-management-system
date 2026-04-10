@@ -274,6 +274,35 @@ def mark_enrolled(
 # Director-level actions
 # ---------------------------------------------------------------------------
 
+@router.delete(
+    "/{enrollment_id}",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission("enrollment.director.override"))],
+    summary="Permanently delete an incomplete enrollment application and its finance records",
+)
+def delete_enrollment(
+    enrollment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """
+    Permanently removes a non-enrolled application (DRAFT, SUBMITTED, APPROVED, REJECTED, etc.)
+    and any invoices / payments exclusively linked to it.
+    Active enrollments (ENROLLED / ENROLLED_PARTIAL) must be removed via student hard-delete.
+    Requires `enrollment.director.override`.
+    """
+    row = _get_or_404(db, tenant.id, enrollment_id)
+    try:
+        result = service.delete_enrollment(
+            db, tenant_id=tenant.id, actor_user_id=user.id, enrollment=row,
+        )
+        db.commit()
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post(
     "/{enrollment_id}/director-override",
     response_model=EnrollmentOut,

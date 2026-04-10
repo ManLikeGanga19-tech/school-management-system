@@ -16,6 +16,12 @@ class Tenant(Base):
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
     curriculum_type = Column(String(20), nullable=False, server_default=text("'CBC'"))
 
+    # Branding & contact info (used in PDF headers)
+    brand_color = Column(String(7), nullable=True)          # hex e.g. "#1A3C6B"
+    school_address = Column(String(300), nullable=True)
+    school_phone = Column(String(60), nullable=True)
+    school_email = Column(String(200), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 

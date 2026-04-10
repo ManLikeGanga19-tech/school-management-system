@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
@@ -68,6 +69,7 @@ import {
   Pencil,
   Search,
   ShieldCheck,
+  UserRound,
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
@@ -1195,9 +1197,14 @@ function StudentDetailDialog({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
           <Button variant="outline" onClick={onClose}>
             Close
+          </Button>
+          <Button asChild>
+            <Link href={`/tenant/secretary/students/${row.id}`}>
+              Open Full Profile
+            </Link>
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1597,6 +1604,18 @@ function StudentActionCell({
         >
           <Eye className="h-3 w-3" />
           View
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 px-2 text-xs text-blue-700 border-blue-200 hover:bg-blue-50"
+          asChild
+        >
+          <Link href={`/tenant/secretary/students/${row.id}`}>
+            <UserRound className="h-3 w-3" />
+            Profile
+          </Link>
         </Button>
 
         {isLocked ? (

@@ -36,6 +36,7 @@
 - [Security](#security)
 - [M-Pesa / Daraja Integration](#m-pesa--daraja-integration)
 - [Backup & Recovery](#backup--recovery)
+- [Development Roadmap](#development-roadmap)
 - [Contributing](#contributing)
 
 ---
@@ -197,17 +198,21 @@ Public paths (health checks, SaaS auth, payment callbacks) bypass tenant resolut
 | Feature | Description |
 |---|---|
 | **Dashboard** | Enrolment pipeline KPIs, fee collection summary, calendar view |
-| **Enrolments** | Full DRAFT → SUBMITTED → APPROVED → REJECTED workflow |
-| **Fee structures (v2)** | Per-class fee schedules keyed by academic year + student type (NEW / RETURNING) with per-term amounts (T1/T2/T3) and charge-frequency rules (PER_TERM, ONCE_PER_YEAR, ONCE_EVER) |
-| **Fee structure PDF** | Downloadable A4 PDF summary of any fee structure |
-| **Payment settings** | Per-tenant minimum payment amounts, partial-payment policy, and collection rules |
+| **Enrolments** | Full DRAFT → SUBMITTED → APPROVED → ENROLLED workflow; delete incomplete applications |
+| **Student profiles** | Full SIS profile — bio-data, guardian, emergency contacts, documents, discipline history |
+| **Student hard-delete** | Permanent removal of student + all finance, exam, attendance, and discipline records with typed confirmation guard |
+| **Attendance** | Class roster, session lifecycle (DRAFT → SUBMITTED → FINALIZED), bulk mark, corrections, reports |
+| **8-4-4 Exams** | Exam setup, timetable, mark entry, marks review, A4 report card PDF generation |
+| **CBC module** | Strand/sub-strand/learning outcome management, performance level assessments, progress report PDFs |
+| **IGCSE module** | Subject management, A*–G grade entry per subject, individual and bulk class report PDFs |
+| **Discipline** | Incident logging (type, severity, location), student links (PERPETRATOR/VICTIM/WITNESS), follow-up notes, status tracking |
+| **Curriculum-gated nav** | Navigation automatically shows only 8-4-4 / CBC / IGCSE sections based on the school's curriculum type |
+| **Fee structures (v2)** | Per-class schedules by academic year + student type with per-term amounts and charge-frequency rules |
 | **Finance policies** | Partial-payment rules, minimum amounts, interview-fee gates |
-| **Invoices (v2)** | Smart auto-generated school-fees invoices — student type auto-detected from admission year; once-per-year and once-ever items deduplicated across terms |
-| **Invoice PDF** | Downloadable A4 PDF invoice per student |
-| **Payment recording** | Cash, M-Pesa, bank transfer, and cheque entries with printable receipts |
-| **Scholarships** | Discount allocations per student (fixed amount or percentage) |
-| **CBC module** | Competency-Based Curriculum management — strands, sub-strands, learning outcomes, performance levels, and assessment reports |
-| **School calendar** | School-specific events (half-terms, exams) overlaid on SaaS calendar |
+| **Invoices (v2)** | Smart auto-generated invoices — student type auto-detected; once-per-year/once-ever items deduplicated |
+| **Payment recording** | Cash, M-Pesa, bank transfer, cheque entries with printable receipts |
+| **Scholarships** | Discount allocations per student (fixed or percentage), recipient tracking |
+| **School calendar** | School-specific events overlaid on SaaS calendar |
 | **Audit log** | Tenant-scoped action log for compliance |
 | **Support** | Raise and track tickets with the platform operator |
 
@@ -216,9 +221,13 @@ Public paths (health checks, SaaS auth, payment callbacks) bypass tenant resolut
 | Feature | Description |
 |---|---|
 | **Dashboard** | Daily collection summary, outstanding balances |
-| **Finance (v2)** | Generate school-fees invoices by term number + academic year; record payments; download PDF invoices and receipts |
+| **Enrolments** | Create and manage student applications |
+| **Student profiles** | View SIS profile, bio-data, guardian, emergency contacts, documents, discipline history |
+| **Attendance** | Class attendance sessions, bulk mark, corrections |
+| **Discipline** | Log and manage incidents, add student links and follow-up notes |
+| **Finance (v2)** | Generate invoices, record payments, download PDF invoices and receipts |
 | **Payment settings** | View and update tenant-level payment configuration |
-| **CBC module** | View and manage CBC curriculum data and student assessment reports |
+| **CBC / IGCSE** | Manage curriculum assessments and view student reports |
 
 ### Prospect / Public
 
@@ -369,11 +378,17 @@ school-management-system/
 │   ├── app/
 │   │   ├── api/v1/
 │   │   │   ├── admin/              # SaaS operator endpoints
+│   │   │   ├── attendance/         # Class roster, sessions, bulk mark, corrections, reports
 │   │   │   ├── auth/               # Login, refresh, logout, /me
-│   │   │   ├── enrollments/        # Student admission workflow
+│   │   │   ├── cbc/                # CBC curriculum, assessments, PDF reports
+│   │   │   ├── discipline/         # Incidents, student links, follow-ups, hard-delete
+│   │   │   ├── enrollments/        # Student admission workflow + delete incomplete applications
 │   │   │   ├── finance/            # Fee structures, invoices, payments
+│   │   │   ├── igcse/              # IGCSE subjects, A*–G grade entry, report PDFs
 │   │   │   ├── payments/           # Daraja M-Pesa + subscription billing
 │   │   │   ├── public/             # Prospect registration & auth
+│   │   │   ├── reports/            # 8-4-4 exam marks, report card PDF generation
+│   │   │   ├── students/           # SIS: bio-data, guardians, emergency contacts, documents
 │   │   │   └── support/            # Help desk ticketing
 │   │   ├── core/
 │   │   │   ├── audit.py            # Async audit log queue + worker
@@ -411,19 +426,25 @@ school-management-system/
 │   │   │   └── ...                 # hashing, tokens, helpers
 │   │   └── main.py                 # FastAPI app factory, lifespan, router mount
 │   ├── alambic/                    # Alembic migration versions (multiple branches: finance v2 + CBC)
-│   ├── tests/                      # pytest test suite (~325 tests)
+│   ├── tests/                      # pytest test suite (381 tests)
 │   │   ├── conftest.py             # Shared fixtures (DB, client, rate limiter)
 │   │   ├── helpers.py              # create_tenant(), make_actor()
+│   │   ├── test_admin_saas_endpoints.py  # SaaS tenant mgmt, subscriptions, RBAC
+│   │   ├── test_attendance_phase2.py     # Roster, sessions, bulk mark, corrections, reports
+│   │   ├── test_audit.py
 │   │   ├── test_auth.py
-│   │   ├── test_cbc_phase3b.py     # CBC curriculum + assessment report tests
+│   │   ├── test_cbc_phase3b.py           # CBC curriculum + assessment report tests
+│   │   ├── test_discipline_phase4.py     # Incidents, student links, follow-ups, hard-delete
 │   │   ├── test_enrollments.py
-│   │   ├── test_finance.py         # Finance v1 regression tests (updated for v2 schema)
-│   │   ├── test_finance_v2.py      # Finance v2: charge frequency, per-term amounts, smart invoice engine, payment settings
+│   │   ├── test_finance.py               # Finance v1 regression tests (updated for v2 schema)
+│   │   ├── test_finance_v2.py            # Finance v2: charge frequency, per-term amounts, smart invoice engine
 │   │   ├── test_payments.py
 │   │   ├── test_public.py
+│   │   ├── test_reports_phase3a.py       # 8-4-4 report card PDF generation
 │   │   ├── test_security.py
-│   │   ├── test_support.py
-│   │   └── test_audit.py
+│   │   ├── test_sis_phase0.py            # Curriculum type per tenant
+│   │   ├── test_sis_phase1.py            # Bio-data, guardians, emergency contacts, documents
+│   │   └── test_support.py
 │   ├── Dockerfile
 │   ├── gunicorn.conf.py
 │   ├── requirements.txt
@@ -436,27 +457,45 @@ school-management-system/
 │   │   │   │   ├── saas/           # SaaS Admin portal pages
 │   │   │   │   └── tenant/
 │   │   │   │       ├── director/
+│   │   │   │       │   ├── attendance/             # Director attendance pages
+│   │   │   │       │   ├── cbc/                    # Director CBC module page
+│   │   │   │       │   ├── discipline/             # Director discipline (incidents, new)
 │   │   │   │       │   ├── finance/
-│   │   │   │       │   │   └── payment-settings/  # Director payment settings page
-│   │   │   │       │   └── cbc/    # Director CBC module page
+│   │   │   │       │   │   └── payment-settings/   # Director payment settings page
+│   │   │   │       │   ├── igcse/                  # Director IGCSE module page
+│   │   │   │       │   ├── reports/                # Director 8-4-4 exam/report card pages
+│   │   │   │       │   └── students/[enrollmentId] # Full student SIS profile + hard-delete
 │   │   │   │       └── secretary/
+│   │   │   │           ├── attendance/             # Secretary attendance pages
+│   │   │   │           ├── cbc/                    # Secretary CBC module page
+│   │   │   │           ├── discipline/             # Secretary discipline (incidents, new)
 │   │   │   │           ├── finance/
-│   │   │   │           │   └── payment-settings/  # Secretary payment settings page
-│   │   │   │           └── cbc/    # Secretary CBC module page
+│   │   │   │           │   └── payment-settings/   # Secretary payment settings page
+│   │   │   │           └── students/[enrollmentId] # Student SIS profile view
 │   │   │   └── api/
 │   │   │       ├── auth/           # Next.js API routes (auth proxy)
 │   │   │       └── tenant/
 │   │   │           ├── director/finance/  # BFF proxy: finance actions + v2 invoice generation
 │   │   │           └── secretary/finance/ # BFF proxy: finance actions + v2 invoice generation
 │   │   ├── components/
+│   │   │   ├── attendance/
+│   │   │   │   └── AttendanceModulePage.tsx       # Shared attendance UI (director + secretary)
 │   │   │   ├── cbc/
-│   │   │   │   └── CbcModulePage.tsx     # Shared CBC module UI (director + secretary)
+│   │   │   │   └── CbcModulePage.tsx              # Shared CBC module UI (director + secretary)
+│   │   │   ├── discipline/
+│   │   │   │   └── DisciplineModulePage.tsx       # Shared discipline UI (director + secretary)
 │   │   │   ├── finance/
-│   │   │   │   ├── FeeStructuresPage.tsx  # Fee structure management (v2)
-│   │   │   │   ├── PaymentSettingsPage.tsx # Tenant payment settings UI
-│   │   │   │   └── finance-utils.ts       # Shared finance helpers
-│   │   │   ├── layout/             # AppShell, navigation, sidebar
-│   │   │   └── ui/                 # Reusable UI components
+│   │   │   │   ├── FeeStructuresPage.tsx           # Fee structure management (v2)
+│   │   │   │   ├── PaymentSettingsPage.tsx         # Tenant payment settings UI
+│   │   │   │   └── finance-utils.ts               # Shared finance helpers
+│   │   │   ├── igcse/
+│   │   │   │   └── IgcseModulePage.tsx             # Shared IGCSE module UI (director + secretary)
+│   │   │   ├── layout/                            # AppShell, navigation, sidebar, nav-config
+│   │   │   ├── reports/
+│   │   │   │   └── ReportsModulePage.tsx           # 8-4-4 exam/report card UI
+│   │   │   ├── students/
+│   │   │   │   └── StudentProfilePage.tsx          # Full SIS profile + discipline history + hard-delete
+│   │   │   └── ui/                                # Reusable UI components
 │   │   ├── i18n/                   # next-intl config + request handler
 │   │   ├── lib/
 │   │   │   ├── api.ts              # Typed API client
@@ -500,20 +539,26 @@ pip install -r requirements-dev.txt
 pytest -q tests/
 ```
 
-The test suite covers ~325 tests across all modules:
+The test suite covers **381 tests** across all modules:
 
-| Module | Tests |
-|---|---|
-| Auth (tenant + SaaS) | Login, refresh, logout, token blacklisting, rate limits |
-| Enrolments | Create, submit, approve, reject, permission gates |
-| Finance v1 | Fee structures, categories, items, policies, invoices, payment allocation, scholarships |
-| Finance v2 | Charge frequency (PER_TERM / ONCE_PER_YEAR / ONCE_EVER), per-term amounts, smart invoice engine, NEW/RETURNING student type detection, duplicate invoice guard, payment settings |
-| CBC | Strand/sub-strand/learning outcome CRUD, performance level management, assessment report generation and PDF download |
-| Payments | Daraja callback token validation, subscription billing, rate limits |
-| Public (prospect) | Registration, login, OAuth, refresh, logout, request CRUD |
-| Support | Ticket creation, messaging, unread counts |
-| Audit | Log creation, retention pruning, payload sanitisation |
-| Security | CORS, headers, injection guards, session integrity |
+| Module | File | Tests |
+| --- | --- | --- |
+| Auth (tenant + SaaS) | `test_auth.py` | Login, refresh, logout, token blacklisting, rate limits |
+| Enrolments | `test_enrollments.py` | Create, submit, approve, reject, delete, permission gates |
+| Finance v1 | `test_finance.py` | Fee structures, categories, items, policies, invoices, scholarships |
+| Finance v2 | `test_finance_v2.py` | Charge frequency, per-term amounts, smart invoice engine, payment settings |
+| SIS Phase 0 | `test_sis_phase0.py` | Curriculum type per tenant |
+| SIS Phase 1 | `test_sis_phase1.py` | Bio-data, guardians, emergency contacts, documents (36 tests) |
+| Attendance | `test_attendance_phase2.py` | Roster, sessions, bulk mark, corrections, reports (34 tests) |
+| Report Cards | `test_reports_phase3a.py` | 8-4-4 report card PDF generation |
+| CBC | `test_cbc_phase3b.py` | Strand/sub-strand CRUD, assessments, PDF reports |
+| Discipline | `test_discipline_phase4.py` | Incidents, student links, follow-ups, hard-delete (25 tests) |
+| Payments | `test_payments.py` | Daraja callback, subscription billing, rate limits |
+| Public (prospect) | `test_public.py` | Registration, login, refresh, request CRUD |
+| Support | `test_support.py` | Ticket creation, messaging, unread counts |
+| Audit | `test_audit.py` | Log creation, retention pruning, payload sanitisation |
+| Security | `test_security.py` | CORS, headers, injection guards, session integrity |
+| SaaS Admin | `test_admin_saas_endpoints.py` | Tenant mgmt, subscriptions, RBAC |
 
 ### Frontend Tests
 
@@ -791,6 +836,27 @@ Backups are also uploaded to **Cloudflare R2** (S3-compatible, free tier) for of
 ```
 
 > **Warning:** Restore drops and recreates the `core` schema. Always confirm the target server before running.
+
+---
+
+## Development Roadmap
+
+| Phase | Module | Status | Highlights |
+|---|---|---|---|
+| **Phase 0** | SaaS Foundation | **Complete** | Multi-tenant core, RBAC, JWT auth, audit log, rate limiting, M-Pesa billing, CI/CD |
+| **Phase 1** | SIS — Student Information System | **Complete** | Bio-data, guardians, emergency contacts, document uploads, curriculum type per tenant |
+| **Phase 2** | Attendance | **Complete** | Class roster, session lifecycle (DRAFT → SUBMITTED → FINALIZED), bulk mark, corrections, PDF reports |
+| **Phase 3a** | 8-4-4 Report Cards | **Complete** | Exam setup, timetable, mark entry, A4 report card PDF generation |
+| **Phase 3b** | CBC Module | **Complete** | Strand/sub-strand/learning outcome management, performance level assessments, progress report PDFs |
+| **Phase 3c** | IGCSE Module | **Complete** | Subject management, A*–G grade entry, individual and bulk class report PDFs, curriculum-gated nav |
+| **Phase 4** | Discipline + Student Hard-Delete | **Complete** | Incident logging, student links (PERPETRATOR/VICTIM/WITNESS), follow-up notes; permanent student removal with full finance/audit cleanup; delete incomplete applications |
+| **Phase 5** | Communications | Planned | SMS/email notifications (Twilio/Africa's Talking), parent messaging, announcement broadcasts |
+| **Phase 6** | Parent Portal | Planned | Self-service portal: view invoices, pay fees via M-Pesa, view report cards, attendance summaries |
+| **Phase 7** | Transport Module | Planned | Route management, vehicle assignment, driver profiles, morning/evening attendance |
+| **Phase 8** | Timetable / Scheduling | Planned | Class timetable builder, teacher assignment, conflict detection |
+| **Phase 9** | Staff & HR | Planned | Staff profiles, leave management, payroll integration hooks |
+
+> Completed phases are live on production. Planned phases are prioritised by school demand.
 
 ---
 
