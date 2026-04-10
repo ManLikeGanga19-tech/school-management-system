@@ -792,107 +792,151 @@ def generate_invoice_pdf(doc: dict[str, Any]) -> bytes:
 # ─── Thermal HTML receipt (auto-print) ───────────────────────────────────────
 
 def generate_thermal_html(doc: dict[str, Any]) -> str:
-    """Return a <pre>-formatted HTML receipt for 80 mm thermal paper.
+    """Return a <pre>-formatted HTML receipt that mirrors the thermal PDF layout.
 
-    Uses plain monospace text so any printer driver (including Generic/Text Only)
-    renders it correctly.  @page sets the paper to 80 mm wide × auto height so
-    Chrome prints the full receipt as a single continuous job.
+    Uses plain monospace text (no tables/CSS layout) so any printer driver,
+    including Generic/Text Only, renders it correctly.
+    @page size: 80mm auto ensures Chrome prints the full roll without page breaks.
     """
-    W = 42  # character width that fits inside 80 mm at Courier 9 pt
+    W = 42  # chars that fit inside 80 mm at Courier 9 pt
 
     def centre(text: str) -> str:
-        return text.center(W)
+        return text[:W].center(W)
 
     def sep() -> str:
         return "-" * W
 
     def row(label: str, value: str) -> str:
-        """Left-aligned label, right-aligned value, total W chars."""
         label = label[:W]
-        value = value[:(W - len(label) - 1)]
-        gap = W - len(label) - len(value)
-        return label + " " * gap + value
+        value = value[: max(0, W - len(label) - 1)]
+        return label + " " * max(1, W - len(label) - len(value)) + value
 
     profile  = doc.get("profile") or {}
     currency = str(doc.get("currency") or profile.get("currency") or "KES")
 
     school_name = str(profile.get("school_header") or "SCHOOL").upper()
+    po_box      = str(profile.get("po_box") or "")
     address     = str(profile.get("physical_address") or "")
     phone       = str(profile.get("phone") or "")
-    footer_msg  = str(profile.get("footer_message") or "Thank you for your payment.")
+    footer_raw  = str(profile.get("receipt_footer") or "PAYMENT RECEIVED IN FULL. THANK YOU.").upper()
 
-    receipt_no = str(doc.get("document_no") or "")
-    amount_raw = doc.get("amount") or "0"
-    try:
-        amount_fmt = f"{currency} {Decimal(str(amount_raw)):,.2f}"
-    except InvalidOperation:
-        amount_fmt = f"{currency} {amount_raw}"
+    receipt_no  = str(doc.get("document_no") or "")
+    amount_raw  = doc.get("amount") or "0"
+    provider    = str(doc.get("provider") or "").upper() or "—"
+    reference   = str(doc.get("reference") or "—")
+    received_at = doc.get("received_at") or None
 
-    received_at = doc.get("received_at") or ""
-    if received_at:
+    student_name = _primary_student(doc)
+    invoice_no   = _primary_invoice_no(doc)
+    fee_lines    = _all_fee_lines(doc)
+
+    def _dt(iso: str | None) -> str:
+        if not iso:
+            return datetime.now(timezone.utc).strftime("%d/%m/%Y  %I:%M %p")
         try:
-            dt = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
-            date_str = dt.strftime("%d %b %Y %H:%M")
+            dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+            return dt.strftime("%d/%m/%Y  %I:%M %p")
         except Exception:
-            date_str = received_at
-    else:
-        date_str = ""
+            return iso or ""
 
-    provider  = str(doc.get("provider") or "").upper()
-    reference = str(doc.get("reference") or "")
+    def _ds(iso: str | None) -> str:
+        if not iso:
+            return datetime.now(timezone.utc).strftime("%d/%m/%Y")
+        try:
+            dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+            return dt.strftime("%d/%m/%Y")
+        except Exception:
+            return iso or ""
 
-    allocations = doc.get("allocations") or []
-    primary_student = ""
-    fee_lines: list[str] = []
-    for alloc in allocations:
-        if not primary_student:
-            primary_student = str(alloc.get("student_name") or "")
-        lines = alloc.get("lines") or []
-        if lines:
-            for line in lines:
-                desc = str(line.get("description") or "Fee")
-                try:
-                    line_amt = f"{currency} {Decimal(str(line.get('amount') or 0)):,.2f}"
-                except InvalidOperation:
-                    line_amt = str(line.get("amount") or "")
-                fee_lines.append(row(desc, line_amt))
-        else:
-            inv_no = str(alloc.get("invoice_no") or "")
-            try:
-                alloc_amt = f"{currency} {Decimal(str(alloc.get('amount') or 0)):,.2f}"
-            except InvalidOperation:
-                alloc_amt = str(alloc.get("amount") or "")
-            label = f"INV {inv_no}" if inv_no else "Payment"
-            fee_lines.append(row(label, alloc_amt))
+    def _fmt_amt(raw: str) -> str:
+        try:
+            return f"{currency} {Decimal(raw):,.2f}"
+        except InvalidOperation:
+            return f"{currency} {raw}"
 
-    lines: list[str] = []
-    lines.append(centre(school_name))
+    # ── Build lines matching PDF layout exactly ──────────────────────────────
+    out: list[str] = []
+
+    # Header
+    out.append(centre(school_name))
+    if po_box:
+        out.append(centre(f"P.O. BOX {po_box.upper()}"))
     if address:
-        lines.append(centre(address))
+        out.append(centre(address.upper()))
     if phone:
-        lines.append(centre(f"Tel: {phone}"))
-    lines.append(sep())
-    lines.append(centre("PAYMENT RECEIPT"))
-    lines.append(sep())
-    lines.append(row("Receipt#", receipt_no))
-    lines.append(row("Date", date_str))
-    if primary_student:
-        lines.append(row("Student", primary_student))
-    lines.append(sep())
-    lines.extend(fee_lines)
-    lines.append(sep())
-    lines.append(row("TOTAL", amount_fmt))
-    lines.append(sep())
-    if provider:
-        lines.append(row("Method", provider))
-    if reference:
-        lines.append(row("Ref", reference))
-    lines.append(sep())
-    lines.append(centre(footer_msg))
-    lines.append("")  # trailing newline so printer feeds past text
+        out.append(centre(f"PHONE: {phone}"))
+    out.append("")
+    out.append(sep())
+    out.append("")
+
+    # Date
+    out.append(_dt(received_at))
+    out.append("")
+    out.append(sep())
+    out.append("")
+
+    # Student / Receipt info (two rows of two columns each)
+    s_name   = student_name[:18]
+    rno_short = receipt_no[-8:] if len(receipt_no) > 8 else receipt_no
+    inv_short = invoice_no[-10:] if len(invoice_no) > 10 else invoice_no
+    out.append(row(f"STUDENT: {s_name}", f"RECEIPT#: {rno_short}"))
+    out.append("")
+    out.append(row(f"INVOICE: {inv_short}", f"DATE: {_ds(received_at)}"))
+    out.append("")
+    out.append(sep())
+    out.append("")
+
+    # Fee lines
+    max_desc = W - 14
+    for desc, amt in fee_lines:
+        d = (desc[:max_desc] + "..") if len(desc) > max_desc else desc
+        out.append(row(d.upper(), _fmt_amt(str(amt))))
+    out.append("")
+
+    out.append(sep())
+    out.append(sep())
+    out.append("")
+
+    # Totals
+    total_str = str(doc.get("amount") or "0")
+    out.append(row("SUBTOTAL:", _fmt_amt(total_str)))
+    out.append(row("TAX:", f"{currency} 0.00"))
+    out.append("")
+    out.append(row("TOTAL:", _fmt_amt(total_str)))
+    out.append("")
+    out.append(sep())
+    out.append("")
+
+    # Payment info
+    ref_short = reference[:16] if len(reference) > 16 else reference
+    out.append(row("PAYMENT METHOD:", provider))
+    out.append(row("REFERENCE:", ref_short))
+    out.append("")
+    out.append(sep())
+    out.append("")
+
+    # Footer (word-wrap to W chars, centred)
+    words = footer_raw.split()
+    current = ""
+    for word in words:
+        if len(current) + len(word) + 1 <= W:
+            current = (current + " " + word).strip()
+        else:
+            if current:
+                out.append(centre(current))
+            current = word
+    if current:
+        out.append(centre(current))
+
+    out.append("")
+    out.append(sep())
+    out.append("")
+    out.append(centre(receipt_no))
+    out.append("")
+    out.append("")  # feed paper past cutter
 
     from html import escape
-    body = escape("\n".join(lines))
+    body = escape("\n".join(out))
     rno  = escape(receipt_no)
 
     return f"""<!DOCTYPE html>
@@ -906,7 +950,7 @@ def generate_thermal_html(doc: dict[str, Any]) -> str:
   body {{
     font-family: 'Courier New', Courier, monospace;
     font-size: 9pt;
-    line-height: 1.3;
+    line-height: 1.35;
     color: #000;
     white-space: pre;
   }}
