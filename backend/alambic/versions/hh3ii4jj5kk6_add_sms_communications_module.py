@@ -215,6 +215,17 @@ def upgrade() -> None:
                   )
             """)
 
+    # Backfill: create a zero-balance SMS credit account for every existing tenant
+    # so the admin SMS credits page shows all schools immediately.
+    op.execute("""
+        INSERT INTO core.sms_credit_accounts (tenant_id, balance_units)
+        SELECT id, 0
+        FROM   core.tenants
+        WHERE  NOT EXISTS (
+            SELECT 1 FROM core.sms_credit_accounts a WHERE a.tenant_id = core.tenants.id
+        )
+    """)
+
 
 def downgrade() -> None:
     op.drop_index("ix_sms_messages_tenant_created",

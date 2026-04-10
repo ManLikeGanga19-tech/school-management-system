@@ -22,6 +22,7 @@ from app.models.payment import Payment
 from app.models.enrollment import Enrollment
 from app.models.invoice import Invoice
 from app.models.tenant_print_profile import TenantPrintProfile
+from app.models.sms import SmsCreditAccount
 
 # If your project has hashing util (it does, used in tenants/routes.py)
 from app.utils.hashing import hash_password
@@ -788,6 +789,9 @@ def create_tenant_with_optional_admin(
     tenant = Tenant(name=name, slug=slug, primary_domain=primary_domain, is_active=True)
     db.add(tenant)
     db.flush()  # materialise tenant.id
+
+    # Seed SMS credit account so the tenant appears in the admin SMS credits list immediately.
+    db.add(SmsCreditAccount(tenant_id=tenant.id, balance_units=0))
 
     # Optional initial subscription stub (trialing). Amount is manual and can be
     # updated later from the subscriptions module.
