@@ -789,6 +789,125 @@ def generate_invoice_pdf(doc: dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
+# ─── Thermal HTML receipt (auto-print) ───────────────────────────────────────
+
+def generate_thermal_html(doc: dict[str, Any]) -> str:
+    """Return an HTML page formatted for 80mm thermal paper that auto-prints on load."""
+    from html import escape
+
+    profile  = doc.get("profile") or {}
+    currency = str(doc.get("currency") or profile.get("currency") or "KES")
+
+    school_name = escape(str(profile.get("school_header") or "SCHOOL").upper())
+    address     = escape(str(profile.get("physical_address") or ""))
+    phone       = escape(str(profile.get("phone") or ""))
+    footer_msg  = escape(str(profile.get("footer_message") or "Thank you for your payment."))
+
+    receipt_no  = escape(str(doc.get("document_no") or ""))
+    amount_raw  = doc.get("amount") or "0"
+    try:
+        amount_fmt = f"{currency} {Decimal(str(amount_raw)):,.2f}"
+    except InvalidOperation:
+        amount_fmt = f"{currency} {amount_raw}"
+
+    received_at = doc.get("received_at") or ""
+    if received_at:
+        try:
+            dt = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
+            date_str = dt.strftime("%d %b %Y %H:%M")
+        except Exception:
+            date_str = received_at
+    else:
+        date_str = ""
+
+    provider  = escape(str(doc.get("provider") or "").upper())
+    reference = escape(str(doc.get("reference") or ""))
+
+    allocations = doc.get("allocations") or []
+    primary_student = ""
+    rows_html = ""
+    for alloc in allocations:
+        if not primary_student:
+            primary_student = escape(str(alloc.get("student_name") or ""))
+        inv_no = escape(str(alloc.get("invoice_no") or ""))
+        lines  = alloc.get("lines") or []
+        if lines:
+            for line in lines:
+                desc   = escape(str(line.get("description") or "Fee"))
+                try:
+                    line_amt = f"{currency} {Decimal(str(line.get('amount') or 0)):,.2f}"
+                except InvalidOperation:
+                    line_amt = str(line.get("amount") or "")
+                rows_html += f'<tr><td>{desc}</td><td class="r">{line_amt}</td></tr>\n'
+        else:
+            try:
+                alloc_amt = f"{currency} {Decimal(str(alloc.get('amount') or 0)):,.2f}"
+            except InvalidOperation:
+                alloc_amt = str(alloc.get("amount") or "")
+            label = f"INV {inv_no}" if inv_no else "Payment"
+            rows_html += f'<tr><td>{label}</td><td class="r">{alloc_amt}</td></tr>\n'
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Receipt {receipt_no}</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  @page {{ size: 80mm auto; margin: 3mm 2mm; }}
+  body {{
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 9pt;
+    width: 72mm;
+    color: #000;
+  }}
+  .center {{ text-align: center; }}
+  .bold   {{ font-weight: bold; }}
+  .sep    {{ border-top: 1px dashed #000; margin: 3px 0; }}
+  table   {{ width: 100%; border-collapse: collapse; }}
+  td      {{ padding: 1px 0; vertical-align: top; }}
+  td.r    {{ text-align: right; white-space: nowrap; }}
+  .total  {{ font-weight: bold; border-top: 1px solid #000; padding-top: 2px; }}
+  .small  {{ font-size: 7.5pt; }}
+</style>
+</head>
+<body>
+<p class="center bold" style="font-size:11pt">{school_name}</p>
+{'<p class="center small">' + address + '</p>' if address else ''}
+{'<p class="center small">Tel: ' + phone + '</p>' if phone else ''}
+<div class="sep"></div>
+<p class="center bold">PAYMENT RECEIPT</p>
+<div class="sep"></div>
+<table>
+  <tr><td>Receipt#</td><td class="r bold">{receipt_no}</td></tr>
+  <tr><td>Date</td><td class="r">{date_str}</td></tr>
+  {'<tr><td>Student</td><td class="r">' + primary_student + '</td></tr>' if primary_student else ''}
+</table>
+<div class="sep"></div>
+<table>
+{rows_html}</table>
+<div class="sep"></div>
+<table>
+  <tr class="total"><td>TOTAL</td><td class="r">{amount_fmt}</td></tr>
+</table>
+<div class="sep"></div>
+<table>
+  {'<tr><td>Method</td><td class="r">' + provider + '</td></tr>' if provider else ''}
+  {'<tr><td>Ref</td><td class="r">' + reference + '</td></tr>' if reference else ''}
+</table>
+<div class="sep"></div>
+<p class="center small">{footer_msg}</p>
+<script>
+  window.onload = function() {{
+    window.print();
+    window.onafterprint = function() {{ window.close(); }};
+  }};
+</script>
+</body>
+</html>"""
+    return html
+
+
 # ─── Public entrypoint ────────────────────────────────────────────────────────
 
 def generate_receipt_pdf(doc: dict[str, Any]) -> bytes:

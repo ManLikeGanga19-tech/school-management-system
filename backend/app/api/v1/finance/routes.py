@@ -802,6 +802,33 @@ def download_payment_pdf(
 
 
 @router.get(
+    "/documents/payments/{payment_id}/thermal",
+    dependencies=[Depends(require_permission("finance.payments.view"))],
+)
+def download_payment_thermal(
+    payment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    """Return an auto-printing HTML receipt formatted for 80 mm thermal paper."""
+    try:
+        from app.utils.receipt_pdf import generate_thermal_html
+        payload = service.build_payment_receipt_document(
+            db,
+            tenant_id=tenant.id,
+            payment_id=payment_id,
+        )
+        html = generate_thermal_html(payload)
+        db.commit()
+        return Response(content=html, media_type="text/html")
+    except ValueError as e:
+        db.rollback()
+        msg = str(e)
+        raise HTTPException(status_code=404 if "not found" in msg.lower() else 400, detail=msg)
+
+
+@router.get(
     "/documents/fee-structures/{structure_id}",
     dependencies=[Depends(require_permission("finance.fees.view"))],
 )
