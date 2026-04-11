@@ -48,6 +48,7 @@ COPY --from=builder /app/app /app/app
 COPY --from=builder /app/alembic.ini /app/alembic.ini
 COPY --from=builder /app/alambic /app/alambic
 COPY --from=builder /app/gunicorn.conf.py /app/gunicorn.conf.py
+COPY --from=builder /app/scripts /app/scripts
 
 # Create writable storage directory for tenant badge uploads and chown to appuser.
 # The volume declared in docker-compose.prod.yml mounts here so badges survive redeploys.
