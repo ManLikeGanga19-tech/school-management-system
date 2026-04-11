@@ -122,7 +122,7 @@ def _upsert_fee_category(db, *, tenant_id, code: str, name: str) -> FeeCategory:
 
 
 def _upsert_fee_item(db, *, tenant_id, category_id, code: str,
-                     name: str, frequency: str = "TERMLY") -> FeeItem:
+                     name: str, frequency: str = "PER_TERM") -> FeeItem:
     obj = db.execute(
         select(FeeItem).where(FeeItem.tenant_id == tenant_id,
                               FeeItem.code == code)
@@ -404,7 +404,7 @@ def main() -> None:
                                     code="EXAM", name="Exam Fee")
         _upsert_fee_item(db, tenant_id=tid, category_id=cat_other.id,
                          code="INTERVIEW", name="Interview Fee",
-                         frequency="ONE_TIME")
+                         frequency="ONCE_EVER")
         print("  [+] fee items: Tuition, Activity, Exam, Interview")
 
         # Standard fee lines per student per term
