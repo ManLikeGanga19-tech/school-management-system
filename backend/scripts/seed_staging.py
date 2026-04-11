@@ -135,8 +135,33 @@ def _upsert_fee_item(db, *, tenant_id, category_id, code: str,
     return obj
 
 
+def _next_admission_number(db, *, tenant_id) -> tuple[str, int]:
+    """Read the tenant's admission prefix + last_number, increment, persist, return (formatted, raw)."""
+    row = db.execute(
+        text("SELECT prefix, last_number FROM core.tenant_admission_settings WHERE tenant_id = :t"),
+        {"t": str(tenant_id)},
+    ).fetchone()
+    prefix = str(row[0] or "ADM-") if row else "ADM-"
+    last   = int(row[1] or 0) if row else 0
+    nxt    = last + 1
+    formatted = f"{prefix}{nxt:04d}"
+    if row:
+        db.execute(
+            text("UPDATE core.tenant_admission_settings SET last_number=:n, updated_at=now() WHERE tenant_id=:t"),
+            {"n": nxt, "t": str(tenant_id)},
+        )
+    else:
+        db.execute(
+            text("INSERT INTO core.tenant_admission_settings (tenant_id, prefix, last_number) VALUES (:t, :p, :n)"),
+            {"t": str(tenant_id), "p": prefix, "n": nxt},
+        )
+    db.flush()
+    return formatted, nxt
+
+
 def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
-                       class_id, class_code: str, created_by) -> Enrollment:
+                       class_id, class_code: str, term_code: str,
+                       intake_date: date, created_by) -> Enrollment:
     existing = db.execute(
         select(Enrollment).where(
             Enrollment.tenant_id == tenant_id,
@@ -145,18 +170,40 @@ def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
         )
     ).scalar_one_or_none()
     if existing:
+        # Patch missing fields on already-seeded enrollments
+        if not existing.admission_number:
+            adm_no, _ = _next_admission_number(db, tenant_id=tenant_id)
+            existing.admission_number = adm_no
+            existing.payload = {
+                **existing.payload,
+                "admission_number": adm_no,
+                "student_name": f"{first_name} {last_name}",
+                "admission_class": class_code,
+                "class_code": class_code,
+                "admission_term": term_code,
+                "term_code": term_code,
+                "intake_date": intake_date.isoformat(),
+            }
+            db.flush()
         return existing
+
+    adm_no, _ = _next_admission_number(db, tenant_id=tenant_id)
     enr = Enrollment(
         id=uuid4(),
         tenant_id=tenant_id,
         status="APPROVED",
+        admission_number=adm_no,
         created_by=created_by,
         payload={
             "student_name": f"{first_name} {last_name}",
             "first_name": first_name,
             "last_name": last_name,
+            "admission_number": adm_no,
             "admission_class": class_code,
             "class_code": class_code,
+            "admission_term": term_code,
+            "term_code": term_code,
+            "intake_date": intake_date.isoformat(),
             "gender": "M",
             "date_of_birth": "2015-03-15",
             "guardian_name": f"{last_name} Parent",
@@ -166,7 +213,7 @@ def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
     )
     db.add(enr)
     db.flush()
-    print(f"  [+] student {first_name} {last_name}")
+    print(f"  [+] student {first_name} {last_name}  [{adm_no}]")
     return enr
 
 
@@ -419,19 +466,6 @@ def main() -> None:
 
         # ── 7. Students + Invoices + Payments ─────────────────────────────────
         print("\n[=] Students, invoices & payments")
-        # Repair any existing enrollments that have first_name/last_name but missing student_name
-        db.execute(text("""
-            UPDATE core.enrollments
-            SET payload = payload || jsonb_build_object(
-                'student_name', (payload->>'first_name') || ' ' || (payload->>'last_name'),
-                'admission_class', COALESCE(payload->>'class_code', payload->>'admission_class', ''),
-                'class_code', COALESCE(payload->>'class_code', payload->>'admission_class', '')
-            )
-            WHERE tenant_id = :t
-              AND payload ? 'first_name'
-              AND NOT (payload ? 'student_name')
-        """), {"t": str(tid)})
-        db.flush()
         STUDENTS = [
             # (first, last, class_code, paid_term1, paid_term2)
             ("Naum",    "Kioko",    "GR3", Decimal("18500"), Decimal("0")),     # fully paid T1
@@ -449,7 +483,9 @@ def main() -> None:
         for first, last, cls_code, paid_t1, paid_t2 in STUDENTS:
             enr = _upsert_enrollment(db, tenant_id=tid, first_name=first,
                                      last_name=last, class_id=classes[cls_code].id,
-                                     class_code=cls_code, created_by=secretary.id)
+                                     class_code=cls_code, term_code=term1.code,
+                                     intake_date=date(2026, 1, 6),
+                                     created_by=secretary.id)
             # Term 1 invoice
             inv1 = _upsert_invoice(db, tenant_id=tid, enrollment_id=enr.id,
                                    term_number=1, academic_year=2026, lines=FEE_LINES)
