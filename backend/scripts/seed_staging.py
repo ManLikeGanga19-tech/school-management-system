@@ -136,7 +136,7 @@ def _upsert_fee_item(db, *, tenant_id, category_id, code: str,
 
 
 def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
-                       class_id, created_by) -> Enrollment:
+                       class_id, class_code: str, created_by) -> Enrollment:
     existing = db.execute(
         select(Enrollment).where(
             Enrollment.tenant_id == tenant_id,
@@ -152,9 +152,11 @@ def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
         status="APPROVED",
         created_by=created_by,
         payload={
+            "student_name": f"{first_name} {last_name}",
             "first_name": first_name,
             "last_name": last_name,
-            "class_id": str(class_id),
+            "admission_class": class_code,
+            "class_code": class_code,
             "gender": "M",
             "date_of_birth": "2015-03-15",
             "guardian_name": f"{last_name} Parent",
@@ -417,6 +419,19 @@ def main() -> None:
 
         # ── 7. Students + Invoices + Payments ─────────────────────────────────
         print("\n[=] Students, invoices & payments")
+        # Repair any existing enrollments that have first_name/last_name but missing student_name
+        db.execute(text("""
+            UPDATE core.enrollments
+            SET payload = payload || jsonb_build_object(
+                'student_name', (payload->>'first_name') || ' ' || (payload->>'last_name'),
+                'admission_class', COALESCE(payload->>'class_code', payload->>'admission_class', ''),
+                'class_code', COALESCE(payload->>'class_code', payload->>'admission_class', '')
+            )
+            WHERE tenant_id = :t
+              AND payload ? 'first_name'
+              AND NOT (payload ? 'student_name')
+        """), {"t": str(tid)})
+        db.flush()
         STUDENTS = [
             # (first, last, class_code, paid_term1, paid_term2)
             ("Naum",    "Kioko",    "GR3", Decimal("18500"), Decimal("0")),     # fully paid T1
@@ -434,7 +449,7 @@ def main() -> None:
         for first, last, cls_code, paid_t1, paid_t2 in STUDENTS:
             enr = _upsert_enrollment(db, tenant_id=tid, first_name=first,
                                      last_name=last, class_id=classes[cls_code].id,
-                                     created_by=secretary.id)
+                                     class_code=cls_code, created_by=secretary.id)
             # Term 1 invoice
             inv1 = _upsert_invoice(db, tenant_id=tid, enrollment_id=enr.id,
                                    term_number=1, academic_year=2026, lines=FEE_LINES)
