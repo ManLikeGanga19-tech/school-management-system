@@ -171,9 +171,16 @@ def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
     ).scalar_one_or_none()
     if existing:
         # Patch missing fields on already-seeded enrollments
-        if not existing.admission_number:
+        existing_adm = db.execute(
+            text("SELECT admission_number FROM core.enrollments WHERE id = :id"),
+            {"id": str(existing.id)},
+        ).scalar()
+        if not existing_adm:
             adm_no, _ = _next_admission_number(db, tenant_id=tenant_id)
-            existing.admission_number = adm_no
+            db.execute(
+                text("UPDATE core.enrollments SET admission_number=:adm WHERE id=:id"),
+                {"adm": adm_no, "id": str(existing.id)},
+            )
             existing.payload = {
                 **existing.payload,
                 "admission_number": adm_no,
@@ -192,7 +199,6 @@ def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
         id=uuid4(),
         tenant_id=tenant_id,
         status="APPROVED",
-        admission_number=adm_no,
         created_by=created_by,
         payload={
             "student_name": f"{first_name} {last_name}",
@@ -212,6 +218,11 @@ def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
         },
     )
     db.add(enr)
+    db.flush()
+    db.execute(
+        text("UPDATE core.enrollments SET admission_number=:adm WHERE id=:id"),
+        {"adm": adm_no, "id": str(enr.id)},
+    )
     db.flush()
     print(f"  [+] student {first_name} {last_name}  [{adm_no}]")
     return enr
