@@ -287,6 +287,7 @@ def _upsert_leave(db, *, tenant_id, staff_id, leave_type: str,
 
 def _upsert_sms_template(db, *, tenant_id, name: str, body: str,
                          variables: list, created_by) -> None:
+    import json
     existing = db.execute(
         text("SELECT id FROM core.sms_templates WHERE tenant_id=:t AND name=:n"),
         {"t": str(tenant_id), "n": name},
@@ -295,10 +296,10 @@ def _upsert_sms_template(db, *, tenant_id, name: str, body: str,
         return
     db.execute(text("""
         INSERT INTO core.sms_templates (id, tenant_id, name, body, variables, created_by)
-        VALUES (:id, :t, :name, :body, :vars::jsonb, :cb)
+        VALUES (:id, :t, :name, :body, cast(:vars as jsonb), :cb)
     """), {
         "id": str(uuid4()), "t": str(tenant_id), "name": name,
-        "body": body, "vars": str(variables).replace("'", '"'), "cb": str(created_by),
+        "body": body, "vars": json.dumps(variables), "cb": str(created_by),
     })
     db.flush()
     print(f"  [+] sms template '{name}'")
