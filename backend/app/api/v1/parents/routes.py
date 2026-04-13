@@ -31,11 +31,13 @@ _PERM = "enrollment.manage"   # reuse: secretary has this permission
 @router.get("", response_model=list[ParentListItem])
 def list_parents(
     q: str = "",
+    class_code: str = "",
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    user=Depends(require_permission(_PERM)),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
 ):
-    return service.list_parents(db, tenant_id=tenant.id, q=q)
+    return service.list_parents(db, tenant_id=tenant.id, q=q, class_code=class_code)
 
 
 @router.post("", response_model=ParentDetail)
@@ -43,7 +45,8 @@ def create_parent(
     body: ParentCreate,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    user=Depends(require_permission(_PERM)),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
 ):
     result = service.create_parent(
         db,
@@ -63,7 +66,8 @@ def create_parent(
 def sync_from_enrollments(
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    user=Depends(require_permission(_PERM)),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
 ):
     result = service.sync_from_enrollments(
         db, tenant_id=tenant.id, actor_user_id=user.id
@@ -81,7 +85,8 @@ def get_parent(
     parent_id: UUID,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    user=Depends(require_permission(_PERM)),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
 ):
     return service.get_parent_detail(db, tenant_id=tenant.id, parent_id=parent_id)
 
@@ -92,7 +97,8 @@ def update_parent(
     body: ParentUpdate,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    user=Depends(require_permission(_PERM)),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
 ):
     result = service.update_parent(
         db,
@@ -115,7 +121,8 @@ def link_enrollment(
     body: LinkEnrollmentRequest,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    user=Depends(require_permission(_PERM)),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
 ):
     result = service.link_enrollment(
         db,
@@ -136,7 +143,8 @@ def unlink_enrollment(
     link_id: UUID,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    user=Depends(require_permission(_PERM)),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
 ):
     result = service.unlink_enrollment(
         db,
@@ -158,7 +166,8 @@ def get_parent_invoices(
     parent_id: UUID,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    user=Depends(require_permission(_PERM)),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
 ):
     return service.get_parent_invoices(db, tenant_id=tenant.id, parent_id=parent_id)
 
@@ -170,7 +179,8 @@ def preview_payment(
     strategy: str = "oldest_first",
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    user=Depends(require_permission(_PERM)),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
 ):
     from decimal import Decimal
     return service.preview_distribution(
@@ -188,7 +198,8 @@ def record_payment(
     body: ParentBulkPayment,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    user=Depends(require_permission(_PERM)),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
 ):
     result = service.record_bulk_payment(
         db,

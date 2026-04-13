@@ -79,7 +79,27 @@ def _get_parent_or_404(db: Session, tenant_id: UUID, parent_id: UUID) -> Parent:
 # List parents
 # ─────────────────────────────────────────────────────────────────────────────
 
-def list_parents(db: Session, *, tenant_id: UUID, q: str = "") -> List[Dict]:
+def _parent_has_class(db: Session, tenant_id: UUID, parent_id, class_code: str) -> bool:
+    """Return True if the parent has at least one child enrolled in the given class."""
+    row = db.execute(
+        sa.text("""
+            SELECT 1
+            FROM core.parent_enrollment_links pel
+            JOIN core.enrollments e ON e.id = pel.enrollment_id
+            WHERE pel.parent_id = :pid
+              AND pel.tenant_id = :tid
+              AND (
+                  UPPER(e.payload->>'class_code') = :cc
+               OR UPPER(e.payload->>'admission_class') = :cc
+              )
+            LIMIT 1
+        """),
+        {"pid": str(parent_id), "tid": str(tenant_id), "cc": class_code},
+    ).first()
+    return row is not None
+
+
+def list_parents(db: Session, *, tenant_id: UUID, q: str = "", class_code: str = "") -> List[Dict]:
     rows = db.execute(
         sa.text("""
             SELECT
@@ -107,10 +127,14 @@ def list_parents(db: Session, *, tenant_id: UUID, q: str = "") -> List[Dict]:
     ).mappings().all()
 
     q = q.strip().lower()
+    class_filter = class_code.strip().upper()
     result = []
     for r in rows:
         name = f"{r['first_name'] or ''} {r['last_name'] or ''}".strip()
         if q and q not in name.lower() and q not in (r["phone"] or "").lower():
+            continue
+        # class_code filter: only include if parent has at least one child in that class
+        if class_filter and not _parent_has_class(db, tenant_id, r["id"], class_filter):
             continue
         result.append({
             "id": str(r["id"]),
