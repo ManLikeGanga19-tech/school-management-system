@@ -27,19 +27,19 @@ function fmtDate(iso: string | null) {
   });
 }
 
-function providerBadge(p: string) {
+function ProviderBadge({ p }: { p: string }) {
   const colors: Record<string, string> = {
-    MPESA: "bg-green-100 text-green-700",
-    CASH:  "bg-slate-100 text-slate-700",
-    BANK:  "bg-blue-100 text-blue-700",
-    CHEQUE:"bg-purple-100 text-purple-700",
+    MPESA:  "bg-green-100 text-green-700",
+    CASH:   "bg-slate-100 text-slate-700",
+    BANK:   "bg-blue-100 text-blue-700",
+    CHEQUE: "bg-purple-100 text-purple-700",
   };
   const labels: Record<string, string> = {
     MPESA: "M-Pesa", CASH: "Cash", BANK: "Bank Transfer", CHEQUE: "Cheque",
   };
   return (
-    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[p] || "bg-slate-100 text-slate-700"}`}>
-      {labels[p] || p}
+    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[p] ?? "bg-slate-100 text-slate-700"}`}>
+      {labels[p] ?? p}
     </span>
   );
 }
@@ -78,10 +78,10 @@ function PaymentsContent() {
 
   return (
     <AppShell title="Payments" nav={parentNav} activeHref="/tenant/parent/payments">
-      <div className="space-y-6">
+      <div className="mx-auto max-w-3xl space-y-6">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 shrink-0">
             <Receipt className="h-5 w-5 text-purple-600" />
           </div>
           <div>
@@ -105,39 +105,64 @@ function PaymentsContent() {
             <p className="text-sm text-slate-500">No payments recorded yet.</p>
           </div>
         ) : (
-          <div className="rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Student</th>
-                  <th className="px-4 py-3">Method</th>
-                  <th className="px-4 py-3">Receipt / Ref</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.map((pay) => (
-                  <tr key={pay.payment_id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                      {fmtDate(pay.received_at)}
-                    </td>
-                    <td className="px-4 py-3 font-medium text-slate-800">
-                      {pay.student_name}
-                    </td>
-                    <td className="px-4 py-3">
-                      {providerBadge(pay.provider)}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                      {pay.receipt_no || pay.reference || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold tabular-nums text-slate-800">
+          <>
+            {/* Mobile: card list */}
+            <div className="space-y-3 sm:hidden">
+              {payments.map((pay) => (
+                <div key={pay.payment_id} className="rounded-xl border border-slate-100 bg-white p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-800 truncate">{pay.student_name}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{fmtDate(pay.received_at)}</p>
+                      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                        <ProviderBadge p={pay.provider} />
+                        {(pay.receipt_no || pay.reference) && (
+                          <span className="font-mono text-xs text-slate-400">
+                            {pay.receipt_no || pay.reference}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <p className="font-bold tabular-nums text-slate-800 shrink-0 text-base">
                       {kes(pay.amount)}
-                    </td>
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {/* Mobile total */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex justify-between text-sm font-semibold text-slate-700">
+                <span>Total Paid</span>
+                <span className="text-emerald-700 tabular-nums">{kes(totalPaid)}</span>
+              </div>
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden sm:block rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Student</th>
+                    <th className="px-4 py-3">Method</th>
+                    <th className="px-4 py-3">Receipt / Ref</th>
+                    <th className="px-4 py-3 text-right">Amount</th>
                   </tr>
-                ))}
-              </tbody>
-              {payments.length > 0 && (
+                </thead>
+                <tbody>
+                  {payments.map((pay) => (
+                    <tr key={pay.payment_id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(pay.received_at)}</td>
+                      <td className="px-4 py-3 font-medium text-slate-800">{pay.student_name}</td>
+                      <td className="px-4 py-3"><ProviderBadge p={pay.provider} /></td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                        {pay.receipt_no || pay.reference || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold tabular-nums text-slate-800">
+                        {kes(pay.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
                 <tfoot>
                   <tr className="border-t border-slate-200 bg-slate-50">
                     <td colSpan={4} className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -148,9 +173,9 @@ function PaymentsContent() {
                     </td>
                   </tr>
                 </tfoot>
-              )}
-            </table>
-          </div>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </AppShell>

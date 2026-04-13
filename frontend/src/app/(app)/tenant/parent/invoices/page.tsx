@@ -26,7 +26,11 @@ function kes(n: number) {
   return `KES ${n.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function statusBadge(status: string, balance: number) {
+function normalizeType(t: string) {
+  return t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function StatusBadge({ status, balance }: { status: string; balance: number }) {
   if (balance <= 0 || status === "PAID") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
@@ -45,6 +49,115 @@ function statusBadge(status: string, balance: number) {
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
       <AlertCircle className="h-3 w-3" /> Unpaid
     </span>
+  );
+}
+
+function InvoiceCard({ inv, outstanding }: { inv: InvoiceRow; outstanding: boolean }) {
+  return (
+    <div className={`rounded-xl border bg-white p-4 ${outstanding ? "border-amber-100" : "border-slate-100"}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold text-slate-800 truncate">{inv.student_name}</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {inv.class_code}
+            {inv.invoice_no && <> &middot; <span className="font-mono">{inv.invoice_no}</span></>}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {normalizeType(inv.invoice_type)}
+            {inv.term_number ? ` · Term ${inv.term_number}` : ""}
+            {inv.academic_year ? ` ${inv.academic_year}` : ""}
+          </p>
+        </div>
+        <StatusBadge status={inv.status} balance={inv.balance_amount} />
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 px-3 py-2 text-center text-xs">
+        <div>
+          <p className="text-slate-400">Total</p>
+          <p className="font-semibold text-slate-700 tabular-nums">{kes(inv.total_amount)}</p>
+        </div>
+        <div>
+          <p className="text-slate-400">Paid</p>
+          <p className="font-semibold text-emerald-700 tabular-nums">{kes(inv.paid_amount)}</p>
+        </div>
+        <div>
+          <p className="text-slate-400">Balance</p>
+          <p className={`font-bold tabular-nums ${outstanding ? "text-amber-700" : "text-slate-400"}`}>
+            {kes(inv.balance_amount)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InvoiceSection({
+  title,
+  invoices,
+  outstanding,
+}: {
+  title: string;
+  invoices: InvoiceRow[];
+  outstanding: boolean;
+}) {
+  return (
+    <div>
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {title} ({invoices.length})
+      </h2>
+
+      {/* Mobile: card list */}
+      <div className="space-y-3 sm:hidden">
+        {invoices.map((inv) => (
+          <InvoiceCard key={inv.invoice_id} inv={inv} outstanding={outstanding} />
+        ))}
+      </div>
+
+      {/* Desktop: table */}
+      <div className="hidden sm:block rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <th className="px-4 py-3">Student</th>
+              <th className="px-4 py-3">Invoice</th>
+              <th className="px-4 py-3">Type / Term</th>
+              {outstanding && <th className="px-4 py-3 text-right">Total</th>}
+              {outstanding && <th className="px-4 py-3 text-right">Paid</th>}
+              <th className="px-4 py-3 text-right">{outstanding ? "Balance" : "Amount"}</th>
+              <th className="px-4 py-3">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.map((inv) => (
+              <tr key={inv.invoice_id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+                <td className="px-4 py-3">
+                  <p className="font-medium text-slate-800">{inv.student_name}</p>
+                  <p className="text-xs text-slate-400">{inv.class_code}</p>
+                </td>
+                <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                  {inv.invoice_no || "—"}
+                </td>
+                <td className="px-4 py-3 text-slate-600 text-xs">
+                  {normalizeType(inv.invoice_type)}
+                  {inv.term_number ? <><br />Term {inv.term_number}{inv.academic_year ? ` · ${inv.academic_year}` : ""}</> : ""}
+                </td>
+                {outstanding && (
+                  <td className="px-4 py-3 text-right tabular-nums text-slate-700">{kes(inv.total_amount)}</td>
+                )}
+                {outstanding && (
+                  <td className="px-4 py-3 text-right tabular-nums text-emerald-700">{kes(inv.paid_amount)}</td>
+                )}
+                <td className={`px-4 py-3 text-right tabular-nums font-bold ${outstanding ? "text-amber-700" : "text-slate-700"}`}>
+                  {outstanding ? kes(inv.balance_amount) : kes(inv.total_amount)}
+                </td>
+                <td className="px-4 py-3">
+                  <StatusBadge status={inv.status} balance={inv.balance_amount} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -83,10 +196,10 @@ function InvoicesContent() {
 
   return (
     <AppShell title="My Bills" nav={parentNav} activeHref="/tenant/parent/invoices">
-      <div className="space-y-6">
+      <div className="mx-auto max-w-3xl space-y-6">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 shrink-0">
             <FileText className="h-5 w-5 text-blue-600" />
           </div>
           <div>
@@ -103,102 +216,12 @@ function InvoicesContent() {
           </div>
         )}
 
-        {/* Outstanding */}
         {outstanding.length > 0 && (
-          <div>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Outstanding ({outstanding.length})
-            </h2>
-            <div className="rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-3">Student</th>
-                    <th className="px-4 py-3">Invoice</th>
-                    <th className="px-4 py-3">Term</th>
-                    <th className="px-4 py-3 text-right">Total</th>
-                    <th className="px-4 py-3 text-right">Paid</th>
-                    <th className="px-4 py-3 text-right">Balance</th>
-                    <th className="px-4 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {outstanding.map((inv) => (
-                    <tr key={inv.invoice_id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-slate-800">{inv.student_name}</p>
-                        <p className="text-xs text-slate-400">{inv.class_code}</p>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                        {inv.invoice_no || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {inv.term_number ? `Term ${inv.term_number}` : "—"}
-                        {inv.academic_year ? ` ${inv.academic_year}` : ""}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">
-                        {kes(inv.total_amount)}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-emerald-700">
-                        {kes(inv.paid_amount)}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums font-bold text-amber-700">
-                        {kes(inv.balance_amount)}
-                      </td>
-                      <td className="px-4 py-3">
-                        {statusBadge(inv.status, inv.balance_amount)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <InvoiceSection title="Outstanding" invoices={outstanding} outstanding={true} />
         )}
 
-        {/* Settled */}
         {settled.length > 0 && (
-          <div>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Settled ({settled.length})
-            </h2>
-            <div className="rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-3">Student</th>
-                    <th className="px-4 py-3">Invoice</th>
-                    <th className="px-4 py-3">Term</th>
-                    <th className="px-4 py-3 text-right">Amount</th>
-                    <th className="px-4 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {settled.map((inv) => (
-                    <tr key={inv.invoice_id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-slate-700">{inv.student_name}</p>
-                        <p className="text-xs text-slate-400">{inv.class_code}</p>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                        {inv.invoice_no || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {inv.term_number ? `Term ${inv.term_number}` : "—"}
-                        {inv.academic_year ? ` ${inv.academic_year}` : ""}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">
-                        {kes(inv.total_amount)}
-                      </td>
-                      <td className="px-4 py-3">
-                        {statusBadge(inv.status, inv.balance_amount)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <InvoiceSection title="Settled" invoices={settled} outstanding={false} />
         )}
 
         {invoices.length === 0 && !error && (
