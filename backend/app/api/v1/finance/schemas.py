@@ -283,6 +283,26 @@ class PaymentWithAllocationsOut(PaymentOut):
 
 
 # -------------------------
+# Paginated list responses
+# -------------------------
+class PageMeta(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
+class InvoicePageOut(BaseModel):
+    items: List[InvoiceOut]
+    meta: PageMeta
+
+
+class PaymentPageOut(BaseModel):
+    items: List[PaymentWithAllocationsOut]
+    meta: PageMeta
+
+
+# -------------------------
 # Tenant Payment Settings
 # -------------------------
 class TenantPaymentSettingsUpsert(BaseModel):

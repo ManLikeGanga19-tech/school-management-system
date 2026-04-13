@@ -1538,13 +1538,35 @@ def create_invoice(
     return inv
 
 
-def list_invoices(db: Session, *, tenant_id: UUID, enrollment_id: Optional[UUID] = None, invoice_type: Optional[str] = None) -> list[Invoice]:
+def list_invoices(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    enrollment_id: Optional[UUID] = None,
+    invoice_type: Optional[str] = None,
+    status: Optional[str] = None,
+    outstanding_only: bool = False,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
     q = select(Invoice).where(Invoice.tenant_id == tenant_id)
     if enrollment_id:
         q = q.where(Invoice.enrollment_id == enrollment_id)
     if invoice_type:
         q = q.where(Invoice.invoice_type == (_normalize_invoice_type(invoice_type) or ""))
-    return db.execute(q.order_by(Invoice.created_at.desc())).scalars().all()
+    if status:
+        q = q.where(Invoice.status == status.upper())
+    if outstanding_only:
+        q = q.where(Invoice.balance_amount > 0)
+    total: int = db.execute(select(sa_func.count()).select_from(q.subquery())).scalar() or 0
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = max(1, min(page, pages))
+    items = db.execute(
+        q.order_by(Invoice.created_at.desc())
+         .limit(page_size)
+         .offset((page - 1) * page_size)
+    ).scalars().all()
+    return {"items": items, "meta": {"total": total, "page": page, "page_size": page_size, "pages": pages}}
 
 
 def get_invoice(db: Session, *, tenant_id: UUID, invoice_id: UUID) -> Invoice | None:
@@ -1805,46 +1827,53 @@ def create_payment(
     return pay
 
 
-def list_payments(db: Session, *, tenant_id: UUID, enrollment_id: Optional[UUID] = None) -> list[dict]:
+def list_payments(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    enrollment_id: Optional[UUID] = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    base_q = select(Payment).where(Payment.tenant_id == tenant_id)
+    if enrollment_id:
+        base_q = base_q.join(
+            PaymentAllocation, PaymentAllocation.payment_id == Payment.id
+        ).join(
+            Invoice, Invoice.id == PaymentAllocation.invoice_id
+        ).where(Invoice.enrollment_id == enrollment_id).distinct()
+
+    total: int = db.execute(select(sa_func.count()).select_from(base_q.subquery())).scalar() or 0
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = max(1, min(page, pages))
+
     payment_rows = db.execute(
-        select(Payment)
-        .where(Payment.tenant_id == tenant_id)
-        .order_by(Payment.received_at.desc())
+        base_q.order_by(Payment.received_at.desc())
+              .limit(page_size)
+              .offset((page - 1) * page_size)
     ).scalars().all()
 
-    payments: list[dict] = []
+    items: list[dict] = []
     for payment in payment_rows:
         alloc_query = (
             select(PaymentAllocation.invoice_id, PaymentAllocation.amount)
             .select_from(PaymentAllocation)
             .join(Invoice, Invoice.id == PaymentAllocation.invoice_id)
-            .where(
-                PaymentAllocation.payment_id == payment.id,
-                Invoice.tenant_id == tenant_id,
-            )
+            .where(PaymentAllocation.payment_id == payment.id,
+                   Invoice.tenant_id == tenant_id)
         )
-        if enrollment_id:
-            alloc_query = alloc_query.where(Invoice.enrollment_id == enrollment_id)
-
         allocations = db.execute(alloc_query).all()
-        if enrollment_id and len(allocations) == 0:
-            continue
+        items.append({
+            "id": payment.id,
+            "tenant_id": payment.tenant_id,
+            "receipt_no": getattr(payment, "receipt_no", None),
+            "provider": payment.provider,
+            "reference": payment.reference,
+            "amount": payment.amount,
+            "allocations": [{"invoice_id": r.invoice_id, "amount": r.amount} for r in allocations],
+        })
 
-        payments.append(
-            {
-                "id": payment.id,
-                "tenant_id": payment.tenant_id,
-                "receipt_no": getattr(payment, "receipt_no", None),
-                "provider": payment.provider,
-                "reference": payment.reference,
-                "amount": payment.amount,
-                "allocations": [
-                    {"invoice_id": row.invoice_id, "amount": row.amount} for row in allocations
-                ],
-            }
-        )
-
-    return payments
+    return {"items": items, "meta": {"total": total, "page": page, "page_size": page_size, "pages": pages}}
 
 
 # -------------------------

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Bar,
@@ -494,6 +494,49 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
   );
 }
 
+function PaginationBar({
+  meta,
+  loading,
+  onPrev,
+  onNext,
+}: {
+  meta: { total: number; page: number; page_size: number; pages: number };
+  loading: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  if (meta.total === 0 && !loading) return null;
+  return (
+    <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
+      <span>
+        {loading ? "Loading…" : (
+          <>
+            Page <strong className="text-slate-700">{meta.page}</strong> of{" "}
+            <strong className="text-slate-700">{meta.pages}</strong>
+            <span className="ml-2 text-slate-400">({meta.total} total)</span>
+          </>
+        )}
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onPrev}
+          disabled={loading || meta.page <= 1}
+          className="rounded border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition"
+        >
+          ← Prev
+        </button>
+        <button
+          onClick={onNext}
+          disabled={loading || meta.page >= meta.pages}
+          className="rounded border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition"
+        >
+          Next →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ActionButton({
   onClick,
   loading,
@@ -727,6 +770,25 @@ function SecretaryFinancePageContent() {
     outstanding_only: false,
   });
 
+  // ── Pagination state ────────────────────────────────────────────────────────
+  type PageMeta = { total: number; page: number; page_size: number; pages: number };
+  const defaultMeta: PageMeta = { total: 0, page: 1, page_size: 20, pages: 1 };
+
+  const [invoicePage, setInvoicePage] = useState(1);
+  const [invoiceMeta, setInvoiceMeta] = useState<PageMeta>(defaultMeta);
+  const [pagedInvoices, setPagedInvoices] = useState<Invoice[]>([]);
+  const [invoicePageLoading, setInvoicePageLoading] = useState(false);
+
+  const [paymentPage, setPaymentPage] = useState(1);
+  const [paymentMeta, setPaymentMeta] = useState<PageMeta>(defaultMeta);
+  const [pagedPayments, setPagedPayments] = useState<Payment[]>([]);
+  const [paymentPageLoading, setPaymentPageLoading] = useState(false);
+
+  const [receiptPage, setReceiptPage] = useState(1);
+  const [receiptMeta, setReceiptMeta] = useState<PageMeta>(defaultMeta);
+  const [pagedReceipts, setPagedReceipts] = useState<Invoice[]>([]);
+  const [receiptPageLoading, setReceiptPageLoading] = useState(false);
+
   async function loadFinance(silent = false) {
     if (!silent) setLoading(true);
     try {
@@ -795,6 +857,39 @@ function SecretaryFinancePageContent() {
     }
   }
 
+  // ── Paginated loaders ───────────────────────────────────────────────────────
+  const loadPagedInvoices = useCallback(async (page: number, filters: InvoiceFilterState) => {
+    setInvoicePageLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), page_size: "20" });
+      if (filters.enrollment_id) params.set("enrollment_id", filters.enrollment_id);
+      if (filters.type) params.set("invoice_type", filters.type);
+      if (filters.status) params.set("status", filters.status);
+      if (filters.outstanding_only) params.set("outstanding_only", "true");
+      const res = await api.get<any>(`/finance/invoices?${params}`, { tenantRequired: true });
+      setPagedInvoices(Array.isArray(res?.items) ? res.items : []);
+      setInvoiceMeta(res?.meta ?? defaultMeta);
+    } catch { /* silent */ } finally { setInvoicePageLoading(false); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadPagedPayments = useCallback(async (page: number) => {
+    setPaymentPageLoading(true);
+    try {
+      const res = await api.get<any>(`/finance/payments?page=${page}&page_size=20`, { tenantRequired: true });
+      setPagedPayments(Array.isArray(res?.items) ? res.items : []);
+      setPaymentMeta(res?.meta ?? defaultMeta);
+    } catch { /* silent */ } finally { setPaymentPageLoading(false); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadPagedReceipts = useCallback(async (page: number) => {
+    setReceiptPageLoading(true);
+    try {
+      const res = await api.get<any>(`/finance/invoices?page=${page}&page_size=20&status=PAID`, { tenantRequired: true });
+      setPagedReceipts(Array.isArray(res?.items) ? res.items : []);
+      setReceiptMeta(res?.meta ?? defaultMeta);
+    } catch { /* silent */ } finally { setReceiptPageLoading(false); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadStructureLookups = useCallback(async () => {
     setLoadingStructureLookups(true);
     try {
@@ -839,6 +934,23 @@ function SecretaryFinancePageContent() {
   useEffect(() => {
     if (notice) toast.success(notice);
   }, [notice]);
+
+  // Reset to page 1 when invoice filters change
+  const prevInvoiceFilters = useRef(invoiceFilters);
+  useEffect(() => {
+    if (prevInvoiceFilters.current !== invoiceFilters) {
+      prevInvoiceFilters.current = invoiceFilters;
+      setInvoicePage(1);
+    }
+  }, [invoiceFilters]);
+
+  // Load paginated tables whenever page or relevant filters change
+  useEffect(() => { void loadPagedInvoices(invoicePage, invoiceFilters); },
+    [invoicePage, invoiceFilters, loadPagedInvoices]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadPagedPayments(paymentPage); },
+    [paymentPage, loadPagedPayments]);
+  useEffect(() => { void loadPagedReceipts(receiptPage); },
+    [receiptPage, loadPagedReceipts]);
 
   // Apply deep-link params into filters & forms (UI only)
   useEffect(() => {
@@ -2005,7 +2117,7 @@ function SecretaryFinancePageContent() {
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
-                      Results: <strong className="text-slate-800">{filteredInvoices.length}</strong>
+                      Results: <strong className="text-slate-800">{invoiceMeta.total}</strong>
                     </span>
                     <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
                       Total: <strong className="text-slate-800">{formatKes(filteredInvoiceTotals.total)}</strong>
@@ -2056,7 +2168,7 @@ function SecretaryFinancePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredInvoices.slice(0, 50).map((invoice) => {
+                    {pagedInvoices.map((invoice) => {
                       const enrollment = data.enrollments.find(
                         (r) => r.id === invoice.enrollment_id
                       );
@@ -2110,17 +2222,18 @@ function SecretaryFinancePageContent() {
                       );
                     })}
 
-                    {filteredInvoices.length === 0 && (
+                    {pagedInvoices.length === 0 && !invoicePageLoading && (
                       <EmptyRow colSpan={7} message="No invoices match the current filters." />
                     )}
                   </TableBody>
                 </Table>
 
-                {filteredInvoices.length > 50 && (
-                  <div className="border-t border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
-                    Showing first 50 results. Refine filters to narrow down the list.
-                  </div>
-                )}
+                <PaginationBar
+                  meta={invoiceMeta}
+                  loading={invoicePageLoading}
+                  onPrev={() => setInvoicePage((p) => Math.max(1, p - 1))}
+                  onNext={() => setInvoicePage((p) => Math.min(invoiceMeta.pages, p + 1))}
+                />
               </div>
             </SectionCard>
           </div>
@@ -2358,7 +2471,7 @@ function SecretaryFinancePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.payments.slice(0, 25).map((payment) => (
+                    {pagedPayments.map((payment) => (
                       <TableRow key={payment.id} className="hover:bg-slate-50">
                         <TableCell className="font-mono text-xs font-medium text-blue-700">
                           {String(payment.id).slice(0, 8).toUpperCase()}
@@ -2383,11 +2496,17 @@ function SecretaryFinancePageContent() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {data.payments.length === 0 && (
+                    {pagedPayments.length === 0 && !paymentPageLoading && (
                       <EmptyRow colSpan={6} message="No payments recorded yet." />
                     )}
                   </TableBody>
                 </Table>
+                <PaginationBar
+                  meta={paymentMeta}
+                  loading={paymentPageLoading}
+                  onPrev={() => setPaymentPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setPaymentPage((p) => Math.min(paymentMeta.pages, p + 1))}
+                />
               </div>
             </SectionCard>
           </div>
@@ -2396,14 +2515,13 @@ function SecretaryFinancePageContent() {
         {/* ── RECEIPTS SECTION ── */}
         {showReceipts && (
           <div className="space-y-5">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <SummaryCard
                 label="Paid Invoices"
-                value={String(data.invoices.filter((i) => i.status.toUpperCase() === "PAID").length)}
+                value={String(receiptMeta.total || data.invoices.filter((i) => i.status.toUpperCase() === "PAID").length)}
                 color="emerald"
               />
-              <SummaryCard label="Total Collected" value={formatKes(totals.paid)} color="blue" />
-              <SummaryCard label="Total Payments" value={String(data.payments.length)} color="blue" />
+              <SummaryCard label="Total Payments" value={String(paymentMeta.total || data.payments.length)} color="blue" />
               <SummaryCard label="Outstanding" value={formatKes(totals.balance)} color="amber" />
             </div>
 
@@ -2421,56 +2539,59 @@ function SecretaryFinancePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.invoices
-                      .filter((inv) => inv.status.toUpperCase() === "PAID")
-                      .slice(0, 25)
-                      .map((invoice) => {
-                        const enrollment = data.enrollments.find((r) => r.id === invoice.enrollment_id);
-                        return (
-                          <TableRow key={invoice.id} className="hover:bg-slate-50">
-                            <TableCell className="text-sm font-medium">
-                              {enrollment ? enrollmentName(enrollment.payload || {}) : "N/A"}
-                            </TableCell>
-                            <TableCell>
-                              <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
-                                {normalizeInvoiceType(invoice.invoice_type)}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              <InvoiceStatusBadge status={invoice.status} />
-                            </TableCell>
-                            <TableCell className="text-right text-sm">
-                              {formatAmount(invoice.total_amount)}
-                            </TableCell>
-                            <TableCell className="text-right text-sm font-medium text-emerald-700">
-                              {formatAmount(invoice.paid_amount)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <button
-                                title="Download invoice PDF"
-                                className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
-                                onClick={() => {
-                                  const name = enrollment
-                                    ? enrollmentName(enrollment.payload || {})
-                                    : "invoice";
-                                  void api.downloadFile(
-                                    `/finance/documents/invoices/${invoice.id}/pdf`,
-                                    `${name.replace(/\s+/g, "_")}_invoice.pdf`,
-                                    { tenantRequired: true }
-                                  ).catch(() => toast.error("Failed to download invoice PDF."));
-                                }}
-                              >
-                                <FileDown className="h-3.5 w-3.5" />
-                              </button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    {data.invoices.filter((i) => i.status.toUpperCase() === "PAID").length === 0 && (
+                    {pagedReceipts.map((invoice) => {
+                      const enrollment = data.enrollments.find((r) => r.id === invoice.enrollment_id);
+                      return (
+                        <TableRow key={invoice.id} className="hover:bg-slate-50">
+                          <TableCell className="text-sm font-medium">
+                            {enrollment ? enrollmentName(enrollment.payload || {}) : "N/A"}
+                          </TableCell>
+                          <TableCell>
+                            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
+                              {normalizeInvoiceType(invoice.invoice_type)}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <InvoiceStatusBadge status={invoice.status} />
+                          </TableCell>
+                          <TableCell className="text-right text-sm">
+                            {formatAmount(invoice.total_amount)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-medium text-emerald-700">
+                            {formatAmount(invoice.paid_amount)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <button
+                              title="Download invoice PDF"
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+                              onClick={() => {
+                                const name = enrollment
+                                  ? enrollmentName(enrollment.payload || {})
+                                  : "invoice";
+                                void api.downloadFile(
+                                  `/finance/documents/invoices/${invoice.id}/pdf`,
+                                  `${name.replace(/\s+/g, "_")}_invoice.pdf`,
+                                  { tenantRequired: true }
+                                ).catch(() => toast.error("Failed to download invoice PDF."));
+                              }}
+                            >
+                              <FileDown className="h-3.5 w-3.5" />
+                            </button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {pagedReceipts.length === 0 && !receiptPageLoading && (
                       <EmptyRow colSpan={6} message="No paid receipts yet." />
                     )}
                   </TableBody>
                 </Table>
+                <PaginationBar
+                  meta={receiptMeta}
+                  loading={receiptPageLoading}
+                  onPrev={() => setReceiptPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setReceiptPage((p) => Math.min(receiptMeta.pages, p + 1))}
+                />
               </div>
             </SectionCard>
 
@@ -2489,7 +2610,7 @@ function SecretaryFinancePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.payments.slice(0, 25).map((payment) => (
+                    {pagedPayments.map((payment) => (
                       <TableRow key={payment.id} className="hover:bg-slate-50">
                         <TableCell className="font-mono text-xs font-semibold text-blue-700">
                           {String(payment.id).slice(0, 8).toUpperCase()}
@@ -2550,9 +2671,17 @@ function SecretaryFinancePageContent() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {data.payments.length === 0 && <EmptyRow colSpan={7} message="No payments yet." />}
+                    {pagedPayments.length === 0 && !paymentPageLoading && (
+                      <EmptyRow colSpan={7} message="No payments yet." />
+                    )}
                   </TableBody>
                 </Table>
+                <PaginationBar
+                  meta={paymentMeta}
+                  loading={paymentPageLoading}
+                  onPrev={() => setPaymentPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setPaymentPage((p) => Math.min(paymentMeta.pages, p + 1))}
+                />
               </div>
             </SectionCard>
           </div>

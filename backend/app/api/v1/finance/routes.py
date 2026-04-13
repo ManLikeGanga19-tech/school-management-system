@@ -14,10 +14,10 @@ from app.api.v1.finance.schemas import (
     FeeItemCreate, FeeItemOut, FeeItemUpdate,
     FeeStructureCreate, FeeStructureUpdate, FeeStructureOut, FeeStructureItemUpsert, FeeStructureItemAdd, FeeStructureItemOut, FeeStructureWithItemsOut,
     ScholarshipCreate, ScholarshipOut, ScholarshipUpdate,
-    InvoiceCreate, InvoiceOut,
+    InvoiceCreate, InvoiceOut, InvoicePageOut,
     GenerateFeesInvoiceRequest,
     GenerateFeesInvoiceV2Request,
-    PaymentCreate, PaymentOut, PaymentWithAllocationsOut,
+    PaymentCreate, PaymentOut, PaymentWithAllocationsOut, PaymentPageOut,
     TenantPaymentSettingsUpsert, TenantPaymentSettingsOut,
 )
 
@@ -629,15 +629,23 @@ def generate_fees_invoice_v2(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/invoices", response_model=list[InvoiceOut], dependencies=[Depends(require_permission("finance.invoices.view"))])
+@router.get("/invoices", response_model=InvoicePageOut, dependencies=[Depends(require_permission("finance.invoices.view"))])
 def list_invoices(
     enrollment_id: UUID | None = Query(default=None),
     invoice_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    outstanding_only: bool = Query(default=False),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
-    return service.list_invoices(db, tenant_id=tenant.id, enrollment_id=enrollment_id, invoice_type=invoice_type)
+    return service.list_invoices(
+        db, tenant_id=tenant.id, enrollment_id=enrollment_id,
+        invoice_type=invoice_type, status=status,
+        outstanding_only=outstanding_only, page=page, page_size=page_size,
+    )
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceOut, dependencies=[Depends(require_permission("finance.invoices.view"))])
@@ -680,14 +688,19 @@ def create_payment(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/payments", response_model=list[PaymentWithAllocationsOut], dependencies=[Depends(require_permission("finance.payments.view"))])
+@router.get("/payments", response_model=PaymentPageOut, dependencies=[Depends(require_permission("finance.payments.view"))])
 def list_payments(
     enrollment_id: UUID | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
-    return service.list_payments(db, tenant_id=tenant.id, enrollment_id=enrollment_id)
+    return service.list_payments(
+        db, tenant_id=tenant.id, enrollment_id=enrollment_id,
+        page=page, page_size=page_size,
+    )
 
 
 # -------------------------
