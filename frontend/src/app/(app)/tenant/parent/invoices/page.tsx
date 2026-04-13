@@ -55,14 +55,12 @@ function InvoicesContent() {
 
   useEffect(() => {
     let cancelled = false;
-    api.get("/portal/invoices")
-      .then(async (res) => {
-        if (!res.ok) throw new Error("Could not load invoices");
-        const data = await res.json();
+    api.get<InvoiceRow[]>("/portal/invoices", { tenantRequired: true })
+      .then((data) => {
         if (!cancelled) setInvoices(data);
       })
-      .catch((err) => {
-        if (!cancelled) setError(err.message);
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load invoices");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

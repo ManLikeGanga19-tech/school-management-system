@@ -51,14 +51,12 @@ function PaymentsContent() {
 
   useEffect(() => {
     let cancelled = false;
-    api.get("/portal/payments")
-      .then(async (res) => {
-        if (!res.ok) throw new Error("Could not load payments");
-        const data = await res.json();
+    api.get<PaymentRow[]>("/portal/payments", { tenantRequired: true })
+      .then((data) => {
         if (!cancelled) setPayments(data);
       })
-      .catch((err) => {
-        if (!cancelled) setError(err.message);
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load payments");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
