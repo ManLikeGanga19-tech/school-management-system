@@ -917,6 +917,18 @@ def mark_enrolled(
             db, tenant_id=tenant_id, enrollment=enrollment, admission_no=admission_number
         )
 
+    # Auto-link parent if a parent record already has this guardian's phone.
+    try:
+        from app.api.v1.parents.service import auto_link_on_enroll
+        auto_link_on_enroll(
+            db,
+            tenant_id=tenant_id,
+            enrollment_id=enrollment.id,
+            payload=dict(enrollment.payload or {}),
+        )
+    except Exception:
+        pass  # Non-critical — never block enrollment on parent-link failure
+
     log_event(
         db, tenant_id=tenant_id, actor_user_id=actor_user_id,
         action="enrollment.enroll", resource="enrollment",

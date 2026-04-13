@@ -482,6 +482,7 @@ export const secretaryNav: AppNavItem[] = [
     showUnreadBadge: true,
     badgeKey: "tenantNotifications",
   },
+  { href: "/tenant/secretary/parents", label: "Parents", icon: "UsersRound" },
   { href: secretaryContactAdminHref(), label: "Contact Admin", icon: "Headset" },
   { href: "/tenant/secretary/users", label: "Users", icon: "UserCog" },
   { href: "/tenant/secretary/audit", label: "Audit Logs", icon: "ScrollText" },

@@ -20,6 +20,7 @@ from app.api.v1.discipline.routes import students_router as discipline_students_
 from app.api.v1.sms.routes import router as sms_router
 from app.api.v1.sms.routes import admin_router as sms_admin_router
 from app.api.v1.hr.routes import router as hr_router
+from app.api.v1.parents.routes import router as parents_router
 
 api_router = APIRouter()
 
@@ -72,3 +73,6 @@ api_router.include_router(sms_admin_router, prefix="/admin/sms", tags=["admin-sm
 # HR Module (Phase 6) — leave, payroll, SMS recipients
 api_router.include_router(hr_router, prefix="/tenants", tags=["hr"])
 api_router.include_router(hr_router, prefix="/tenant", tags=["hr-compat"])
+
+# Parent Portal (Phase 7) — guardian management, bulk payments
+api_router.include_router(parents_router, prefix="/parents", tags=["parents"])
