@@ -122,7 +122,7 @@ def _upsert_fee_category(db, *, tenant_id, code: str, name: str) -> FeeCategory:
 
 
 def _upsert_fee_item(db, *, tenant_id, category_id, code: str,
-                     name: str, frequency: str = "TERMLY") -> FeeItem:
+                     name: str, frequency: str = "PER_TERM") -> FeeItem:
     obj = db.execute(
         select(FeeItem).where(FeeItem.tenant_id == tenant_id,
                               FeeItem.code == code)
@@ -135,8 +135,33 @@ def _upsert_fee_item(db, *, tenant_id, category_id, code: str,
     return obj
 
 
+def _next_admission_number(db, *, tenant_id) -> tuple[str, int]:
+    """Read the tenant's admission prefix + last_number, increment, persist, return (formatted, raw)."""
+    row = db.execute(
+        text("SELECT prefix, last_number FROM core.tenant_admission_settings WHERE tenant_id = :t"),
+        {"t": str(tenant_id)},
+    ).fetchone()
+    prefix = str(row[0] or "ADM-") if row else "ADM-"
+    last   = int(row[1] or 0) if row else 0
+    nxt    = last + 1
+    formatted = f"{prefix}{nxt:04d}"
+    if row:
+        db.execute(
+            text("UPDATE core.tenant_admission_settings SET last_number=:n, updated_at=now() WHERE tenant_id=:t"),
+            {"n": nxt, "t": str(tenant_id)},
+        )
+    else:
+        db.execute(
+            text("INSERT INTO core.tenant_admission_settings (tenant_id, prefix, last_number) VALUES (:t, :p, :n)"),
+            {"t": str(tenant_id), "p": prefix, "n": nxt},
+        )
+    db.flush()
+    return formatted, nxt
+
+
 def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
-                       class_id, created_by) -> Enrollment:
+                       class_id, class_code: str, term_code: str,
+                       intake_date: date, created_by) -> Enrollment:
     existing = db.execute(
         select(Enrollment).where(
             Enrollment.tenant_id == tenant_id,
@@ -145,16 +170,46 @@ def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
         )
     ).scalar_one_or_none()
     if existing:
+        # Patch missing fields on already-seeded enrollments
+        existing_adm = db.execute(
+            text("SELECT admission_number FROM core.enrollments WHERE id = :id"),
+            {"id": str(existing.id)},
+        ).scalar()
+        if not existing_adm:
+            adm_no, _ = _next_admission_number(db, tenant_id=tenant_id)
+            db.execute(
+                text("UPDATE core.enrollments SET admission_number=:adm WHERE id=:id"),
+                {"adm": adm_no, "id": str(existing.id)},
+            )
+            existing.payload = {
+                **existing.payload,
+                "admission_number": adm_no,
+                "student_name": f"{first_name} {last_name}",
+                "admission_class": class_code,
+                "class_code": class_code,
+                "admission_term": term_code,
+                "term_code": term_code,
+                "intake_date": intake_date.isoformat(),
+            }
+            db.flush()
         return existing
+
+    adm_no, _ = _next_admission_number(db, tenant_id=tenant_id)
     enr = Enrollment(
         id=uuid4(),
         tenant_id=tenant_id,
         status="APPROVED",
         created_by=created_by,
         payload={
+            "student_name": f"{first_name} {last_name}",
             "first_name": first_name,
             "last_name": last_name,
-            "class_id": str(class_id),
+            "admission_number": adm_no,
+            "admission_class": class_code,
+            "class_code": class_code,
+            "admission_term": term_code,
+            "term_code": term_code,
+            "intake_date": intake_date.isoformat(),
             "gender": "M",
             "date_of_birth": "2015-03-15",
             "guardian_name": f"{last_name} Parent",
@@ -164,7 +219,12 @@ def _upsert_enrollment(db, *, tenant_id, first_name: str, last_name: str,
     )
     db.add(enr)
     db.flush()
-    print(f"  [+] student {first_name} {last_name}")
+    db.execute(
+        text("UPDATE core.enrollments SET admission_number=:adm WHERE id=:id"),
+        {"adm": adm_no, "id": str(enr.id)},
+    )
+    db.flush()
+    print(f"  [+] student {first_name} {last_name}  [{adm_no}]")
     return enr
 
 
@@ -287,6 +347,7 @@ def _upsert_leave(db, *, tenant_id, staff_id, leave_type: str,
 
 def _upsert_sms_template(db, *, tenant_id, name: str, body: str,
                          variables: list, created_by) -> None:
+    import json
     existing = db.execute(
         text("SELECT id FROM core.sms_templates WHERE tenant_id=:t AND name=:n"),
         {"t": str(tenant_id), "n": name},
@@ -295,10 +356,10 @@ def _upsert_sms_template(db, *, tenant_id, name: str, body: str,
         return
     db.execute(text("""
         INSERT INTO core.sms_templates (id, tenant_id, name, body, variables, created_by)
-        VALUES (:id, :t, :name, :body, :vars::jsonb, :cb)
+        VALUES (:id, :t, :name, :body, cast(:vars as jsonb), :cb)
     """), {
         "id": str(uuid4()), "t": str(tenant_id), "name": name,
-        "body": body, "vars": str(variables).replace("'", '"'), "cb": str(created_by),
+        "body": body, "vars": json.dumps(variables), "cb": str(created_by),
     })
     db.flush()
     print(f"  [+] sms template '{name}'")
@@ -404,7 +465,7 @@ def main() -> None:
                                     code="EXAM", name="Exam Fee")
         _upsert_fee_item(db, tenant_id=tid, category_id=cat_other.id,
                          code="INTERVIEW", name="Interview Fee",
-                         frequency="ONE_TIME")
+                         frequency="ONCE_EVER")
         print("  [+] fee items: Tuition, Activity, Exam, Interview")
 
         # Standard fee lines per student per term
@@ -433,6 +494,8 @@ def main() -> None:
         for first, last, cls_code, paid_t1, paid_t2 in STUDENTS:
             enr = _upsert_enrollment(db, tenant_id=tid, first_name=first,
                                      last_name=last, class_id=classes[cls_code].id,
+                                     class_code=cls_code, term_code=term1.code,
+                                     intake_date=date(2026, 1, 6),
                                      created_by=secretary.id)
             # Term 1 invoice
             inv1 = _upsert_invoice(db, tenant_id=tid, enrollment_id=enr.id,
