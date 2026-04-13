@@ -142,14 +142,11 @@ function ParentDashboardContent() {
 
     async function load() {
       try {
-        const [meRes, payRes] = await Promise.all([
-          api.get("/portal/me"),
-          api.get("/portal/payments"),
+        const [meData, payData] = await Promise.all([
+          api.get<ParentMe>("/portal/me", { tenantRequired: true }),
+          api.get<RecentPayment[]>("/portal/payments", { tenantRequired: true }).catch(() => [] as RecentPayment[]),
         ]);
-        if (!meRes.ok) throw new Error("Could not load your profile");
         if (cancelled) return;
-        const meData = await meRes.json();
-        const payData = payRes.ok ? await payRes.json() : [];
         setMe(meData);
         setPayments(payData.slice(0, 10));
       } catch (err: unknown) {
