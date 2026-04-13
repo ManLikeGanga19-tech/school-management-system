@@ -21,6 +21,11 @@ export function hasSecretaryRole(roles: Array<string | null | undefined> | undef
   return codes.has("SECRETARY");
 }
 
+export function hasParentRole(roles: Array<string | null | undefined> | undefined): boolean {
+  const codes = buildRoleCodeSet(roles);
+  return codes.has("PARENT");
+}
+
 export function hasPrincipalRole(roles: Array<string | null | undefined> | undefined): boolean {
   const codes = buildRoleCodeSet(roles);
   return codes.has("PRINCIPAL") || codes.has("HEAD_TEACHER") || codes.has("HEADTEACHER");
@@ -32,5 +37,6 @@ export function resolveTenantDashboard(
   if (hasDirectorRole(roles)) return "/tenant/director/dashboard";
   if (hasPrincipalRole(roles)) return "/tenant/principal/dashboard";
   if (hasSecretaryRole(roles)) return "/tenant/secretary/dashboard";
+  if (hasParentRole(roles)) return "/tenant/parent/dashboard";
   return "/tenant/dashboard";
 }

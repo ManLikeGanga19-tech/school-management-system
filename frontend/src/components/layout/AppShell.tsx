@@ -56,6 +56,8 @@ import {
   Hash,
   ScanLine,
   BookUser,
+  UsersRound,
+  CalendarOff,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -149,6 +151,8 @@ const NAV_ICON_REGISTRY: Record<string, LucideIcon> = {
   Hash,
   ScanLine,
   BookUser,
+  UsersRound,
+  CalendarOff,
 };
 
 type NotificationPreview = {
