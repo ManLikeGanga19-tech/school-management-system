@@ -375,7 +375,7 @@ class TestInvoices:
 
         list_resp = client.get(f"{BASE}/invoices", headers=headers)
         assert list_resp.status_code == 200
-        ids = [i["id"] for i in list_resp.json()]
+        ids = [i["id"] for i in list_resp.json()["items"]]
         assert inv["id"] in ids
 
     def test_get_invoice_by_id(self, client: TestClient, db_session: Session):
@@ -468,7 +468,7 @@ class TestFinancePayments:
 
         list_resp = client.get(f"{BASE}/payments?enrollment_id={eid}", headers=headers)
         assert list_resp.status_code == 200
-        refs = [p["reference"] for p in list_resp.json()]
+        refs = [p["reference"] for p in list_resp.json()["items"]]
         assert "RCP-001" in refs
 
     def test_payment_requires_permission(self, client: TestClient, db_session: Session):
