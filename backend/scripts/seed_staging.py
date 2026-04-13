@@ -27,8 +27,10 @@ from app.models.fee_catalog import FeeCategory, FeeItem
 from app.models.hr import StaffLeaveRequest, StaffSalaryStructure
 from app.models.invoice import Invoice, InvoiceLine
 from app.models.membership import UserTenant
+from app.models.parent import Parent, ParentEnrollmentLink
 from app.models.payment import Payment, PaymentAllocation
 from app.models.rbac import Role, UserRole
+from app.models.student import Student
 from app.models.tenant import Tenant
 from app.models.tenant_class import TenantClass
 from app.models.tenant_print_profile import TenantPrintProfile
@@ -345,6 +347,104 @@ def _upsert_leave(db, *, tenant_id, staff_id, leave_type: str,
     db.flush()
 
 
+def _upsert_student(db, *, tenant_id, enrollment: Enrollment) -> Student:
+    """Create a Student record from enrollment payload and back-link enrollment.student_id."""
+    payload = enrollment.payload or {}
+    adm_no = payload.get("admission_number") or db.execute(
+        text("SELECT admission_number FROM core.enrollments WHERE id = :id"),
+        {"id": str(enrollment.id)},
+    ).scalar() or str(enrollment.id)[:8].upper()
+
+    existing = db.execute(
+        select(Student).where(
+            Student.tenant_id == tenant_id,
+            Student.admission_no == adm_no,
+        )
+    ).scalar_one_or_none()
+
+    if not existing:
+        from datetime import date as _date
+        dob_raw = payload.get("date_of_birth")
+        try:
+            dob = _date.fromisoformat(dob_raw) if dob_raw else None
+        except Exception:
+            dob = None
+
+        existing = Student(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            admission_no=adm_no,
+            first_name=payload.get("first_name") or "Unknown",
+            last_name=payload.get("last_name") or "",
+            gender=payload.get("gender") or "M",
+            date_of_birth=dob,
+            admission_year=2026,
+            status="ACTIVE",
+        )
+        db.add(existing)
+        db.flush()
+        print(f"    [+] student record {existing.first_name} {existing.last_name} [{adm_no}]")
+
+    # Ensure enrollment.student_id is set
+    if not enrollment.student_id:
+        enrollment.student_id = existing.id
+        db.flush()
+
+    return existing
+
+
+def _upsert_parent(db, *, tenant_id, first_name: str, last_name: str,
+                   phone: str, email: str | None = None,
+                   occupation: str | None = None, user_id=None) -> Parent:
+    existing = db.execute(
+        select(Parent).where(Parent.tenant_id == tenant_id, Parent.phone == phone)
+    ).scalar_one_or_none()
+    if existing:
+        if user_id and not existing.user_id:
+            existing.user_id = user_id
+            db.flush()
+        return existing
+    p = Parent(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        first_name=first_name,
+        last_name=last_name,
+        phone=phone,
+        email=email,
+        occupation=occupation,
+        user_id=user_id,
+        is_active=True,
+    )
+    db.add(p)
+    db.flush()
+    print(f"  [+] parent {first_name} {last_name}  [{phone}]")
+    return p
+
+
+def _link_parent_enrollment(db, *, tenant_id, parent: Parent,
+                             enrollment: Enrollment, relationship: str = "GUARDIAN",
+                             is_primary: bool = True) -> None:
+    exists = db.execute(
+        select(ParentEnrollmentLink).where(
+            ParentEnrollmentLink.parent_id == parent.id,
+            ParentEnrollmentLink.enrollment_id == enrollment.id,
+        )
+    ).scalar_one_or_none()
+    if not exists:
+        db.add(ParentEnrollmentLink(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            parent_id=parent.id,
+            enrollment_id=enrollment.id,
+            relationship=relationship,
+            is_primary=is_primary,
+        ))
+        db.flush()
+        payload = enrollment.payload or {}
+        child_name = payload.get("student_name") or f"{payload.get('first_name', '')} {payload.get('last_name', '')}".strip()
+        print(f"    [+] linked → {child_name}")
+
+
 def _upsert_sms_template(db, *, tenant_id, name: str, body: str,
                          variables: list, created_by) -> None:
     import json
@@ -491,12 +591,17 @@ def main() -> None:
             ("Ivan",    "Kamau",    "GR7", Decimal("18500"), Decimal("0")),    # fully paid T1
         ]
         mpesa_refs = iter([f"QGH{i:07d}" for i in range(1, 100)])
+        enrollments_by_name: dict[tuple, Enrollment] = {}
         for first, last, cls_code, paid_t1, paid_t2 in STUDENTS:
             enr = _upsert_enrollment(db, tenant_id=tid, first_name=first,
                                      last_name=last, class_id=classes[cls_code].id,
                                      class_code=cls_code, term_code=term1.code,
                                      intake_date=date(2026, 1, 6),
                                      created_by=secretary.id)
+            # Create/link student record so invoices are tied to a real student
+            _upsert_student(db, tenant_id=tid, enrollment=enr)
+            enrollments_by_name[(first, last)] = enr
+
             # Term 1 invoice
             inv1 = _upsert_invoice(db, tenant_id=tid, enrollment_id=enr.id,
                                    term_number=1, academic_year=2026, lines=FEE_LINES)
@@ -511,6 +616,67 @@ def main() -> None:
                 _add_payment(db, tenant_id=tid, invoice=inv2, amount=paid_t2,
                              provider="MPESA", reference=next(mpesa_refs),
                              created_by=secretary.id)
+        db.flush()
+
+        # ── 7b. Parent families ───────────────────────────────────────────────
+        # Create a demo parent user (John Mwangi) so we can show the parent portal.
+        print("\n[=] Parent families & portal user")
+
+        # Parent portal demo user — John Mwangi (3 children: Dennis, Faith, George)
+        parent_user = _upsert_user(
+            db,
+            email="parent@novelschool.ac.ke",
+            full_name="John Mwangi",
+            password="Test1234!",
+        )
+        _ensure_membership(db, user=parent_user, tenant=tenant)
+        _assign_role(db, user=parent_user, tenant=tenant, role_code="PARENT")
+
+        # Family 1 — John Mwangi: 3 children (Dennis GR5, Faith GR6, George GR1)
+        john = _upsert_parent(
+            db,
+            tenant_id=tid,
+            first_name="John",
+            last_name="Mwangi",
+            phone="0722300001",
+            email="parent@novelschool.ac.ke",
+            occupation="Business",
+            user_id=parent_user.id,
+        )
+        for name_key in [("Dennis", "Mutua"), ("Faith", "Njeri"), ("George", "Otieno")]:
+            enr = enrollments_by_name.get(name_key)
+            if enr:
+                _link_parent_enrollment(db, tenant_id=tid, parent=john, enrollment=enr)
+
+        # Family 2 — Samuel Odhiambo: 2 children (Brian GR4, Cynthia GR4)
+        samuel = _upsert_parent(
+            db,
+            tenant_id=tid,
+            first_name="Samuel",
+            last_name="Odhiambo",
+            phone="0722300002",
+            email="samuel.odhiambo@gmail.com",
+            occupation="Engineer",
+        )
+        for name_key in [("Brian", "Odhiambo"), ("Cynthia", "Wangari")]:
+            enr = enrollments_by_name.get(name_key)
+            if enr:
+                _link_parent_enrollment(db, tenant_id=tid, parent=samuel, enrollment=enr)
+
+        # Family 3 — Grace Kamau: 1 child (Ivan GR7)
+        grace = _upsert_parent(
+            db,
+            tenant_id=tid,
+            first_name="Grace",
+            last_name="Kamau",
+            phone="0722300003",
+            email="grace.kamau@gmail.com",
+        )
+        for name_key in [("Ivan", "Kamau")]:
+            enr = enrollments_by_name.get(name_key)
+            if enr:
+                _link_parent_enrollment(db, tenant_id=tid, parent=grace, enrollment=enr)
+
         db.flush()
 
         # ── 8. Staff directory ────────────────────────────────────────────────
@@ -592,6 +758,7 @@ def main() -> None:
         print("  secretary   →  secretary@novelschool.ac.ke")
         print("  teacher     →  teacher1@novelschool.ac.ke / teacher2@novelschool.ac.ke")
         print("  accountant  →  accountant@novelschool.ac.ke")
+        print("  parent      →  parent@novelschool.ac.ke  (John Mwangi — 3 children)")
 
     except Exception:
         db.rollback()

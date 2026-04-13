@@ -21,6 +21,7 @@ from app.api.v1.sms.routes import router as sms_router
 from app.api.v1.sms.routes import admin_router as sms_admin_router
 from app.api.v1.hr.routes import router as hr_router
 from app.api.v1.parents.routes import router as parents_router
+from app.api.v1.portal.routes import router as portal_router
 
 api_router = APIRouter()
 
@@ -76,3 +77,6 @@ api_router.include_router(hr_router, prefix="/tenant", tags=["hr-compat"])
 
 # Parent Portal (Phase 7) — guardian management, bulk payments
 api_router.include_router(parents_router, prefix="/parents", tags=["parents"])
+
+# Parent Portal (Phase 7) — parent-facing read-only dashboard
+api_router.include_router(portal_router, prefix="/portal", tags=["portal"])
