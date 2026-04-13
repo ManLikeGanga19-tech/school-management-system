@@ -89,14 +89,6 @@ type Invoice = {
   balance_amount: string | number;
 };
 
-type DistributionLine = {
-  invoice_id: string;
-  enrollment_id: string;
-  student_name: string;
-  invoice_type: string;
-  amount: string | number;
-};
-
 type Enrollment = { id: string; payload: Record<string, unknown> };
 
 type SyncResult = {
@@ -346,200 +338,6 @@ function LinkEnrollmentModal({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Parent detail panel — bulk payment
-// ─────────────────────────────────────────────────────────────────────────────
-
-function BulkPaymentPanel({
-  invoices,
-  onPay,
-  paying,
-}: {
-  invoices: Invoice[];
-  onPay: (provider: string, reference: string, amount: number, allocations: { invoice_id: string; amount: number }[]) => void;
-  paying: boolean;
-}) {
-  const [provider, setProvider] = useState("CASH");
-  const [reference, setReference] = useState("");
-  const [amount, setAmount] = useState("");
-  const [strategy, setStrategy] = useState<"oldest_first" | "proportional">("oldest_first");
-  const [lines, setLines] = useState<{ invoice_id: string; amount: string }[]>([]);
-
-  const totalOutstanding = invoices.reduce((s, inv) => s + toNum(inv.balance_amount), 0);
-  const allocated = lines.reduce((s, l) => s + toNum(l.amount), 0);
-  const payAmount = toNum(amount);
-  const balanced = payAmount > 0 && Math.abs(allocated - payAmount) < 0.01;
-
-  function autoDistribute() {
-    const total = toNum(amount);
-    if (total <= 0) { toast.error("Enter an amount first"); return; }
-
-    if (strategy === "oldest_first") {
-      let remaining = total;
-      const newLines: { invoice_id: string; amount: string }[] = [];
-      for (const inv of invoices) {
-        if (remaining <= 0) break;
-        const alloc = Math.min(remaining, toNum(inv.balance_amount));
-        if (alloc > 0) {
-          newLines.push({ invoice_id: inv.invoice_id, amount: alloc.toFixed(2) });
-          remaining -= alloc;
-        }
-      }
-      setLines(newLines);
-    } else {
-      const grandBal = invoices.reduce((s, inv) => s + toNum(inv.balance_amount), 0);
-      if (grandBal <= 0) return;
-      const newLines: { invoice_id: string; amount: string }[] = [];
-      let allocated2 = 0;
-      invoices.forEach((inv, i) => {
-        const bal = toNum(inv.balance_amount);
-        let alloc = i === invoices.length - 1 ? total - allocated2 : Math.round((bal / grandBal * total) * 100) / 100;
-        alloc = Math.min(alloc, bal);
-        if (alloc > 0) {
-          newLines.push({ invoice_id: inv.invoice_id, amount: alloc.toFixed(2) });
-          allocated2 += alloc;
-        }
-      });
-      setLines(newLines);
-    }
-  }
-
-  const lineMap = new Map(lines.map((l) => [l.invoice_id, l.amount]));
-
-  function updateLine(invoice_id: string, val: string) {
-    setLines((prev) => {
-      const existing = prev.find((l) => l.invoice_id === invoice_id);
-      if (existing) return prev.map((l) => l.invoice_id === invoice_id ? { ...l, amount: val } : l);
-      return [...prev, { invoice_id, amount: val }];
-    });
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Amount + method row */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">Payment Method</label>
-          <Select value={provider} onValueChange={setProvider}>
-            <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="CASH">💵 Cash</SelectItem>
-              <SelectItem value="MPESA">📱 M-Pesa</SelectItem>
-              <SelectItem value="BANK">🏦 Bank</SelectItem>
-              <SelectItem value="CHEQUE">📝 Cheque</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">Reference / Transaction ID</label>
-          <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. QJKL2X3" className="h-9 text-sm" />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">Total Amount (KES)</label>
-          <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="h-9 text-sm" />
-        </div>
-      </div>
-
-      {/* Strategy + auto-distribute */}
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs font-medium text-slate-500">Distribute:</span>
-        {(["oldest_first", "proportional"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setStrategy(s)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${strategy === s ? "bg-blue-600 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
-          >
-            {s === "oldest_first" ? "Oldest First" : "Proportional"}
-          </button>
-        ))}
-        <button
-          onClick={autoDistribute}
-          className="ml-auto rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition"
-        >
-          Auto Distribute
-        </button>
-      </div>
-
-      {/* Invoice allocation table */}
-      {invoices.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-200 py-6 text-center text-xs text-slate-400">
-          No outstanding invoices across linked children.
-        </p>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-100">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-slate-50">
-                <TableHead className="text-xs">Student</TableHead>
-                <TableHead className="text-xs">Invoice Type</TableHead>
-                <TableHead className="text-xs text-right">Balance</TableHead>
-                <TableHead className="text-xs text-right">Allocate (KES)</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {invoices.map((inv) => (
-                <TableRow key={inv.invoice_id} className="hover:bg-slate-50">
-                  <TableCell className="text-sm font-medium">{inv.student_name}</TableCell>
-                  <TableCell>
-                    <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
-                      {normalizeType(inv.invoice_type)}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right text-sm text-red-600 font-medium">
-                    {fmtKes(inv.balance_amount)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Input
-                      type="number"
-                      min={0}
-                      max={toNum(inv.balance_amount)}
-                      value={lineMap.get(inv.invoice_id) ?? ""}
-                      onChange={(e) => updateLine(inv.invoice_id, e.target.value)}
-                      placeholder="0.00"
-                      className="h-8 w-28 text-right text-sm ml-auto"
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
-      {/* Totals check */}
-      <div className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-2.5 text-sm">
-        <span className="text-slate-500">Allocated / Total</span>
-        <span className={`font-semibold ${balanced ? "text-emerald-700" : "text-red-600"}`}>
-          {fmtKes(allocated)} / {fmtKes(payAmount)}
-          {payAmount > 0 && !balanced && (
-            <span className="ml-2 text-xs font-normal text-red-500">
-              ({fmtKes(Math.abs(allocated - payAmount))} {allocated < payAmount ? "short" : "over"})
-            </span>
-          )}
-        </span>
-      </div>
-
-      <button
-        disabled={paying || !balanced || invoices.length === 0}
-        onClick={() =>
-          onPay(
-            provider,
-            reference,
-            payAmount,
-            lines
-              .filter((l) => toNum(l.amount) > 0)
-              .map((l) => ({ invoice_id: l.invoice_id, amount: toNum(l.amount) })),
-          )
-        }
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition"
-      >
-        {paying && <Spinner />}
-        {paying ? "Recording…" : `Confirm & Record Payment — ${fmtKes(payAmount)}`}
-      </button>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Parent detail view
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -560,7 +358,6 @@ function ParentDetailView({
   const [showEdit, setShowEdit] = useState(false);
   const [showLink, setShowLink] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [paying, setPaying] = useState(false);
   const [unlinking, setUnlinking] = useState<string | null>(null);
 
   const loadDetail = useCallback(async () => {
@@ -616,27 +413,6 @@ function ParentDetailView({
       onUpdated();
     } catch { toast.error("Failed to unlink student"); }
     finally { setUnlinking(null); }
-  }
-
-  async function handlePay(
-    provider: string,
-    reference: string,
-    amount: number,
-    allocations: { invoice_id: string; amount: number }[],
-  ) {
-    setPaying(true);
-    try {
-      const res = await api.post<{ payment_id: string; receipt_no: string | null }>(
-        `/parents/${parentId}/payments`,
-        { provider, reference: reference || null, amount, allocations },
-        { tenantRequired: true },
-      );
-      toast.success(`Payment recorded${res.receipt_no ? ` · Receipt ${res.receipt_no}` : ""}`);
-      await loadDetail();
-      onUpdated();
-    } catch (e: unknown) {
-      toast.error((e as { message?: string })?.message || "Failed to record payment");
-    } finally { setPaying(false); }
   }
 
   if (loading) {
@@ -760,10 +536,79 @@ function ParentDetailView({
           </SectionCard>
         </div>
 
-        {/* Right column: bulk payment */}
+        {/* Right column: outstanding invoices + link to finance */}
         <div className="lg:col-span-3">
-          <SectionCard title="Record Bulk Payment">
-            <BulkPaymentPanel invoices={invoices} onPay={handlePay} paying={paying} />
+          <SectionCard title="Outstanding Invoices">
+            {invoices.length === 0 ? (
+              <EmptyState
+                icon={<WalletCards />}
+                title="All fees settled"
+                body="No outstanding invoices for any of this guardian's children."
+              />
+            ) : (
+              <div className="space-y-3">
+                <div className="overflow-x-auto rounded-xl border border-slate-100">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50">
+                        <TableHead className="text-xs">Student</TableHead>
+                        <TableHead className="text-xs">Type</TableHead>
+                        <TableHead className="text-xs text-right">Balance</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {invoices.map((inv) => (
+                        <TableRow key={inv.invoice_id} className="hover:bg-slate-50">
+                          <TableCell className="text-sm font-medium">{inv.student_name}</TableCell>
+                          <TableCell>
+                            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
+                              {normalizeType(inv.invoice_type)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-bold text-red-600">
+                            {fmtKes(inv.balance_amount)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow>
+                        <TableCell colSpan={2} className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Total</TableCell>
+                        <TableCell className="text-right text-sm font-bold text-red-700">
+                          {fmtKes(invoices.reduce((s, i) => s + toNum(i.balance_amount), 0))}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Finance CTA */}
+                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                  <p className="text-sm font-medium text-blue-800">Record a payment</p>
+                  <p className="mt-0.5 text-xs text-blue-600">
+                    All payments — including bulk payments for multiple children — are recorded
+                    in the Finance module to keep all transactions in one place.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {detail.children.map((child) => (
+                      toNum(child.outstanding) > 0 && (
+                        <a
+                          key={child.enrollment_id}
+                          href={`/tenant/secretary/finance?section=payments&enrollment_id=${child.enrollment_id}`}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
+                        >
+                          Pay for {child.student_name}
+                        </a>
+                      )
+                    ))}
+                    <a
+                      href="/tenant/secretary/finance?section=payments"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 transition"
+                    >
+                      Open Finance →
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
           </SectionCard>
         </div>
       </div>
@@ -778,18 +623,22 @@ function ParentDetailView({
 function SecretaryParentsPageContent() {
   const [parents, setParents] = useState<ParentListItem[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [classes, setClasses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [classFilter, setClassFilter] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
 
-  const loadParents = useCallback(async () => {
+  const loadParents = useCallback(async (cc?: string) => {
     setLoading(true);
+    const classParam = cc !== undefined ? cc : classFilter;
+    const qs = classParam ? `?class_code=${encodeURIComponent(classParam)}` : "";
     try {
       const [ps, enrs] = await Promise.all([
-        api.get<ParentListItem[]>("/parents", { tenantRequired: true }),
+        api.get<ParentListItem[]>(`/parents${qs}`, { tenantRequired: true }),
         api.get<unknown>("/enrollments/", { tenantRequired: true, noRedirect: true }).catch(() => [] as unknown),
       ]);
       setParents(Array.isArray(ps) ? ps : []);
@@ -800,11 +649,17 @@ function SecretaryParentsPageContent() {
         : Array.isArray((enrs as { items?: unknown[] })?.items)
           ? (enrs as { items: unknown[] }).items
           : [];
-      setEnrollments(
-        rawEnrs
-          .filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null && "id" in e)
-          .map((e) => ({ id: String(e.id), payload: (e.payload as Record<string, unknown>) || {} }))
-      );
+      const enrList = rawEnrs
+        .filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null && "id" in e)
+        .map((e) => ({ id: String(e.id), payload: (e.payload as Record<string, unknown>) || {} }));
+      setEnrollments(enrList);
+
+      // Derive unique class codes from enrollment payloads for the filter dropdown
+      const codes = Array.from(new Set(
+        enrList.map((e) => (e.payload?.class_code as string) || (e.payload?.admission_class as string) || "")
+          .filter(Boolean)
+      )).sort();
+      setClasses(codes);
     } catch {
       toast.error("Failed to load parents");
     } finally {
@@ -812,7 +667,8 @@ function SecretaryParentsPageContent() {
     }
   }, []);
 
-  useEffect(() => { void loadParents(); }, [loadParents]);
+  useEffect(() => { void loadParents(""); }, [loadParents]);
+  useEffect(() => { void loadParents(classFilter); }, [classFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSync() {
     setSyncing(true);
@@ -839,10 +695,13 @@ function SecretaryParentsPageContent() {
     } finally { setAddSaving(false); }
   }
 
+  // Server-side class filter is applied via API; client-side filters text search
   const filtered = parents.filter((p) => {
-    if (!q.trim()) return true;
-    const ql = q.toLowerCase();
-    return p.name.toLowerCase().includes(ql) || p.phone.includes(ql) || (p.email || "").toLowerCase().includes(ql);
+    const ql = q.trim().toLowerCase();
+    if (ql && !p.name.toLowerCase().includes(ql) && !p.phone.includes(ql) && !(p.email || "").toLowerCase().includes(ql)) {
+      return false;
+    }
+    return true;
   });
 
   const totalOutstanding = parents.reduce((s, p) => s + toNum(p.outstanding_total), 0);
@@ -878,7 +737,7 @@ function SecretaryParentsPageContent() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">Parents & Guardians</h1>
             <p className="text-sm text-slate-500">
-              Manage guardian records, link children, and record bulk payments.
+              Manage guardian records and link children to their enrollments.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -906,15 +765,30 @@ function SecretaryParentsPageContent() {
           <Pill label="With Portal Access" value={parents.filter((p) => p.has_portal_access).length} color="slate" />
         </div>
 
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search by name, phone, or email…"
-            className="h-10 pl-9"
-          />
+        {/* Search + Class filter */}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={q}
+              onChange={(e) => { setQ(e.target.value); }}
+              placeholder="Search by name, phone, or email…"
+              className="h-10 pl-9"
+            />
+          </div>
+          {classes.length > 0 && (
+            <Select value={classFilter} onValueChange={(v) => setClassFilter(v === "ALL" ? "" : v)}>
+              <SelectTrigger className="h-10 w-full sm:w-44">
+                <SelectValue placeholder="All Classes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Classes</SelectItem>
+                {classes.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         {/* Parents table */}
