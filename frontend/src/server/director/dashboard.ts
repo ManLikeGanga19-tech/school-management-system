@@ -27,266 +27,134 @@ export type TenantMe = {
   permissions: string[];
 };
 
-export type TenantDashboardSummary = {
+// ─── KPI shape returned by GET /director/kpis ────────────────────────────────
+
+export type FinanceKPIs = {
+  total_billed: number;
+  total_collected: number;
+  total_outstanding: number;
+  collection_rate_pct: number;
+  invoice_count: number;
+  payment_count: number;
+};
+
+export type TermFinanceKPIs = {
+  term_billed: number;
+  term_collected: number;
+  term_outstanding: number;
+  term_collection_rate_pct: number;
+  term_invoice_count: number;
+} | null;
+
+export type EnrollmentKPIs = {
+  total_enrolled: number;
+  pending_intake: number;
+  by_status: Record<string, number>;
+};
+
+export type SchoolMeta = {
   total_users: number;
   total_roles: number;
   total_audit_logs: number;
+  fee_categories: number;
+  fee_items: number;
 };
 
-export type TenantUser = {
+export type ActiveTerm = {
   id: string;
-  email: string;
-  full_name?: string | null;
-  is_active: boolean;
-};
-
-export type EnrollmentRow = {
-  id: string;
-  tenant_id: string;
-  status: string;
-  payload: Record<string, unknown>;
-};
-
-export type FinancePolicy = {
-  id: string;
-  tenant_id: string;
-  allow_partial_enrollment: boolean;
-  min_percent_to_enroll: number | null;
-  min_amount_to_enroll: string | null;
-  require_interview_fee_before_submit: boolean;
-};
-
-export type InvoiceRow = {
-  id: string;
-  tenant_id: string;
-  invoice_type: string;
-  status: string;
-  enrollment_id?: string | null;
-  currency: string;
-  total_amount: string | number;
-  paid_amount: string | number;
-  balance_amount: string | number;
-};
-
-export type FeeCategory = {
-  id: string;
+  name: string;
   code: string;
-  name: string;
-  is_active: boolean;
+} | null;
+
+export type RecentPayment = {
+  payment_id: string;
+  provider: string;
+  reference: string | null;
+  receipt_no: string | null;
+  amount: number;
+  received_at: string | null;
+  student_name: string | null;
 };
 
-export type FeeItem = {
-  id: string;
-  category_id: string;
-  code: string;
-  name: string;
-  is_active: boolean;
+export type DirectorKPIs = {
+  finance: FinanceKPIs;
+  term_finance: TermFinanceKPIs;
+  enrollments: EnrollmentKPIs;
+  school: SchoolMeta;
+  active_term: ActiveTerm;
+  recent_payments: RecentPayment[];
 };
 
-export type Scholarship = {
-  id: string;
-  name: string;
-  type: string;
-  value: string | number;
-  is_active: boolean;
-};
-
-export type AuditRow = {
-  id: string;
-  tenant_id: string;
-  actor_user_id?: string | null;
-  action: string;
-  resource: string;
-  resource_id?: string | null;
-  payload?: Record<string, unknown> | null;
-  meta?: Record<string, unknown> | null;
-  created_at: string;
-};
+// ─── Dashboard data bundle ────────────────────────────────────────────────────
 
 export type DirectorDashboardData = {
   me: Resource<TenantMe>;
-  summary: Resource<TenantDashboardSummary>;
-  users: Resource<TenantUser[]>;
-  enrollments: Resource<EnrollmentRow[]>;
-  invoices: Resource<InvoiceRow[]>;
-  policy: Resource<FinancePolicy>;
-  feeCategories: Resource<FeeCategory[]>;
-  feeItems: Resource<FeeItem[]>;
-  scholarships: Resource<Scholarship[]>;
-  auditLogs: Resource<AuditRow[]>;
+  kpis: Resource<DirectorKPIs>;
   notifications: Resource<TenantNotificationPreview[]>;
   notificationsUnreadCount: Resource<number>;
   notificationsTotalCount: Resource<number>;
 };
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 async function readJson<T>(res: Response): Promise<T | null> {
   return res.json().catch(() => null);
 }
 
-function asArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
-}
-
-function getErrorMessage(body: any, fallback: string): string {
-  if (!body) return fallback;
-
-  if (typeof body.detail === "string" && body.detail.trim()) {
-    return body.detail;
-  }
-
-  if (typeof body.message === "string" && body.message.trim()) {
-    return body.message;
-  }
-
+function getErrorMessage(body: unknown, fallback: string): string {
+  if (!body || typeof body !== "object") return fallback;
+  const b = body as Record<string, unknown>;
+  if (typeof b.detail === "string" && b.detail.trim()) return b.detail;
+  if (typeof b.message === "string" && b.message.trim()) return b.message;
   return fallback;
 }
 
 async function getResource<T>(path: string): Promise<Resource<T>> {
   try {
     const res = await backendFetch(path, { method: "GET" });
-    const body = await readJson<T | { detail?: string; message?: string }>(res);
-
+    const body = await readJson<T>(res);
     if (!res.ok) {
-      return {
-        data: null,
-        error: getErrorMessage(body, `Request failed (${res.status})`),
-      };
+      return { data: null, error: getErrorMessage(body, `Request failed (${res.status})`) };
     }
-
-    return {
-      data: body as T,
-      error: null,
-    };
+    return { data: body as T, error: null };
   } catch {
-    return {
-      data: null,
-      error: "Network error while loading dashboard data",
-    };
+    return { data: null, error: "Network error while loading dashboard data" };
   }
 }
 
+// ─── Main loader ──────────────────────────────────────────────────────────────
+
 export async function getDirectorDashboardData(): Promise<DirectorDashboardData> {
-  // Use tenant-aggregated endpoints to reduce DB fan-out and improve dashboard
-  // resilience under load.
-  const [me, dashboard, finance, notificationsRaw, notificationsCountRaw] = await Promise.all([
+  const [me, kpis, notificationsRaw, notificationsCountRaw] = await Promise.all([
     getResource<TenantMe>("/auth/me"),
-    getResource<{
-      summary?: TenantDashboardSummary;
-      users?: TenantUser[];
-      audit?: AuditRow[];
-      enrollments?: EnrollmentRow[];
-      invoices?: InvoiceRow[];
-    }>("/tenants/secretary/dashboard"),
-    getResource<{
-      policy?: FinancePolicy | null;
-      invoices?: InvoiceRow[];
-      fee_categories?: FeeCategory[];
-      fee_items?: FeeItem[];
-      scholarships?: Scholarship[];
-      enrollments?: EnrollmentRow[];
-    }>("/tenants/director/finance"),
+    getResource<DirectorKPIs>("/director/kpis"),
     getResource<unknown>("/tenants/notifications?limit=20&offset=0"),
     getResource<unknown>("/tenants/notifications/unread-count"),
   ]);
 
-  const dashboardData = dashboard.data;
-  const financeData = finance.data;
-
-  const summary: Resource<TenantDashboardSummary> = {
-    data: dashboardData?.summary ?? null,
-    error: dashboardData?.summary ? null : dashboard.error,
-  };
-
-  const users: Resource<TenantUser[]> = {
-    data: asArray<TenantUser>(dashboardData?.users),
-    error: dashboardData?.users ? null : dashboard.error,
-  };
-
-  const auditLogs: Resource<AuditRow[]> = {
-    data: asArray<AuditRow>(dashboardData?.audit),
-    error: dashboardData?.audit ? null : dashboard.error,
-  };
-
-  const enrollments: Resource<EnrollmentRow[]> = {
-    data:
-      asArray<EnrollmentRow>(financeData?.enrollments).length > 0
-        ? asArray<EnrollmentRow>(financeData?.enrollments)
-        : asArray<EnrollmentRow>(dashboardData?.enrollments),
-    error:
-      asArray<EnrollmentRow>(financeData?.enrollments).length > 0 ||
-      asArray<EnrollmentRow>(dashboardData?.enrollments).length > 0
-        ? null
-        : finance.error || dashboard.error,
-  };
-
-  const invoices: Resource<InvoiceRow[]> = {
-    data:
-      asArray<InvoiceRow>(financeData?.invoices).length > 0
-        ? asArray<InvoiceRow>(financeData?.invoices)
-        : asArray<InvoiceRow>(dashboardData?.invoices),
-    error:
-      asArray<InvoiceRow>(financeData?.invoices).length > 0 ||
-      asArray<InvoiceRow>(dashboardData?.invoices).length > 0
-        ? null
-        : finance.error || dashboard.error,
-  };
-
-  const policy: Resource<FinancePolicy> = {
-    data: (financeData?.policy as FinancePolicy) ?? null,
-    error: financeData?.policy ? null : finance.error,
-  };
-
-  const feeCategories: Resource<FeeCategory[]> = {
-    data: asArray<FeeCategory>(financeData?.fee_categories),
-    error: financeData?.fee_categories ? null : finance.error,
-  };
-
-  const feeItems: Resource<FeeItem[]> = {
-    data: asArray<FeeItem>(financeData?.fee_items),
-    error: financeData?.fee_items ? null : finance.error,
-  };
-
-  const scholarships: Resource<Scholarship[]> = {
-    data: asArray<Scholarship>(financeData?.scholarships),
-    error: financeData?.scholarships ? null : finance.error,
-  };
-
   const allNotifications = normalizeTenantNotificationPreviews(notificationsRaw.data);
   const notificationsList = allNotifications.slice(0, 2);
-  const notifications: Resource<TenantNotificationPreview[]> = {
-    data: notificationsList,
-    error: notificationsRaw.error && notificationsList.length === 0 ? notificationsRaw.error : null,
-  };
 
   const unreadCountFromEndpoint = parseTenantUnreadCount(notificationsCountRaw.data);
   const unreadCountFallback = notificationsList.filter((item) => item.unread).length;
   const unreadCount = unreadCountFromEndpoint ?? unreadCountFallback;
-  const notificationsUnreadCount: Resource<number> = {
-    data: unreadCount,
-    error:
-      notificationsCountRaw.error && unreadCountFromEndpoint === null
-        ? notificationsCountRaw.error
-        : null,
-  };
-
-  const notificationsTotalCount: Resource<number> = {
-    data: allNotifications.length,
-    error: notificationsRaw.error && allNotifications.length === 0 ? notificationsRaw.error : null,
-  };
 
   return {
     me,
-    summary,
-    users,
-    enrollments,
-    invoices,
-    policy,
-    feeCategories,
-    feeItems,
-    scholarships,
-    auditLogs,
-    notifications,
-    notificationsUnreadCount,
-    notificationsTotalCount,
+    kpis,
+    notifications: {
+      data: notificationsList,
+      error: notificationsRaw.error && notificationsList.length === 0 ? notificationsRaw.error : null,
+    },
+    notificationsUnreadCount: {
+      data: unreadCount,
+      error: notificationsCountRaw.error && unreadCountFromEndpoint === null
+        ? notificationsCountRaw.error
+        : null,
+    },
+    notificationsTotalCount: {
+      data: allNotifications.length,
+      error: notificationsRaw.error && allNotifications.length === 0 ? notificationsRaw.error : null,
+    },
   };
 }
