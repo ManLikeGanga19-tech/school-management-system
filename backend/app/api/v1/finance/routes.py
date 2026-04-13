@@ -7,6 +7,7 @@ from app.core.dependencies import get_tenant, get_current_user, require_permissi
 
 from app.api.v1.finance import service
 from app.api.v1.payments import service as payments_service
+from app.api.v1.sms import notifications as sms_notify
 from app.api.v1.finance.schemas import (
     FinancePolicyUpsert, FinancePolicyOut,
     FinanceStructurePolicyUpsert, FinanceStructurePolicyOut,
@@ -571,6 +572,11 @@ def create_invoice(
         )
         db.commit()
         db.refresh(inv)
+        sms_notify.fire_invoice_notification(
+            db, tenant_id=tenant.id, actor_user_id=user.id,
+            enrollment_id=payload.enrollment_id,
+            invoice_no=inv.invoice_no, total_amount=inv.total_amount,
+        )
         return inv
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -597,6 +603,11 @@ def generate_fees_invoice(
         )
         db.commit()
         db.refresh(inv)
+        sms_notify.fire_invoice_notification(
+            db, tenant_id=tenant.id, actor_user_id=user.id,
+            enrollment_id=payload.enrollment_id,
+            invoice_no=inv.invoice_no, total_amount=inv.total_amount,
+        )
         return inv
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -623,6 +634,11 @@ def generate_fees_invoice_v2(
         )
         db.commit()
         db.refresh(inv)
+        sms_notify.fire_invoice_notification(
+            db, tenant_id=tenant.id, actor_user_id=user.id,
+            enrollment_id=payload.enrollment_id,
+            invoice_no=inv.invoice_no, total_amount=inv.total_amount,
+        )
         return inv
     except ValueError as e:
         db.rollback()
@@ -683,6 +699,27 @@ def create_payment(
         )
         db.commit()
         db.refresh(pay)
+        # Resolve enrollment_id from the first allocated invoice so we can look up the guardian
+        first_invoice_id = payload.allocations[0].invoice_id if payload.allocations else None
+        enrollment_id = None
+        if first_invoice_id:
+            from app.models.invoice import Invoice as _Invoice
+            _inv = db.get(_Invoice, first_invoice_id)
+            enrollment_id = _inv.enrollment_id if _inv else None
+        # Compute outstanding balance across all allocated invoices after payment
+        from sqlalchemy import select as _select
+        from app.models.invoice import Invoice as _Invoice2
+        allocated_ids = [a.invoice_id for a in payload.allocations]
+        remaining = sum(
+            float(_inv.balance_amount)
+            for _inv in db.execute(_select(_Invoice2).where(_Invoice2.id.in_(allocated_ids))).scalars()
+        )
+        sms_notify.fire_payment_notification(
+            db, tenant_id=tenant.id, actor_user_id=user.id,
+            enrollment_id=enrollment_id,
+            receipt_no=pay.receipt_no, amount=pay.amount,
+            new_balance=remaining,
+        )
         return pay
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

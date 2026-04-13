@@ -28,6 +28,7 @@ import {
   Link2,
   Link2Off,
   Loader2,
+  MessageSquare,
   RefreshCw,
   Search,
   UserPlus,
@@ -359,6 +360,7 @@ function ParentDetailView({
   const [showLink, setShowLink] = useState(false);
   const [saving, setSaving] = useState(false);
   const [unlinking, setUnlinking] = useState<string | null>(null);
+  const [sendingReminder, setSendingReminder] = useState(false);
 
   const loadDetail = useCallback(async () => {
     setLoading(true);
@@ -413,6 +415,25 @@ function ParentDetailView({
       onUpdated();
     } catch { toast.error("Failed to unlink student"); }
     finally { setUnlinking(null); }
+  }
+
+  async function handleSendReminder() {
+    if (!detail) return;
+    setSendingReminder(true);
+    try {
+      const total = invoices.reduce((s, inv) => s + toNum(inv.balance_amount), 0);
+      const studentNames = [...new Set(invoices.map((i) => i.student_name))].join(", ");
+      const message =
+        `Dear ${detail.name}, this is a reminder that ${studentNames} ` +
+        `has/have an outstanding fee balance of KES ${total.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. ` +
+        `Please visit the school office to make payment. Thank you.`;
+      await api.post("/sms/send", { to_phone: detail.phone, message_body: message, recipient_name: detail.name }, { tenantRequired: true });
+      toast.success(`Fee reminder sent to ${detail.name}`);
+    } catch (e: unknown) {
+      toast.error((e as { message?: string })?.message || "Failed to send reminder");
+    } finally {
+      setSendingReminder(false);
+    }
   }
 
   if (loading) {
@@ -538,7 +559,21 @@ function ParentDetailView({
 
         {/* Right column: outstanding invoices + link to finance */}
         <div className="lg:col-span-3">
-          <SectionCard title="Outstanding Invoices">
+          <SectionCard
+            title="Outstanding Invoices"
+            action={
+              invoices.length > 0 ? (
+                <button
+                  onClick={() => void handleSendReminder()}
+                  disabled={sendingReminder}
+                  className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 disabled:opacity-50"
+                >
+                  {sendingReminder ? <Spinner /> : <MessageSquare className="h-3 w-3" />}
+                  Send Reminder
+                </button>
+              ) : undefined
+            }
+          >
             {invoices.length === 0 ? (
               <EmptyState
                 icon={<WalletCards />}
@@ -631,6 +666,7 @@ function SecretaryParentsPageContent() {
   const [syncing, setSyncing] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
+  const [sendingBulk, setSendingBulk] = useState(false);
 
   const loadParents = useCallback(async (cc?: string) => {
     setLoading(true);
@@ -695,6 +731,25 @@ function SecretaryParentsPageContent() {
     } finally { setAddSaving(false); }
   }
 
+  async function handleBulkReminder() {
+    if (!confirm(`Send fee reminder SMS to all parents with outstanding balances?`)) return;
+    setSendingBulk(true);
+    try {
+      const res = await api.post<{ sent: number; failed: number; skipped: number; total: number }>(
+        "/sms/send/fee-reminders",
+        {},
+        { tenantRequired: true }
+      );
+      toast.success(
+        `Bulk reminder sent — ${res.sent} delivered, ${res.failed} failed${res.skipped > 0 ? `, ${res.skipped} skipped (low credits)` : ""}`
+      );
+    } catch (e: unknown) {
+      toast.error((e as { message?: string })?.message || "Failed to send bulk reminder");
+    } finally {
+      setSendingBulk(false);
+    }
+  }
+
   // Server-side class filter is applied via API; client-side filters text search
   const filtered = parents.filter((p) => {
     const ql = q.trim().toLowerCase();
@@ -749,6 +804,16 @@ function SecretaryParentsPageContent() {
               {syncing ? <Spinner /> : <RefreshCw className="h-4 w-4" />}
               {syncing ? "Syncing…" : "Sync from Enrollments"}
             </button>
+            {totalOutstanding > 0 && (
+              <button
+                onClick={() => void handleBulkReminder()}
+                disabled={sendingBulk}
+                className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition"
+              >
+                {sendingBulk ? <Spinner /> : <MessageSquare className="h-4 w-4" />}
+                {sendingBulk ? "Sending…" : "Bulk Reminder"}
+              </button>
+            )}
             <button
               onClick={() => setShowAdd(true)}
               className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition"

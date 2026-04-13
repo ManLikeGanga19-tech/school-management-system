@@ -209,6 +209,26 @@ def broadcast(
         raise HTTPException(status_code=503, detail=str(exc))
 
 
+@router.post(
+    "/send/fee-reminders",
+    dependencies=[Depends(require_permission("sms.send"))],
+    summary="Send fee reminder SMS to all parents with outstanding balances",
+)
+def send_fee_reminders(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    from app.api.v1.sms.notifications import send_bulk_fee_reminders
+    try:
+        result = send_bulk_fee_reminders(db, tenant_id=tenant.id, actor_user_id=user.id)
+        db.commit()
+        return result
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get(
     "/messages",
     response_model=list[SmsMessageOut],
