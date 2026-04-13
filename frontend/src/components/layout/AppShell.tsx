@@ -62,7 +62,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { LocaleSwitcher } from "@/components/ui/locale-switcher";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -646,9 +645,7 @@ export function AppShell({
       <div
         className={cn("border-t border-[#e1d4c0] p-3", !mobile && "pt-2")}
       >
-        <div className="mb-2 flex justify-end">
-          <LocaleSwitcher />
-        </div>
+
         <DropdownMenu open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="h-auto w-full items-center justify-between px-3 py-2">
@@ -863,7 +860,6 @@ export function AppShell({
             {renderShellBrand({ mode: "mobile-top" })}
           </div>
           <div className="flex items-center gap-2">
-            <LocaleSwitcher />
           <Button
             type="button"
             variant="outline"
