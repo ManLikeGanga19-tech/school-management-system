@@ -22,6 +22,7 @@ from app.api.v1.sms.routes import admin_router as sms_admin_router
 from app.api.v1.hr.routes import router as hr_router
 from app.api.v1.parents.routes import router as parents_router
 from app.api.v1.portal.routes import router as portal_router
+from app.api.v1.director.routes import router as director_router
 
 api_router = APIRouter()
 
@@ -80,3 +81,6 @@ api_router.include_router(parents_router, prefix="/parents", tags=["parents"])
 
 # Parent Portal (Phase 7) — parent-facing read-only dashboard
 api_router.include_router(portal_router, prefix="/portal", tags=["portal"])
+
+# Director KPI aggregation (Phase 8)
+api_router.include_router(director_router, prefix="/director", tags=["director"])
