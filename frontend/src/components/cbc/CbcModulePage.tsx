@@ -1242,7 +1242,7 @@ function AnalyticsTab() {
             </SelectTrigger>
             <SelectContent>
               {classes.map((c) => (
-                <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
