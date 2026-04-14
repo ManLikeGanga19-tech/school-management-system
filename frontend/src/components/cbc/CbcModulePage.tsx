@@ -137,7 +137,7 @@ type CbcModulePageProps = {
 
 export function CbcModulePage({ title, nav, canManageCurriculum = false }: CbcModulePageProps) {
   const searchParams = useSearchParams();
-  const section = (searchParams.get("section") ?? "assessments") as "assessments" | "curriculum" | "reports";
+  const section = (searchParams.get("section") ?? "assessments") as "assessments" | "curriculum" | "reports" | "analytics";
 
   return (
     <AppShell title={title} nav={nav}>
@@ -150,6 +150,9 @@ export function CbcModulePage({ title, nav, canManageCurriculum = false }: CbcMo
         )}
         {section === "reports" && (
           <ReportsTab />
+        )}
+        {section === "analytics" && (
+          <AnalyticsTab />
         )}
       </div>
     </AppShell>
@@ -1088,6 +1091,338 @@ function ReportsTab() {
               </span>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// TAB: Analytics (Step 3A + Step 4)
+// ═══════════════════════════════════════════════════════════════════
+
+type LevelDistribution = {
+  learning_area_id: string;
+  learning_area_name: string;
+  grade_band: string;
+  be_count: number;
+  ae_count: number;
+  me_count: number;
+  ee_count: number;
+  total_assessed: number;
+  total_possible: number;
+  completion_pct: number;
+};
+
+type SupportFlag = {
+  enrollment_id: string;
+  student_name: string;
+  admission_no: string;
+  be_count: number;
+  learning_areas_flagged: string[];
+};
+
+type ClassAnalytics = {
+  class_code: string;
+  term_id: string;
+  term_name: string;
+  enrolled_count: number;
+  distribution: LevelDistribution[];
+  support_flags: SupportFlag[];
+  overall_completion_pct: number;
+};
+
+type SupportReportRow = {
+  enrollment_id: string;
+  student_name: string;
+  admission_no: string;
+  class_code: string;
+  be_total: number;
+  ae_total: number;
+  me_total: number;
+  ee_total: number;
+  total_assessed: number;
+  flagged_areas: string[];
+};
+
+type SupportReport = {
+  class_code: string;
+  term_id: string;
+  term_name: string;
+  generated_at: string;
+  students: SupportReportRow[];
+};
+
+const LEVEL_COLORS = {
+  BE: { bg: "bg-red-500", text: "text-red-700", badge: "bg-red-100 text-red-700" },
+  AE: { bg: "bg-amber-400", text: "text-amber-700", badge: "bg-amber-100 text-amber-700" },
+  ME: { bg: "bg-green-500", text: "text-green-700", badge: "bg-green-100 text-green-700" },
+  EE: { bg: "bg-blue-500", text: "text-blue-700", badge: "bg-blue-100 text-blue-700" },
+};
+
+function LevelBar({ label, count, total, colorClass }: { label: string; count: number; total: number; colorClass: string }) {
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-6 font-bold text-slate-600">{label}</span>
+      <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
+        <div className={`h-full ${colorClass} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-12 text-right text-slate-500">{count} ({pct}%)</span>
+    </div>
+  );
+}
+
+function AnalyticsTab() {
+  const [classes, setClasses] = useState<TenantClassOption[]>([]);
+  const [terms, setTerms] = useState<TenantTerm[]>([]);
+  const [classCode, setClassCode] = useState("");
+  const [termId, setTermId] = useState("");
+  const [analytics, setAnalytics] = useState<ClassAnalytics | null>(null);
+  const [supportReport, setSupportReport] = useState<SupportReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [activeView, setActiveView] = useState<"distribution" | "support">("distribution");
+  const [downloadingCsv, setDownloadingCsv] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      api.get("/classes/", { tenantRequired: true }).catch(() => []),
+      api.get("/terms/", { tenantRequired: true }).catch(() => []),
+    ]).then(([cls, trms]) => {
+      setClasses(normalizeClassOptions(cls));
+      setTerms(normalizeTerms(trms));
+    });
+  }, []);
+
+  async function loadAnalytics() {
+    if (!classCode || !termId) return;
+    setLoading(true);
+    setAnalytics(null);
+    setSupportReport(null);
+    try {
+      const [ana, sup] = await Promise.all([
+        api.get<ClassAnalytics>(`/cbc/classes/${classCode}/term/${termId}/analytics`, { tenantRequired: true }),
+        api.get<SupportReport>(`/cbc/classes/${classCode}/term/${termId}/support-report`, { tenantRequired: true }),
+      ]);
+      setAnalytics(ana);
+      setSupportReport(sup);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to load analytics");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function downloadCsv() {
+    if (!classCode || !termId) return;
+    setDownloadingCsv(true);
+    try {
+      await api.downloadFile(
+        `/cbc/classes/${classCode}/term/${termId}/support-report/csv`,
+        `support_report_${classCode}.csv`,
+        { tenantRequired: true },
+      );
+    } catch {
+      toast.error("Failed to download CSV");
+    } finally {
+      setDownloadingCsv(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Controls */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-slate-500">Class</label>
+          <Select value={classCode} onValueChange={setClassCode}>
+            <SelectTrigger className="h-9 w-44">
+              <SelectValue placeholder="Select class" />
+            </SelectTrigger>
+            <SelectContent>
+              {classes.map((c) => (
+                <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-slate-500">Term</label>
+          <Select value={termId} onValueChange={setTermId}>
+            <SelectTrigger className="h-9 w-44">
+              <SelectValue placeholder="Select term" />
+            </SelectTrigger>
+            <SelectContent>
+              {terms.map((t) => (
+                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button onClick={() => void loadAnalytics()} disabled={!classCode || !termId || loading} size="sm">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileBarChart className="h-4 w-4" />}
+          {loading ? "Loading…" : "Load Analytics"}
+        </Button>
+      </div>
+
+      {analytics && (
+        <>
+          {/* Summary pills */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "Enrolled", value: analytics.enrolled_count, color: "bg-slate-50 border-slate-200 text-slate-800" },
+              { label: "Overall Completion", value: `${analytics.overall_completion_pct}%`, color: "bg-blue-50 border-blue-200 text-blue-800" },
+              { label: "Learning Areas", value: analytics.distribution.length, color: "bg-emerald-50 border-emerald-200 text-emerald-800" },
+              { label: "Support Alerts", value: analytics.support_flags.length, color: analytics.support_flags.length > 0 ? "bg-red-50 border-red-200 text-red-800" : "bg-slate-50 border-slate-200 text-slate-800" },
+            ].map((pill) => (
+              <div key={pill.label} className={`rounded-xl border p-3 ${pill.color}`}>
+                <p className="text-xs opacity-70">{pill.label}</p>
+                <p className="text-xl font-bold">{pill.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* View toggle */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setActiveView("distribution")}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${activeView === "distribution" ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            >
+              Level Distribution
+            </button>
+            <button
+              onClick={() => setActiveView("support")}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${activeView === "support" ? "bg-red-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            >
+              Learner Support {analytics.support_flags.length > 0 && <span className="ml-1 bg-red-100 text-red-700 text-xs px-1.5 py-0.5 rounded-full">{analytics.support_flags.length}</span>}
+            </button>
+          </div>
+
+          {/* Distribution view */}
+          {activeView === "distribution" && (
+            <div className="space-y-4">
+              {analytics.distribution.map((la) => (
+                <div key={la.learning_area_id} className="rounded-2xl border border-slate-100 bg-white shadow-sm p-4 space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-800">{la.learning_area_name}</p>
+                      <p className="text-xs text-slate-400">{la.grade_band.replace(/_/g, " ")}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-slate-500">Completion</p>
+                      <p className={`text-sm font-bold ${la.completion_pct >= 80 ? "text-green-600" : la.completion_pct >= 50 ? "text-amber-600" : "text-red-600"}`}>
+                        {la.completion_pct}%
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <LevelBar label="EE" count={la.ee_count} total={la.total_assessed} colorClass={LEVEL_COLORS.EE.bg} />
+                    <LevelBar label="ME" count={la.me_count} total={la.total_assessed} colorClass={LEVEL_COLORS.ME.bg} />
+                    <LevelBar label="AE" count={la.ae_count} total={la.total_assessed} colorClass={LEVEL_COLORS.AE.bg} />
+                    <LevelBar label="BE" count={la.be_count} total={la.total_assessed} colorClass={LEVEL_COLORS.BE.bg} />
+                  </div>
+                  <p className="text-xs text-slate-400">{la.total_assessed} of {la.total_possible} possible assessments recorded</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Support view */}
+          {activeView === "support" && supportReport && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-slate-500">
+                  Students with ≥3 BE ratings in any learning area are flagged for support.
+                </p>
+                <button
+                  onClick={() => void downloadCsv()}
+                  disabled={downloadingCsv}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition"
+                >
+                  {downloadingCsv ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                  Export CSV
+                </button>
+              </div>
+
+              {/* Flagged students */}
+              {analytics.support_flags.length > 0 && (
+                <div className="rounded-2xl border border-red-100 bg-red-50 p-4 space-y-2">
+                  <p className="text-sm font-semibold text-red-800">
+                    {analytics.support_flags.length} student{analytics.support_flags.length !== 1 ? "s" : ""} flagged for support
+                  </p>
+                  <div className="space-y-2">
+                    {analytics.support_flags.map((f) => (
+                      <div key={f.enrollment_id} className="flex items-start justify-between rounded-xl bg-white border border-red-100 p-3">
+                        <div>
+                          <p className="font-medium text-slate-800 text-sm">{f.student_name}</p>
+                          <p className="text-xs text-slate-400">{f.admission_no}</p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {f.learning_areas_flagged.map((la) => (
+                              <span key={la} className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-xs">{la}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <span className="text-xs font-bold text-red-600">{f.be_count} BE</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Full class table */}
+              <div className="overflow-x-auto rounded-xl border border-slate-100">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Student</th>
+                      <th className="px-4 py-2 text-center">BE</th>
+                      <th className="px-4 py-2 text-center">AE</th>
+                      <th className="px-4 py-2 text-center">ME</th>
+                      <th className="px-4 py-2 text-center">EE</th>
+                      <th className="px-4 py-2 text-center">Assessed</th>
+                      <th className="px-4 py-2 text-left">Flagged Areas</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {supportReport.students.map((s) => (
+                      <tr key={s.enrollment_id} className={s.flagged_areas.length > 0 ? "bg-red-50/40" : "hover:bg-slate-50"}>
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium text-slate-800">{s.student_name}</p>
+                          <p className="text-xs text-slate-400">{s.admission_no}</p>
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${s.be_total > 0 ? LEVEL_COLORS.BE.badge : "text-slate-400"}`}>{s.be_total}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-center text-xs">{s.ae_total}</td>
+                        <td className="px-4 py-2.5 text-center text-xs">{s.me_total}</td>
+                        <td className="px-4 py-2.5 text-center text-xs">{s.ee_total}</td>
+                        <td className="px-4 py-2.5 text-center text-xs text-slate-500">{s.total_assessed}</td>
+                        <td className="px-4 py-2.5">
+                          {s.flagged_areas.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {s.flagged_areas.map((la) => (
+                                <span key={la} className="px-1 py-0.5 rounded bg-red-100 text-red-700 text-xs">{la}</span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-300">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!analytics && !loading && (
+        <div className="flex flex-col items-center gap-2 py-16 text-center text-slate-400">
+          <FileBarChart className="h-10 w-10 opacity-30" />
+          <p className="text-sm">Select a class and term, then click Load Analytics</p>
         </div>
       )}
     </div>

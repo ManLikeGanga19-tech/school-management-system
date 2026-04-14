@@ -9,6 +9,7 @@ from pydantic import BaseModel, field_validator
 
 VALID_GRADE_BANDS = {"LOWER_PRIMARY", "UPPER_PRIMARY", "JUNIOR_SECONDARY"}
 VALID_PERFORMANCE_LEVELS = {"BE", "AE", "ME", "EE"}
+VALID_ASSESSMENT_TYPES = {"SUMMATIVE", "FORMATIVE"}
 
 
 # ── Learning Area ─────────────────────────────────────────────────────────────
@@ -179,6 +180,8 @@ class AssessmentItem(BaseModel):
     sub_strand_id: UUID
     performance_level: str
     teacher_observations: Optional[str] = None
+    assessment_type: str = "SUMMATIVE"
+    checkpoint_no: int = 1
 
     @field_validator("performance_level")
     @classmethod
@@ -188,11 +191,36 @@ class AssessmentItem(BaseModel):
             raise ValueError(f"performance_level must be one of {sorted(VALID_PERFORMANCE_LEVELS)}")
         return v
 
+    @field_validator("assessment_type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        v = v.upper()
+        if v not in VALID_ASSESSMENT_TYPES:
+            raise ValueError(f"assessment_type must be one of {sorted(VALID_ASSESSMENT_TYPES)}")
+        return v
+
+    @field_validator("checkpoint_no")
+    @classmethod
+    def validate_checkpoint(cls, v: int) -> int:
+        if not 1 <= v <= 10:
+            raise ValueError("checkpoint_no must be between 1 and 10")
+        return v
+
 
 class BulkAssessmentUpsert(BaseModel):
     enrollment_id: UUID
     term_id: UUID
+    assessment_type: str = "SUMMATIVE"
+    checkpoint_no: int = 1
     assessments: list[AssessmentItem]
+
+    @field_validator("assessment_type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        v = v.upper()
+        if v not in VALID_ASSESSMENT_TYPES:
+            raise ValueError(f"assessment_type must be one of {sorted(VALID_ASSESSMENT_TYPES)}")
+        return v
 
 
 class AssessmentOut(BaseModel):
@@ -202,6 +230,8 @@ class AssessmentOut(BaseModel):
     student_id: UUID
     sub_strand_id: UUID
     term_id: UUID
+    assessment_type: str
+    checkpoint_no: int
     performance_level: str
     teacher_observations: Optional[str] = None
     assessed_by_user_id: Optional[UUID] = None
@@ -253,3 +283,87 @@ class LearnerReportOut(BaseModel):
     conduct: str = ""
     next_term_begins: str = ""
     learning_areas: list[ReportLearningArea] = []
+
+
+# ── Analytics (Step 3A) ───────────────────────────────────────────────────────
+
+class LevelDistribution(BaseModel):
+    """BE/AE/ME/EE counts for one learning area."""
+    learning_area_id: UUID
+    learning_area_name: str
+    grade_band: str
+    be_count: int
+    ae_count: int
+    me_count: int
+    ee_count: int
+    total_assessed: int
+    total_possible: int  # enrolled × active sub-strands in this LA
+    completion_pct: float  # 0-100
+
+
+class LearnerSupportFlag(BaseModel):
+    """Student with 3+ BE ratings in any single learning area."""
+    enrollment_id: UUID
+    student_name: str
+    admission_no: str
+    be_count: int
+    learning_areas_flagged: list[str]
+
+
+class ClassAnalyticsOut(BaseModel):
+    class_code: str
+    term_id: UUID
+    term_name: str
+    enrolled_count: int
+    distribution: list[LevelDistribution]
+    support_flags: list[LearnerSupportFlag]
+    overall_completion_pct: float
+
+
+# ── Multi-term progress (Step 4) ──────────────────────────────────────────────
+
+class TermLevelSummary(BaseModel):
+    term_id: UUID
+    term_name: str
+    be_count: int
+    ae_count: int
+    me_count: int
+    ee_count: int
+    total_assessed: int
+
+
+class LearningAreaProgress(BaseModel):
+    learning_area_id: UUID
+    learning_area_name: str
+    grade_band: str
+    terms: list[TermLevelSummary]
+
+
+class LearnerProgressOut(BaseModel):
+    enrollment_id: UUID
+    student_name: str
+    admission_no: str
+    progress: list[LearningAreaProgress]
+
+
+# ── Learner support report (Step 4) ──────────────────────────────────────────
+
+class SupportReportRow(BaseModel):
+    enrollment_id: UUID
+    student_name: str
+    admission_no: str
+    class_code: str
+    be_total: int
+    ae_total: int
+    me_total: int
+    ee_total: int
+    total_assessed: int
+    flagged_areas: list[str]  # LAs where BE ≥ 3
+
+
+class SupportReportOut(BaseModel):
+    class_code: str
+    term_id: UUID
+    term_name: str
+    generated_at: str
+    students: list[SupportReportRow]

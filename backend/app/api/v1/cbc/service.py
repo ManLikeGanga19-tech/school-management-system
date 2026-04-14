@@ -341,6 +341,8 @@ def bulk_upsert_assessments(
         if level not in VALID_PERFORMANCE_LEVELS:
             raise HTTPException(status_code=400, detail=f"Invalid performance_level '{level}'. Use BE/AE/ME/EE")
         ss_id = item["sub_strand_id"]
+        a_type = item.get("assessment_type", "SUMMATIVE").upper()
+        chk_no = int(item.get("checkpoint_no", 1))
 
         # Verify sub-strand belongs to tenant
         ss = db.execute(
@@ -352,14 +354,17 @@ def bulk_upsert_assessments(
         if not ss:
             raise HTTPException(status_code=404, detail=f"Sub-strand {ss_id} not found")
 
-        existing = db.execute(
-            sa.select(CbcAssessment).where(
-                CbcAssessment.tenant_id == tenant_id,
-                CbcAssessment.enrollment_id == enrollment_id,
-                CbcAssessment.sub_strand_id == ss_id,
-                CbcAssessment.term_id == term_id,
-            )
-        ).scalar_one_or_none()
+        # Look up existing record matching (enrollment, sub_strand, term, type, checkpoint)
+        existing_q = sa.select(CbcAssessment).where(
+            CbcAssessment.tenant_id == tenant_id,
+            CbcAssessment.enrollment_id == enrollment_id,
+            CbcAssessment.sub_strand_id == ss_id,
+            CbcAssessment.term_id == term_id,
+            CbcAssessment.assessment_type == a_type,
+        )
+        if a_type == "FORMATIVE":
+            existing_q = existing_q.where(CbcAssessment.checkpoint_no == chk_no)
+        existing = db.execute(existing_q).scalar_one_or_none()
 
         if existing:
             existing.performance_level = level
@@ -375,6 +380,8 @@ def bulk_upsert_assessments(
                 student_id=student_id,
                 sub_strand_id=ss_id,
                 term_id=term_id,
+                assessment_type=a_type,
+                checkpoint_no=chk_no,
                 performance_level=level,
                 teacher_observations=item.get("teacher_observations"),
                 assessed_by_user_id=actor_user_id,
@@ -394,6 +401,7 @@ def list_assessments(
     enrollment_id: UUID | None = None,
     term_id: UUID | None = None,
     student_id: UUID | None = None,
+    assessment_type: str | None = None,
 ) -> list[CbcAssessment]:
     q = sa.select(CbcAssessment).where(CbcAssessment.tenant_id == tenant_id)
     if enrollment_id:
@@ -402,6 +410,8 @@ def list_assessments(
         q = q.where(CbcAssessment.term_id == term_id)
     if student_id:
         q = q.where(CbcAssessment.student_id == student_id)
+    if assessment_type:
+        q = q.where(CbcAssessment.assessment_type == assessment_type.upper())
     q = q.order_by(CbcAssessment.assessed_at.desc())
     return list(db.execute(q).scalars().all())
 
@@ -955,3 +965,395 @@ def seed_default_curriculum(db: Session, *, tenant_id: UUID) -> None:
                         ))
 
     db.flush()
+
+
+# ── Class Analytics (Step 3A) ─────────────────────────────────────────────────
+
+def get_class_analytics(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    class_code: str,
+    term_id: UUID,
+) -> dict[str, Any]:
+    """Compute per-class CBC analytics for a given term.
+
+    Returns distribution of BE/AE/ME/EE per learning area, completion
+    percentages, and learner support flags (students with ≥3 BE in any LA).
+    Only SUMMATIVE assessments are counted.
+    """
+    tid = str(tenant_id)
+    trid = str(term_id)
+    cc = class_code.upper()
+
+    # Term name
+    term_row = db.execute(
+        sa.text("SELECT name FROM core.tenant_terms WHERE id = :trid AND tenant_id = :tid LIMIT 1"),
+        {"trid": trid, "tid": tid},
+    ).mappings().first()
+    if not term_row:
+        raise HTTPException(status_code=404, detail="Term not found")
+    term_name = term_row["name"]
+
+    # All enrolled students in this class + term
+    enrolled_rows = db.execute(
+        sa.text("""
+            SELECT sce.id AS enrollment_id,
+                   s.first_name || ' ' || s.last_name AS student_name,
+                   s.admission_no
+            FROM core.student_class_enrollments sce
+            JOIN core.students s ON s.id = sce.student_id
+            JOIN core.tenant_classes tc ON tc.id = sce.class_id
+            WHERE sce.tenant_id = :tid AND sce.term_id = :trid
+              AND UPPER(tc.code) = :cc
+            ORDER BY s.last_name, s.first_name
+        """),
+        {"tid": tid, "trid": trid, "cc": cc},
+    ).mappings().all()
+
+    enrolled_count = len(enrolled_rows)
+    if enrolled_count == 0:
+        return {
+            "class_code": class_code,
+            "term_id": term_id,
+            "term_name": term_name,
+            "enrolled_count": 0,
+            "distribution": [],
+            "support_flags": [],
+            "overall_completion_pct": 0.0,
+        }
+
+    enrollment_ids = [str(r["enrollment_id"]) for r in enrolled_rows]
+
+    # Active learning areas + sub-strand counts for this tenant
+    la_rows = db.execute(
+        sa.text("""
+            SELECT la.id, la.name, la.grade_band,
+                   COUNT(ss.id) AS sub_strand_count
+            FROM core.cbc_learning_areas la
+            JOIN core.cbc_strands st ON st.learning_area_id = la.id AND st.is_active = true
+            JOIN core.cbc_sub_strands ss ON ss.strand_id = st.id AND ss.is_active = true
+            WHERE la.tenant_id = :tid AND la.is_active = true
+            GROUP BY la.id, la.name, la.grade_band, la.display_order
+            ORDER BY la.display_order, la.name
+        """),
+        {"tid": tid},
+    ).mappings().all()
+
+    # All SUMMATIVE assessments for these enrollments this term
+    if enrollment_ids:
+        placeholders = ", ".join(f"'{e}'" for e in enrollment_ids)
+        assess_rows = db.execute(
+            sa.text(f"""
+                SELECT a.enrollment_id, a.performance_level,
+                       ss.strand_id,
+                       st.learning_area_id
+                FROM core.cbc_assessments a
+                JOIN core.cbc_sub_strands ss ON ss.id = a.sub_strand_id
+                JOIN core.cbc_strands st ON st.id = ss.strand_id
+                WHERE a.tenant_id = :tid
+                  AND a.term_id = :trid
+                  AND a.assessment_type = 'SUMMATIVE'
+                  AND a.enrollment_id::text IN ({placeholders})
+            """),
+            {"tid": tid, "trid": trid},
+        ).mappings().all()
+    else:
+        assess_rows = []
+
+    # Group assessments by (learning_area_id)
+    from collections import defaultdict
+    la_counts: dict[str, dict[str, int]] = defaultdict(lambda: {"BE": 0, "AE": 0, "ME": 0, "EE": 0, "total": 0})
+    for a in assess_rows:
+        la_id = str(a["learning_area_id"])
+        lvl = a["performance_level"]
+        la_counts[la_id][lvl] = la_counts[la_id].get(lvl, 0) + 1
+        la_counts[la_id]["total"] += 1
+
+    distribution = []
+    total_possible_all = 0
+    total_assessed_all = 0
+
+    for la in la_rows:
+        la_id = str(la["id"])
+        ss_count = int(la["sub_strand_count"])
+        total_possible = ss_count * enrolled_count
+        counts = la_counts.get(la_id, {"BE": 0, "AE": 0, "ME": 0, "EE": 0, "total": 0})
+        total_assessed = counts["total"]
+        completion_pct = round(100 * total_assessed / total_possible, 1) if total_possible > 0 else 0.0
+
+        total_possible_all += total_possible
+        total_assessed_all += total_assessed
+
+        distribution.append({
+            "learning_area_id": la["id"],
+            "learning_area_name": la["name"],
+            "grade_band": la["grade_band"],
+            "be_count": counts.get("BE", 0),
+            "ae_count": counts.get("AE", 0),
+            "me_count": counts.get("ME", 0),
+            "ee_count": counts.get("EE", 0),
+            "total_assessed": total_assessed,
+            "total_possible": total_possible,
+            "completion_pct": completion_pct,
+        })
+
+    overall_completion = round(100 * total_assessed_all / total_possible_all, 1) if total_possible_all > 0 else 0.0
+
+    # Learner support flags: students with ≥3 BE in any single learning area
+    enr_la_be: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    enr_la_name: dict[str, dict[str, str]] = defaultdict(dict)
+    for a in assess_rows:
+        if a["performance_level"] == "BE":
+            eid = str(a["enrollment_id"])
+            la_id = str(a["learning_area_id"])
+            enr_la_be[eid][la_id] += 1
+
+    # Map la_id → name
+    la_name_map = {str(la["id"]): la["name"] for la in la_rows}
+    enr_meta = {str(r["enrollment_id"]): r for r in enrolled_rows}
+
+    support_flags = []
+    for eid, la_be_map in enr_la_be.items():
+        flagged_la_ids = [la_id for la_id, cnt in la_be_map.items() if cnt >= 3]
+        if flagged_la_ids:
+            meta = enr_meta.get(eid, {})
+            total_be = sum(la_be_map.values())
+            support_flags.append({
+                "enrollment_id": eid,
+                "student_name": meta.get("student_name", ""),
+                "admission_no": meta.get("admission_no", ""),
+                "be_count": total_be,
+                "learning_areas_flagged": [la_name_map.get(la_id, la_id) for la_id in flagged_la_ids],
+            })
+    support_flags.sort(key=lambda x: -x["be_count"])
+
+    return {
+        "class_code": class_code,
+        "term_id": term_id,
+        "term_name": term_name,
+        "enrolled_count": enrolled_count,
+        "distribution": distribution,
+        "support_flags": support_flags,
+        "overall_completion_pct": overall_completion,
+    }
+
+
+# ── Multi-term Learner Progress (Step 4) ──────────────────────────────────────
+
+def get_learner_progress(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    enrollment_id: UUID,
+) -> dict[str, Any]:
+    """Return per-term performance level counts per learning area for one learner.
+
+    Used for multi-term trend visualisation. Only SUMMATIVE assessments counted.
+    """
+    tid = str(tenant_id)
+    eid = str(enrollment_id)
+
+    # Verify enrollment
+    sce = db.execute(
+        sa.text("""
+            SELECT sce.id, s.first_name || ' ' || s.last_name AS student_name,
+                   s.admission_no
+            FROM core.student_class_enrollments sce
+            JOIN core.students s ON s.id = sce.student_id
+            WHERE sce.id = :eid AND sce.tenant_id = :tid LIMIT 1
+        """),
+        {"eid": eid, "tid": tid},
+    ).mappings().first()
+    if not sce:
+        raise HTTPException(status_code=404, detail="Enrollment not found")
+
+    # All SUMMATIVE assessments for this learner, any term
+    rows = db.execute(
+        sa.text("""
+            SELECT
+                a.term_id,
+                tt.name AS term_name,
+                st.learning_area_id,
+                la.name AS learning_area_name,
+                la.grade_band,
+                a.performance_level,
+                COUNT(*) AS cnt
+            FROM core.cbc_assessments a
+            JOIN core.cbc_sub_strands ss ON ss.id = a.sub_strand_id
+            JOIN core.cbc_strands st ON st.id = ss.strand_id
+            JOIN core.cbc_learning_areas la ON la.id = st.learning_area_id
+            JOIN core.tenant_terms tt ON tt.id = a.term_id
+            WHERE a.tenant_id = :tid
+              AND a.enrollment_id = :eid
+              AND a.assessment_type = 'SUMMATIVE'
+            GROUP BY a.term_id, tt.name, st.learning_area_id, la.name, la.grade_band, a.performance_level
+            ORDER BY tt.name, la.name
+        """),
+        {"tid": tid, "eid": eid},
+    ).mappings().all()
+
+    from collections import defaultdict
+    # Structure: la_id → term_id → {BE, AE, ME, EE}
+    la_map: dict[str, dict] = {}  # la_id → {name, grade_band, terms: {term_id → counts}}
+    for r in rows:
+        la_id = str(r["learning_area_id"])
+        trid = str(r["term_id"])
+        if la_id not in la_map:
+            la_map[la_id] = {
+                "learning_area_id": la_id,
+                "learning_area_name": r["learning_area_name"],
+                "grade_band": r["grade_band"],
+                "terms": {},
+            }
+        if trid not in la_map[la_id]["terms"]:
+            la_map[la_id]["terms"][trid] = {
+                "term_id": trid,
+                "term_name": r["term_name"],
+                "BE": 0, "AE": 0, "ME": 0, "EE": 0, "total": 0,
+            }
+        lvl = r["performance_level"]
+        la_map[la_id]["terms"][trid][lvl] = int(r["cnt"])
+        la_map[la_id]["terms"][trid]["total"] += int(r["cnt"])
+
+    progress = []
+    for la_id, la_data in la_map.items():
+        terms = []
+        for trid, t in la_data["terms"].items():
+            terms.append({
+                "term_id": trid,
+                "term_name": t["term_name"],
+                "be_count": t["BE"],
+                "ae_count": t["AE"],
+                "me_count": t["ME"],
+                "ee_count": t["EE"],
+                "total_assessed": t["total"],
+            })
+        progress.append({
+            "learning_area_id": la_data["learning_area_id"],
+            "learning_area_name": la_data["learning_area_name"],
+            "grade_band": la_data["grade_band"],
+            "terms": terms,
+        })
+
+    return {
+        "enrollment_id": enrollment_id,
+        "student_name": sce["student_name"],
+        "admission_no": sce["admission_no"],
+        "progress": progress,
+    }
+
+
+# ── Learner Support Report (Step 4) ───────────────────────────────────────────
+
+def get_support_report(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    class_code: str,
+    term_id: UUID,
+) -> dict[str, Any]:
+    """Generate a learner support report for a class/term.
+
+    Lists all students with their BE/AE/ME/EE totals and highlights
+    those with ≥3 BE in any learning area. Only SUMMATIVE assessments counted.
+    """
+    from datetime import datetime, timezone as tz
+    tid = str(tenant_id)
+    trid = str(term_id)
+    cc = class_code.upper()
+
+    term_row = db.execute(
+        sa.text("SELECT name FROM core.tenant_terms WHERE id = :trid AND tenant_id = :tid LIMIT 1"),
+        {"trid": trid, "tid": tid},
+    ).mappings().first()
+    if not term_row:
+        raise HTTPException(status_code=404, detail="Term not found")
+
+    enrolled_rows = db.execute(
+        sa.text("""
+            SELECT sce.id AS enrollment_id,
+                   s.first_name || ' ' || s.last_name AS student_name,
+                   s.admission_no, tc.code AS class_code
+            FROM core.student_class_enrollments sce
+            JOIN core.students s ON s.id = sce.student_id
+            JOIN core.tenant_classes tc ON tc.id = sce.class_id
+            WHERE sce.tenant_id = :tid AND sce.term_id = :trid
+              AND UPPER(tc.code) = :cc
+            ORDER BY s.last_name, s.first_name
+        """),
+        {"tid": tid, "trid": trid, "cc": cc},
+    ).mappings().all()
+
+    if not enrolled_rows:
+        return {
+            "class_code": class_code,
+            "term_id": term_id,
+            "term_name": term_row["name"],
+            "generated_at": datetime.now(tz.utc).isoformat(),
+            "students": [],
+        }
+
+    enrollment_ids = [str(r["enrollment_id"]) for r in enrolled_rows]
+    placeholders = ", ".join(f"'{e}'" for e in enrollment_ids)
+
+    assess_rows = db.execute(
+        sa.text(f"""
+            SELECT a.enrollment_id, a.performance_level,
+                   st.learning_area_id,
+                   la.name AS la_name
+            FROM core.cbc_assessments a
+            JOIN core.cbc_sub_strands ss ON ss.id = a.sub_strand_id
+            JOIN core.cbc_strands st ON st.id = ss.strand_id
+            JOIN core.cbc_learning_areas la ON la.id = st.learning_area_id
+            WHERE a.tenant_id = :tid AND a.term_id = :trid
+              AND a.assessment_type = 'SUMMATIVE'
+              AND a.enrollment_id::text IN ({placeholders})
+        """),
+        {"tid": tid, "trid": trid},
+    ).mappings().all()
+
+    from collections import defaultdict
+    # eid → {BE, AE, ME, EE, total, la_be: {la_id → count}, la_names}
+    eid_counts: dict[str, dict] = defaultdict(lambda: {
+        "BE": 0, "AE": 0, "ME": 0, "EE": 0, "total": 0, "la_be": defaultdict(int), "la_names": {},
+    })
+    for a in assess_rows:
+        eid = str(a["enrollment_id"])
+        lvl = a["performance_level"]
+        eid_counts[eid][lvl] += 1
+        eid_counts[eid]["total"] += 1
+        if lvl == "BE":
+            la_id = str(a["learning_area_id"])
+            eid_counts[eid]["la_be"][la_id] += 1
+            eid_counts[eid]["la_names"][la_id] = a["la_name"]
+
+    students = []
+    for r in enrolled_rows:
+        eid = str(r["enrollment_id"])
+        counts = eid_counts.get(eid, {"BE": 0, "AE": 0, "ME": 0, "EE": 0, "total": 0, "la_be": {}, "la_names": {}})
+        flagged = [
+            counts["la_names"].get(la_id, la_id)
+            for la_id, cnt in counts["la_be"].items()
+            if cnt >= 3
+        ]
+        students.append({
+            "enrollment_id": r["enrollment_id"],
+            "student_name": r["student_name"],
+            "admission_no": r["admission_no"],
+            "class_code": r["class_code"],
+            "be_total": counts["BE"],
+            "ae_total": counts["AE"],
+            "me_total": counts["ME"],
+            "ee_total": counts["EE"],
+            "total_assessed": counts["total"],
+            "flagged_areas": flagged,
+        })
+
+    return {
+        "class_code": class_code,
+        "term_id": term_id,
+        "term_name": term_row["name"],
+        "generated_at": datetime.now(tz.utc).isoformat(),
+        "students": students,
+    }

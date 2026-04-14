@@ -556,7 +556,8 @@ export const principalNav: AppNavItem[] = [
 // ───────────────────────────────────────────────────────────────
 
 export const parentNav: AppNavItem[] = [
-  { href: "/tenant/parent/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
-  { href: "/tenant/parent/invoices",  label: "My Bills",  icon: "FileText" },
-  { href: "/tenant/parent/payments",  label: "Payments",  icon: "Receipt" },
+  { href: "/tenant/parent/dashboard", label: "Dashboard",  icon: "LayoutDashboard" },
+  { href: "/tenant/parent/invoices",  label: "My Bills",   icon: "FileText" },
+  { href: "/tenant/parent/payments",  label: "Payments",   icon: "Receipt" },
+  { href: "/tenant/parent/progress",  label: "My Child's Progress", icon: "TrendingUp" },
 ];

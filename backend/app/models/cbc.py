@@ -70,13 +70,21 @@ class CbcSubStrand(Base):
 
 
 class CbcAssessment(Base):
-    """One row per learner per sub-strand per term. BE/AE/ME/EE."""
+    """One assessment row per learner per sub-strand per term.
+
+    assessment_type distinguishes:
+    - SUMMATIVE (default) — end-of-term; unique per (enrollment, sub_strand, term).
+      Enforced by partial unique index uq_cbc_summative in the DB.
+    - FORMATIVE — continuous; unique per (enrollment, sub_strand, term, checkpoint_no).
+      Enforced by partial unique index uq_cbc_formative in the DB.
+
+    Performance levels: BE / AE / ME / EE
+    """
     __tablename__ = "cbc_assessments"
     __table_args__ = (
-        UniqueConstraint(
-            "tenant_id", "enrollment_id", "sub_strand_id", "term_id",
-            name="uq_cbc_assessment_enrollment_substrand_term",
-        ),
+        # NOTE: the old unique constraint was replaced by two partial indexes
+        # created in migration a1b2c3d4e5f6. The ORM table_args only needs
+        # the schema declaration now.
         {"schema": "core"},
     )
 
@@ -87,6 +95,11 @@ class CbcAssessment(Base):
     student_id = Column(UUID(as_uuid=True), ForeignKey("core.students.id", ondelete="CASCADE"), nullable=False)
     sub_strand_id = Column(UUID(as_uuid=True), ForeignKey("core.cbc_sub_strands.id", ondelete="CASCADE"), nullable=False)
     term_id = Column(UUID(as_uuid=True), ForeignKey("core.tenant_terms.id", ondelete="CASCADE"), nullable=False)
+
+    # SUMMATIVE (default) | FORMATIVE
+    assessment_type = Column(String(12), nullable=False, server_default="SUMMATIVE")
+    # For FORMATIVE only: which checkpoint (1, 2, 3 …)
+    checkpoint_no = Column(SmallInteger, nullable=False, server_default=text("1"))
 
     # BE / AE / ME / EE
     performance_level = Column(String(2), nullable=False)

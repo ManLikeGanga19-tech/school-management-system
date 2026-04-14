@@ -231,3 +231,118 @@ def get_payments(
             "received_at": r["received_at"].isoformat() if r["received_at"] else None,
         })
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /portal/cbc/terms — terms for which the parent's child has assessments
+# GET /portal/cbc/report — CBC learner progress report for parent's child
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _require_single_child_enrollment(
+    db: Session,
+    tenant_id: UUID,
+    parent_id: UUID,
+    enrollment_id: UUID | None = None,
+) -> UUID:
+    """Return the enrollment_id to use for CBC reports.
+
+    If a parent has one child, use that child's latest enrollment.
+    If multiple children, enrollment_id is required.
+    """
+    links = db.execute(
+        sa.text("""
+            SELECT pel.enrollment_id
+            FROM core.parent_enrollment_links pel
+            JOIN core.enrollments e ON e.id = pel.enrollment_id
+            WHERE pel.parent_id = :pid AND pel.tenant_id = :tid
+            ORDER BY e.created_at DESC
+        """),
+        {"pid": str(parent_id), "tid": str(tenant_id)},
+    ).mappings().all()
+
+    eids = [r["enrollment_id"] for r in links]
+    if not eids:
+        raise HTTPException(status_code=404, detail="No children linked to this parent account")
+    if enrollment_id:
+        if enrollment_id not in eids:
+            raise HTTPException(status_code=403, detail="Enrollment does not belong to your child")
+        return enrollment_id
+    if len(eids) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Multiple children linked. Provide enrollment_id query parameter.",
+        )
+    return eids[0]
+
+
+@router.get("/cbc/terms")
+def get_cbc_terms(
+    enrollment_id: UUID | None = None,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """List terms for which the parent's child has SUMMATIVE CBC assessments."""
+    parent = _require_parent(db, tenant.id, user.id)
+    eid = _require_single_child_enrollment(db, tenant.id, parent.id, enrollment_id)
+
+    rows = db.execute(
+        sa.text("""
+            SELECT DISTINCT tt.id, tt.name, tt.code,
+                   tt.start_date, tt.is_active
+            FROM core.cbc_assessments a
+            JOIN core.tenant_terms tt ON tt.id = a.term_id
+            WHERE a.tenant_id = :tid
+              AND a.enrollment_id = :eid
+              AND a.assessment_type = 'SUMMATIVE'
+            ORDER BY tt.start_date DESC
+        """),
+        {"tid": str(tenant.id), "eid": str(eid)},
+    ).mappings().all()
+
+    return [
+        {
+            "term_id": str(r["id"]),
+            "term_name": r["name"],
+            "term_code": r["code"],
+            "is_active": r["is_active"],
+        }
+        for r in rows
+    ]
+
+
+@router.get("/cbc/report")
+def get_cbc_report(
+    term_id: UUID | None = None,
+    enrollment_id: UUID | None = None,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Return CBC learner progress report for the parent's child.
+
+    If term_id is omitted, uses the most recent term with assessments.
+    """
+    from app.api.v1.cbc.service import get_learner_report
+
+    parent = _require_parent(db, tenant.id, user.id)
+    eid = _require_single_child_enrollment(db, tenant.id, parent.id, enrollment_id)
+
+    if not term_id:
+        # Pick most recent term with assessments
+        row = db.execute(
+            sa.text("""
+                SELECT a.term_id FROM core.cbc_assessments a
+                JOIN core.tenant_terms tt ON tt.id = a.term_id
+                WHERE a.tenant_id = :tid AND a.enrollment_id = :eid
+                  AND a.assessment_type = 'SUMMATIVE'
+                ORDER BY tt.start_date DESC
+                LIMIT 1
+            """),
+            {"tid": str(tenant.id), "eid": str(eid)},
+        ).mappings().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="No CBC assessments found for this child")
+        term_id = row["term_id"]
+
+    return get_learner_report(db, tenant_id=tenant.id, enrollment_id=eid, term_id=term_id)

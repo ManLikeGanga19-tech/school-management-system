@@ -1,21 +1,29 @@
-"""CBC Assessment API — Phase 3B.
+"""CBC Assessment API — Phase 3B / 3C / 4.
 
 Endpoints:
-  GET    /cbc/curriculum                          — full curriculum tree
-  POST   /cbc/curriculum/learning-areas           — create learning area
-  PATCH  /cbc/curriculum/learning-areas/{id}      — update learning area
-  POST   /cbc/curriculum/strands                  — create strand
-  PATCH  /cbc/curriculum/strands/{id}             — update strand
-  POST   /cbc/curriculum/sub-strands              — create sub-strand
-  PATCH  /cbc/curriculum/sub-strands/{id}         — update sub-strand
-  POST   /cbc/curriculum/seed                     — seed default Kenya CBC structure
-  GET    /cbc/assessments                         — list assessments
-  PUT    /cbc/assessments                         — bulk upsert assessments
-  GET    /cbc/enrollments/{id}/term/{term_id}/report — learner report JSON
-  GET    /cbc/enrollments/{id}/term/{term_id}/pdf    — learner progress report PDF
+  GET    /cbc/curriculum                                       — full curriculum tree
+  POST   /cbc/curriculum/learning-areas                        — create learning area
+  PATCH  /cbc/curriculum/learning-areas/{id}                   — update learning area
+  POST   /cbc/curriculum/strands                               — create strand
+  PATCH  /cbc/curriculum/strands/{id}                          — update strand
+  POST   /cbc/curriculum/sub-strands                           — create sub-strand
+  PATCH  /cbc/curriculum/sub-strands/{id}                      — update sub-strand
+  POST   /cbc/curriculum/seed                                  — seed default Kenya CBC structure
+  GET    /cbc/assessments                                      — list assessments
+  PUT    /cbc/assessments                                      — bulk upsert (SUMMATIVE or FORMATIVE)
+  GET    /cbc/enrollments/{id}/term/{term_id}/report           — learner report JSON
+  GET    /cbc/enrollments/{id}/term/{term_id}/pdf              — learner progress report PDF
+  GET    /cbc/classes/{class_code}/term/{term_id}/analytics    — class-level analytics [3A]
+  GET    /cbc/classes/{class_code}/term/{term_id}/bulk-pdf     — merged class PDF
+  GET    /cbc/classes/{class_code}/term/{term_id}/support-report      — learner support [4]
+  GET    /cbc/classes/{class_code}/term/{term_id}/support-report/csv  — CSV export [4]
+  GET    /cbc/enrollments/{id}/progress                        — multi-term progress [4]
 """
 from __future__ import annotations
 
+import csv
+import io
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -27,9 +35,11 @@ from app.utils.cbc_report_pdf import generate_cbc_report_pdf, merge_pdfs
 
 from . import service
 from .schemas import (
-    BulkAssessmentUpsert,
     AssessmentOut,
+    BulkAssessmentUpsert,
+    ClassAnalyticsOut,
     CurriculumTreeOut,
+    LearnerProgressOut,
     LearnerReportOut,
     LearningAreaCreate,
     LearningAreaOut,
@@ -40,6 +50,7 @@ from .schemas import (
     SubStrandCreate,
     SubStrandOut,
     SubStrandUpdate,
+    SupportReportOut,
 )
 
 router = APIRouter()
@@ -209,6 +220,7 @@ def list_assessments(
     enrollment_id: UUID | None = Query(None),
     term_id: UUID | None = Query(None),
     student_id: UUID | None = Query(None),
+    assessment_type: str | None = Query(None, description="SUMMATIVE or FORMATIVE"),
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
@@ -219,6 +231,7 @@ def list_assessments(
         enrollment_id=enrollment_id,
         term_id=term_id,
         student_id=student_id,
+        assessment_type=assessment_type,
     )
 
 
@@ -239,7 +252,10 @@ def bulk_upsert_assessments(
         actor_user_id=user.id,
         enrollment_id=payload.enrollment_id,
         term_id=payload.term_id,
-        items=[a.model_dump() for a in payload.assessments],
+        items=[
+            {**a.model_dump(), "assessment_type": payload.assessment_type, "checkpoint_no": payload.checkpoint_no}
+            for a in payload.assessments
+        ],
     )
     db.commit()
     for r in rows:
@@ -386,5 +402,107 @@ def download_class_bulk_pdf(
     return Response(
         content=merged,
         media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Class Analytics (Step 3A) ─────────────────────────────────────────────────
+
+@router.get(
+    "/classes/{class_code}/term/{term_id}/analytics",
+    response_model=ClassAnalyticsOut,
+    dependencies=[Depends(require_permission("cbc.assessments.view"))],
+    summary="Per-class BE/AE/ME/EE distribution and completion analytics for a term",
+)
+def get_class_analytics(
+    class_code: str,
+    term_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    return service.get_class_analytics(
+        db, tenant_id=tenant.id, class_code=class_code, term_id=term_id
+    )
+
+
+# ── Multi-term Learner Progress (Step 4) ──────────────────────────────────────
+
+@router.get(
+    "/enrollments/{enrollment_id}/progress",
+    response_model=LearnerProgressOut,
+    dependencies=[Depends(require_permission("cbc.assessments.view"))],
+    summary="Multi-term performance level history for a learner (all terms, all LAs)",
+)
+def get_learner_progress(
+    enrollment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    return service.get_learner_progress(
+        db, tenant_id=tenant.id, enrollment_id=enrollment_id
+    )
+
+
+# ── Learner Support Report (Step 4) ──────────────────────────────────────────
+
+@router.get(
+    "/classes/{class_code}/term/{term_id}/support-report",
+    response_model=SupportReportOut,
+    dependencies=[Depends(require_permission("cbc.reports.generate"))],
+    summary="Learner support report: flags students with ≥3 BE in any learning area",
+)
+def get_support_report(
+    class_code: str,
+    term_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    return service.get_support_report(
+        db, tenant_id=tenant.id, class_code=class_code, term_id=term_id
+    )
+
+
+@router.get(
+    "/classes/{class_code}/term/{term_id}/support-report/csv",
+    response_class=Response,
+    dependencies=[Depends(require_permission("cbc.reports.generate"))],
+    summary="Download learner support report as CSV",
+)
+def get_support_report_csv(
+    class_code: str,
+    term_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    report = service.get_support_report(
+        db, tenant_id=tenant.id, class_code=class_code, term_id=term_id
+    )
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Student Name", "Admission No", "Class", "BE", "AE", "ME", "EE",
+        "Total Assessed", "Flagged Learning Areas",
+    ])
+    for s in report["students"]:
+        writer.writerow([
+            s["student_name"],
+            s["admission_no"],
+            s["class_code"],
+            s["be_total"],
+            s["ae_total"],
+            s["me_total"],
+            s["ee_total"],
+            s["total_assessed"],
+            "; ".join(s["flagged_areas"]),
+        ])
+    csv_bytes = buf.getvalue().encode("utf-8-sig")  # BOM for Excel compatibility
+    filename = f"support_report_{class_code}_{term_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
