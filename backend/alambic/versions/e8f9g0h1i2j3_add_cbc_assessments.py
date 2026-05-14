@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 revision: str = "e8f9g0h1i2j3"
 down_revision: Union[str, None] = "d7e8f9g0h1i2"
 branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = ("i9j0k1l2m3n4",)  # student_class_enrollments must exist first
 
 
 def upgrade() -> None:
