@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -7,6 +8,22 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: "Aptos", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-display: "Plus Jakarta Sans", "Aptos", "Segoe UI", sans-serif;
+
+  /* Marketing design system tokens */
+  --color-brand-primary: #b9512d;
+  --color-brand-primary-hover: #a0441f;
+  --color-deep-teal: #173f49;
+  --color-dark-navy: #132129;
+  --color-page-bg: #fcfbf7;
+  --color-warm-cream: #f7f2e8;
+  --color-light-sand: #efe3c8;
+  --color-muted-warm: #f4ede3;
+  --color-brand-border: #e2d4bf;
+  --color-teal-accent: #dce8ea;
+  --color-muted-text: #66717b;
+  --color-forest-green: #20644f;
+  --color-amber-brown: #8b5a17;
   --font-mono: "Aptos Mono", "SFMono-Regular", "Cascadia Code", "Liberation Mono", Consolas, monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -113,6 +130,34 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer components {
+  .label-caps {
+    @apply uppercase font-semibold tracking-[0.15em];
+    font-size: 11px;
+  }
+  .bg-hero-gradient {
+    background: linear-gradient(180deg, var(--color-warm-cream) 0%, var(--color-page-bg) 100%);
+  }
+  .bg-dark-gradient {
+    background: linear-gradient(180deg, var(--color-dark-navy) 0%, #1a2d38 100%);
+  }
+  .ds-card {
+    @apply bg-white border border-brand-border rounded-[2rem] shadow-[0_12px_44px_rgba(15,23,42,0.04)];
+  }
+  .btn-primary {
+    @apply bg-brand-primary text-white font-semibold py-3 px-7 rounded-full hover:bg-brand-primary-hover transition-all active:scale-95 inline-flex items-center justify-center;
+  }
+  .btn-secondary {
+    @apply bg-transparent border-2 border-brand-primary text-brand-primary font-semibold py-3 px-7 rounded-full hover:bg-brand-primary hover:text-white transition-all active:scale-95 inline-flex items-center justify-center;
+  }
+  .btn-dark-section {
+    @apply bg-white text-dark-navy font-semibold py-3 px-7 rounded-full hover:bg-light-sand transition-all active:scale-95 inline-flex items-center justify-center;
+  }
+  .ds-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] border border-deep-teal/15;
+  }
 }
 
 @layer base {

@@ -1,136 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import type { LucideIcon } from "lucide-react";
+import { MarketingNavbar } from "./MarketingNavbar";
+import { MarketingFooter } from "./MarketingFooter";
+import { TrustBar } from "./TrustBar";
 import {
-  ArrowRight,
-  BadgeCheck,
-  Building2,
-  ClipboardCheck,
-  CreditCard,
-  GraduationCap,
   ShieldCheck,
-  Waypoints,
+  PlayCircle,
+  Star,
+  CircleX,
+  CircleCheckBig,
+  BookOpenCheck,
+  Wallet,
+  Users,
+  ClipboardList,
+  Zap,
+  Shield,
+  BarChart3,
+  LayoutGrid,
+  Banknote,
+  Camera,
+  Check,
+  Info,
+  CheckCircle2,
 } from "lucide-react";
 
-import { CookieConsentBanner } from "@/components/marketing/CookieConsentBanner";
-import { ProspectEngagementPanel } from "@/components/marketing/ProspectEngagementPanel";
-import { ProspectSessionProvider } from "@/components/marketing/ProspectSessionProvider";
-import { PublicFooter } from "@/components/marketing/PublicFooter";
-import { PublicNavbar } from "@/components/marketing/PublicNavbar";
-import { Button } from "@/components/ui/button";
-
-type Stat = {
-  label: string;
-  value: string;
-  detail: string;
-};
-
-type Capability = {
-  title: string;
-  description: string;
-  icon: LucideIcon;
-};
-
-type RolloutStep = {
-  step: string;
-  title: string;
-  description: string;
-};
-
-const stats: Stat[] = [
-  {
-    label: "Platform model",
-    value: "Multi-tenant by design",
-    detail: "Shared control plane, isolated tenant workspaces, domain-aware routing.",
-  },
-  {
-    label: "Operational span",
-    value: "Admissions to collections",
-    detail: "Student lifecycle, finance, timetable, HR, exams, notifications, and audit.",
-  },
-  {
-    label: "Control posture",
-    value: "Role- and policy-driven",
-    detail: "Tenant permissions, SaaS oversight, and traceable operational history.",
-  },
+const features = [
+  { icon: BookOpenCheck, title: "CBC Engine", desc: "Automated formative grading per KICD standards.", bg: "bg-teal-accent", color: "text-deep-teal" },
+  { icon: Wallet, title: "Fee Tracking", desc: "Receipt scanning and M-Pesa matching in real time.", bg: "bg-[#d1fae5]", color: "text-forest-green" },
+  { icon: Users, title: "Parent Portal", desc: "Real-time grades and fee balances delivered instantly.", bg: "bg-light-sand", color: "text-amber-brown" },
+  { icon: ClipboardList, title: "Assessments", desc: "Digital rubric entry and auto-report generation.", bg: "bg-teal-accent", color: "text-deep-teal" },
+  { icon: Zap, title: "Support Flags", desc: "Auto-identified alerts for students needing extra help.", bg: "bg-[#fee2e2]", color: "text-brand-primary" },
+  { icon: Shield, title: "Compliance", desc: "Tamper-proof audit logs and data protection.", bg: "bg-page-bg", color: "text-muted-text" },
 ];
-
-const capabilities: Capability[] = [
-  {
-    title: "School onboarding",
-    description:
-      "Provision tenant workspaces, issue director credentials, and standardize rollout by school or education group.",
-    icon: Building2,
-  },
-  {
-    title: "Academic operations",
-    description:
-      "Coordinate classes, terms, timetable, exams, events, and student records from one operational system.",
-    icon: GraduationCap,
-  },
-  {
-    title: "Revenue controls",
-    description:
-      "Manage fee structures, invoices, discounts, scholarships, collections, and subscription visibility with discipline.",
-    icon: CreditCard,
-  },
-  {
-    title: "Access governance",
-    description:
-      "Use tenant-aware RBAC, SaaS-level administration, and audit evidence to reduce operational drift.",
-    icon: ShieldCheck,
-  },
-  {
-    title: "Support and escalation",
-    description:
-      "Route support into the platform so operators and schools share the same operational truth.",
-    icon: ClipboardCheck,
-  },
-  {
-    title: "Network-wide visibility",
-    description:
-      "Run multiple institutions under one product surface without collapsing them into one unsafe data plane.",
-    icon: Waypoints,
-  },
-];
-
-const rolloutSteps: RolloutStep[] = [
-  {
-    step: "01",
-    title: "Qualify the institution",
-    description:
-      "A prospect contact creates controlled access, declares the institution profile, and opens the right onboarding track.",
-  },
-  {
-    step: "02",
-    title: "Assign the school workspace",
-    description:
-      "The SaaS team validates the requested subdomain, shapes the rollout plan, and provisions the tenant cleanly.",
-  },
-  {
-    step: "03",
-    title: "Activate daily operations",
-    description:
-      "Directors, principals, and secretaries move into their own workspace while the control plane stays on the admin host.",
-  },
-];
-
-const navItems = [
-  { href: "#engage", label: "Request desk" },
-  { href: "#platform", label: "Platform" },
-  { href: "#security", label: "Security" },
-  { href: "#rollout", label: "Rollout" },
-];
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600 shadow-sm backdrop-blur">
-      <BadgeCheck className="size-3.5 text-amber-600" />
-      {children}
-    </span>
-  );
-}
 
 export function PublicSite({
   adminHost = "admin.shulehq.co.ke",
@@ -139,284 +41,291 @@ export function PublicSite({
   adminHost?: string;
   tenantBaseHost?: string;
 }) {
-  const tenantExampleHost = `novel-school.${tenantBaseHost}`;
-
   return (
-    <ProspectSessionProvider>
-      <main className="relative isolate overflow-hidden bg-[linear-gradient(180deg,#efe3c8_0%,#f7f2e8_34%,#fcfbf7_100%)] text-slate-900">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="hero-float absolute -left-24 top-10 h-72 w-72 rounded-full bg-[radial-gradient(circle_at_center,rgba(191,83,37,0.20),rgba(191,83,37,0))]" />
-          <div className="hero-float absolute right-[-7rem] top-28 h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,rgba(18,85,101,0.20),rgba(18,85,101,0))]" />
-          <div className="absolute inset-x-0 top-0 h-[32rem] bg-[linear-gradient(135deg,rgba(255,255,255,0.65),rgba(255,255,255,0.08))]" />
-          <div className="marketing-grid absolute inset-0 opacity-60" />
-        </div>
+    <>
+    <MarketingNavbar />
+    <div className="bg-page-bg">
+      {/* HERO */}
+      <section className="pt-32 pb-20 md:pt-48 md:pb-32 px-4 shadow-[inset_0_-40px_80px_rgba(15,23,42,0.03)] overflow-hidden bg-hero-gradient">
+        <div className="max-w-7xl mx-auto text-center">
+          <span className="ds-badge bg-light-sand text-deep-teal mb-8">Built for Kenya's CBC Curriculum</span>
 
-        <section className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 pb-16 pt-4 sm:px-6 lg:px-10">
-          <PublicNavbar navItems={navItems} />
+          <h1 className="text-5xl md:text-7xl font-bold text-dark-navy tracking-tight leading-[1.1] mb-8 font-display">
+            The School That <br className="hidden md:block" />
+            <span className="text-brand-primary italic">Runs Itself</span>
+          </h1>
 
-          <div className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-[minmax(0,1.02fr)_minmax(20rem,0.98fr)] lg:py-18">
-            <div className="space-y-8">
-            <div className="hero-rise hero-delay-1 space-y-6">
-              <SectionLabel>Run school rollout with control</SectionLabel>
-              <div className="space-y-5">
-                <h1 className="max-w-4xl text-4xl font-semibold tracking-[-0.05em] text-balance text-slate-950 sm:text-6xl lg:text-7xl">
-                  Public onboarding at the front, SaaS control in the admin plane, schools on their own subdomains.
-                </h1>
-                <p className="max-w-2xl text-base leading-8 text-slate-700 sm:text-xl">
-                  ShuleHQ separates prospect intake, platform administration, and school operations so each part of the system lives on the right host with the right controls.
-                </p>
-              </div>
+          <p className="max-w-2xl mx-auto text-lg md:text-xl text-muted-text leading-relaxed mb-10 font-normal">
+            ShuleHQ automates fees, CBC assessments, staff management, and parent communication — so your school can focus on what matters: teaching children.
+          </p>
 
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Button asChild size="lg" className="rounded-full bg-[#b9512d] px-7 text-base text-white shadow-[0_16px_40px_rgba(185,81,45,0.3)] hover:bg-[#9f4525]">
-                  <Link href="/create-access">
-                    Create access and start
-                    <ArrowRight className="size-4" />
-                  </Link>
-                </Button>
-                <Button
-                  asChild
-                  size="lg"
-                  variant="outline"
-                  className="rounded-full border-slate-300 bg-white/85 px-7 text-base text-slate-900"
-                >
-                  <Link href="#platform">View platform coverage</Link>
-                </Button>
-              </div>
-            </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+            <Link href="/demo" className="btn-primary text-lg px-12 py-5 shadow-2xl shadow-brand-primary/20">
+              Request a Free Demo
+            </Link>
+            <a
+              href="mailto:support@shulehq.co.ke"
+              className="btn-secondary text-lg flex items-center justify-center gap-2"
+            >
+              <PlayCircle className="w-5 h-5" />
+              Talk to Us
+            </a>
+          </div>
 
-            <div className="hero-rise hero-delay-2 grid gap-4 md:grid-cols-3">
-              {stats.map((stat) => (
-                <article
-                  key={stat.label}
-                  className="rounded-[1.6rem] border border-white/60 bg-white/80 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.07)] backdrop-blur"
-                >
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{stat.label}</p>
-                  <h2 className="mt-3 text-xl font-semibold tracking-tight text-slate-950">{stat.value}</h2>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{stat.detail}</p>
-                </article>
-              ))}
-            </div>
-            </div>
-
-            <div className="hero-rise hero-delay-3 space-y-4">
-            <article className="rounded-[2rem] border border-slate-200 bg-white/88 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.09)] backdrop-blur">
-              <SectionLabel>Access map</SectionLabel>
-              <div className="mt-5 space-y-4">
-                <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Public site</p>
-                  <p className="mt-2 text-base font-semibold text-slate-950">{tenantBaseHost}</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Prospect access, rollout requests, demo planning, and implementation intake.
-                  </p>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Admin host</p>
-                    <p className="mt-2 text-base font-semibold text-slate-950">{adminHost}</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      SaaS dashboard, rollout oversight, tenant management, and platform operations.
-                    </p>
-                  </div>
-                  <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">School host</p>
-                    <p className="mt-2 text-base font-semibold text-slate-950">{tenantExampleHost}</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Director, principal, and secretary workspaces isolated to each tenant.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </article>
-
-            <article className="rounded-[2rem] border border-slate-200 bg-[#132129] p-6 text-white shadow-[0_24px_80px_rgba(15,23,42,0.14)]">
-              <SectionLabel>Delivery controls</SectionLabel>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                {[
-                  "Host-separated routing for public, admin, and tenant entrypoints",
-                  "TLS at the edge with loopback-only application exposure behind the proxy",
-                  "Controlled prospect workspace before any rollout conversation starts",
-                  "Tenant provisioning aligned to requested school subdomain ownership",
-                ].map((item) => (
-                  <div key={item} className="rounded-[1.4rem] border border-white/10 bg-white/6 p-4 text-sm leading-6 text-slate-200">
-                    {item}
-                  </div>
-                ))}
-              </div>
-            </article>
+          <div className="flex flex-wrap justify-center items-center gap-6 text-[11px] font-semibold text-muted-text uppercase tracking-[0.2em] mb-20">
+            <span>Trusted by growing Kenyan schools</span>
+            <span className="hidden md:block opacity-30">•</span>
+            <span>CBC-ready from day one</span>
+            <span className="hidden md:block opacity-30">•</span>
+            <div className="flex gap-1 text-amber-brown">
+              {[1,2,3,4,5].map(i => <Star key={i} className="w-4 h-4 fill-current" />)}
             </div>
           </div>
-        </section>
 
-        <section id="engage" className="relative border-y border-slate-200/70 bg-white/75 py-20 backdrop-blur">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
-            <div className="grid gap-8 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-start">
-              <div className="space-y-6">
-                <SectionLabel>Request desk</SectionLabel>
-                <div>
-                  <h2 className="text-4xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-5xl">
-                    Start implementation from a dedicated onboarding section.
-                  </h2>
-                  <p className="mt-4 text-base leading-8 text-slate-600 sm:text-lg">
-                    This intake surface is intentionally separate from tenant login and SaaS administration. Institution contacts create prospect access first, then raise the right request for demo, enquiry, or school visit.
-                  </p>
+          {/* Dashboard preview skeleton */}
+          <div className="relative mx-auto max-w-5xl group">
+            <div className="absolute -inset-4 bg-brand-primary/5 rounded-[3rem] blur-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="relative ds-card border-brand-border/40 overflow-hidden aspect-[16/10] flex items-center justify-center bg-white">
+              <div className="bg-muted-warm w-full h-full flex flex-col p-8 opacity-90">
+                <div className="flex justify-between items-center mb-8">
+                  <div className="h-8 w-48 bg-brand-border/40 rounded-lg" />
+                  <div className="flex gap-4">
+                    <div className="h-10 w-10 bg-brand-border/40 rounded-full" />
+                    <div className="h-10 w-10 bg-brand-border/40 rounded-full" />
+                  </div>
                 </div>
-
-                <div className="grid gap-4">
-                  {[
-                    {
-                      title: "Create controlled prospect access",
-                      description:
-                        "One institution contact record anchors rollout requests, follow-up, and subdomain allocation without mixing public traffic into tenant auth.",
-                    },
-                    {
-                      title: "Request the right engagement path",
-                      description:
-                        "Demo, enquiry, and school-visit workflows stay on one operational record so the rollout team can move faster with less ambiguity.",
-                    },
-                    {
-                      title: "Promote cleanly into the tenant host",
-                      description:
-                        "Once approved, the school is activated on its own subdomain and operational users sign in there, not through the public site.",
-                    },
-                  ].map((item, index) => (
-                    <article
-                      key={item.title}
-                      className="rounded-[1.75rem] border border-slate-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(247,242,232,0.78))] p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-sm font-semibold text-white">
-                          0{index + 1}
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold tracking-tight text-slate-950">{item.title}</h3>
-                          <p className="mt-2 text-sm leading-7 text-slate-600">{item.description}</p>
-                        </div>
-                      </div>
-                    </article>
+                <div className="grid grid-cols-4 gap-6 mb-8">
+                  {[1,2,3,4].map(i => (
+                    <div key={i} className="h-32 bg-white rounded-2xl border border-brand-border flex flex-col p-4 shadow-sm">
+                      <span className="bg-muted-warm h-4 w-12 rounded mb-auto" />
+                      <span className="bg-light-sand/50 h-10 w-24 rounded-lg" />
+                    </div>
                   ))}
                 </div>
+                <div className="flex-1 bg-white rounded-2xl border border-brand-border flex items-center justify-center text-muted-text font-medium text-sm">
+                  Director dashboard — CBC analytics & fee overview
+                </div>
               </div>
-
-              <ProspectEngagementPanel />
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section id="platform" className="relative bg-white/88 py-20 backdrop-blur">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
-            <div className="max-w-3xl">
-              <SectionLabel>Platform coverage</SectionLabel>
-              <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-5xl">
-                Designed for real school operations, not disconnected modules.
-              </h2>
-              <p className="mt-5 text-lg leading-8 text-slate-600">
-                The platform is structured so that finance, academics, staffing, and support can operate from one tenant-aware system without sacrificing operator oversight.
-              </p>
-            </div>
+      {/* TRUST BAR */}
+      <TrustBar />
 
-            <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {capabilities.map((item) => (
-                <article
-                  key={item.title}
-                  className="rounded-[1.75rem] border border-slate-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(247,242,232,0.78))] p-6 shadow-[0_20px_60px_rgba(15,23,42,0.06)]"
-                >
-                  <div className="flex size-12 items-center justify-center rounded-2xl bg-slate-950 text-white">
-                    <item.icon className="size-5" />
-                  </div>
-                  <h3 className="mt-5 text-xl font-semibold tracking-tight text-slate-950">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-slate-600">{item.description}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="security" className="relative py-20">
-          <div className="mx-auto grid max-w-7xl gap-8 px-4 sm:px-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(20rem,1.1fr)] lg:px-10">
-            <div className="rounded-[2rem] border border-slate-200 bg-[#132129] p-8 text-white shadow-[0_24px_80px_rgba(15,23,42,0.14)]">
-              <SectionLabel>Security posture</SectionLabel>
-              <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-white">
-                Infrastructure choices that respect school data.
-              </h2>
-              <p className="mt-5 text-base leading-7 text-slate-300">
-                The deployment model keeps databases, Redis, backend, and frontend bound privately while host-level TLS terminates traffic at the edge. That reduces accidental exposure and keeps the public entry point narrow.
-              </p>
-
-              <div className="mt-8 grid gap-4 sm:grid-cols-2">
+      {/* PROBLEM / SOLUTION */}
+      <section className="py-24 px-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid md:grid-cols-2 bg-white rounded-[2rem] border border-brand-border overflow-hidden shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+            <div className="p-8 md:p-16 bg-warm-cream border-r border-brand-border">
+              <h2 className="text-3xl font-bold mb-10 text-dark-navy tracking-tight font-display">Manual school management is holding you back.</h2>
+              <ul className="space-y-8">
                 {[
-                  { label: "Edge policy", value: "HTTPS + HSTS" },
-                  { label: "Runtime exposure", value: "Loopback-only internal services" },
-                  { label: "Access model", value: "Tenant and SaaS scope separation" },
-                  { label: "Evidence trail", value: "Audit-first operations" },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-[1.25rem] border border-white/10 bg-white/6 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{item.label}</p>
-                    <p className="mt-3 text-base font-semibold text-white">{item.value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div id="rollout" className="rounded-[2rem] border border-slate-200 bg-white/88 p-8 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur">
-              <SectionLabel>Rollout path</SectionLabel>
-              <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-slate-950">
-                A cleaner onboarding sequence for each school.
-              </h2>
-              <div className="mt-8 space-y-5">
-                {rolloutSteps.map((item) => (
-                  <article key={item.step} className="rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-5">
-                    <div className="flex items-start gap-4">
-                      <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-sm font-semibold text-white">
-                        {item.step}
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold tracking-tight text-slate-950">{item.title}</h3>
-                        <p className="mt-2 text-sm leading-7 text-slate-600">{item.description}</p>
-                      </div>
+                  { t: "Chasing fee payments manually every term", d: "Endless phone calls and late nights reconciling receipts." },
+                  { t: "CBC report cards filled in by hand at 11pm", d: "Teachers spending hours on paperwork instead of planning lessons." },
+                  { t: "No visibility on student performance trends", d: "Realizing a learner needs support only after the term is over." },
+                ].map((item, i) => (
+                  <li key={i} className="flex items-start gap-4">
+                    <div className="text-brand-primary mt-1"><CircleX className="w-6 h-6" /></div>
+                    <div>
+                      <p className="font-bold text-dark-navy text-lg leading-snug">{item.t}</p>
+                      <p className="text-muted-text text-base leading-relaxed font-normal">{item.d}</p>
                     </div>
-                  </article>
+                  </li>
                 ))}
-              </div>
+              </ul>
+            </div>
+            <div className="p-8 md:p-16">
+              <h2 className="text-3xl font-bold mb-10 text-brand-primary tracking-tight font-display">ShuleHQ changes everything.</h2>
+              <ul className="space-y-8">
+                {[
+                  { t: "Automated invoices & M-Pesa tracking", d: "Real-time balances that reconcile themselves as parents pay." },
+                  { t: "One-click CBC Assessment Engine", d: "Automatic generation of KICD-standard report cards." },
+                  { t: "Intelligent Learning Flags", d: "Our system identifies students needing extra support based on actual progress." },
+                ].map((item, i) => (
+                  <li key={i} className="flex items-start gap-4">
+                    <div className="text-forest-green mt-1"><CircleCheckBig className="w-6 h-6" /></div>
+                    <div>
+                      <p className="font-bold text-dark-navy text-lg leading-snug">{item.t}</p>
+                      <p className="text-muted-text text-base leading-relaxed font-normal">{item.d}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className="relative pb-8">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
-            <div className="overflow-hidden rounded-[2.25rem] border border-slate-200 bg-[linear-gradient(135deg,#1f2937_0%,#0f172a_45%,#6a2d16_100%)] px-6 py-10 text-white shadow-[0_30px_100px_rgba(15,23,42,0.18)] sm:px-8">
-              <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-                <div>
-                  <SectionLabel>Next actions</SectionLabel>
-                  <h2 className="mt-5 max-w-3xl text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
-                    Keep the control plane, public onboarding, and school workspaces separated.
-                  </h2>
-                  <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-200">
-                    The public site handles prospect engagement. Platform operations stay on the admin host, and each school runs on its own tenant subdomain.
+      {/* FEATURES GRID */}
+      <section id="features" className="py-24 px-4 bg-warm-cream">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <span className="label-caps text-brand-primary mb-4 block">Platform Features</span>
+            <h2 className="text-4xl font-bold text-dark-navy mb-4 tracking-tight font-display">Built for Kenya. Optimized for you.</h2>
+            <p className="text-muted-text text-lg max-w-2xl mx-auto font-normal">A complete ecosystem that simplifies administration and empowers educators.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {features.map((f, i) => (
+              <div key={i} className="ds-card p-8 hover:-translate-y-1 transition-all group">
+                <div className={`w-14 h-14 ${f.bg} rounded-xl flex items-center justify-center ${f.color} mb-6 transition-transform group-hover:scale-110 shadow-sm border border-brand-border/20`}>
+                  <f.icon size={28} />
+                </div>
+                <h3 className="font-bold text-dark-navy text-lg mb-3 tracking-tight font-display">{f.title}</h3>
+                <p className="text-muted-text text-[15px] leading-relaxed font-normal">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+          <div className="text-center mt-16">
+            <Link href="/features" className="text-brand-primary font-bold hover:underline inline-flex items-center gap-2 group">
+              See all features <ShieldCheck className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* CBC SPOTLIGHT */}
+      <section className="py-24 px-4 bg-dark-gradient text-white overflow-hidden relative">
+        <div className="max-w-7xl mx-auto relative z-10">
+          <div className="flex flex-col lg:flex-row items-center gap-20">
+            <div className="lg:w-1/2">
+              <div className="bg-white/10 backdrop-blur-xl rounded-[2rem] p-4 border border-white/10 shadow-2xl overflow-hidden aspect-video relative group">
+                <div className="bg-white rounded-2xl w-full h-full flex items-center justify-center p-8 opacity-90">
+                  <div className="flex flex-col items-center gap-4 text-dark-navy">
+                    <BarChart3 size={48} className="text-brand-primary" />
+                    <p className="italic font-medium text-muted-text text-sm">CBC Analytics Dashboard</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="lg:w-1/2">
+              <span className="ds-badge bg-white/10 text-white border-white/20 mb-8">CBC Core Engine</span>
+              <h2 className="text-4xl md:text-5xl font-bold mb-8 leading-tight tracking-tight font-display">Built ground-up for the National Assessment standard.</h2>
+              <ul className="space-y-10">
+                {[
+                  { Icon: LayoutGrid, t: "Digital Observation Log", d: "Track strands and sub-strands on any device, fully aligned with KICD modules." },
+                  { Icon: BarChart3, t: "Stream Distribution Reports", d: "Instantly visualize the distribution of EE to BE performance levels across your school." },
+                  { Icon: Zap, t: "Early Warning Tags", d: "Automatically flag students needing support based on real-time assessment data trends." },
+                ].map(({ Icon, t, d }, i) => (
+                  <li key={i} className="flex items-start gap-6 group">
+                    <div className="bg-white/10 p-3 rounded-xl text-brand-primary flex-shrink-0 group-hover:bg-brand-primary group-hover:text-white transition-colors">
+                      <Icon size={24} />
+                    </div>
+                    <div>
+                      <p className="font-bold text-xl mb-2 text-white">{t}</p>
+                      <p className="text-warm-cream/70 text-lg leading-relaxed font-normal">{d}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <Link href="/features" className="btn-dark-section mt-12 inline-flex items-center gap-3 px-10 py-5">
+                Explore CBC Features <ShieldCheck size={20} />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FINANCE SECTION */}
+      <section className="py-32 px-4 bg-white">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-20">
+            <span className="label-caps text-amber-brown mb-4 block">Financial Management</span>
+            <h2 className="text-4xl md:text-5xl font-bold text-dark-navy mb-6 tracking-tight font-display">
+              Record every payment. <br /> Verify every receipt.
+            </h2>
+            <p className="text-muted-text text-lg max-w-2xl mx-auto font-normal">
+              Automated M-Pesa integration and physical receipt scanning to eliminate fee disputes and ensure transparency.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-12 mb-24 text-center">
+            {[
+              { n: "1", Icon: Banknote, bg: "bg-teal-accent/50 text-deep-teal border-teal-accent", t: "School collects fee", d: "Continue collecting however you do — cash, M-Pesa, bank, or cheque.", rot: "group-hover:rotate-6" },
+              { n: "2", Icon: Camera, bg: "bg-brand-primary text-white shadow-2xl shadow-brand-primary/20", t: "Secretary scans receipt", d: "Use any phone to photograph physical receipts for instant recording.", rot: "group-hover:-rotate-6" },
+              { n: "3", Icon: ShieldCheck, bg: "bg-teal-accent/50 text-deep-teal border-teal-accent", t: "Balances update", d: "Ledgers update instantly. Parents can verify receipts via our secure portal.", rot: "group-hover:rotate-6" },
+            ].map(({ n, Icon, bg, t, d, rot }) => (
+              <div key={n} className="p-8 group relative ds-card border-none shadow-none">
+                <div className="text-page-bg text-9xl font-bold absolute -z-10 opacity-30 transform -translate-x-12 -translate-y-4 transition-transform group-hover:scale-110">{n}</div>
+                <div className={`w-20 h-20 ${bg} rounded-2xl flex items-center justify-center mx-auto mb-8 border border-teal-accent transition-transform ${rot}`}>
+                  <Icon size={36} />
+                </div>
+                <h4 className="font-bold text-2xl mb-4 text-dark-navy tracking-tight font-display">{t}</h4>
+                <p className="text-muted-text leading-relaxed font-medium">{d}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="ds-card bg-warm-cream/50 p-10 md:p-16 overflow-hidden relative border-brand-border">
+            <div className="flex flex-col md:flex-row items-center gap-16 relative z-10">
+              <div className="md:w-1/2">
+                <h3 className="text-4xl font-bold mb-8 text-dark-navy tracking-tight font-display">Built for Kenyan offices.</h3>
+                <p className="text-muted-text text-lg mb-10 leading-relaxed font-normal">
+                  Every physical payment becomes a verifiable digital record. Eliminate disputes by providing a single source of truth for both administration and parents.
+                </p>
+                <ul className="space-y-6">
+                  {["M-Pesa confirmation code matching", "One-click student balance statements"].map((item, i) => (
+                    <li key={i} className="flex items-center gap-4 group">
+                      <div className="bg-teal-accent p-2 rounded-lg text-deep-teal group-hover:bg-deep-teal group-hover:text-white transition-all">
+                        <Check size={20} />
+                      </div>
+                      <span className="text-lg font-bold text-dark-navy tracking-tight">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-12 p-6 rounded-2xl border border-brand-border bg-white shadow-sm flex gap-4">
+                  <div className="shrink-0 w-10 h-10 bg-light-sand rounded-xl flex items-center justify-center text-amber-brown">
+                    <Info size={24} />
+                  </div>
+                  <p className="text-sm text-muted-text font-medium leading-relaxed">
+                    <strong className="text-dark-navy">Transparency first.</strong> ShuleHQ records the flow. Your school maintains full control of the actual banking accounts.
                   </p>
                 </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Button asChild size="lg" className="rounded-full bg-white text-slate-950 hover:bg-slate-100">
-                    <Link href="/create-access">Create access</Link>
-                  </Button>
-                  <Button
-                    asChild
-                    size="lg"
-                    variant="outline"
-                    className="rounded-full border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-                  >
-                    <Link href="/sign-in">Sign in</Link>
-                  </Button>
+              </div>
+              <div className="md:w-1/2">
+                <div className="bg-page-bg rounded-[2rem] aspect-[4/3] border border-brand-border p-8 flex items-center justify-center shadow-inner group">
+                  <Camera size={64} className="text-brand-border group-hover:scale-110 transition-transform" />
                 </div>
               </div>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <PublicFooter adminHost={adminHost} />
-        <CookieConsentBanner />
-      </main>
-    </ProspectSessionProvider>
+      {/* TESTIMONIAL */}
+      <section className="py-24 px-4 bg-page-bg">
+        <div className="max-w-4xl mx-auto ds-card p-12 md:p-20 text-center relative border-brand-border shadow-none bg-white">
+          <Star className="text-amber-brown absolute top-12 left-12 opacity-20" size={48} />
+          <p className="text-2xl md:text-3xl italic text-dark-navy mb-12 font-medium leading-relaxed">
+            "Before ShuleHQ, my secretary spent two full days every term just reconciling M-Pesa codes with our fee ledger. Now she finishes it before morning tea. The time we've saved alone is worth every shilling."
+          </p>
+          <div className="flex flex-col items-center">
+            <div className="w-16 h-16 bg-light-sand rounded-full mb-6 border-2 border-white shadow-sm flex items-center justify-center font-bold text-amber-brown">DM</div>
+            <p className="font-bold text-brand-primary text-lg font-display">David Mwangi</p>
+            <p className="label-caps text-muted-text mt-1">Director, Sunrise Academy — Nairobi</p>
+          </div>
+        </div>
+      </section>
+
+      {/* FINAL CTA */}
+      <section className="py-32 px-4 bg-white">
+        <div className="max-w-7xl mx-auto bg-dark-navy rounded-[3rem] p-12 md:p-24 text-white text-center shadow-2xl relative overflow-hidden border border-white/5">
+          <div className="max-w-4xl mx-auto relative z-10">
+            <h2 className="text-5xl md:text-6xl font-bold mb-8 tracking-tight leading-[1.1] font-display">
+              Join the future of <br /> school management.
+            </h2>
+            <p className="text-warm-cream/60 text-xl md:text-2xl mb-16 font-normal leading-relaxed">
+              Join Kenya's fastest-growing private schools already running smarter with ShuleHQ.
+            </p>
+            <Link href="/demo" className="btn-dark-section text-2xl px-12 py-6 shadow-2xl">
+              Request a Free Demo
+            </Link>
+          </div>
+        </div>
+      </section>
+    </div>
+    <MarketingFooter />
+    </>
   );
 }
