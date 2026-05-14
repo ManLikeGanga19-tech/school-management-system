@@ -101,8 +101,8 @@ def upgrade() -> None:
                 INSERT INTO core.tenant_terms (tenant_id, code, name, start_date, end_date, is_active)
                 SELECT
                     ten.id,
-                    :code,
-                    :name,
+                    :code ::varchar,
+                    :name ::varchar,
                     :start ::date,
                     :end ::date,
                     true
@@ -110,7 +110,7 @@ def upgrade() -> None:
                 WHERE ten.is_active = true
                   AND NOT EXISTS (
                       SELECT 1 FROM core.tenant_terms tt
-                      WHERE tt.tenant_id = ten.id AND tt.code = :code
+                      WHERE tt.tenant_id = ten.id AND tt.code = :code ::varchar
                   )
             """),
             {"code": t["term_code"], "name": t["term_name"],

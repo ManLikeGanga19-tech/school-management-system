@@ -114,6 +114,11 @@ type TenantOption = {
 const BILLING_PLANS: BillingPlan[] = ["per_term", "per_year"];
 const STATUSES: SubStatus[] = ["active", "trialing", "past_due", "cancelled", "paused"];
 
+const DEFAULT_AMOUNT: Record<BillingPlan, number> = {
+  per_term: 8_000,
+  per_year: 20_000,
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatKes(v: number) {
@@ -256,7 +261,7 @@ export default function SaaSSubscriptionsPage() {
   const [createOpen, setCreateOpen]     = useState(false);
   const [cTenant, setCTenant]           = useState("");
   const [cBillingPlan, setCBillingPlan] = useState<BillingPlan>("per_term");
-  const [cAmount, setCAmount]           = useState("");
+  const [cAmount, setCAmount]           = useState(String(DEFAULT_AMOUNT.per_term));
   const [cDiscount, setCDiscount]       = useState("0");
   const [cNotes, setCNotes]             = useState("");
   const [cPeriodStart, setCPeriodStart] = useState("");
@@ -315,6 +320,12 @@ export default function SaaSSubscriptionsPage() {
     const timer = setInterval(() => void load(true), 30_000);
     return () => clearInterval(timer);
   }, []);
+
+  // Auto-suggest standard amount when billing plan changes in Create dialog
+  useEffect(() => {
+    const isDefault = cAmount === "" || Object.values(DEFAULT_AMOUNT).includes(Number(cAmount));
+    if (isDefault) setCAmount(String(DEFAULT_AMOUNT[cBillingPlan]));
+  }, [cBillingPlan]);
 
   useEffect(() => {
     let cancelled = false;
@@ -401,7 +412,7 @@ export default function SaaSSubscriptionsPage() {
       });
       toast.success("Subscription created");
       setCreateOpen(false);
-      setCTenant(""); setCBillingPlan("per_term"); setCAmount("");
+      setCTenant(""); setCBillingPlan("per_term"); setCAmount(String(DEFAULT_AMOUNT.per_term));
       setCDiscount("0"); setCNotes(""); setCPeriodStart("");
       await load(true);
     } catch (e: any) {
