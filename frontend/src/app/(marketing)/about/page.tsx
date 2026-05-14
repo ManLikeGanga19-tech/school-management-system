@@ -31,17 +31,17 @@ export default function AboutPage() {
             <div>
               <h2 className="text-3xl md:text-4xl font-bold text-dark-navy mb-8 tracking-tight">The ShuleHQ Journey</h2>
               <div className="space-y-6 text-muted-text text-lg leading-relaxed font-normal">
-                <p>In 2022, as the Ministry of Education rolled out the Competency-Based Curriculum (CBC), we saw private school directors struggling to keep up with the new assessment standards using old tools.</p>
+                <p>As the Competency-Based Curriculum (CBC) rolled out across more grade levels, we saw private school directors struggling to keep up with the new assessment standards using old tools — systems designed for the West, with no understanding of Kenyan classrooms.</p>
                 <p>Most existing school management systems were built for Western markets and then "localized." They didn't understand what EE/ME/AE/BE meant. They didn't understand the nuance of M-Pesa fee reconciliation in rural or peri-urban settings.</p>
                 <p>We gathered a team of Kenyan educators, bursars, and software engineers to build something different: A system built <span className="text-brand-primary font-bold underline decoration-brand-primary/30">ground-up</span> for Kenya.</p>
               </div>
               <div className="mt-12 grid grid-cols-2 gap-8">
                 <div>
-                  <p className="text-4xl font-bold text-dark-navy mb-2 tracking-tight">40+</p>
+                  <p className="text-4xl font-bold text-dark-navy mb-2 tracking-tight">4</p>
                   <p className="label-caps text-muted-text">Active Schools</p>
                 </div>
                 <div>
-                  <p className="text-4xl font-bold text-dark-navy mb-2 tracking-tight">12k+</p>
+                  <p className="text-4xl font-bold text-dark-navy mb-2 tracking-tight">1,400+</p>
                   <p className="label-caps text-muted-text">Registered Students</p>
                 </div>
               </div>
@@ -87,33 +87,27 @@ export default function AboutPage() {
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-end mb-16 gap-8">
             <div className="max-w-2xl">
-              <span className="label-caps text-brand-primary mb-4 block">Our Team</span>
-              <h2 className="text-4xl font-bold text-dark-navy mb-6 tracking-tight">Led by innovators</h2>
-              <p className="text-muted-text text-lg font-normal leading-relaxed">Our leadership team combines decades of experience in Kenyan education and global software engineering.</p>
+              <span className="label-caps text-brand-primary mb-4 block">The Founder</span>
+              <h2 className="text-4xl font-bold text-dark-navy mb-6 tracking-tight">Built by a Kenyan engineer</h2>
+              <p className="text-muted-text text-lg font-normal leading-relaxed">ShuleHQ was conceived, designed, and built by a single engineer with a deep belief that Kenyan schools deserve world-class software.</p>
             </div>
             <Link href="/careers" className="btn-secondary flex items-center gap-2">
-              View Careers <Users size={18} />
+              Join the Team <Users size={18} />
             </Link>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
-            {[
-              { name: "Faith Wambui", role: "CEO & Co-founder", desc: "Former School Director" },
-              { name: "Daniel Orwenjo", role: "CTO & Co-founder", desc: "Software Engineer" },
-              { name: "Johnstone Makau", role: "Head of Support", desc: "Ex-Ministry Educator" },
-              { name: "Sarah Nyambura", role: "Product Designer", desc: "Fintech Expert" },
-            ].map((member, i) => (
-              <div key={i} className="group">
-                <div className="ds-card aspect-square mb-6 border-brand-border bg-page-bg overflow-hidden flex items-center justify-center italic text-muted-text font-medium group-hover:bg-white transition-all shadow-sm">
-                  <div className="text-center p-4">
-                    <User size={40} className="mx-auto mb-2 opacity-10" />
-                    <span className="text-xs">[Photo: {member.name}]</span>
+          <div className="max-w-xs">
+            <div className="group">
+              <div className="ds-card aspect-square mb-6 border-brand-border bg-page-bg overflow-hidden flex items-center justify-center group-hover:bg-white transition-all shadow-sm">
+                <div className="text-center p-4">
+                  <div className="w-20 h-20 rounded-full bg-brand-primary/10 flex items-center justify-center mx-auto mb-3">
+                    <span className="text-3xl font-bold text-brand-primary">DO</span>
                   </div>
                 </div>
-                <h4 className="text-xl font-bold text-dark-navy tracking-tight">{member.name}</h4>
-                <p className="text-brand-primary label-caps mt-1">{member.role}</p>
-                <p className="text-muted-text text-sm font-normal mt-2">{member.desc}</p>
               </div>
-            ))}
+              <h4 className="text-xl font-bold text-dark-navy tracking-tight">Daniel Oganga</h4>
+              <p className="text-brand-primary label-caps mt-1">Founder & Engineer</p>
+              <p className="text-muted-text text-sm font-normal mt-2">Full-stack engineer. Built ShuleHQ from the ground up to solve a problem he watched Kenyan school directors struggle with daily.</p>
+            </div>
           </div>
         </div>
       </section>

@@ -84,9 +84,9 @@ export default function FeaturesPage() {
                       </li>
                     ))}
                   </ul>
-                  <a href="#" className="text-brand-primary font-bold flex items-center gap-2 group label-caps">
+                  <Link href="/cbc-guide" className="text-brand-primary font-bold flex items-center gap-2 group label-caps">
                     Explore CBC Framework <ArrowRight size={16} className="transition-transform group-hover:translate-x-2" />
-                  </a>
+                  </Link>
                 </div>
                 <div className="md:w-1/2"><CbcMockup /></div>
               </div>
@@ -101,16 +101,13 @@ export default function FeaturesPage() {
                     Record payments, scan receipts, and track every student's balance — however your school collects fees. Whether it's cash, M-Pesa, bank transfer, or cheque, ShuleHQ keeps a tamper-proof ledger.
                   </p>
                   <ul className="space-y-5 mb-10">
-                    {["Scan physical receipts with your phone", "M-Pesa confirmation codes matching", "Parent receipt verification portal", "Multi-campus financial consolidation"].map((item, i) => (
+                    {["Record cash, M-Pesa, bank & cheque payments", "M-Pesa STK push — payment comes to parent's phone", "QR-verified digital receipts (PDF + 80mm thermal)", "Parent portal — search payment by phone or M-Pesa code"].map((item, i) => (
                       <li key={i} className="flex items-center gap-4 text-dark-navy font-bold tracking-tight">
                         <div className="bg-teal-accent p-1 rounded-lg text-deep-teal"><Check className="w-4 h-4" /></div>
                         <span>{item}</span>
                       </li>
                     ))}
                   </ul>
-                  <a href="#" className="text-brand-primary font-bold flex items-center gap-2 group label-caps">
-                    See Receipt Scanning <ArrowRight size={16} className="transition-transform group-hover:translate-x-2" />
-                  </a>
                 </div>
                 <div className="md:w-1/2"><FinanceMockup /></div>
               </div>
@@ -124,7 +121,7 @@ export default function FeaturesPage() {
                     Give parents real-time visibility into their child's education and financial status without physical meetings or phone calls.
                   </p>
                   <ul className="space-y-4 mb-8">
-                    {["Mobile-friendly CBC progress reports", "Instant access to fee balance & receipts", "One-tap M-Pesa payment button", "School newsfeed & notices"].map((item, i) => (
+                    {["Mobile-friendly CBC progress reports", "Instant access to fee balance & payment history", "M-Pesa STK push — pay directly from the portal", "Download PDF receipts for any payment"].map((item, i) => (
                       <li key={i} className="flex items-center gap-3 text-dark-navy font-bold tracking-tight">
                         <Check className="w-5 h-5 text-brand-primary" /> <span>{item}</span>
                       </li>

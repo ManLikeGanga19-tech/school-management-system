@@ -113,7 +113,7 @@ export default function DemoPage() {
                     <button type="submit" className="btn-primary w-full py-6 text-xl shadow-2xl shadow-brand-primary/20">
                       Book My Free Demo →
                     </button>
-                    <p className="text-center text-[10px] text-muted-text font-bold uppercase tracking-[0.2em]">We typically respond within one business day.</p>
+                    <p className="text-center text-[10px] text-muted-text font-bold uppercase tracking-[0.2em]">We typically respond within 2 hours.</p>
                   </form>
                 )}
               </div>
@@ -125,7 +125,7 @@ export default function DemoPage() {
                 <div className="space-y-12">
                   {[
                     { n: "1", title: "Submit this form", desc: "Tell us about your school needs and biggest pain points.", hasDivider: true },
-                    { n: "2", title: "Our team calls you", desc: "We'll reach out within 2 hours to confirm a convenient time.", hasDivider: true },
+                    { n: "2", title: "We call you back", desc: "We'll reach out within 2 hours to confirm a convenient time.", hasDivider: true },
                     { n: "3", title: "30-min live demo", desc: "A personalized tour of the features that matter most. No pressure.", hasDivider: false },
                   ].map((step, i) => (
                     <div key={i} className="flex gap-8 relative group">
@@ -150,13 +150,13 @@ export default function DemoPage() {
                   {[1, 2, 3, 4, 5].map((i) => <Star key={i} className="fill-current w-4 h-4" />)}
                 </div>
                 <p className="text-dark-navy italic text-lg mb-6 leading-relaxed font-normal">
-                  "The ShuleHQ team actually listened to our specific challenges with CBC. The demo wasn't just a sales pitch, it was a solution mapping."
+                  "ShuleHQ understood exactly what we needed. CBC grading used to take us weeks — now our teachers finish it in a day."
                 </p>
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center text-white font-bold text-xs shadow-sm">WK</div>
+                  <div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center text-white font-bold text-xs shadow-sm">MN</div>
                   <div>
-                    <p className="font-bold text-dark-navy text-sm tracking-tight">Wilson Kiprono</p>
-                    <p className="label-caps text-brand-primary">Director, Eldoret Preparatory</p>
+                    <p className="font-bold text-dark-navy text-sm tracking-tight">Madam Naum</p>
+                    <p className="label-caps text-brand-primary">Director, Novel School</p>
                   </div>
                 </div>
               </div>
@@ -169,7 +169,7 @@ export default function DemoPage() {
                   </div>
                   <div>
                     <p className="text-[10px] text-muted-text font-bold uppercase tracking-widest mb-1">WhatsApp / Call</p>
-                    <p className="font-bold text-dark-navy text-xl tracking-tight leading-none group-hover:text-brand-primary transition-colors">+254 712 345 678</p>
+                    <p className="font-bold text-dark-navy text-xl tracking-tight leading-none group-hover:text-brand-primary transition-colors">+254 785 640 048</p>
                   </div>
                 </div>
               </div>

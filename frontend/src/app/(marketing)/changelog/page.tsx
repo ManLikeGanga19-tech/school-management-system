@@ -108,7 +108,7 @@ const updates = [
     type: "Internal",
     changes: [
       "FastAPI backend with PostgreSQL and Alembic migrations",
-      "Next.js 15 frontend with App Router and Tailwind v4",
+      "Next.js 16 frontend with App Router and Tailwind v4",
       "Docker-based local development environment",
       "Initial domain modeling: students, classes, users, tenants",
     ],

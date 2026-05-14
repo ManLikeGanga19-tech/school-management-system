@@ -12,10 +12,10 @@ function RocketIcon({ size }: { size: number }) {
 }
 
 const categories = [
-  { title: "Getting Started", desc: "Setting up your school profile and importing your first student list.", count: 12, iconType: "rocket" },
-  { title: "CBC Grading", desc: "How to enter assessments, manage sub-strands, and print report cards.", count: 18, iconType: "book" },
-  { title: "Finance & M-Pesa", desc: "Reconciling bank slips, managing Paybills, and tracking fee balances.", count: 24, iconType: "file" },
-  { title: "Parent Communication", desc: "Managing the parent portal, sending bulk SMS, and noticeboards.", count: 10, iconType: "message" },
+  { title: "Getting Started", desc: "Setting up your school profile and importing your first student list.", count: 0, iconType: "rocket" },
+  { title: "CBC Grading", desc: "How to enter assessments, manage sub-strands, and print report cards.", count: 0, iconType: "book" },
+  { title: "Finance & M-Pesa", desc: "Reconciling bank slips, managing Paybills, and tracking fee balances.", count: 0, iconType: "file" },
+  { title: "Parent Communication", desc: "Managing the parent portal, sending bulk SMS, and noticeboards.", count: 0, iconType: "message" },
 ];
 
 function CategoryIcon({ type, size }: { type: string; size: number }) {
@@ -53,7 +53,7 @@ export default function HelpPage() {
           <a href="mailto:support@shulehq.co.ke?subject=User%20Manual%20Request" className="flex items-center gap-3 text-dark-navy font-bold hover:text-brand-primary transition-colors tracking-tight">
             <FileText size={20} className="text-brand-primary" /> Request User Manual (PDF)
           </a>
-          <a href="https://wa.me/254712345678" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-dark-navy font-bold hover:text-brand-primary transition-colors tracking-tight">
+          <a href="https://wa.me/254785640048" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-dark-navy font-bold hover:text-brand-primary transition-colors tracking-tight">
             <MessageCircle size={20} className="text-brand-primary" /> WhatsApp Support
           </a>
         </div>
@@ -69,7 +69,7 @@ export default function HelpPage() {
               <div className="flex-1">
                 <div className="flex justify-between items-start mb-2">
                   <h3 className="text-2xl font-bold text-dark-navy tracking-tight">{cat.title}</h3>
-                  <span className="text-[10px] font-black text-muted-text/40 bg-page-bg px-2 py-1 rounded-lg uppercase tracking-widest">{cat.count} articles</span>
+                  {cat.count > 0 && <span className="text-[10px] font-black text-muted-text/40 bg-page-bg px-2 py-1 rounded-lg uppercase tracking-widest">{cat.count} articles</span>}
                 </div>
                 <p className="text-muted-text leading-relaxed font-normal mb-6">{cat.desc}</p>
                 <span className="flex items-center gap-2 text-brand-primary font-bold label-caps group-hover:translate-x-2 transition-transform">
@@ -104,7 +104,7 @@ export default function HelpPage() {
         <p className="text-muted-text text-lg mb-10 font-normal">Our support team is available Mon–Fri, 8am–5pm.</p>
         <div className="flex flex-col sm:flex-row justify-center gap-6">
           <a href="mailto:support@shulehq.co.ke" className="btn-primary px-10 py-5 text-lg">Email Support</a>
-          <a href="https://wa.me/254712345678" target="_blank" rel="noopener noreferrer" className="btn-secondary px-10 py-5 text-lg">WhatsApp +254 712 345 678</a>
+          <a href="https://wa.me/254785640048" target="_blank" rel="noopener noreferrer" className="btn-secondary px-10 py-5 text-lg">WhatsApp +254 785 640 048</a>
         </div>
       </section>
     </div>

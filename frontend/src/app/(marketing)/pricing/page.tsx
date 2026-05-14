@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, Users2, MessageSquare, Plus, Lock, Users, ClipboardList, Cloud, Globe } from "lucide-react";
+import { Check, Users2, MessageSquare, Plus, Lock, Users, ClipboardList, Cloud, QrCode } from "lucide-react";
 
 const renderValue = (val: string | boolean) => {
   if (typeof val === "boolean") {
@@ -30,11 +30,11 @@ const comparisonData = [
   {
     category: "Finance & Fees",
     features: [
-      { name: "Receipt scanning (phone camera)", starter: true, growth: true, enterprise: true },
-      { name: "M-Pesa verification & matching", starter: true, growth: true, enterprise: true },
-      { name: "Cash receipt recording", starter: true, growth: true, enterprise: true },
-      { name: "Parent verification portal", starter: true, growth: true, enterprise: true },
-      { name: "Monthly SMS credits included", starter: "500", growth: "2,000", enterprise: "Custom" },
+      { name: "QR-verified digital receipts (PDF + thermal)", starter: true, growth: true, enterprise: true },
+      { name: "M-Pesa STK push & code matching", starter: true, growth: true, enterprise: true },
+      { name: "Cash & bank payment recording", starter: true, growth: true, enterprise: true },
+      { name: "Parent payment verification portal", starter: true, growth: true, enterprise: true },
+      { name: "SMS credits per term", starter: "500", growth: "2,000", enterprise: "Custom" },
       { name: "Additional SMS top-ups", starter: true, growth: true, enterprise: true },
     ],
   },
@@ -42,13 +42,18 @@ const comparisonData = [
 
 const faqs = [
   { q: "Does ShuleHQ collect fees for us?", a: "No. ShuleHQ never touches your school's money. You collect fees however you already do — cash desk, M-Pesa paybill, bank. We record it, verify it, and give parents a digital trail." },
-  { q: "How does receipt scanning work?", a: "Your secretary opens ShuleHQ on any phone, taps 'Scan Receipt', and photographs the payment receipt. ShuleHQ extracts the amount, matches it to the student, and updates their balance instantly." },
+  { q: "How do digital receipts work?", a: "Every payment generates a PDF or 80mm thermal receipt with a unique QR code. Parents can scan the QR code at any time to verify their payment is authentic — no phone calls needed." },
   { q: "What do SMS credits cover?", a: "SMS credits are used for fee balance reminders, CBC report card alerts, and school announcements. You can top up more credits at any time from your dashboard." },
-  { q: "Is my school's data safe?", a: "Absolutely. All data is encrypted. We perform automated nightly backups and use military-grade security for child data protection." },
+  { q: "Is my school's data safe?", a: "Absolutely. All data is encrypted in transit and at rest. We use role-based access control so staff only see what they need, and every action is logged in a tamper-proof audit trail." },
 ];
 
 export default function PricingPage() {
-  const [isAnnual, setIsAnnual] = useState(true);
+  const [isAnnual, setIsAnnual] = useState(false);
+
+  const starterPrice = isAnnual ? "20,000" : "8,000";
+  const growthPrice = isAnnual ? "45,000" : "16,000";
+  const starterSuffix = isAnnual ? "/yr" : "/term";
+  const growthSuffix = isAnnual ? "/yr" : "/term";
 
   return (
     <div className="bg-page-bg">
@@ -60,10 +65,10 @@ export default function PricingPage() {
             <span className="text-brand-primary italic">with your school</span>
           </h1>
           <p className="max-w-xl mx-auto text-lg text-muted-text mb-10 leading-relaxed font-normal">
-            Simple, predictable billing. No setup fees, no per-user charges. Choose the plan that matches your student enrollment.
+            Simple, predictable billing. No setup fees, no per-user charges. Pay per term or save with an annual plan.
           </p>
           <div className="flex items-center justify-center gap-6 mb-16">
-            <span className={`label-caps ${!isAnnual ? "text-brand-primary" : "text-muted-text"}`}>Monthly</span>
+            <span className={`label-caps ${!isAnnual ? "text-brand-primary" : "text-muted-text"}`}>Per Term</span>
             <button
               onClick={() => setIsAnnual(!isAnnual)}
               className={`w-14 h-7 rounded-full relative p-1 flex items-center transition-all ${isAnnual ? "bg-brand-primary" : "bg-brand-border"}`}
@@ -72,7 +77,7 @@ export default function PricingPage() {
             </button>
             <div className="flex items-center gap-3">
               <span className={`label-caps ${isAnnual ? "text-brand-primary" : "text-muted-text"}`}>Annual</span>
-              <span className="ds-badge bg-[#d1fae5] text-forest-green">2 Months Free</span>
+              <span className="ds-badge bg-[#d1fae5] text-forest-green">Save ~2 Terms</span>
             </div>
           </div>
         </div>
@@ -87,22 +92,22 @@ export default function PricingPage() {
             </div>
             <div className="mb-8">
               <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold text-dark-navy tracking-tighter">KES {isAnnual ? "45,000" : "4,500"}</span>
-                <span className="text-muted-text text-sm font-bold">{isAnnual ? "/yr" : "/mo"}</span>
+                <span className="text-4xl font-bold text-dark-navy tracking-tighter">KES {starterPrice}</span>
+                <span className="text-muted-text text-sm font-bold">{starterSuffix}</span>
               </div>
-              <p className="label-caps text-brand-primary mt-2">{isAnnual ? "Billed once annually" : "Billed monthly"}</p>
+              <p className="label-caps text-brand-primary mt-2">{isAnnual ? "Billed once annually" : "Billed per school term"}</p>
             </div>
             <div className="space-y-4 mb-10 flex-1">
               <p className="text-sm font-bold text-dark-navy mb-2 flex items-center gap-2 tracking-tight">
                 <Users2 className="w-4 h-4 text-brand-primary" /> Up to 200 students
               </p>
               <p className="text-sm font-bold text-deep-teal mb-4 flex items-center gap-2 tracking-tight">
-                <MessageSquare className="w-4 h-4" /> 500 SMS credits /mo
+                <MessageSquare className="w-4 h-4" /> 500 SMS credits /term
               </p>
               <ul className="space-y-4 text-sm text-muted-text font-medium">
-                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Single campus access</li>
                 <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Full CBC Assessment Engine</li>
                 <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Finance & Fee Tracking</li>
+                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> QR-verified digital receipts</li>
                 <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Parent Portal & SMS Alerts</li>
                 <li className="flex items-center gap-3 opacity-30 line-through">HR & Leave Management</li>
                 <li className="flex items-center gap-3 opacity-30 line-through">Learner Support Flags</li>
@@ -121,24 +126,24 @@ export default function PricingPage() {
             </div>
             <div className="mb-8">
               <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold text-dark-navy tracking-tighter">KES {isAnnual ? "95,000" : "9,500"}</span>
-                <span className="text-muted-text text-sm font-bold">{isAnnual ? "/yr" : "/mo"}</span>
+                <span className="text-4xl font-bold text-dark-navy tracking-tighter">KES {growthPrice}</span>
+                <span className="text-muted-text text-sm font-bold">{growthSuffix}</span>
               </div>
-              <p className="label-caps text-brand-primary mt-2">{isAnnual ? "Billed once annually" : "Billed monthly"}</p>
+              <p className="label-caps text-brand-primary mt-2">{isAnnual ? "Billed once annually" : "Billed per school term"}</p>
             </div>
             <div className="space-y-4 mb-10 flex-1">
               <p className="text-sm font-bold text-dark-navy mb-2 flex items-center gap-2 tracking-tight">
                 <Users2 className="w-4 h-4 text-brand-primary" /> Up to 600 students
               </p>
               <p className="text-sm font-bold text-deep-teal mb-4 flex items-center gap-2 tracking-tight">
-                <MessageSquare className="w-4 h-4" /> 2,000 SMS credits /mo
+                <MessageSquare className="w-4 h-4" /> 2,000 SMS credits /term
               </p>
               <ul className="space-y-4 text-sm text-muted-text font-medium">
                 <li className="flex items-center gap-3 font-bold text-dark-navy tracking-tight"><Check className="w-4 h-4 text-forest-green" /> Everything in Starter +</li>
                 <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> HR & Leave Management</li>
                 <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Full CBC Analytics Dashboard</li>
                 <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Learner Support Flags</li>
-                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Custom Report Card Templates</li>
+                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Discipline Records</li>
                 <li className="flex items-center gap-3 text-brand-primary font-bold tracking-tight"><Plus className="w-4 h-4" /> Extra SMS top-ups anytime</li>
               </ul>
             </div>
@@ -150,7 +155,7 @@ export default function PricingPage() {
           <div className="ds-card p-10 flex flex-col hover:border-brand-primary/30 transition-all hover:shadow-xl bg-white">
             <div className="mb-8">
               <h3 className="label-caps text-muted-text mb-2">Enterprise</h3>
-              <p className="text-dark-navy text-sm font-bold tracking-tight">Best for multi-campus groups</p>
+              <p className="text-dark-navy text-sm font-bold tracking-tight">Best for large or multi-campus groups</p>
             </div>
             <div className="mb-8">
               <div className="flex items-baseline gap-1">
@@ -164,11 +169,11 @@ export default function PricingPage() {
               </p>
               <ul className="space-y-4 text-sm text-muted-text font-medium">
                 <li className="flex items-center gap-3 font-bold text-dark-navy tracking-tight"><Check className="w-4 h-4 text-forest-green" /> Everything in Growth +</li>
-                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Multi-campus Management</li>
-                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Dedicated Account Manager</li>
-                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Customized Data Migration</li>
-                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> On-site Staff Training</li>
-                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> SLA & API Access</li>
+                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Dedicated onboarding support</li>
+                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Custom data migration</li>
+                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> On-site staff training</li>
+                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> SLA & API access</li>
+                <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Priority support</li>
               </ul>
             </div>
             <Link href="/demo" className="btn-secondary text-center w-full text-xs label-caps py-4">
@@ -233,7 +238,7 @@ export default function PricingPage() {
             <div className="flex items-center gap-3"><Users className="w-5 h-5" /> <span className="label-caps">Role-Based Access</span></div>
             <div className="flex items-center gap-3"><ClipboardList className="w-5 h-5" /> <span className="label-caps">Full Audit Log</span></div>
             <div className="flex items-center gap-3"><Cloud className="w-5 h-5" /> <span className="label-caps">Automated Backups</span></div>
-            <div className="flex items-center gap-3"><Globe className="w-5 h-5" /> <span className="label-caps">Hosted in Africa</span></div>
+            <div className="flex items-center gap-3"><QrCode className="w-5 h-5" /> <span className="label-caps">QR Receipt Verification</span></div>
           </div>
         </div>
       </section>

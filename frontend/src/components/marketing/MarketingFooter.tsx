@@ -25,7 +25,7 @@ export function MarketingFooter() {
               </div>
               <div className="flex items-center gap-3 text-warm-cream/50 text-sm font-medium">
                 <Phone className="w-4 h-4 text-brand-primary" />
-                <span>+254 712 345 678</span>
+                <span>+254 785 640 048</span>
               </div>
               <div className="flex items-center gap-3 text-warm-cream/50 text-sm font-medium">
                 <MapPin className="w-4 h-4 text-brand-primary" />
