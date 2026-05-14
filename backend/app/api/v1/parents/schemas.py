@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ORMOut(BaseModel):
@@ -139,3 +139,55 @@ class SyncResult(BaseModel):
     linked: int = 0
     already_existed: int = 0
     skipped_no_phone: int = 0
+
+
+# ─────────────────────────────────────────────
+# Parent portal tokens
+# ─────────────────────────────────────────────
+
+class PortalTokenCreate(BaseModel):
+    label: Optional[str] = Field(default=None, max_length=160)
+
+
+class PortalTokenOut(BaseModel):
+    id: str
+    label: Optional[str] = None
+    is_active: bool
+    expires_at: Optional[str] = None
+    last_used_at: Optional[str] = None
+    created_at: str
+
+
+class PortalTokenCreated(PortalTokenOut):
+    raw_token: str
+
+
+# ─────────────────────────────────────────────
+# Public portal resolution
+# ─────────────────────────────────────────────
+
+class PortalChildGradeOut(BaseModel):
+    subject: str
+    strand: Optional[str] = None
+    sub_strand: Optional[str] = None
+    grade: Optional[str] = None
+    comments: Optional[str] = None
+
+
+class PortalChildOut(BaseModel):
+    enrollment_id: str
+    student_name: str
+    admission_number: Optional[str] = None
+    class_code: str
+    class_name: Optional[str] = None
+    relationship: str
+    outstanding: Decimal = Decimal("0")
+    grades: List[PortalChildGradeOut] = Field(default_factory=list)
+
+
+class PortalResolveOut(BaseModel):
+    parent_id: str
+    parent_name: str
+    school_name: str
+    school_slug: str
+    children: List[PortalChildOut] = Field(default_factory=list)

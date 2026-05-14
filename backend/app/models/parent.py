@@ -71,3 +71,29 @@ class ParentEnrollmentLink(Base):
     relationship = Column(String(50), nullable=False, server_default=text("'GUARDIAN'"))
     is_primary = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ParentPortalToken(Base):
+    """Shareable guardian portal token — resolves to a parent and all their linked students.
+
+    The secretary generates a URL containing the raw token; the token_hash (SHA-256) is
+    stored here so the raw value never touches the DB.  One parent can have many tokens
+    (e.g. one per device/WhatsApp link); each is independently revocable.
+    """
+    __tablename__ = "parent_portal_tokens"
+    __table_args__ = {"schema": "core"}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    tenant_id = Column(UUID(as_uuid=True), nullable=False)
+    parent_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("core.parents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    token_hash = Column(Text, nullable=False)
+    label = Column(String(160), nullable=True)
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, get_db, get_tenant, require_permission
@@ -16,6 +16,9 @@ from app.api.v1.parents.schemas import (
     ParentInvoiceOut,
     ParentListItem,
     PaymentPreviewOut,
+    PortalTokenCreate,
+    PortalTokenCreated,
+    PortalTokenOut,
     SyncResult,
 )
 
@@ -213,3 +216,63 @@ def record_payment(
     )
     db.commit()
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guardian portal tokens
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/{parent_id}/portal-token", response_model=PortalTokenCreated, status_code=201)
+def generate_portal_token(
+    parent_id: UUID,
+    body: PortalTokenCreate,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
+):
+    try:
+        result = service.generate_portal_token(
+            db,
+            tenant_id=tenant.id,
+            parent_id=parent_id,
+            actor_user_id=user.id,
+            label=body.label,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    db.commit()
+    return result
+
+
+@router.get("/{parent_id}/portal-tokens", response_model=list[PortalTokenOut])
+def list_portal_tokens(
+    parent_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
+):
+    try:
+        return service.list_portal_tokens(db, tenant_id=tenant.id, parent_id=parent_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/{parent_id}/portal-tokens/{token_id}", status_code=204)
+def revoke_portal_token(
+    parent_id: UUID,
+    token_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
+):
+    service.revoke_portal_token(
+        db,
+        tenant_id=tenant.id,
+        parent_id=parent_id,
+        token_id=token_id,
+        actor_user_id=user.id,
+    )
+    db.commit()

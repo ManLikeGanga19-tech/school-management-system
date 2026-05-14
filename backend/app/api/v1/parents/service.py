@@ -19,8 +19,11 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+import hashlib
+import secrets as _secrets
+
 from app.core.audit import log_event
-from app.models.parent import Parent, ParentEnrollmentLink
+from app.models.parent import Parent, ParentEnrollmentLink, ParentPortalToken
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -655,6 +658,251 @@ def sync_from_enrollments(
         "linked": linked,
         "already_existed": already_existed,
         "skipped_no_phone": skipped_no_phone,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guardian portal tokens
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _token_hash(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def generate_portal_token(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    parent_id: UUID,
+    actor_user_id: UUID,
+    label: Optional[str] = None,
+) -> Dict:
+    from datetime import datetime, timezone
+    _get_parent_or_404(db, tenant_id, parent_id)
+
+    raw = _secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    token = ParentPortalToken(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        parent_id=parent_id,
+        token_hash=_token_hash(raw),
+        label=(label or "").strip() or None,
+        is_active=True,
+        created_by=actor_user_id,
+        created_at=now,
+    )
+    db.add(token)
+    db.flush()
+
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="parent.portal_token.create", resource="parent", resource_id=parent_id,
+        payload={"token_id": str(token.id), "label": label},
+        meta=None,
+    )
+
+    return {
+        "id": str(token.id),
+        "label": token.label,
+        "is_active": True,
+        "expires_at": None,
+        "last_used_at": None,
+        "created_at": now.isoformat(),
+        "raw_token": raw,
+    }
+
+
+def list_portal_tokens(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    parent_id: UUID,
+) -> List[Dict]:
+    _get_parent_or_404(db, tenant_id, parent_id)
+
+    rows = db.execute(
+        sa.select(ParentPortalToken)
+        .where(
+            ParentPortalToken.tenant_id == tenant_id,
+            ParentPortalToken.parent_id == parent_id,
+            ParentPortalToken.is_active == True,
+        )
+        .order_by(ParentPortalToken.created_at.desc())
+    ).scalars().all()
+
+    return [
+        {
+            "id": str(r.id),
+            "label": r.label,
+            "is_active": bool(r.is_active),
+            "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+            "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
+            "created_at": r.created_at.isoformat() if r.created_at else "",
+        }
+        for r in rows
+    ]
+
+
+def revoke_portal_token(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    parent_id: UUID,
+    token_id: UUID,
+    actor_user_id: UUID,
+) -> None:
+    row = db.execute(
+        sa.select(ParentPortalToken)
+        .where(
+            ParentPortalToken.id == token_id,
+            ParentPortalToken.tenant_id == tenant_id,
+            ParentPortalToken.parent_id == parent_id,
+        )
+    ).scalar_one_or_none()
+
+    if row is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Token not found")
+
+    row.is_active = False
+    db.flush()
+
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="parent.portal_token.revoke", resource="parent", resource_id=parent_id,
+        payload={"token_id": str(token_id)},
+        meta=None,
+    )
+
+
+def resolve_portal_token(
+    db: Session,
+    *,
+    raw_token: str,
+    tenant_id: UUID,
+) -> Dict:
+    """Validate raw token for a tenant, bump last_used_at, return parent + children."""
+    from datetime import datetime, timezone
+
+    h = _token_hash(raw_token)
+    token_row = db.execute(
+        sa.select(ParentPortalToken)
+        .where(
+            ParentPortalToken.token_hash == h,
+            ParentPortalToken.tenant_id == tenant_id,
+            ParentPortalToken.is_active == True,
+        )
+    ).scalar_one_or_none()
+
+    if token_row is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Invalid or expired portal link.")
+
+    if token_row.expires_at and token_row.expires_at < datetime.now(timezone.utc):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Portal link has expired.")
+
+    token_row.last_used_at = datetime.now(timezone.utc)
+    db.flush()
+
+    parent = db.get(Parent, token_row.parent_id)
+    if parent is None or not parent.is_active:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Parent record not found.")
+
+    children_rows = db.execute(
+        sa.text("""
+            SELECT
+                pel.id           AS link_id,
+                pel.enrollment_id,
+                pel.relationship,
+                e.payload,
+                e.student_id
+            FROM core.parent_enrollment_links pel
+            JOIN core.enrollments e ON e.id = pel.enrollment_id
+            WHERE pel.parent_id = :pid AND pel.tenant_id = :tid
+        """),
+        {"pid": str(parent.id), "tid": str(tenant_id)},
+    ).mappings().all()
+
+    # Resolve current term once for this tenant
+    current_term = db.execute(
+        sa.text("""
+            SELECT id FROM core.tenant_terms
+            WHERE tenant_id = :tid AND is_active = true
+            ORDER BY start_date DESC LIMIT 1
+        """),
+        {"tid": str(tenant_id)},
+    ).mappings().first()
+    current_term_id = current_term["id"] if current_term else None
+
+    children = []
+    for row in children_rows:
+        payload = dict(row["payload"] or {})
+        outstanding = _outstanding_for_enrollment(db, tenant_id, row["enrollment_id"])
+        class_code = payload.get("class_code") or payload.get("admission_class") or ""
+
+        grades: list = []
+        if current_term_id and row["student_id"]:
+            # Find the student_class_enrollment for this student in the current term
+            sce = db.execute(
+                sa.text("""
+                    SELECT id FROM core.student_class_enrollments
+                    WHERE student_id = :sid AND term_id = :trid AND tenant_id = :tid
+                    LIMIT 1
+                """),
+                {"sid": str(row["student_id"]), "trid": str(current_term_id), "tid": str(tenant_id)},
+            ).mappings().first()
+
+            if sce:
+                grades_rows = db.execute(
+                    sa.text("""
+                        SELECT
+                            la.name  AS learning_area,
+                            st.name  AS strand,
+                            ss.name  AS sub_strand,
+                            a.performance_level,
+                            a.teacher_observations
+                        FROM core.cbc_assessments a
+                        JOIN core.cbc_sub_strands ss    ON ss.id = a.sub_strand_id
+                        JOIN core.cbc_strands st        ON st.id = ss.strand_id
+                        JOIN core.cbc_learning_areas la ON la.id = st.learning_area_id
+                        WHERE a.enrollment_id = :eid
+                          AND a.term_id       = :trid
+                          AND a.tenant_id     = :tid
+                        ORDER BY la.display_order, la.name, st.display_order, st.name,
+                                 ss.display_order, ss.name
+                    """),
+                    {"eid": str(sce["id"]), "trid": str(current_term_id), "tid": str(tenant_id)},
+                ).mappings().all()
+
+                grades = [
+                    {
+                        "subject": g["learning_area"],
+                        "strand": g["strand"],
+                        "sub_strand": g["sub_strand"],
+                        "grade": g["performance_level"],
+                        "comments": g["teacher_observations"],
+                    }
+                    for g in grades_rows
+                ]
+
+        children.append({
+            "enrollment_id": str(row["enrollment_id"]),
+            "student_name": _student_name(payload),
+            "admission_number": payload.get("admission_number"),
+            "class_code": class_code,
+            "class_name": None,
+            "relationship": row["relationship"],
+            "outstanding": outstanding,
+            "grades": grades,
+        })
+
+    return {
+        "parent_id": str(parent.id),
+        "parent_name": f"{parent.first_name} {parent.last_name}".strip(),
+        "children": children,
     }
 
 

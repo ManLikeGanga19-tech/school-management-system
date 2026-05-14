@@ -16,6 +16,11 @@ from app.core.rate_limit import limiter
 from app.models.prospect import ProspectAccount, ProspectAuthSession, ProspectRequest
 from app.models.tenant import Tenant
 from app.models.payment import Payment
+import secrets
+
+from app.api.v1.parents import service as parent_svc
+from app.api.v1.parents.schemas import PortalResolveOut, PortalChildOut, PortalChildGradeOut
+
 from app.utils.hashing import hash_password, verify_password
 from app.utils.tokens import create_access_token, create_refresh_token, decode_token
 from app.utils.receipt_pdf import decode_receipt_verify_token
@@ -525,6 +530,84 @@ def create_request(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Anonymous demo request — feeds Rollout Desk without requiring auth
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AnonDemoRequestIn(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+    school_name: str = Field(min_length=2, max_length=160)
+    email: EmailStr
+    phone: Optional[str] = Field(default=None, max_length=40)
+    role: Optional[str] = Field(default=None, max_length=80)
+    student_count: Optional[int] = Field(default=None, ge=0, le=500_000)
+    curriculum: Optional[str] = Field(default=None, max_length=80)
+    goal: Optional[str] = Field(default=None, max_length=2_000)
+
+
+class AnonDemoRequestOut(BaseModel):
+    success: bool = True
+    message: str = "Request received. We'll reach out within 2 hours."
+
+
+@router.post(
+    "/demo-request",
+    response_model=AnonDemoRequestOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit a demo request without authentication (feeds Rollout Desk)",
+)
+@limiter.limit("5/minute")
+def anon_demo_request(
+    request: Request,
+    payload: AnonDemoRequestIn,
+    db: Session = Depends(get_db),
+):
+    email = _normalize_email(str(payload.email))
+
+    account = db.execute(
+        select(ProspectAccount).where(ProspectAccount.email == email)
+    ).scalar_one_or_none()
+
+    if account is None:
+        account = ProspectAccount(
+            id=uuid4(),
+            email=email,
+            password_hash=hash_password(secrets.token_urlsafe(32)),
+            full_name=payload.full_name.strip(),
+            organization_name=payload.school_name.strip(),
+            phone=_normalize_optional_string(payload.phone),
+            job_title=_normalize_optional_string(payload.role),
+            is_active=True,
+        )
+        db.add(account)
+        db.flush()
+
+    parts = [
+        f"Role: {payload.role}" if payload.role else None,
+        f"Curriculum: {payload.curriculum}" if payload.curriculum else None,
+        f"Goal: {payload.goal}" if payload.goal else None,
+    ]
+    notes = "\n".join(p for p in parts if p) or None
+
+    row = ProspectRequest(
+        id=uuid4(),
+        account_id=account.id,
+        request_type="DEMO",
+        status="NEW",
+        organization_name=payload.school_name.strip(),
+        contact_name=payload.full_name.strip(),
+        contact_email=email,
+        contact_phone=_normalize_optional_string(payload.phone),
+        student_count=payload.student_count,
+        preferred_contact_method="WHATSAPP",
+        notes=notes,
+    )
+    db.add(row)
+    db.commit()
+
+    return AnonDemoRequestOut()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Receipt verification (tenant-scoped, no authentication required)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -609,4 +692,60 @@ def verify_receipt_public(
             else None
         ),
         message="Receipt is valid and belongs to this school.",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guardian portal resolution (public, token-gated, tenant-scoped)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/portal",
+    response_model=PortalResolveOut,
+    summary="Resolve a guardian portal token and return parent + all linked children",
+)
+@limiter.limit("30/minute")
+def resolve_guardian_portal(
+    request: Request,
+    token: str,
+    slug: str,
+    db: Session = Depends(get_db),
+) -> PortalResolveOut:
+    tenant = db.execute(
+        select(Tenant).where(Tenant.slug == slug, Tenant.is_active == True)
+    ).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="School not found.")
+
+    data = parent_svc.resolve_portal_token(db, raw_token=token, tenant_id=tenant.id)
+
+    children = [
+        PortalChildOut(
+            enrollment_id=c["enrollment_id"],
+            student_name=c["student_name"],
+            admission_number=c.get("admission_number"),
+            class_code=c["class_code"],
+            class_name=c.get("class_name"),
+            relationship=c["relationship"],
+            outstanding=c["outstanding"],
+            grades=[
+                PortalChildGradeOut(
+                    subject=g["subject"],
+                    strand=g.get("strand"),
+                    sub_strand=g.get("sub_strand"),
+                    grade=g.get("grade"),
+                    comments=g.get("comments"),
+                )
+                for g in c["grades"]
+            ],
+        )
+        for c in data["children"]
+    ]
+
+    return PortalResolveOut(
+        parent_id=data["parent_id"],
+        parent_name=data["parent_name"],
+        school_name=str(tenant.name),
+        school_slug=str(tenant.slug),
+        children=children,
     )

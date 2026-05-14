@@ -1,10 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Star, MessageSquare, CheckCircle2 } from "lucide-react";
+import { Star, MessageSquare, CheckCircle2, Loader2 } from "lucide-react";
+
+const STUDENT_COUNT_MAP: Record<string, number> = {
+  "< 100 students": 50,
+  "100 – 300 students": 200,
+  "300 – 600 students": 450,
+  "600+ students": 700,
+};
 
 export default function DemoPage() {
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "", school: "", role: "Director", students: "< 100 students",
     curriculum: "CBC (Competency Based)", phone: "", email: "", goal: "",
@@ -13,14 +22,35 @@ export default function DemoPage() {
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const subject = encodeURIComponent(`Demo Request — ${form.school}`);
-    const body = encodeURIComponent(
-      `Name: ${form.name}\nSchool: ${form.school}\nRole: ${form.role}\nStudents: ${form.students}\nCurriculum: ${form.curriculum}\nPhone: ${form.phone}\nEmail: ${form.email}\nGoal: ${form.goal}`
-    );
-    window.open(`mailto:support@shulehq.co.ke?subject=${subject}&body=${body}`, "_blank");
-    setSubmitted(true);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/v1"}/public/demo-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          full_name: form.name,
+          school_name: form.school,
+          email: form.email,
+          phone: form.phone || undefined,
+          role: form.role,
+          student_count: STUDENT_COUNT_MAP[form.students] ?? undefined,
+          curriculum: form.curriculum,
+          goal: form.goal || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { detail?: string }).detail ?? "Something went wrong. Please try again.");
+      }
+      setSubmitted(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -110,8 +140,11 @@ export default function DemoPage() {
                         className="w-full px-5 py-4 rounded-xl border border-brand-border focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all placeholder:font-normal font-bold text-dark-navy placeholder:text-muted-text/30"></textarea>
                     </div>
 
-                    <button type="submit" className="btn-primary w-full py-6 text-xl shadow-2xl shadow-brand-primary/20">
-                      Book My Free Demo →
+                    {error && (
+                      <p className="text-sm text-red-600 font-medium text-center bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</p>
+                    )}
+                    <button type="submit" disabled={loading} className="btn-primary w-full py-6 text-xl shadow-2xl shadow-brand-primary/20 flex items-center justify-center gap-3 disabled:opacity-60">
+                      {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Sending…</> : "Book My Free Demo →"}
                     </button>
                     <p className="text-center text-[10px] text-muted-text font-bold uppercase tracking-[0.2em]">We typically respond within 2 hours.</p>
                   </form>
