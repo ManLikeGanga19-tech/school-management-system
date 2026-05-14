@@ -7,7 +7,7 @@ services:
     buildCommand: pip install -r requirements.txt
     preDeployCommand: python -m alembic upgrade heads
     startCommand: gunicorn app.main:app --config gunicorn.conf.py
-    plan: starter        # 512 MB RAM, $7/mo — upgrade to standard ($25/mo) when load grows
+    plan: starter        # $7/mo — upgrade to standard ($25/mo) when load grows
     healthCheckPath: /readyz
     autoDeploy: true
     envVars:
@@ -75,6 +75,6 @@ services:
 databases:
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
   - name: shulehq-postgres
-    plan: starter                     # 256 MB RAM, 1 GB storage, $7/mo
+    plan: basic-256mb                 # new plan name — 256 MB RAM, 1 GB storage, $7/mo
     databaseName: school_manager_db
     user: shulehq
