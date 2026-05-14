@@ -24,6 +24,8 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.core.database import SessionLocal
 from app.models.attendance import AttendanceSession, StudentClassEnrollment
 from app.models.cbc import CbcAssessment, CbcLearningArea, CbcStrand, CbcSubStrand
+from app.models.fee_catalog import FeeCategory, FeeItem
+from app.models.fee_structure import FeeStructure, FeeStructureItem
 from app.models.student import Student
 from app.models.tenant import Tenant
 from app.models.tenant_class import TenantClass
@@ -453,6 +455,142 @@ def _seed_staff(db, *, tenant_id) -> None:
     db.flush()
 
 
+# ── Fee structures ────────────────────────────────────────────────────────────
+
+FEE_CATEGORIES = [
+    ("SCHOOL_FEES", "School Fees"),
+    ("OTHER", "Other Charges"),
+]
+
+FEE_ITEMS = [
+    # (code, name, category_code, charge_frequency)
+    ("TUITION", "Tuition Fee", "SCHOOL_FEES", "PER_TERM"),
+    ("ACTIVITY", "Activity Fee", "OTHER", "PER_TERM"),
+    ("EXAM", "Exam Fee", "OTHER", "PER_TERM"),
+    ("ADMISSION", "Admission Fee", "OTHER", "ONCE_EVER"),
+]
+
+# Per-class fee amounts: (tuition_t1, tuition_t2, tuition_t3, activity, exam)
+CLASS_FEES = {
+    "GR4": (12_000, 12_000, 12_000, 2_000, 1_500),
+    "GR6": (13_500, 13_500, 13_500, 2_000, 1_500),
+    "GR7": (14_000, 14_000, 14_000, 2_500, 1_500),
+}
+ADMISSION_FEE = 5_000  # KES, charged once for NEW students only
+
+
+def _seed_fee_structures(db, *, tenant_id) -> None:
+    from decimal import Decimal
+
+    # ── 1. Fee categories ─────────────────────────────────────────────────────
+    cat_map: dict[str, object] = {}
+    for code, name in FEE_CATEGORIES:
+        existing = db.execute(
+            select(FeeCategory).where(FeeCategory.tenant_id == tenant_id, FeeCategory.code == code)
+        ).scalar_one_or_none()
+        if existing:
+            cat_map[code] = existing
+            print(f"  [skip] fee category: {code}")
+        else:
+            cat = FeeCategory(tenant_id=tenant_id, code=code, name=name, is_active=True)
+            db.add(cat)
+            db.flush()
+            cat_map[code] = cat
+            print(f"  [+] fee category: {code} — {name}")
+
+    # ── 2. Fee items ──────────────────────────────────────────────────────────
+    item_map: dict[str, object] = {}
+    for code, name, cat_code, freq in FEE_ITEMS:
+        existing = db.execute(
+            select(FeeItem).where(FeeItem.tenant_id == tenant_id, FeeItem.code == code)
+        ).scalar_one_or_none()
+        if existing:
+            item_map[code] = existing
+            print(f"  [skip] fee item: {code}")
+        else:
+            item = FeeItem(
+                tenant_id=tenant_id,
+                category_id=cat_map[cat_code].id,
+                code=code,
+                name=name,
+                charge_frequency=freq,
+                is_active=True,
+            )
+            db.add(item)
+            db.flush()
+            item_map[code] = item
+            print(f"  [+] fee item: {code} — {name}")
+
+    # ── 3. Fee structures + items ─────────────────────────────────────────────
+    for class_code, (tui1, tui2, tui3, act, exam) in CLASS_FEES.items():
+        for student_type in ("NEW", "RETURNING"):
+            struct_name = f"{class_code} {student_type.capitalize()} 2026"
+            existing = db.execute(
+                select(FeeStructure).where(
+                    FeeStructure.tenant_id == tenant_id,
+                    FeeStructure.class_code == class_code,
+                    FeeStructure.academic_year == 2026,
+                    FeeStructure.student_type == student_type,
+                )
+            ).scalar_one_or_none()
+
+            if existing:
+                print(f"  [skip] fee structure: {struct_name}")
+                continue
+
+            struct = FeeStructure(
+                tenant_id=tenant_id,
+                class_code=class_code,
+                academic_year=2026,
+                student_type=student_type,
+                name=struct_name,
+                is_active=True,
+            )
+            db.add(struct)
+            db.flush()
+            print(f"  [+] fee structure: {struct_name}")
+
+            # Tuition — per term
+            db.add(FeeStructureItem(
+                structure_id=struct.id,
+                fee_item_id=item_map["TUITION"].id,
+                term_1_amount=Decimal(tui1),
+                term_2_amount=Decimal(tui2),
+                term_3_amount=Decimal(tui3),
+                amount=Decimal(tui1),
+            ))
+            # Activity — per term (same each term)
+            db.add(FeeStructureItem(
+                structure_id=struct.id,
+                fee_item_id=item_map["ACTIVITY"].id,
+                term_1_amount=Decimal(act),
+                term_2_amount=Decimal(act),
+                term_3_amount=Decimal(act),
+                amount=Decimal(act),
+            ))
+            # Exam — per term
+            db.add(FeeStructureItem(
+                structure_id=struct.id,
+                fee_item_id=item_map["EXAM"].id,
+                term_1_amount=Decimal(exam),
+                term_2_amount=Decimal(exam),
+                term_3_amount=Decimal(exam),
+                amount=Decimal(exam),
+            ))
+            # Admission fee — Term 1 only, for NEW students
+            if student_type == "NEW":
+                db.add(FeeStructureItem(
+                    structure_id=struct.id,
+                    fee_item_id=item_map["ADMISSION"].id,
+                    term_1_amount=Decimal(ADMISSION_FEE),
+                    term_2_amount=Decimal(0),
+                    term_3_amount=Decimal(0),
+                    amount=Decimal(ADMISSION_FEE),
+                ))
+
+    db.flush()
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -515,12 +653,17 @@ def main() -> None:
         print("\n[=] Staff Directory")
         _seed_staff(db, tenant_id=tid)
 
+        # ── 6. Fee Structures ──────────────────────────────────────────────────
+        print("\n[=] Fee Structures")
+        _seed_fee_structures(db, tenant_id=tid)
+
         db.commit()
         print("\n[✓] Extended demo seed complete.")
         print(f"  CBC learning areas: 8 (full Upper Primary curriculum)")
         print(f"  Student class enrollments: {len(sce_map)} students × 2 terms")
         print(f"  CBC assessments: {len(sce_map) * len(ss_map)} records")
         print(f"  Attendance: 10 sessions × 3 classes")
+        print(f"  Fee structures: GR4/GR6/GR7 × NEW/RETURNING (2026)")
 
     except Exception:
         db.rollback()
