@@ -129,6 +129,15 @@ class Settings(BaseSettings):
         return rf"^https://[a-z0-9][a-z0-9\-]*\.{escaped}$"
 
     @cached_property
+    def _normalized_database_url(self) -> str:
+        """Rewrite postgresql:// or postgres:// → postgresql+psycopg:// (psycopg v3)."""
+        url = self.DATABASE_URL
+        for prefix in ("postgresql://", "postgres://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
+        return url
+
+    @cached_property
     def database_url_with_ssl(self) -> str:
         """
         Return DATABASE_URL with sslmode injected when DB_SSL_MODE is set.
@@ -142,9 +151,9 @@ class Settings(BaseSettings):
         """
         ssl_mode = str(self.DB_SSL_MODE or "").strip()
         if not ssl_mode:
-            return self.DATABASE_URL
+            return self._normalized_database_url
         from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
-        parsed = urlparse(self.DATABASE_URL)
+        parsed = urlparse(self._normalized_database_url)
         params = parse_qs(parsed.query, keep_blank_values=True)
         params["sslmode"] = [ssl_mode]
         new_query = urlencode({k: v[0] for k, v in params.items()})

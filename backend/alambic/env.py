@@ -137,11 +137,21 @@ if config.config_file_name is not None:
 target_metadata = None
 
 
+def _normalize_db_scheme(url: str) -> str:
+    # Render (and other managed hosts) supply postgresql:// or postgres://, which
+    # SQLAlchemy maps to the psycopg2 driver. This project uses psycopg (v3) only,
+    # so rewrite the scheme to postgresql+psycopg:// unconditionally.
+    for prefix in ("postgresql://", "postgres://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
 def _load_database_url() -> str:
     # Priority: process env, then alembic.ini, then backend/.env
     url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
     if url:
-        return url
+        return _normalize_db_scheme(url)
 
     env_path = Path(__file__).resolve().parents[1] / ".env"
     if env_path.exists():
@@ -151,7 +161,7 @@ def _load_database_url() -> str:
                 continue
             key, value = line.split("=", 1)
             if key.strip() == "DATABASE_URL":
-                return value.strip().strip("\"").strip("'")
+                return _normalize_db_scheme(value.strip().strip("\"").strip("'"))
     return ""
 
 
