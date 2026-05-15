@@ -178,6 +178,21 @@ function TabButton({
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// Mirror api.ts base URL resolution so this public page uses the same backend
+// as authenticated routes — critical when NEXT_PUBLIC_API_BASE_URL is set on
+// the deployment host (e.g. Render) and there is no nginx proxy in front.
+function resolvePublicApiBase(): string {
+  const configured = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
+  if (configured) return configured;
+  if (typeof window !== "undefined") {
+    const { hostname } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return "http://127.0.0.1:8000/api/v1";
+    }
+  }
+  return "/api/v1";
+}
+
 // ─── Verification Screen ──────────────────────────────────────────────────────
 
 const VERIFICATION_STEPS = [
@@ -211,8 +226,9 @@ function VerificationScreen({
     let cancelled = false;
 
     async function run() {
+      const base = resolvePublicApiBase();
       const fetchP = fetch(
-        `/api/v1/public/portal?token=${encodeURIComponent(token)}&slug=${encodeURIComponent(slug)}`
+        `${base}/public/portal?token=${encodeURIComponent(token)}&slug=${encodeURIComponent(slug)}`
       ).then(async (r) => {
         if (!r.ok) {
           const body = await r.json().catch(() => ({})) as { detail?: string };
