@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -217,6 +218,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
 
   // ── State ─────────────────────────────────────────────────────────────────
 
+  const { confirm, confirmDialog } = useConfirm();
   const [account, setAccount] = useState<CreditAccount | null>(null);
   const [accountLoading, setAccountLoading] = useState(false);
 
@@ -519,7 +521,8 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
   }
 
   async function handleDeleteTemplate(id: string) {
-    if (!confirm("Delete this template?")) return;
+    const ok = await confirm({ title: "Delete Template", message: "Delete this template? This cannot be undone.", confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     try {
       await api.delete<unknown>(`/sms/templates/${id}`, {}, { tenantRequired: true });
       toast.success("Template deleted");
@@ -1035,6 +1038,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
           </form>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </AppShell>
   );
 }

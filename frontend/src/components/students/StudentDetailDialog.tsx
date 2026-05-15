@@ -150,9 +150,7 @@ export function StudentDetailDialog({
               <div className="grid grid-cols-2 gap-2 p-4">
                 {documentRows.map((doc) => (
                   <div key={doc.key} className="flex items-center gap-2 text-sm">
-                    <span className={doc.present ? "text-emerald-500" : "text-red-400"}>
-                      {doc.present ? "✓" : "✗"}
-                    </span>
+                    <span className={`h-2 w-2 rounded-full ${doc.present ? "bg-emerald-500" : "bg-red-400"}`} />
                     <span className={doc.present ? "text-slate-700" : "text-slate-400"}>
                       {doc.key.replace(/_/g, " ")}
                     </span>

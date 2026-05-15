@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -215,6 +216,7 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
   const params = useSearchParams();
   const section = (params?.get("section") || "incidents") as "incidents" | "new";
 
+  const { confirm, confirmDialog } = useConfirm();
   const [incidents, setIncidents] = useState<IncidentListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -426,7 +428,8 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
 
   async function removeStudent(linkId: string) {
     if (!selectedIncident) return;
-    if (!confirm("Remove this student from the incident?")) return;
+    const ok = await confirm({ title: "Remove Student", message: "Remove this student from the incident?", confirmLabel: "Remove", danger: true });
+    if (!ok) return;
     try {
       await apiFetch(`/discipline/incidents/${selectedIncident.id}/students/${linkId}`, {
         method: "DELETE",
@@ -875,6 +878,7 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </AppShell>
   );
 }

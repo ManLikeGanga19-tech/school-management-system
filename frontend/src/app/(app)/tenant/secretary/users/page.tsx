@@ -9,6 +9,7 @@ import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AlertTriangle, CheckCircle2, Users } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -120,7 +121,7 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
     <TableRow>
       <TableCell colSpan={colSpan} className="py-12 text-center">
         <div className="flex flex-col items-center gap-1">
-          <span className="text-2xl">👥</span>
+          <Users className="h-7 w-7 text-slate-300" />
           <span className="text-sm text-slate-400">{message}</span>
         </div>
       </TableCell>
@@ -232,13 +233,13 @@ export default function SecretaryUsersPage() {
         {/* ── Alerts ── */}
         {error && (
           <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            <div className="flex items-center gap-2"><span>⚠️</span><span>{error}</span></div>
+            <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" /><span>{error}</span></div>
             <button onClick={() => setError(null)} className="opacity-60 hover:opacity-100">✕</button>
           </div>
         )}
         {notice && (
           <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            <div className="flex items-center gap-2"><span>✅</span><span>{notice}</span></div>
+            <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 shrink-0" /><span>{notice}</span></div>
             <button onClick={() => setNotice(null)} className="opacity-60 hover:opacity-100">✕</button>
           </div>
         )}

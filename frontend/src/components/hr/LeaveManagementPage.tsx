@@ -10,6 +10,7 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -125,6 +126,7 @@ type Props = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function LeaveManagementPage({ appTitle, nav, activeHref, canApprove = false }: Props) {
+  const { confirm, confirmDialog } = useConfirm();
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [staff, setStaff] = useState<TenantStaff[]>([]);
   const [loading, setLoading] = useState(false);
@@ -242,7 +244,8 @@ export function LeaveManagementPage({ appTitle, nav, activeHref, canApprove = fa
   }
 
   async function handleCancel(req: LeaveRequest) {
-    if (!confirm(`Cancel leave request for ${req.staff_name}?`)) return;
+    const ok = await confirm({ title: "Cancel Leave Request", message: `Cancel leave request for ${req.staff_name}?`, confirmLabel: "Cancel Request", danger: true });
+    if (!ok) return;
     try {
       await api.patch<unknown>(
         `/tenants/hr/leave/${req.id}/cancel`,
@@ -541,6 +544,7 @@ export function LeaveManagementPage({ appTitle, nav, activeHref, canApprove = fa
           </form>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </AppShell>
   );
 }

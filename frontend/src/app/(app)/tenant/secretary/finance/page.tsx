@@ -19,7 +19,7 @@ import {
   type FinanceSection,
 } from "@/components/layout/nav-config";
 import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome";
-import { FileDown, Printer } from "lucide-react";
+import { FileDown, Printer, ClipboardList, AlertTriangle, CheckCircle2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,6 +47,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/sonner";
+import { EnrollmentCombobox, type EnrollmentOption } from "@/components/ui/enrollment-combobox";
 import { api, apiFetchRaw } from "@/lib/api";
 import { normalizeTerms, type TenantTerm } from "@/lib/school-setup/terms";
 
@@ -486,7 +487,7 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
     <TableRow>
       <TableCell colSpan={colSpan} className="py-10 text-center">
         <div className="flex flex-col items-center gap-1">
-          <span className="text-2xl">📋</span>
+          <ClipboardList className="h-6 w-6 text-slate-300" />
           <span className="text-sm text-slate-400">{message}</span>
         </div>
       </TableCell>
@@ -609,7 +610,7 @@ function AlertBanner({
       }`}
     >
       <div className="flex items-start gap-2">
-        <span>{type === "error" ? "⚠️" : "✅"}</span>
+        {type === "error" ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" /> : <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />}
         <span>{message}</span>
       </div>
       <button onClick={onDismiss} className="self-end opacity-60 hover:opacity-100 sm:ml-4 sm:self-auto">
@@ -1113,6 +1114,14 @@ function SecretaryFinancePageContent() {
     (acc, row) => acc + toNumber(row.amount),
     0
   );
+
+  const enrollmentOptions = useMemo<EnrollmentOption[]>(() => {
+    return data.enrollments.map((e) => ({
+      id: e.id,
+      label: enrollmentName(e.payload || {}),
+      sublabel: enrollmentClassCode(e.payload || {}) || undefined,
+    }));
+  }, [data.enrollments]);
 
   // Build a fast lookup for enrollment names to speed up filters
   const enrollmentNameById = useMemo(() => {
@@ -1790,27 +1799,12 @@ function SecretaryFinancePageContent() {
               >
                 <div className="space-y-3">
                   <FormField label="Student Enrollment" required>
-                    <Select
-                      value={feesInvoiceForm.enrollment_id || "__none__"}
-                      onValueChange={(value) =>
-                        setFeesInvoiceForm((p) => ({
-                          ...p,
-                          enrollment_id: value === "__none__" ? "" : value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select student enrollment" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Select student…</SelectItem>
-                        {data.enrollments.map((enrollment) => (
-                          <SelectItem key={enrollment.id} value={enrollment.id}>
-                            {enrollmentName(enrollment.payload || {})}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <EnrollmentCombobox
+                      options={enrollmentOptions}
+                      value={feesInvoiceForm.enrollment_id}
+                      onChange={(id) => setFeesInvoiceForm((p) => ({ ...p, enrollment_id: id }))}
+                      placeholder="Select student…"
+                    />
                   </FormField>
                   <div className="grid gap-3 sm:grid-cols-3">
                     <FormField label="Term" hint="Which term to invoice for" required>
@@ -1938,27 +1932,12 @@ function SecretaryFinancePageContent() {
               >
                 <div className="space-y-3">
                   <FormField label="Student Enrollment" required>
-                    <Select
-                      value={interviewInvoiceForm.enrollment_id || "__none__"}
-                      onValueChange={(value) =>
-                        setInterviewInvoiceForm((p) => ({
-                          ...p,
-                          enrollment_id: value === "__none__" ? "" : value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select student enrollment" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Select student…</SelectItem>
-                        {data.enrollments.map((enrollment) => (
-                          <SelectItem key={enrollment.id} value={enrollment.id}>
-                            {enrollmentName(enrollment.payload || {})}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <EnrollmentCombobox
+                      options={enrollmentOptions}
+                      value={interviewInvoiceForm.enrollment_id}
+                      onChange={(id) => setInterviewInvoiceForm((p) => ({ ...p, enrollment_id: id }))}
+                      placeholder="Select student…"
+                    />
                   </FormField>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <FormField label="Description">
@@ -2019,27 +1998,13 @@ function SecretaryFinancePageContent() {
 
                   <div className="lg:col-span-3">
                     <FormField label="Student (Enrollment)">
-                      <Select
-                        value={invoiceFilters.enrollment_id || "__all__"}
-                        onValueChange={(v) =>
-                          setInvoiceFilters((p) => ({
-                            ...p,
-                            enrollment_id: v === "__all__" ? "" : v,
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="All students" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All students</SelectItem>
-                          {data.enrollments.map((e) => (
-                            <SelectItem key={e.id} value={e.id}>
-                              {enrollmentName(e.payload || {})}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <EnrollmentCombobox
+                        options={enrollmentOptions}
+                        value={invoiceFilters.enrollment_id}
+                        onChange={(v) => setInvoiceFilters((p) => ({ ...p, enrollment_id: v }))}
+                        placeholder="All students"
+                        allLabel="All students"
+                      />
                     </FormField>
                   </div>
 
@@ -2253,24 +2218,13 @@ function SecretaryFinancePageContent() {
                     Payment Details
                   </p>
                   <FormField label="Filter by Student (optional)">
-                    <Select
-                      value={paymentEnrollmentId || "__none__"}
-                      onValueChange={(value) =>
-                        setPaymentEnrollmentId(value === "__none__" ? "" : value)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All students" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">All students</SelectItem>
-                        {data.enrollments.map((enrollment) => (
-                          <SelectItem key={enrollment.id} value={enrollment.id}>
-                            {enrollmentName(enrollment.payload || {})}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <EnrollmentCombobox
+                      options={enrollmentOptions}
+                      value={paymentEnrollmentId}
+                      onChange={setPaymentEnrollmentId}
+                      placeholder="All students"
+                      allLabel="All students"
+                    />
                   </FormField>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <FormField label="Payment Method" required>
@@ -2285,9 +2239,9 @@ function SecretaryFinancePageContent() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="CASH">💵 Cash</SelectItem>
-                          <SelectItem value="MPESA">📱 M-Pesa</SelectItem>
-                          <SelectItem value="BANK">🏦 Bank</SelectItem>
-                          <SelectItem value="CHEQUE">📝 Cheque</SelectItem>
+                          <SelectItem value="MPESA">M-Pesa</SelectItem>
+                          <SelectItem value="BANK">Bank Transfer</SelectItem>
+                          <SelectItem value="CHEQUE">Cheque</SelectItem>
                         </SelectContent>
                       </Select>
                     </FormField>

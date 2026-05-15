@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw, Search } from "lucide-react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
@@ -92,6 +93,7 @@ export function TeacherAssignmentsPage({
   const [classes, setClasses] = useState<TenantClassOption[]>([]);
 
   const [form, setForm] = useState<AssignmentForm>(initialForm);
+  const { confirm, confirmDialog } = useConfirm();
   const [classTeacherForm, setClassTeacherForm] = useState<ClassTeacherForm>(initialClassTeacherForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -352,12 +354,13 @@ export function TeacherAssignmentsPage({
   }
 
   async function deleteAssignment(row: TeacherAssignment) {
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm(
-        `Delete assignment for ${row.subject_code} in ${row.class_code} (${row.staff_name})?`
-      );
-      if (!confirmed) return;
-    }
+    const ok = await confirm({
+      title: "Delete Assignment",
+      message: `Delete assignment for ${row.subject_code} in ${row.class_code} (${row.staff_name})?`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
 
     setDeletingId(row.id);
     try {
@@ -380,12 +383,13 @@ export function TeacherAssignmentsPage({
   }
 
   async function deleteClassTeacherAssignment(row: ClassTeacherAssignment) {
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm(
-        `Delete class teacher assignment for ${row.class_code} (${row.staff_name})?`
-      );
-      if (!confirmed) return;
-    }
+    const ok = await confirm({
+      title: "Delete Class Teacher Assignment",
+      message: `Delete class teacher assignment for ${row.class_code} (${row.staff_name})?`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
 
     setClassTeacherDeletingId(row.id);
     try {
@@ -1011,6 +1015,7 @@ export function TeacherAssignmentsPage({
           </Table>
         </div>
       </div>
+      {confirmDialog}
     </AppShell>
   );
 }

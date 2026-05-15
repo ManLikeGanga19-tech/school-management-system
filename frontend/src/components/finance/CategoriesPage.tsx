@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Layers, Tag, Plus, Pencil, Trash2, RefreshCw, Rocket, CheckCircle2 } from "lucide-react";
+import { Layers, Tag, Plus, Pencil, Trash2, RefreshCw, Rocket, CheckCircle2, ClipboardList } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
@@ -74,7 +74,7 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
     <TableRow>
       <TableCell colSpan={colSpan} className="py-12 text-center">
         <div className="flex flex-col items-center gap-1.5">
-          <span className="text-3xl">📋</span>
+          <ClipboardList className="h-7 w-7 text-slate-300" />
           <span className="text-sm text-slate-400">{message}</span>
         </div>
       </TableCell>

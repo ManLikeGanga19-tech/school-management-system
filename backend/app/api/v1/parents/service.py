@@ -888,6 +888,108 @@ def resolve_portal_token(
                     for g in grades_rows
                 ]
 
+        # ── Invoices ──────────────────────────────────────────────
+        invoice_rows = db.execute(
+            sa.text("""
+                SELECT id, invoice_type, term_number, academic_year, status,
+                       total_amount, paid_amount, balance_amount
+                FROM core.invoices
+                WHERE enrollment_id = :eid AND tenant_id = :tid
+                  AND status != 'DRAFT'
+                ORDER BY created_at DESC
+            """),
+            {"eid": str(row["enrollment_id"]), "tid": str(tenant_id)},
+        ).mappings().all()
+
+        invoices = []
+        for inv in invoice_rows:
+            term_label = None
+            if inv["term_number"] and inv["academic_year"]:
+                term_label = f"Term {inv['term_number']} {inv['academic_year']}"
+            invoices.append({
+                "id": str(inv["id"]),
+                "invoice_type": inv["invoice_type"],
+                "term_label": term_label,
+                "status": inv["status"],
+                "billed": inv["total_amount"],
+                "paid": inv["paid_amount"],
+                "balance": inv["balance_amount"],
+            })
+
+        # ── Payments ──────────────────────────────────────────────
+        payment_rows = db.execute(
+            sa.text("""
+                SELECT DISTINCT ON (p.id)
+                    p.id, p.received_at, p.provider, p.reference, p.amount
+                FROM core.payments p
+                JOIN core.payment_allocations pa ON pa.payment_id = p.id
+                JOIN core.invoices inv ON inv.id = pa.invoice_id
+                WHERE inv.enrollment_id = :eid AND p.tenant_id = :tid
+                ORDER BY p.id, p.received_at DESC
+            """),
+            {"eid": str(row["enrollment_id"]), "tid": str(tenant_id)},
+        ).mappings().all()
+
+        payments = [
+            {
+                "id": str(p["id"]),
+                "date": p["received_at"].date().isoformat() if p["received_at"] else "",
+                "provider": p["provider"],
+                "reference": p["reference"],
+                "amount": p["amount"],
+            }
+            for p in sorted(payment_rows, key=lambda x: x["received_at"] or "", reverse=True)
+        ]
+
+        # ── Attendance ────────────────────────────────────────────
+        attendance_rows = db.execute(
+            sa.text("""
+                SELECT
+                    s.session_date::date AS date,
+                    ar.status
+                FROM core.attendance_records ar
+                JOIN core.attendance_sessions s ON s.id = ar.session_id
+                WHERE ar.student_id = :sid
+                  AND ar.tenant_id = :tid
+                  AND s.session_type = 'MORNING'
+                ORDER BY s.session_date DESC
+                LIMIT 120
+            """),
+            {"sid": str(row["student_id"]), "tid": str(tenant_id)},
+        ).mappings().all() if row["student_id"] else []
+
+        attendance = [
+            {"date": str(a["date"]), "status": a["status"]}
+            for a in attendance_rows
+        ]
+
+        # ── Discipline Incidents ──────────────────────────────────
+        incident_rows = db.execute(
+            sa.text("""
+                SELECT
+                    di.id, di.incident_date, di.incident_type,
+                    di.title, di.description, di.status
+                FROM core.discipline_incidents di
+                JOIN core.discipline_students ds ON ds.incident_id = di.id
+                WHERE ds.student_id = :sid AND di.tenant_id = :tid
+                ORDER BY di.incident_date DESC
+                LIMIT 20
+            """),
+            {"sid": str(row["student_id"]), "tid": str(tenant_id)},
+        ).mappings().all() if row["student_id"] else []
+
+        incidents = [
+            {
+                "id": str(inc["id"]),
+                "date": inc["incident_date"].isoformat() if inc["incident_date"] else "",
+                "incident_type": inc["incident_type"],
+                "title": inc["title"],
+                "description": inc["description"],
+                "status": inc["status"],
+            }
+            for inc in incident_rows
+        ]
+
         children.append({
             "enrollment_id": str(row["enrollment_id"]),
             "student_name": _student_name(payload),
@@ -897,6 +999,10 @@ def resolve_portal_token(
             "relationship": row["relationship"],
             "outstanding": outstanding,
             "grades": grades,
+            "invoices": invoices,
+            "payments": payments,
+            "attendance": attendance,
+            "incidents": incidents,
         })
 
     return {

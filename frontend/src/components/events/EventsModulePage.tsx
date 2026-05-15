@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, List, RefreshCw } from "lucide-react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
@@ -221,6 +222,7 @@ export function EventsModulePage({ appTitle, nav, activeHref }: EventsModulePage
   const [enrollments, setEnrollments] = useState<EnrollmentRow[]>([]);
 
   const [form, setForm] = useState<EventForm>(defaultForm);
+  const { confirm, confirmDialog } = useConfirm();
 
   const [search, setSearch] = useState("");
   const [termFilter, setTermFilter] = useState<string>("__all__");
@@ -586,10 +588,13 @@ export function EventsModulePage({ appTitle, nav, activeHref }: EventsModulePage
   }
 
   async function deleteEvent(row: TenantEvent) {
-    const confirmed = window.confirm(
-      `Delete event \"${row.name}\" permanently? This cannot be undone.`
-    );
-    if (!confirmed) return;
+    const ok = await confirm({
+      title: "Delete Event",
+      message: `Delete event "${row.name}" permanently? This cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
 
     setActioningEventId(row.id);
     try {
@@ -1277,6 +1282,7 @@ export function EventsModulePage({ appTitle, nav, activeHref }: EventsModulePage
           </DialogContent>
         </Dialog>
       </div>
+      {confirmDialog}
     </AppShell>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AlertTriangle, Search } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -112,7 +113,7 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
     <TableRow>
       <TableCell colSpan={colSpan} className="py-12 text-center">
         <div className="flex flex-col items-center gap-1">
-          <span className="text-2xl">🔍</span>
+          <Search className="h-7 w-7 text-slate-300" />
           <span className="text-sm text-slate-400">{message}</span>
         </div>
       </TableCell>
@@ -228,7 +229,7 @@ export default function SecretaryAuditPage() {
         {/* ── Error ── */}
         {error && (
           <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            <span>⚠️</span>
+            <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>{error}</span>
             <button onClick={() => setError(null)} className="ml-auto opacity-60 hover:opacity-100">✕</button>
           </div>

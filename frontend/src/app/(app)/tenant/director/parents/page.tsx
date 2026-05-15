@@ -25,6 +25,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "@/components/ui/sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { directorNav } from "@/components/layout/nav-config";
@@ -1028,6 +1029,7 @@ function CommunicationsTab({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PortalTab({ parentId }: { parentId: string }) {
+  const { confirm: confirmAction, confirmDialog } = useConfirm();
   const [tokens, setTokens] = useState<PortalToken[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -1073,7 +1075,8 @@ function PortalTab({ parentId }: { parentId: string }) {
   }
 
   async function handleRevoke(tokenId: string) {
-    if (!confirm("Revoke this portal link? The parent will no longer be able to use it.")) return;
+    const ok = await confirmAction({ title: "Revoke Portal Link", message: "Revoke this portal link? The parent will no longer be able to use it.", confirmLabel: "Revoke", danger: true });
+    if (!ok) return;
     setRevoking(tokenId);
     try {
       await api.delete(`/parents/${parentId}/portal-tokens/${tokenId}`, { tenantRequired: true });
@@ -1093,6 +1096,7 @@ function PortalTab({ parentId }: { parentId: string }) {
   }
 
   return (
+    <>
     <div className="space-y-5">
       {/* Info banner */}
       <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
@@ -1202,6 +1206,8 @@ function PortalTab({ parentId }: { parentId: string }) {
         </SectionCard>
       )}
     </div>
+    {confirmDialog}
+    </>
   );
 }
 
@@ -1222,6 +1228,7 @@ function ParentDetailView({
   onBack: () => void;
   onUpdated: () => void;
 }) {
+  const { confirm: confirmAction, confirmDialog } = useConfirm();
   const [detail, setDetail] = useState<ParentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<DetailTab>("overview");
@@ -1270,7 +1277,8 @@ function ParentDetailView({
   }
 
   async function handleUnlink(linkId: string, studentName: string) {
-    if (!confirm(`Unlink ${studentName} from this guardian?`)) return;
+    const ok = await confirmAction({ title: "Unlink Student", message: `Unlink ${studentName} from this guardian?`, confirmLabel: "Unlink", danger: true });
+    if (!ok) return;
     setUnlinking(linkId);
     try {
       await api.delete(`/parents/${parentId}/links/${linkId}`, { tenantRequired: true });
@@ -1297,6 +1305,7 @@ function ParentDetailView({
   ];
 
   return (
+    <>
     <div className="space-y-5">
       {showEdit && (
         <ParentFormModal
@@ -1458,6 +1467,8 @@ function ParentDetailView({
         <PortalTab parentId={parentId} />
       )}
     </div>
+    {confirmDialog}
+    </>
   );
 }
 
@@ -1466,6 +1477,7 @@ function ParentDetailView({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function DirectorParentsPage() {
+  const { confirm, confirmDialog } = useConfirm();
   const [parents, setParents] = useState<ParentListItem[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [classes, setClasses] = useState<string[]>([]);
@@ -1554,7 +1566,8 @@ export default function DirectorParentsPage() {
   async function handleBulkPortalSms() {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-    if (!confirm(`Send portal access links via SMS to ${ids.length} guardian(s)?`)) return;
+    const ok1 = await confirm({ title: "Send Portal Links", message: `Send portal access links via SMS to ${ids.length} guardian(s)?`, confirmLabel: "Send" });
+    if (!ok1) return;
     setBulkSmsSending(true);
     let sent = 0;
     let failed = 0;
@@ -1573,7 +1586,8 @@ export default function DirectorParentsPage() {
   async function handleBulkFeeReminder() {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-    if (!confirm(`Send fee reminder SMS to ${ids.length} guardian(s) with outstanding balances?`)) return;
+    const ok2 = await confirm({ title: "Send Fee Reminders", message: `Send fee reminder SMS to ${ids.length} guardian(s) with outstanding balances?`, confirmLabel: "Send" });
+    if (!ok2) return;
     setBulkSmsSending(true);
     let sent = 0;
     let failed = 0;
@@ -1881,6 +1895,7 @@ export default function DirectorParentsPage() {
           )}
         </div>
       </div>
+      {confirmDialog}
     </AppShell>
   );
 }

@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Eye,
   Loader2,
   MoreHorizontal,
@@ -331,7 +332,7 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
     <TableRow>
       <TableCell colSpan={colSpan} className="py-10 text-center">
         <div className="flex flex-col items-center gap-1">
-          <span className="text-2xl">📋</span>
+          <ClipboardList className="h-7 w-7 text-slate-300" />
           <span className="text-sm text-slate-400">{message}</span>
         </div>
       </TableCell>
@@ -533,7 +534,7 @@ function StudentDetailDialog({ row, open, onClose }: {
                   const checked = !!(p as any).documents?.[item.key];
                   return (
                     <div key={item.key} className="flex items-center gap-2 text-sm">
-                      <span className={checked ? "text-emerald-500" : "text-red-400"}>{checked ? "✓" : "✗"}</span>
+                      <span className={`h-2 w-2 rounded-full shrink-0 ${checked ? "bg-emerald-500" : "bg-red-400"}`} />
                       <span className={checked ? "text-slate-700" : "text-slate-400"}>{item.label}</span>
                     </div>
                   );

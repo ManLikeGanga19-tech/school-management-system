@@ -175,6 +175,38 @@ class PortalChildGradeOut(BaseModel):
     comments: Optional[str] = None
 
 
+class PortalInvoiceOut(BaseModel):
+    id: str
+    invoice_type: str
+    term_label: Optional[str] = None
+    status: str
+    billed: Decimal = Decimal("0")
+    paid: Decimal = Decimal("0")
+    balance: Decimal = Decimal("0")
+
+
+class PortalPaymentOut(BaseModel):
+    id: str
+    date: str
+    provider: str
+    reference: Optional[str] = None
+    amount: Decimal = Decimal("0")
+
+
+class PortalAttendanceOut(BaseModel):
+    date: str
+    status: str
+
+
+class PortalIncidentOut(BaseModel):
+    id: str
+    date: str
+    incident_type: str
+    title: str
+    description: Optional[str] = None
+    status: str
+
+
 class PortalChildOut(BaseModel):
     enrollment_id: str
     student_name: str
@@ -184,6 +216,10 @@ class PortalChildOut(BaseModel):
     relationship: str
     outstanding: Decimal = Decimal("0")
     grades: List[PortalChildGradeOut] = Field(default_factory=list)
+    invoices: List[PortalInvoiceOut] = Field(default_factory=list)
+    payments: List[PortalPaymentOut] = Field(default_factory=list)
+    attendance: List[PortalAttendanceOut] = Field(default_factory=list)
+    incidents: List[PortalIncidentOut] = Field(default_factory=list)
 
 
 class PortalResolveOut(BaseModel):

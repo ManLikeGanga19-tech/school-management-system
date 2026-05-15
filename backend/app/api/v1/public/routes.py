@@ -19,7 +19,10 @@ from app.models.payment import Payment
 import secrets
 
 from app.api.v1.parents import service as parent_svc
-from app.api.v1.parents.schemas import PortalResolveOut, PortalChildOut, PortalChildGradeOut
+from app.api.v1.parents.schemas import (
+    PortalResolveOut, PortalChildOut, PortalChildGradeOut,
+    PortalInvoiceOut, PortalPaymentOut, PortalAttendanceOut, PortalIncidentOut,
+)
 
 from app.utils.hashing import hash_password, verify_password
 from app.utils.tokens import create_access_token, create_refresh_token, decode_token
@@ -736,7 +739,44 @@ def resolve_guardian_portal(
                     grade=g.get("grade"),
                     comments=g.get("comments"),
                 )
-                for g in c["grades"]
+                for g in c.get("grades", [])
+            ],
+            invoices=[
+                PortalInvoiceOut(
+                    id=inv["id"],
+                    invoice_type=inv["invoice_type"],
+                    term_label=inv.get("term_label"),
+                    status=inv["status"],
+                    billed=inv["billed"],
+                    paid=inv["paid"],
+                    balance=inv["balance"],
+                )
+                for inv in c.get("invoices", [])
+            ],
+            payments=[
+                PortalPaymentOut(
+                    id=p["id"],
+                    date=p["date"],
+                    provider=p["provider"],
+                    reference=p.get("reference"),
+                    amount=p["amount"],
+                )
+                for p in c.get("payments", [])
+            ],
+            attendance=[
+                PortalAttendanceOut(date=a["date"], status=a["status"])
+                for a in c.get("attendance", [])
+            ],
+            incidents=[
+                PortalIncidentOut(
+                    id=inc["id"],
+                    date=inc["date"],
+                    incident_type=inc["incident_type"],
+                    title=inc["title"],
+                    description=inc.get("description"),
+                    status=inc["status"],
+                )
+                for inc in c.get("incidents", [])
             ],
         )
         for c in data["children"]

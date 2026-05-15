@@ -60,8 +60,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Eye,
   Lock,
   Loader2,
@@ -70,6 +74,7 @@ import {
   Search,
   ShieldCheck,
   UserRound,
+  X as XIcon,
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
@@ -650,7 +655,7 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
     <TableRow>
       <TableCell colSpan={colSpan} className="py-10 text-center">
         <div className="flex flex-col items-center gap-1">
-          <span className="text-2xl">📋</span>
+          <ClipboardList className="h-7 w-7 text-slate-300" />
           <span className="text-sm text-slate-400">{message}</span>
         </div>
       </TableCell>
@@ -1039,7 +1044,7 @@ function InterviewFeeCell({
   if (status === "paid") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
-        ✓ Paid
+        <Check className="h-3 w-3" /> Paid
       </span>
     );
   }
@@ -1175,13 +1180,7 @@ function StudentDetailDialog({
                       key={item.key}
                       className="flex items-center gap-2 text-sm"
                     >
-                      <span
-                        className={
-                          checked ? "text-emerald-500" : "text-red-400"
-                        }
-                      >
-                        {checked ? "✓" : "✗"}
-                      </span>
+                      <span className={`h-2 w-2 rounded-full shrink-0 ${checked ? "bg-emerald-500" : "bg-red-400"}`} />
                       <span
                         className={
                           checked ? "text-slate-700" : "text-slate-400"
@@ -2740,7 +2739,7 @@ function SecretaryEnrollmentsPageContent() {
                     {step === 3 && (
                       <div className="space-y-5">
                         <div className="rounded-xl border border-amber-50 bg-amber-50/60 px-4 py-2.5 text-sm text-amber-800">
-                          ⚠️ Assessment No. and NEMIS No. are required later during final enrollment. You can add them now if available.
+                          <AlertTriangle className="inline h-3.5 w-3.5 mr-1 align-text-bottom" />Assessment No. and NEMIS No. are required later during final enrollment. You can add them now if available.
                         </div>
                         <div className="grid gap-4 md:grid-cols-2">
                           <FormField label="Assessment Number" hint="Required for final enrollment action">
@@ -2780,7 +2779,7 @@ function SecretaryEnrollmentsPageContent() {
                                   </div>
                                   <p className="mt-0.5 text-xs text-slate-400">{item.description}</p>
                                 </div>
-                                {draft.documents[item.key] && <span className="text-emerald-500 text-sm">✓</span>}
+                                {draft.documents[item.key] && <Check className="h-4 w-4 text-emerald-500 shrink-0" />}
                               </label>
                             ))}
                           </div>
@@ -2826,9 +2825,7 @@ function SecretaryEnrollmentsPageContent() {
                           <div className="p-4 grid grid-cols-2 gap-2">
                             {requirementChecklist.map((item) => (
                               <div key={item.key} className="flex items-center gap-2 text-sm">
-                                <span className={draft.documents[item.key] ? "text-emerald-500" : "text-red-400"}>
-                                  {draft.documents[item.key] ? "✓" : "✗"}
-                                </span>
+                                <span className={`h-2 w-2 rounded-full shrink-0 ${draft.documents[item.key] ? "bg-emerald-500" : "bg-red-400"}`} />
                                 <span className={draft.documents[item.key] ? "text-slate-700" : "text-slate-400"}>{item.label}</span>
                               </div>
                             ))}
@@ -2836,7 +2833,7 @@ function SecretaryEnrollmentsPageContent() {
                         </div>
                         <div className="rounded-xl border border-slate-100 p-4">
                           <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                            💡 When this student is marked as <strong>Enrolled</strong>, an Admission Number will be
+                            When this student is marked as <strong>Enrolled</strong>, an Admission Number will be
                             auto-generated using the next available number in your existing sequence.
                           </div>
                           <FormField label="Fee Structure (Optional)" hint="Link a fee structure to automatically generate a fees invoice.">
@@ -2853,13 +2850,16 @@ function SecretaryEnrollmentsPageContent() {
                           </FormField>
                         </div>
                         <div className={`rounded-xl border px-4 py-3 text-sm ${canPost ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
-                          <div className="font-semibold mb-1">{canPost ? "✅ Ready to submit" : "⚠️ Not ready yet"}</div>
+                          <div className="flex items-center gap-1.5 font-semibold mb-1">
+                            {canPost ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+                            {canPost ? "Ready to submit" : "Not ready yet"}
+                          </div>
                           <div className="flex flex-wrap gap-2 mt-1">
                             <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${baseFieldsReady ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                              {baseFieldsReady ? "✓" : "✗"} Required fields
+                              {baseFieldsReady ? <Check className="inline h-3 w-3 mr-0.5" /> : <XIcon className="inline h-3 w-3 mr-0.5" />}Required fields
                             </span>
                             <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${requiredDocsReady ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                              {requiredDocsReady ? "✓" : "✗"} Documents confirmed
+                              {requiredDocsReady ? <Check className="inline h-3 w-3 mr-0.5" /> : <XIcon className="inline h-3 w-3 mr-0.5" />}Documents confirmed
                             </span>
                           </div>
                         </div>

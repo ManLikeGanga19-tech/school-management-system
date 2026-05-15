@@ -23,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft,
+  BarChart2,
   Check,
   ChevronRight,
   Copy,
@@ -41,6 +42,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -93,6 +95,20 @@ type Invoice = {
   total_amount: string | number;
   paid_amount: string | number;
   balance_amount: string | number;
+};
+
+type DistributionLine = {
+  invoice_id: string;
+  enrollment_id: string;
+  student_name: string;
+  invoice_type: string;
+  amount: string | number;
+};
+
+type PaymentPreview = {
+  total: string | number;
+  lines: DistributionLine[];
+  unallocated: string | number;
 };
 
 type Enrollment = { id: string; payload: Record<string, unknown> };
@@ -358,10 +374,162 @@ function LinkEnrollmentModal({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Inline payment modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+function RecordPaymentModal({
+  parentId,
+  invoices,
+  onSaved,
+  onClose,
+}: {
+  parentId: string;
+  invoices: Invoice[];
+  onSaved: () => void;
+  onClose: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [provider, setProvider] = useState("MPESA");
+  const [reference, setReference] = useState("");
+  const [preview, setPreview] = useState<PaymentPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [recording, setRecording] = useState(false);
+
+  const toNum = (v: string | number | undefined | null) => Number(v || 0);
+  const fmtKes = (v: string | number) =>
+    `KES ${Number(v).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const unpaid = invoices.filter((i) => i.status === "UNPAID" || i.status === "PARTIAL");
+  const totalBalance = unpaid.reduce((s, i) => s + toNum(i.balance_amount), 0);
+
+  async function handlePreview() {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { toast.error("Enter a valid amount"); return; }
+    setPreviewing(true);
+    try {
+      const res = await api.post<PaymentPreview>(
+        `/parents/${parentId}/payments/preview?amount=${amt}&strategy=oldest_first`,
+        {},
+        { tenantRequired: true }
+      );
+      setPreview(res);
+    } catch (e: unknown) {
+      toast.error((e as { message?: string })?.message || "Preview failed");
+    } finally { setPreviewing(false); }
+  }
+
+  async function handleRecord() {
+    if (!preview) return;
+    setRecording(true);
+    try {
+      await api.post(
+        `/parents/${parentId}/payments`,
+        {
+          provider,
+          reference: reference.trim() || null,
+          amount: parseFloat(amount),
+          allocations: preview.lines.map((l) => ({ invoice_id: l.invoice_id, amount: toNum(l.amount) })),
+        },
+        { tenantRequired: true }
+      );
+      toast.success("Payment recorded successfully");
+      onSaved();
+      onClose();
+    } catch (e: unknown) {
+      toast.error((e as { message?: string })?.message || "Failed to record payment");
+    } finally { setRecording(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-800">Record Payment</h2>
+            <p className="text-xs text-slate-400">Outstanding: {fmtKes(totalBalance)}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="space-y-4 p-5">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Amount (KES) *</label>
+              <Input
+                type="number" min="1" step="0.01"
+                value={amount}
+                onChange={(e) => { setAmount(e.target.value); setPreview(null); }}
+                placeholder="0.00" className="h-9 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Payment Method *</label>
+              <Select value={provider} onValueChange={setProvider}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {["CASH", "MPESA", "BANK", "CHEQUE"].map((p) => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2">
+              <label className="mb-1 block text-xs font-medium text-slate-600">Reference / Receipt No. (optional)</label>
+              <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. MPESA transaction code" className="h-9 text-sm" />
+            </div>
+          </div>
+
+          <button
+            onClick={() => void handlePreview()}
+            disabled={previewing || !amount}
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+          >
+            {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart2 className="h-4 w-4" />}
+            {previewing ? "Calculating…" : "Preview Distribution"}
+          </button>
+
+          {preview && (
+            <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-4">
+              <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Distribution Preview</p>
+              {preview.lines.map((line, i) => (
+                <div key={i} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-700">{line.student_name} — {line.invoice_type.replace(/_/g, " ")}</span>
+                  <span className="font-semibold text-slate-800">{fmtKes(line.amount)}</span>
+                </div>
+              ))}
+              {toNum(preview.unallocated) > 0 && (
+                <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm">
+                  <span className="text-amber-600">Unallocated</span>
+                  <span className="font-semibold text-amber-600">{fmtKes(preview.unallocated)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm font-bold">
+                <span className="text-slate-700">Total</span>
+                <span>{fmtKes(preview.total)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-3 border-t border-slate-100 px-5 py-4">
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+          <button
+            onClick={() => void handleRecord()}
+            disabled={recording || !preview}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {recording && <Loader2 className="h-4 w-4 animate-spin" />} Record Payment
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Portal token section
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PortalTokenSection({ parentId }: { parentId: string }) {
+  const { confirm: confirmAction, confirmDialog } = useConfirm();
   const [tokens, setTokens] = useState<PortalToken[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -408,7 +576,8 @@ function PortalTokenSection({ parentId }: { parentId: string }) {
   }
 
   async function handleRevoke(tokenId: string) {
-    if (!confirm("Revoke this portal link? The parent will no longer be able to use it.")) return;
+    const ok = await confirmAction({ title: "Revoke Portal Link", message: "Revoke this portal link? The parent will no longer be able to use it.", confirmLabel: "Revoke", danger: true });
+    if (!ok) return;
     setRevoking(tokenId);
     try {
       await api.delete(`/parents/${parentId}/portal-tokens/${tokenId}`, { tenantRequired: true });
@@ -427,6 +596,7 @@ function PortalTokenSection({ parentId }: { parentId: string }) {
   }
 
   return (
+    <>
     <SectionCard
       title="Parent Portal Access"
       action={
@@ -545,6 +715,8 @@ function PortalTokenSection({ parentId }: { parentId: string }) {
         </div>
       ) : null}
     </SectionCard>
+    {confirmDialog}
+    </>
   );
 }
 
@@ -563,11 +735,13 @@ function ParentDetailView({
   onBack: () => void;
   onUpdated: () => void;
 }) {
+  const { confirm: confirmAction, confirmDialog: confirmDialogDetail } = useConfirm();
   const [detail, setDetail] = useState<ParentDetail | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
   const [showLink, setShowLink] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
   const [saving, setSaving] = useState(false);
   const [unlinking, setUnlinking] = useState<string | null>(null);
   const [sendingReminder, setSendingReminder] = useState(false);
@@ -616,7 +790,8 @@ function ParentDetailView({
   }
 
   async function handleUnlink(linkId: string, studentName: string) {
-    if (!confirm(`Unlink ${studentName} from this guardian?`)) return;
+    const ok = await confirmAction({ title: "Unlink Student", message: `Unlink ${studentName} from this guardian?`, confirmLabel: "Unlink", danger: true });
+    if (!ok) return;
     setUnlinking(linkId);
     try {
       await api.delete(`/parents/${parentId}/links/${linkId}`, { tenantRequired: true });
@@ -660,6 +835,7 @@ function ParentDetailView({
   const linkedIds = detail.children.map((c) => c.enrollment_id);
 
   return (
+    <>
     <div className="space-y-5">
       {showEdit && (
         <ParentFormModal
@@ -676,6 +852,14 @@ function ParentDetailView({
           onLink={handleLink}
           onClose={() => setShowLink(false)}
           saving={saving}
+        />
+      )}
+      {showPayment && (
+        <RecordPaymentModal
+          parentId={parentId}
+          invoices={invoices}
+          onSaved={loadDetail}
+          onClose={() => setShowPayment(false)}
         />
       )}
 
@@ -827,32 +1011,13 @@ function ParentDetailView({
                   </Table>
                 </div>
 
-                {/* Finance CTA */}
-                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-                  <p className="text-sm font-medium text-blue-800">Record a payment</p>
-                  <p className="mt-0.5 text-xs text-blue-600">
-                    All payments — including bulk payments for multiple children — are recorded
-                    in the Finance module to keep all transactions in one place.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {detail.children.map((child) => (
-                      toNum(child.outstanding) > 0 && (
-                        <a
-                          key={child.enrollment_id}
-                          href={`/tenant/secretary/finance?section=payments&enrollment_id=${child.enrollment_id}`}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
-                        >
-                          Pay for {child.student_name}
-                        </a>
-                      )
-                    ))}
-                    <a
-                      href="/tenant/secretary/finance?section=payments"
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 transition"
-                    >
-                      Open Finance →
-                    </a>
-                  </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setShowPayment(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition"
+                  >
+                    <BarChart2 className="h-4 w-4" /> Record Payment
+                  </button>
                 </div>
               </div>
             )}
@@ -860,6 +1025,8 @@ function ParentDetailView({
         </div>
       </div>
     </div>
+    {confirmDialogDetail}
+    </>
   );
 }
 
@@ -868,6 +1035,7 @@ function ParentDetailView({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function SecretaryParentsPageContent() {
+  const { confirm, confirmDialog } = useConfirm();
   const [parents, setParents] = useState<ParentListItem[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [classes, setClasses] = useState<string[]>([]);
@@ -944,7 +1112,8 @@ function SecretaryParentsPageContent() {
   }
 
   async function handleBulkReminder() {
-    if (!confirm(`Send fee reminder SMS to all parents with outstanding balances?`)) return;
+    const ok = await confirm({ title: "Send Fee Reminders", message: "Send fee reminder SMS to all parents with outstanding balances?", confirmLabel: "Send" });
+    if (!ok) return;
     setSendingBulk(true);
     try {
       const res = await api.post<{ sent: number; failed: number; skipped: number; total: number }>(
@@ -1144,6 +1313,7 @@ function SecretaryParentsPageContent() {
           </div>
         )}
       </div>
+      {confirmDialog}
     </AppShell>
   );
 }
