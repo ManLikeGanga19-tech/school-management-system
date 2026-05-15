@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -199,9 +199,15 @@ function VerificationScreen({
 }) {
   const [step, setStep] = useState(0);
   const [granted, setGranted] = useState(false);
+  const startedRef = useRef(false);
 
   useEffect(() => {
-    if (!token || !slug) { onError("invalid"); return; }
+    // Wait silently until URL params are hydrated — never call onError on empty params.
+    if (!token || !slug) return;
+    // Guard against the effect re-running if Suspense re-triggers it.
+    if (startedRef.current) return;
+    startedRef.current = true;
+
     let cancelled = false;
 
     async function run() {
@@ -237,7 +243,7 @@ function VerificationScreen({
 
     run();
     return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, slug]); // re-run only when params change (guarded by startedRef)
 
   return (
     <div className="fixed inset-0 flex flex-col items-center justify-center px-6"
@@ -368,6 +374,7 @@ function VerificationScreen({
 
 function ErrorScreen({ message }: { message?: string }) {
   const expired = message?.toLowerCase().includes("expired");
+  const isNetworkError = !message || message === "invalid" || message === "Failed to fetch";
   return (
     <div
       className="fixed inset-0 flex items-center justify-center px-6"
@@ -390,9 +397,14 @@ function ErrorScreen({ message }: { message?: string }) {
         </h2>
         <p className="text-slate-400 leading-relaxed text-sm">
           {expired
-            ? "This portal link has expired. For your security, links are valid for 6 hours only. Please contact the school office for a new link."
+            ? "This portal link has expired or has been revoked. Please contact the school office for a new access link."
+            : isNetworkError
+            ? "Could not connect to the server. Please check your internet connection and try again."
             : "This link is invalid or has been revoked. Please contact the school office for a new access link."}
         </p>
+        {message && message !== "invalid" && (
+          <p className="mt-4 text-slate-700 text-[11px] font-mono break-all px-2">{message}</p>
+        )}
         <div className="mt-10 flex items-center justify-center gap-2 text-slate-700 text-xs">
           <Lock className="w-3 h-3" />
           <span className="font-mono">ShuleHQ Secure Portal</span>
