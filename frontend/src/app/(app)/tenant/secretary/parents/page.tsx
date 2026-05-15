@@ -23,14 +23,19 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft,
+  Check,
   ChevronRight,
+  Copy,
   Edit2,
+  ExternalLink,
+  KeyRound,
   Link2,
   Link2Off,
   Loader2,
   MessageSquare,
   RefreshCw,
   Search,
+  Trash2,
   UserPlus,
   Users,
   WalletCards,
@@ -97,6 +102,20 @@ type SyncResult = {
   linked: number;
   already_existed: number;
   skipped_no_phone: number;
+};
+
+type PortalToken = {
+  id: string;
+  label: string | null;
+  is_active: boolean;
+  expires_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+};
+
+type PortalTokenCreated = PortalToken & {
+  raw_token: string;
+  school_slug: string;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -339,6 +358,197 @@ function LinkEnrollmentModal({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Portal token section
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PortalTokenSection({ parentId }: { parentId: string }) {
+  const [tokens, setTokens] = useState<PortalToken[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [label, setLabel] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [newToken, setNewToken] = useState<{ url: string; label: string | null } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const loadTokens = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get<PortalToken[]>(`/parents/${parentId}/portal-tokens`, { tenantRequired: true });
+      setTokens(Array.isArray(res) ? res : []);
+    } catch {
+      // non-fatal — table may not exist yet in older deployments
+      setTokens([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [parentId]);
+
+  useEffect(() => { void loadTokens(); }, [loadTokens]);
+
+  async function handleGenerate() {
+    setGenerating(true);
+    try {
+      const res = await api.post<PortalTokenCreated>(
+        `/parents/${parentId}/portal-token`,
+        { label: label.trim() || null },
+        { tenantRequired: true }
+      );
+      const base = typeof window !== "undefined" ? window.location.origin : "";
+      const url = `${base}/portal?token=${encodeURIComponent(res.raw_token)}&slug=${encodeURIComponent(res.school_slug)}`;
+      setNewToken({ url, label: res.label });
+      setShowForm(false);
+      setLabel("");
+      await loadTokens();
+    } catch (e: unknown) {
+      toast.error((e as { message?: string })?.message || "Failed to generate link");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleRevoke(tokenId: string) {
+    if (!confirm("Revoke this portal link? The parent will no longer be able to use it.")) return;
+    setRevoking(tokenId);
+    try {
+      await api.delete(`/parents/${parentId}/portal-tokens/${tokenId}`, { tenantRequired: true });
+      toast.success("Portal link revoked");
+      await loadTokens();
+    } catch {
+      toast.error("Failed to revoke link");
+    } finally {
+      setRevoking(null); }
+  }
+
+  async function handleCopy(url: string) {
+    await navigator.clipboard.writeText(url).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <SectionCard
+      title="Parent Portal Access"
+      action={
+        !showForm ? (
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+          >
+            <KeyRound className="h-3 w-3" /> Generate Link
+          </button>
+        ) : undefined
+      }
+    >
+      {/* Generate form */}
+      {showForm && (
+        <div className="mb-4 space-y-3 rounded-xl border border-blue-100 bg-blue-50 p-4">
+          <p className="text-xs font-medium text-blue-800">
+            Generate a shareable portal link for this guardian. The link gives read-only access to their children&apos;s records and fee balances.
+          </p>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Label (optional)</label>
+            <Input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. WhatsApp link, Phone"
+              className="h-9 text-sm"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => void handleGenerate()}
+              disabled={generating}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {generating ? <Spinner /> : <KeyRound className="h-3 w-3" />}
+              {generating ? "Generating…" : "Generate"}
+            </button>
+            <button
+              onClick={() => { setShowForm(false); setLabel(""); }}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Newly generated token — shown once */}
+      {newToken && (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-2">
+          <p className="text-xs font-bold text-emerald-700">
+            Portal link generated{newToken.label ? ` · ${newToken.label}` : ""}
+          </p>
+          <p className="text-[11px] text-emerald-600">
+            Copy this link and send it to the guardian. It will not be shown again.
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 truncate rounded-lg bg-white border border-emerald-200 px-2 py-1.5 text-[11px] text-slate-700">
+              {newToken.url}
+            </code>
+            <button
+              onClick={() => void handleCopy(newToken.url)}
+              className="shrink-0 flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+            >
+              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+            <a
+              href={newToken.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+          <button
+            onClick={() => setNewToken(null)}
+            className="text-[11px] text-emerald-500 hover:text-emerald-700 underline underline-offset-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Token list */}
+      {loading ? (
+        <div className="flex justify-center py-4"><Spinner /></div>
+      ) : tokens.length === 0 && !showForm && !newToken ? (
+        <EmptyState
+          icon={<KeyRound />}
+          title="No portal links yet"
+          body="Generate a shareable link to give this guardian view-only access to their children's records."
+        />
+      ) : tokens.length > 0 ? (
+        <div className="space-y-2">
+          {tokens.map((t) => (
+            <div key={t.id} className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-800 truncate">{t.label || "Unnamed link"}</p>
+                <p className="text-xs text-slate-400">
+                  Created {new Date(t.created_at).toLocaleDateString()}
+                  {t.last_used_at ? ` · Last used ${new Date(t.last_used_at).toLocaleDateString()}` : " · Never used"}
+                </p>
+              </div>
+              <button
+                onClick={() => void handleRevoke(t.id)}
+                disabled={revoking === t.id}
+                title="Revoke"
+                className="ml-3 shrink-0 rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+              >
+                {revoking === t.id ? <Spinner /> : <Trash2 className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </SectionCard>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Parent detail view
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -555,6 +765,8 @@ function ParentDetailView({
               </div>
             )}
           </SectionCard>
+
+          <PortalTokenSection parentId={parentId} />
         </div>
 
         {/* Right column: outstanding invoices + link to finance */}

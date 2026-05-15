@@ -242,6 +242,7 @@ def generate_portal_token(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     db.commit()
+    result["school_slug"] = str(tenant.slug)
     return result
 
 

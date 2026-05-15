@@ -160,6 +160,7 @@ class PortalTokenOut(BaseModel):
 
 class PortalTokenCreated(PortalTokenOut):
     raw_token: str
+    school_slug: str
 
 
 # ─────────────────────────────────────────────
