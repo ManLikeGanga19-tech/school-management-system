@@ -326,6 +326,7 @@ export const directorNav: AppNavItem[] = [
       { href: directorHrHref("payroll"), label: "Payroll", icon: "BadgeDollarSign" },
     ],
   },
+  { href: "/tenant/director/parents", label: "Parents", icon: "UsersRound" },
   {
     href: directorNotificationsHref(),
     label: "Notifications",

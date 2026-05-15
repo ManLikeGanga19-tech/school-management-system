@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, get_db, get_tenant, require_permission
@@ -25,6 +26,7 @@ from app.api.v1.parents.schemas import (
 router = APIRouter()
 
 _PERM = "enrollment.manage"   # reuse: secretary has this permission
+_DIR_PERM = "admin.dashboard.view_tenant"  # director-level actions
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -277,3 +279,96 @@ def revoke_portal_token(
         actor_user_id=user.id,
     )
     db.commit()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Director-level endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/analytics")
+def get_analytics(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(require_permission(_DIR_PERM)),
+    user=Depends(get_current_user),
+):
+    return service.get_parent_analytics(db, tenant_id=tenant.id)
+
+
+@router.get("/export.csv")
+def export_csv(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(require_permission(_DIR_PERM)),
+    user=Depends(get_current_user),
+):
+    csv_content = service.export_parents_csv(db, tenant_id=tenant.id)
+
+    def _iter():
+        yield csv_content
+
+    return StreamingResponse(
+        _iter(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="parents.csv"'},
+    )
+
+
+@router.get("/{parent_id}/all-invoices")
+def get_all_invoices(
+    parent_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(require_permission(_DIR_PERM)),
+    user=Depends(get_current_user),
+):
+    return service.get_all_parent_invoices(db, tenant_id=tenant.id, parent_id=parent_id)
+
+
+@router.get("/{parent_id}/payment-history")
+def get_payment_history(
+    parent_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(require_permission(_DIR_PERM)),
+    user=Depends(get_current_user),
+):
+    return service.get_parent_payment_history(db, tenant_id=tenant.id, parent_id=parent_id)
+
+
+@router.get("/{parent_id}/sms-history")
+def get_sms_history(
+    parent_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(require_permission(_DIR_PERM)),
+    user=Depends(get_current_user),
+):
+    return service.get_parent_sms_history(db, tenant_id=tenant.id, parent_id=parent_id)
+
+
+@router.post("/{parent_id}/send-portal-sms", status_code=201)
+def send_portal_sms(
+    parent_id: UUID,
+    body: PortalTokenCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(require_permission(_DIR_PERM)),
+    user=Depends(get_current_user),
+):
+    origin = str(request.base_url).rstrip("/")
+    try:
+        result = service.send_portal_link_sms(
+            db,
+            tenant_id=tenant.id,
+            parent_id=parent_id,
+            actor_user_id=user.id,
+            school_slug=str(tenant.slug),
+            portal_base_url=origin,
+            label=body.label,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.commit()
+    return result

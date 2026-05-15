@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Layers, Tag, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
+import { Layers, Tag, Plus, Pencil, Trash2, RefreshCw, Rocket, CheckCircle2 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
@@ -112,6 +112,10 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
   // Delete confirms
   const [deletingCatId, setDeletingCatId] = useState<string | null>(null);
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
+
+  // Starter template
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
+  const [templateDismissed, setTemplateDismissed] = useState(false);
 
   const load = useCallback(
     async (silent = false) => {
@@ -243,6 +247,24 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
     setDeletingItemId(null);
   }
 
+  async function handleApplyTemplate() {
+    setApplyingTemplate(true);
+    try {
+      await api.post<unknown>(
+        "/tenants/secretary/finance/setup",
+        { action: "apply_starter_template", payload: {} },
+        { tenantRequired: true }
+      );
+      toast.success("Starter template loaded! Your fee categories and items are ready.");
+      await load(true);
+      setTemplateDismissed(true);
+    } catch (err: unknown) {
+      toast.error(readApiError(err, "Failed to apply template. Please try again."));
+    } finally {
+      setApplyingTemplate(false);
+    }
+  }
+
   // ── Derived ─────────────────────────────────────────────────────────────────
 
   const filteredItems = selectedCategoryId
@@ -287,6 +309,103 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
             </Button>
           }
         />
+
+        {/* ── Starter template banner (shown when no categories exist) ── */}
+        {!readonly && categories.length === 0 && !templateDismissed && (
+          <div className="overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm">
+            <div className="px-6 py-5 sm:px-8 sm:py-6">
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+                {/* Icon */}
+                <div className="shrink-0">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-md">
+                    <Rocket className="h-6 w-6" />
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1">
+                  <h2 className="text-lg font-bold text-blue-900">
+                    Get started in seconds — load a starter template
+                  </h2>
+                  <p className="mt-1 text-sm text-blue-700">
+                    New to this? We&apos;ve prepared a set of standard fee categories and items used by
+                    most Kenyan schools. Load them now and customise later — it takes less than a second.
+                  </p>
+
+                  {/* What's included */}
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-blue-800">
+                        Categories included
+                      </p>
+                      <ul className="space-y-1">
+                        {[
+                          ["SCHOOL_FEES", "School Fees"],
+                          ["OTHER", "Other Charges"],
+                        ].map(([code, name]) => (
+                          <li key={code} className="flex items-center gap-2 text-sm text-blue-700">
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                            <span className="font-mono text-xs font-semibold">{code}</span>
+                            <span className="text-slate-500">— {name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-blue-800">
+                        Fee items included
+                      </p>
+                      <ul className="space-y-1">
+                        {[
+                          "Tuition Fee",
+                          "Activity Fee",
+                          "Exam Fee",
+                          "Admission Fee",
+                        ].map((item) => (
+                          <li key={item} className="flex items-center gap-2 text-sm text-blue-700">
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <p className="mt-3 text-xs text-blue-500">
+                    You can rename, add, or delete any of these after loading. Nothing is permanent.
+                  </p>
+
+                  {/* Actions */}
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <button
+                      onClick={() => void handleApplyTemplate()}
+                      disabled={applyingTemplate}
+                      className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700 active:scale-95 disabled:opacity-60 transition"
+                    >
+                      {applyingTemplate ? (
+                        <>
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          Loading template…
+                        </>
+                      ) : (
+                        <>
+                          <Rocket className="h-4 w-4" />
+                          Load Starter Template
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setTemplateDismissed(true)}
+                      className="rounded-xl border border-blue-200 bg-white px-5 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-50 transition"
+                    >
+                      I&apos;ll set up manually
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Fee Categories ── */}
         <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">

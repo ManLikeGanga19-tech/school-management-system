@@ -12444,6 +12444,7 @@ def secretary_finance_action(
         "add_carry_forward": "finance.invoices.manage",
         "edit_carry_forward": "finance.invoices.manage",
         "delete_carry_forward": "finance.invoices.manage",
+        "apply_starter_template": "finance.fees.manage",
     }
 
     if action not in required_permissions:
@@ -12456,7 +12457,8 @@ def secretary_finance_action(
                 "create_fee_item|update_fee_item|delete_fee_item|"
                 "create_fee_structure|update_fee_structure|delete_fee_structure|"
                 "add_structure_item|remove_structure_item|upsert_structure_items|"
-                "create_scholarship|update_scholarship|delete_scholarship"
+                "create_scholarship|update_scholarship|delete_scholarship|"
+                "apply_starter_template"
             ),
         )
 
@@ -12997,6 +12999,67 @@ def secretary_finance_action(
             finance_service.delete_carry_forward(db, tenant_id=tenant.id, balance_id=balance_id)
             db.commit()
             data = {"ok": True}
+
+        elif action == "apply_starter_template":
+            # Idempotent: creates standard Kenya CBC fee categories + items
+            # only if the tenant currently has none.
+            from app.models.fee_catalog import FeeCategory, FeeItem
+
+            existing = db.execute(
+                sa.text(
+                    "SELECT COUNT(*) FROM core.fee_categories "
+                    "WHERE tenant_id = :tid AND is_active = true"
+                ),
+                {"tid": str(tenant.id)},
+            ).scalar() or 0
+
+            STARTER_CATEGORIES = [
+                ("SCHOOL_FEES", "School Fees"),
+                ("OTHER", "Other Charges"),
+            ]
+            STARTER_ITEMS = [
+                ("TUITION",    "Tuition Fee",    "SCHOOL_FEES", "PER_TERM"),
+                ("ACTIVITY",   "Activity Fee",   "OTHER",       "PER_TERM"),
+                ("EXAM",       "Exam Fee",        "OTHER",       "PER_TERM"),
+                ("ADMISSION",  "Admission Fee",   "OTHER",       "ONCE_EVER"),
+            ]
+
+            created_categories = 0
+            created_items = 0
+
+            if int(existing) == 0:
+                cat_map: dict[str, Any] = {}
+                for code, name in STARTER_CATEGORIES:
+                    cat = FeeCategory(
+                        tenant_id=tenant.id,
+                        code=code,
+                        name=name,
+                        is_active=True,
+                    )
+                    db.add(cat)
+                    db.flush()
+                    cat_map[code] = cat.id
+                    created_categories += 1
+
+                for item_code, item_name, cat_code, freq in STARTER_ITEMS:
+                    item = FeeItem(
+                        tenant_id=tenant.id,
+                        category_id=cat_map[cat_code],
+                        code=item_code,
+                        name=item_name,
+                        charge_frequency=freq,
+                        is_active=True,
+                    )
+                    db.add(item)
+                    created_items += 1
+
+                db.commit()
+
+            data = {
+                "already_existed": int(existing) > 0,
+                "categories_created": created_categories,
+                "items_created": created_items,
+            }
 
         else:
             raise HTTPException(status_code=400, detail="Unhandled action")

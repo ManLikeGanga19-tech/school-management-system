@@ -907,6 +907,297 @@ def resolve_portal_token(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Director-level analytics & enriched data
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_parent_analytics(db: Session, *, tenant_id: UUID) -> Dict:
+    """Summary stats across all parents for the director analytics bar."""
+    row = db.execute(
+        sa.text("""
+            SELECT
+                COUNT(DISTINCT p.id)                                  AS total_parents,
+                COALESCE(SUM(inv_agg.balance), 0)                     AS total_outstanding,
+                COALESCE(SUM(inv_agg.billed), 0)                      AS total_billed
+            FROM core.parents p
+            LEFT JOIN (
+                SELECT pel.parent_id,
+                       SUM(i.balance_amount) AS balance,
+                       SUM(i.total_amount)   AS billed
+                FROM core.parent_enrollment_links pel
+                JOIN core.invoices i
+                     ON i.enrollment_id = pel.enrollment_id
+                    AND i.tenant_id = :tid
+                WHERE pel.tenant_id = :tid
+                GROUP BY pel.parent_id
+            ) inv_agg ON inv_agg.parent_id = p.id
+            WHERE p.tenant_id = :tid AND p.is_active = true
+        """),
+        {"tid": str(tenant_id)},
+    ).mappings().first()
+
+    total_billed = Decimal(str(row["total_billed"] or 0))
+    total_outstanding = Decimal(str(row["total_outstanding"] or 0))
+    total_paid = total_billed - total_outstanding
+    collection_rate = (
+        round(float(total_paid / total_billed * 100), 1) if total_billed > 0 else 0.0
+    )
+
+    # Portal access count — graceful if table doesn't exist yet
+    try:
+        portal_row = db.execute(
+            sa.text("""
+                SELECT COUNT(DISTINCT parent_id) AS cnt
+                FROM core.parent_portal_tokens
+                WHERE tenant_id = :tid AND is_active = true
+            """),
+            {"tid": str(tenant_id)},
+        ).mappings().first()
+        with_portal_access = int(portal_row["cnt"] or 0) if portal_row else 0
+    except Exception:
+        with_portal_access = 0
+
+    return {
+        "total_parents": int(row["total_parents"] or 0),
+        "total_outstanding": total_outstanding,
+        "total_billed": total_billed,
+        "collection_rate_pct": collection_rate,
+        "with_portal_access": with_portal_access,
+    }
+
+
+def get_all_parent_invoices(db: Session, *, tenant_id: UUID, parent_id: UUID) -> List[Dict]:
+    """All invoices (every status) across all children linked to a parent."""
+    _get_parent_or_404(db, tenant_id, parent_id)
+
+    rows = db.execute(
+        sa.text("""
+            SELECT
+                inv.id            AS invoice_id,
+                inv.enrollment_id,
+                inv.invoice_type,
+                inv.invoice_no,
+                inv.status,
+                inv.total_amount,
+                inv.paid_amount,
+                inv.balance_amount,
+                inv.created_at,
+                e.payload
+            FROM core.parent_enrollment_links pel
+            JOIN core.invoices inv
+                 ON inv.enrollment_id = pel.enrollment_id
+                AND inv.tenant_id = :tid
+            JOIN core.enrollments e ON e.id = pel.enrollment_id
+            WHERE pel.parent_id = :pid AND pel.tenant_id = :tid
+            ORDER BY inv.created_at DESC
+        """),
+        {"pid": str(parent_id), "tid": str(tenant_id)},
+    ).mappings().all()
+
+    result = []
+    for r in rows:
+        payload = dict(r["payload"] or {})
+        result.append({
+            "invoice_id": str(r["invoice_id"]),
+            "enrollment_id": str(r["enrollment_id"]),
+            "student_name": _student_name(payload),
+            "invoice_type": r["invoice_type"],
+            "invoice_no": r["invoice_no"],
+            "status": r["status"],
+            "total_amount": Decimal(str(r["total_amount"] or 0)),
+            "paid_amount": Decimal(str(r["paid_amount"] or 0)),
+            "balance_amount": Decimal(str(r["balance_amount"] or 0)),
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        })
+    return result
+
+
+def get_parent_payment_history(db: Session, *, tenant_id: UUID, parent_id: UUID) -> List[Dict]:
+    """All payments ever recorded against invoices for this parent's children."""
+    _get_parent_or_404(db, tenant_id, parent_id)
+
+    rows = db.execute(
+        sa.text("""
+            SELECT DISTINCT ON (pay.id)
+                pay.id          AS payment_id,
+                pay.receipt_no,
+                pay.provider,
+                pay.reference,
+                pay.amount,
+                pay.received_at,
+                pay.created_at,
+                e.payload
+            FROM core.parent_enrollment_links pel
+            JOIN core.invoices inv
+                 ON inv.enrollment_id = pel.enrollment_id
+                AND inv.tenant_id = :tid
+            JOIN core.payment_allocations pa ON pa.invoice_id = inv.id
+            JOIN core.payments pay
+                 ON pay.id = pa.payment_id
+                AND pay.tenant_id = :tid
+            JOIN core.enrollments e ON e.id = pel.enrollment_id
+            WHERE pel.parent_id = :pid AND pel.tenant_id = :tid
+            ORDER BY pay.id, pay.received_at DESC NULLS LAST
+        """),
+        {"pid": str(parent_id), "tid": str(tenant_id)},
+    ).mappings().all()
+
+    result = []
+    for r in rows:
+        payload = dict(r["payload"] or {})
+        result.append({
+            "payment_id": str(r["payment_id"]),
+            "receipt_no": r["receipt_no"],
+            "provider": r["provider"],
+            "reference": r["reference"],
+            "amount": Decimal(str(r["amount"] or 0)),
+            "received_at": r["received_at"].isoformat() if r["received_at"] else None,
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "student_name": _student_name(payload),
+        })
+    # Sort by received_at desc after dedup
+    result.sort(key=lambda x: x["received_at"] or x["created_at"] or "", reverse=True)
+    return result
+
+
+def get_parent_sms_history(db: Session, *, tenant_id: UUID, parent_id: UUID) -> List[Dict]:
+    """Last 50 SMS messages sent to this parent's phone number."""
+    p = _get_parent_or_404(db, tenant_id, parent_id)
+    if not p.phone:
+        return []
+
+    rows = db.execute(
+        sa.text("""
+            SELECT id, to_phone, recipient_name, message_body,
+                   status, created_at, sent_at, delivered_at
+            FROM core.sms_messages
+            WHERE tenant_id = :tid AND to_phone = :phone
+            ORDER BY created_at DESC
+            LIMIT 50
+        """),
+        {"tid": str(tenant_id), "phone": p.phone},
+    ).mappings().all()
+
+    return [
+        {
+            "id": str(r["id"]),
+            "message_body": r["message_body"],
+            "status": r["status"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "sent_at": r["sent_at"].isoformat() if r["sent_at"] else None,
+            "delivered_at": r["delivered_at"].isoformat() if r["delivered_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+def send_portal_link_sms(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    parent_id: UUID,
+    actor_user_id: UUID,
+    school_slug: str,
+    portal_base_url: str,
+    label: Optional[str] = None,
+) -> Dict:
+    """Generate a portal token and immediately send the link to the parent via SMS."""
+    from app.api.v1.sms import service as sms_svc
+
+    p = _get_parent_or_404(db, tenant_id, parent_id)
+    if not p.phone:
+        raise ValueError("Parent has no phone number on record.")
+
+    token_data = generate_portal_token(
+        db,
+        tenant_id=tenant_id,
+        parent_id=parent_id,
+        actor_user_id=actor_user_id,
+        label=label or "WhatsApp / SMS",
+    )
+
+    raw_token = token_data["raw_token"]
+    portal_url = f"{portal_base_url}/portal?token={raw_token}&slug={school_slug}"
+
+    parent_name = f"{p.first_name or ''} {p.last_name or ''}".strip() or "Guardian"
+    message = (
+        f"Dear {parent_name}, your school portal link is ready. "
+        f"View your child's fees and progress here: {portal_url}"
+    )
+
+    try:
+        sms_svc.send_single_sms(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            to_phone=p.phone,
+            recipient_name=parent_name,
+            message_body=message,
+            meta={"portal_token_id": token_data["id"]},
+        )
+        sms_sent = True
+    except ValueError as exc:
+        sms_sent = False
+        token_data["sms_warning"] = str(exc)
+
+    token_data["sms_sent"] = sms_sent
+    token_data["portal_url"] = portal_url
+    return token_data
+
+
+def export_parents_csv(db: Session, *, tenant_id: UUID) -> str:
+    """Return CSV string of all active parents with outstanding totals."""
+    import csv, io
+
+    rows = db.execute(
+        sa.text("""
+            SELECT
+                p.first_name,
+                p.last_name,
+                p.phone,
+                p.email,
+                p.phone_alt,
+                p.national_id,
+                p.occupation,
+                COUNT(DISTINCT pel.enrollment_id)  AS child_count,
+                COALESCE(SUM(inv.balance_amount), 0) AS outstanding_total
+            FROM core.parents p
+            LEFT JOIN core.parent_enrollment_links pel
+                ON pel.parent_id = p.id AND pel.tenant_id = :tid
+            LEFT JOIN core.invoices inv
+                ON inv.enrollment_id = pel.enrollment_id
+               AND inv.tenant_id = :tid
+               AND inv.balance_amount > 0
+            WHERE p.tenant_id = :tid AND p.is_active = true
+            GROUP BY p.id, p.first_name, p.last_name, p.phone, p.email,
+                     p.phone_alt, p.national_id, p.occupation
+            ORDER BY p.first_name, p.last_name
+        """),
+        {"tid": str(tenant_id)},
+    ).mappings().all()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "First Name", "Last Name", "Phone", "Email",
+        "Alt Phone", "National ID", "Occupation",
+        "Children", "Outstanding (KES)",
+    ])
+    for r in rows:
+        writer.writerow([
+            r["first_name"] or "",
+            r["last_name"] or "",
+            r["phone"] or "",
+            r["email"] or "",
+            r["phone_alt"] or "",
+            r["national_id"] or "",
+            r["occupation"] or "",
+            int(r["child_count"] or 0),
+            str(Decimal(str(r["outstanding_total"] or 0))),
+        ])
+    return buf.getvalue()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Auto-link on enrollment (called from enrollment service)
 # ─────────────────────────────────────────────────────────────────────────────
 
