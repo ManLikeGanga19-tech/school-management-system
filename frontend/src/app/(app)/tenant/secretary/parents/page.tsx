@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { EnrollmentCombobox, type EnrollmentOption } from "@/components/ui/enrollment-combobox";
 import {
   ArrowLeft,
   BarChart2,
@@ -320,6 +321,11 @@ function LinkEnrollmentModal({
   const [relationship, setRelationship] = useState("GUARDIAN");
 
   const available = enrollments.filter((e) => !alreadyLinked.includes(e.id));
+  const options: EnrollmentOption[] = available.map((e) => ({
+    id: e.id,
+    label: enrollmentName(e.payload),
+    sublabel: (e.payload?.class_code as string) || undefined,
+  }));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -331,17 +337,12 @@ function LinkEnrollmentModal({
         <div className="space-y-4 p-5">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-600">Student (Enrollment)</label>
-            <Select value={selectedId || "__none__"} onValueChange={(v) => setSelectedId(v === "__none__" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Select student…" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Select student…</SelectItem>
-                {available.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {enrollmentName(e.payload)} {e.payload?.class_code ? `· ${e.payload.class_code}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <EnrollmentCombobox
+              options={options}
+              value={selectedId}
+              onChange={setSelectedId}
+              placeholder="Search student by name…"
+            />
             {available.length === 0 && (
               <p className="mt-2 text-xs text-slate-400">All enrolled students are already linked to this parent.</p>
             )}
@@ -388,12 +389,15 @@ function RecordPaymentModal({
   onSaved: () => void;
   onClose: () => void;
 }) {
+  const [mode, setMode] = useState<"auto" | "manual">("auto");
   const [amount, setAmount] = useState("");
   const [provider, setProvider] = useState("MPESA");
   const [reference, setReference] = useState("");
   const [preview, setPreview] = useState<PaymentPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [recording, setRecording] = useState(false);
+  // Manual mode: per-invoice amounts keyed by invoice_id
+  const [manualAmounts, setManualAmounts] = useState<Record<string, string>>({});
 
   const toNum = (v: string | number | undefined | null) => Number(v || 0);
   const fmtKes = (v: string | number) =>
@@ -402,6 +406,15 @@ function RecordPaymentModal({
   const unpaid = invoices.filter((i) => i.status === "UNPAID" || i.status === "PARTIAL");
   const totalBalance = unpaid.reduce((s, i) => s + toNum(i.balance_amount), 0);
 
+  // Initialise manual amounts to balance for each unpaid invoice
+  useEffect(() => {
+    const init: Record<string, string> = {};
+    unpaid.forEach((i) => { init[i.invoice_id] = String(toNum(i.balance_amount)); });
+    setManualAmounts(init);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const manualTotal = Object.values(manualAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+
   async function handlePreview() {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { toast.error("Enter a valid amount"); return; }
@@ -409,26 +422,40 @@ function RecordPaymentModal({
     try {
       const res = await api.post<PaymentPreview>(
         `/parents/${parentId}/payments/preview?amount=${amt}&strategy=oldest_first`,
-        {},
+        undefined,
         { tenantRequired: true }
       );
       setPreview(res);
     } catch (e: unknown) {
-      toast.error((e as { message?: string })?.message || "Preview failed");
+      toast.error((e as { message?: string })?.message || "Preview failed — ensure the backend is running");
     } finally { setPreviewing(false); }
   }
 
   async function handleRecord() {
-    if (!preview) return;
     setRecording(true);
     try {
+      let allocations: { invoice_id: string; amount: number }[];
+      let totalAmt: number;
+
+      if (mode === "auto") {
+        if (!preview) { toast.error("Run preview first"); setRecording(false); return; }
+        allocations = preview.lines.map((l) => ({ invoice_id: l.invoice_id, amount: toNum(l.amount) }));
+        totalAmt = toNum(preview.total);
+      } else {
+        allocations = unpaid
+          .map((inv) => ({ invoice_id: inv.invoice_id, amount: parseFloat(manualAmounts[inv.invoice_id] || "0") || 0 }))
+          .filter((a) => a.amount > 0);
+        if (allocations.length === 0) { toast.error("Enter at least one allocation amount"); setRecording(false); return; }
+        totalAmt = manualTotal;
+      }
+
       await api.post(
         `/parents/${parentId}/payments`,
         {
           provider,
           reference: reference.trim() || null,
-          amount: parseFloat(amount),
-          allocations: preview.lines.map((l) => ({ invoice_id: l.invoice_id, amount: toNum(l.amount) })),
+          amount: totalAmt,
+          allocations,
         },
         { tenantRequired: true }
       );
@@ -440,80 +467,134 @@ function RecordPaymentModal({
     } finally { setRecording(false); }
   }
 
+  const canSubmit = mode === "auto" ? !!preview : manualTotal > 0;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 shrink-0">
           <div>
             <h2 className="text-base font-semibold text-slate-800">Record Payment</h2>
             <p className="text-xs text-slate-400">Outstanding: {fmtKes(totalBalance)}</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
         </div>
-        <div className="space-y-4 p-5">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">Amount (KES) *</label>
-              <Input
-                type="number" min="1" step="0.01"
-                value={amount}
-                onChange={(e) => { setAmount(e.target.value); setPreview(null); }}
-                placeholder="0.00" className="h-9 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">Payment Method *</label>
-              <Select value={provider} onValueChange={setProvider}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {["CASH", "MPESA", "BANK", "CHEQUE"].map((p) => (
-                    <SelectItem key={p} value={p}>{p}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2">
-              <label className="mb-1 block text-xs font-medium text-slate-600">Reference / Receipt No. (optional)</label>
-              <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. MPESA transaction code" className="h-9 text-sm" />
-            </div>
-          </div>
 
-          <button
-            onClick={() => void handlePreview()}
-            disabled={previewing || !amount}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-          >
-            {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart2 className="h-4 w-4" />}
-            {previewing ? "Calculating…" : "Preview Distribution"}
-          </button>
+        {/* Mode toggle */}
+        <div className="flex gap-1 mx-5 mt-4 rounded-lg border border-slate-200 bg-slate-50 p-1 shrink-0">
+          {(["auto", "manual"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => { setMode(m); setPreview(null); }}
+              className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition-all ${mode === m ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+            >
+              {m === "auto" ? "Auto-distribute" : "Manual allocation"}
+            </button>
+          ))}
+        </div>
 
-          {preview && (
-            <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-4">
-              <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Distribution Preview</p>
-              {preview.lines.map((line, i) => (
-                <div key={i} className="flex items-center justify-between text-sm">
-                  <span className="text-slate-700">{line.student_name} — {line.invoice_type.replace(/_/g, " ")}</span>
-                  <span className="font-semibold text-slate-800">{fmtKes(line.amount)}</span>
-                </div>
-              ))}
-              {toNum(preview.unallocated) > 0 && (
-                <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm">
-                  <span className="text-amber-600">Unallocated</span>
-                  <span className="font-semibold text-amber-600">{fmtKes(preview.unallocated)}</span>
+        <div className="flex-1 overflow-y-auto">
+          <div className="space-y-4 p-5">
+            <div className="grid grid-cols-2 gap-4">
+              {mode === "auto" && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Amount (KES) *</label>
+                  <Input
+                    type="number" min="1" step="0.01"
+                    value={amount}
+                    onChange={(e) => { setAmount(e.target.value); setPreview(null); }}
+                    placeholder="0.00" className="h-9 text-sm"
+                  />
                 </div>
               )}
-              <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm font-bold">
-                <span className="text-slate-700">Total</span>
-                <span>{fmtKes(preview.total)}</span>
+              <div className={mode === "auto" ? "" : "col-span-1"}>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Payment Method *</label>
+                <Select value={provider} onValueChange={setProvider}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["CASH", "MPESA", "BANK", "CHEQUE"].map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2">
+                <label className="mb-1 block text-xs font-medium text-slate-600">Reference (optional)</label>
+                <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. MPESA transaction code" className="h-9 text-sm" />
               </div>
             </div>
-          )}
+
+            {mode === "auto" && (
+              <>
+                <button
+                  onClick={() => void handlePreview()}
+                  disabled={previewing || !amount}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                >
+                  {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart2 className="h-4 w-4" />}
+                  {previewing ? "Calculating…" : "Preview Distribution"}
+                </button>
+
+                {preview && (
+                  <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Distribution Preview</p>
+                    {preview.lines.map((line, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm">
+                        <span className="text-slate-700">{line.student_name} — {line.invoice_type.replace(/_/g, " ")}</span>
+                        <span className="font-semibold text-slate-800">{fmtKes(line.amount)}</span>
+                      </div>
+                    ))}
+                    {toNum(preview.unallocated) > 0 && (
+                      <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm">
+                        <span className="text-amber-600">Unallocated</span>
+                        <span className="font-semibold text-amber-600">{fmtKes(preview.unallocated)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm font-bold">
+                      <span className="text-slate-700">Total</span>
+                      <span>{fmtKes(preview.total)}</span>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {mode === "manual" && (
+              <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3">Allocate per invoice</p>
+                {unpaid.length === 0 && <p className="text-xs text-slate-400">No outstanding invoices.</p>}
+                {unpaid.map((inv) => (
+                  <div key={inv.invoice_id} className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{inv.student_name}</p>
+                      <p className="text-xs text-slate-400">{inv.invoice_type.replace(/_/g, " ")} · Balance: {fmtKes(inv.balance_amount)}</p>
+                    </div>
+                    <Input
+                      type="number" min="0" step="0.01"
+                      value={manualAmounts[inv.invoice_id] ?? ""}
+                      onChange={(e) => setManualAmounts((prev) => ({ ...prev, [inv.invoice_id]: e.target.value }))}
+                      className="h-8 w-28 text-sm text-right"
+                      placeholder="0.00"
+                    />
+                  </div>
+                ))}
+                <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm font-bold">
+                  <span className="text-slate-700">Total</span>
+                  <span className={manualTotal > totalBalance ? "text-amber-600" : "text-slate-800"}>{fmtKes(manualTotal)}</span>
+                </div>
+                {manualTotal > totalBalance && (
+                  <p className="text-xs text-amber-600">Total exceeds outstanding balance</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex justify-end gap-3 border-t border-slate-100 px-5 py-4">
+
+        <div className="flex justify-end gap-3 border-t border-slate-100 px-5 py-4 shrink-0">
           <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
           <button
             onClick={() => void handleRecord()}
-            disabled={recording || !preview}
+            disabled={recording || !canSubmit}
             className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
           >
             {recording && <Loader2 className="h-4 w-4 animate-spin" />} Record Payment

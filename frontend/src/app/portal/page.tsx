@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -799,7 +799,7 @@ function BehaviourTab({ child }: { child: Child }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function PortalPage() {
+function PortalPageContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") || "";
   const slug = searchParams.get("slug") || "";
@@ -966,5 +966,29 @@ export default function PortalPage() {
         <p className="mt-2 text-blue-600/40">Powered by ShuleHQ</p>
       </footer>
     </motion.div>
+  );
+}
+
+// Suspense boundary is required for useSearchParams() in Next.js 14 App Router.
+// Without it, searchParams are null during SSR and the verification fires with
+// empty token/slug, immediately failing before the real URL params are available.
+export default function PortalPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          className="fixed inset-0 flex flex-col items-center justify-center"
+          style={{ background: "linear-gradient(135deg, #0f172a 0%, #0c1a3a 50%, #0f172a 100%)" }}
+        >
+          <div className="w-24 h-24 rounded-[2rem] flex items-center justify-center mb-6"
+            style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", boxShadow: "0 0 60px rgba(37,99,235,0.4)" }}>
+            <ShieldCheck className="w-14 h-14 text-white" />
+          </div>
+          <p className="text-blue-400 text-sm font-black uppercase tracking-[0.3em]">ShuleHQ Secure Portal</p>
+        </div>
+      }
+    >
+      <PortalPageContent />
+    </Suspense>
   );
 }

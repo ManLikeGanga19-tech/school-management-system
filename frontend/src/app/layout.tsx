@@ -22,7 +22,7 @@ export default async function RootLayout({
       <body className="antialiased">
         <NextIntlClientProvider locale={locale} messages={messages}>
           {children}
-          <Toaster richColors />
+          <Toaster />
         </NextIntlClientProvider>
       </body>
     </html>

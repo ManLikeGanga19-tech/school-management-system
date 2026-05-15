@@ -683,7 +683,6 @@ def generate_portal_token(
 
     raw = _secrets.token_urlsafe(48)   # 384 bits — cryptographically irreversible
     now = datetime.now(timezone.utc)
-    expires = now + timedelta(hours=6)
     token = ParentPortalToken(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
@@ -691,7 +690,7 @@ def generate_portal_token(
         token_hash=_token_hash(raw),
         label=(label or "").strip() or None,
         is_active=True,
-        expires_at=expires,
+        expires_at=None,           # permanent — security enforced by token entropy + revoke
         created_by=actor_user_id,
         created_at=now,
     )
@@ -709,7 +708,7 @@ def generate_portal_token(
         "id": str(token.id),
         "label": token.label,
         "is_active": True,
-        "expires_at": expires.isoformat(),
+        "expires_at": None,
         "last_used_at": None,
         "created_at": now.isoformat(),
         "raw_token": raw,

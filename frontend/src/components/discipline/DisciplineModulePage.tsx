@@ -35,9 +35,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import { api, apiFetch } from "@/lib/api";
-import { normalizeTerms, type TenantTerm } from "@/lib/school-setup/terms";
-import { normalizeClassOptions, type TenantClassOption } from "@/lib/hr";
 import { normalizeEnrollmentRows, studentName, type EnrollmentRow } from "@/lib/students";
+import { EnrollmentCombobox, type EnrollmentOption } from "@/components/ui/enrollment-combobox";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -241,11 +240,7 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
 
   // Add student dialog
   const [addStudentOpen, setAddStudentOpen] = useState(false);
-  const [terms, setTerms] = useState<TenantTerm[]>([]);
-  const [classes, setClasses] = useState<TenantClassOption[]>([]);
   const [enrollments, setEnrollments] = useState<EnrollmentRow[]>([]);
-  const [selectedTermId, setSelectedTermId] = useState("");
-  const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState("");
   const [studentRole, setStudentRole] = useState("PERPETRATOR");
   const [studentAction, setStudentAction] = useState("");
@@ -284,25 +279,13 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
 
   useEffect(() => { void loadIncidents(); }, [loadIncidents]);
 
-  // Load terms + classes when add student dialog opens
+  // Load all enrollments when add student dialog opens
   useEffect(() => {
     if (!addStudentOpen) return;
-    Promise.all([
-      api.get<unknown>("/tenants/terms", { tenantRequired: true }),
-      api.get<unknown>("/tenants/classes", { tenantRequired: true }),
-    ]).then(([t, c]) => {
-      setTerms(normalizeTerms(t));
-      setClasses(normalizeClassOptions(c));
-    }).catch(() => {});
-  }, [addStudentOpen]);
-
-  // Load enrollments when class+term selected
-  useEffect(() => {
-    if (!selectedClassId || !selectedTermId) { setEnrollments([]); return; }
-    api.get<unknown>(`/students/enrollments?class_id=${selectedClassId}&term_id=${selectedTermId}`, { tenantRequired: true })
+    api.get<unknown>("/enrollments/", { tenantRequired: true })
       .then((r) => setEnrollments(normalizeEnrollmentRows(r)))
       .catch(() => setEnrollments([]));
-  }, [selectedClassId, selectedTermId]);
+  }, [addStudentOpen]);
 
   async function openIncident(id: string) {
     setLoadingDetail(true);
@@ -764,29 +747,19 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
           <DialogHeader><DialogTitle>Add Student to Incident</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label className="text-xs">Term</Label>
-              <select className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                value={selectedTermId} onChange={(e) => { setSelectedTermId(e.target.value); setSelectedEnrollmentId(""); }}>
-                <option value="">— Select term —</option>
-                {terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <Label className="text-xs">Class</Label>
-              <select className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                value={selectedClassId} onChange={(e) => { setSelectedClassId(e.target.value); setSelectedEnrollmentId(""); }}>
-                <option value="">— Select class —</option>
-                {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div>
               <Label className="text-xs">Student</Label>
-              <select className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                value={selectedEnrollmentId} onChange={(e) => setSelectedEnrollmentId(e.target.value)}
-                disabled={!selectedClassId || !selectedTermId}>
-                <option value="">— Select student —</option>
-                {enrollments.map((e) => <option key={e.id} value={e.id}>{studentName(e)}</option>)}
-              </select>
+              <div className="mt-1">
+                <EnrollmentCombobox
+                  options={enrollments.map((e): EnrollmentOption => ({
+                    id: e.id,
+                    label: studentName(e),
+                    sublabel: (e.payload?.class_code as string) || (e.payload?.admission_class as string) || undefined,
+                  }))}
+                  value={selectedEnrollmentId}
+                  onChange={setSelectedEnrollmentId}
+                  placeholder="Search student by name…"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
