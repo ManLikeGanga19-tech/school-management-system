@@ -15,10 +15,7 @@ export default function SignInPage() {
       setError("Please enter your school's login name.");
       return;
     }
-    const host = window.location.hostname;
-    const parts = host.split(".");
-    const baseDomain = parts.length >= 2 ? parts.slice(-2).join(".") : host;
-    window.location.href = `https://${clean}.${baseDomain}/login`;
+    window.location.href = `https://${clean}.shulehq.co.ke/login`;
   };
 
   return (
@@ -45,9 +42,6 @@ export default function SignInPage() {
             <div>
               <label className="block label-caps text-muted-text mb-3">School login name</label>
               <div className="flex items-center border border-brand-border rounded-xl overflow-hidden focus-within:border-brand-primary focus-within:ring-4 focus-within:ring-brand-primary/10 transition-all">
-                <span className="px-4 py-4 bg-muted-warm text-muted-text text-sm font-bold border-r border-brand-border whitespace-nowrap">
-                  shulehq.co.ke/
-                </span>
                 <input
                   type="text"
                   value={slug}
@@ -58,6 +52,9 @@ export default function SignInPage() {
                   autoComplete="off"
                   spellCheck={false}
                 />
+                <span className="px-4 py-4 bg-muted-warm text-muted-text text-sm font-bold border-l border-brand-border whitespace-nowrap">
+                  .shulehq.co.ke
+                </span>
               </div>
               {error && (
                 <p className="mt-2 text-sm text-brand-primary flex items-center gap-2 font-medium">
@@ -66,8 +63,8 @@ export default function SignInPage() {
               )}
               <p className="mt-2 text-xs text-muted-text font-normal">
                 e.g.{" "}
-                <span className="font-bold text-dark-navy">greenhill-academy</span> or{" "}
-                <span className="font-bold text-dark-navy">st-marys</span>
+                <span className="font-bold text-dark-navy">greenhill-academy</span>.shulehq.co.ke or{" "}
+                <span className="font-bold text-dark-navy">st-marys</span>.shulehq.co.ke
               </p>
             </div>
 
