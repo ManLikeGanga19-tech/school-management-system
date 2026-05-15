@@ -1024,7 +1024,6 @@ def get_parent_payment_history(db: Session, *, tenant_id: UUID, parent_id: UUID)
                 pay.reference,
                 pay.amount,
                 pay.received_at,
-                pay.created_at,
                 e.payload
             FROM core.parent_enrollment_links pel
             JOIN core.invoices inv
@@ -1051,11 +1050,9 @@ def get_parent_payment_history(db: Session, *, tenant_id: UUID, parent_id: UUID)
             "reference": r["reference"],
             "amount": Decimal(str(r["amount"] or 0)),
             "received_at": r["received_at"].isoformat() if r["received_at"] else None,
-            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
             "student_name": _student_name(payload),
         })
-    # Sort by received_at desc after dedup
-    result.sort(key=lambda x: x["received_at"] or x["created_at"] or "", reverse=True)
+    result.sort(key=lambda x: x["received_at"] or "", reverse=True)
     return result
 
 

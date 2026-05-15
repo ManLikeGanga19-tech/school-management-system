@@ -311,7 +311,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
         />
 
         {/* ── Starter template banner (shown when no categories exist) ── */}
-        {!readonly && categories.length === 0 && !templateDismissed && (
+        {categories.length === 0 && !templateDismissed && (
           <div className="overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm">
             <div className="px-6 py-5 sm:px-8 sm:py-6">
               <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
