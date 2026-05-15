@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 import hashlib
 import secrets as _secrets
+from datetime import timedelta
 
 from app.core.audit import log_event
 from app.models.parent import Parent, ParentEnrollmentLink, ParentPortalToken
@@ -680,8 +681,9 @@ def generate_portal_token(
     from datetime import datetime, timezone
     _get_parent_or_404(db, tenant_id, parent_id)
 
-    raw = _secrets.token_urlsafe(32)
+    raw = _secrets.token_urlsafe(48)   # 384 bits — cryptographically irreversible
     now = datetime.now(timezone.utc)
+    expires = now + timedelta(hours=6)
     token = ParentPortalToken(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
@@ -689,6 +691,7 @@ def generate_portal_token(
         token_hash=_token_hash(raw),
         label=(label or "").strip() or None,
         is_active=True,
+        expires_at=expires,
         created_by=actor_user_id,
         created_at=now,
     )
@@ -706,7 +709,7 @@ def generate_portal_token(
         "id": str(token.id),
         "label": token.label,
         "is_active": True,
-        "expires_at": None,
+        "expires_at": expires.isoformat(),
         "last_used_at": None,
         "created_at": now.isoformat(),
         "raw_token": raw,

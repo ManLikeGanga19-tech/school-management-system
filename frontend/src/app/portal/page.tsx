@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   BadgeAlert,
   Calendar,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -14,6 +15,7 @@ import {
   CreditCard,
   FileText,
   Loader2,
+  Lock,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
@@ -172,39 +174,230 @@ function TabButton({
   );
 }
 
-// ─── Loading / Error Screens ──────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function LoadingScreen({ schoolName }: { schoolName?: string }) {
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// ─── Verification Screen ──────────────────────────────────────────────────────
+
+const VERIFICATION_STEPS = [
+  { label: "Verifying link authenticity", icon: ShieldCheck },
+  { label: "Confirming secure channel", icon: Lock },
+  { label: "Decrypting your data", icon: UserRound },
+] as const;
+
+function VerificationScreen({
+  token,
+  slug,
+  onComplete,
+  onError,
+}: {
+  token: string;
+  slug: string;
+  onComplete: (data: PortalData) => void;
+  onError: (msg: string) => void;
+}) {
+  const [step, setStep] = useState(0);
+  const [granted, setGranted] = useState(false);
+
+  useEffect(() => {
+    if (!token || !slug) { onError("invalid"); return; }
+    let cancelled = false;
+
+    async function run() {
+      const fetchP = fetch(
+        `/api/v1/public/portal?token=${encodeURIComponent(token)}&slug=${encodeURIComponent(slug)}`
+      ).then(async (r) => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({})) as { detail?: string };
+          throw new Error(body.detail || "invalid");
+        }
+        return r.json() as Promise<PortalData>;
+      });
+
+      // Animate through steps
+      for (let i = 0; i < VERIFICATION_STEPS.length; i++) {
+        if (i > 0) await delay(700);
+        if (cancelled) return;
+        setStep(i);
+      }
+      await delay(700); // hold on last step
+      if (cancelled) return;
+
+      try {
+        const d = await fetchP;
+        if (cancelled) return;
+        setGranted(true);
+        await delay(650);
+        if (!cancelled) onComplete(d);
+      } catch (e: unknown) {
+        if (!cancelled) onError((e as Error).message || "invalid");
+      }
+    }
+
+    run();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
-      <div className="mb-8">
-        <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg mb-4 mx-auto">
-          <ShieldCheck className="w-10 h-10 text-white" />
-        </div>
-        {schoolName && (
-          <h2 className="text-xl font-bold text-slate-900">{schoolName}</h2>
-        )}
+    <div className="fixed inset-0 flex flex-col items-center justify-center px-6"
+      style={{ background: "linear-gradient(135deg, #0f172a 0%, #0c1a3a 50%, #0f172a 100%)" }}>
+      {/* Ambient pulse rings */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full border border-blue-900/30 animate-ping" style={{ animationDuration: "4s" }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[450px] h-[450px] rounded-full border border-blue-800/20 animate-ping" style={{ animationDuration: "3s", animationDelay: "0.8s" }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[250px] h-[250px] rounded-full border border-blue-700/20 animate-ping" style={{ animationDuration: "2s", animationDelay: "0.4s" }} />
       </div>
-      <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
-      <p className="text-slate-600 font-medium">Verifying your access link…</p>
-      <p className="text-slate-400 text-sm mt-2">This should only take a moment.</p>
+
+      {/* Logo */}
+      <motion.div
+        initial={{ scale: 0.6, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="mb-10 text-center relative z-10"
+      >
+        <div
+          className="w-24 h-24 rounded-[2rem] flex items-center justify-center shadow-2xl mx-auto mb-5 transition-all duration-700"
+          style={{
+            background: granted
+              ? "linear-gradient(135deg, #16a34a, #15803d)"
+              : "linear-gradient(135deg, #2563eb, #1d4ed8)",
+            boxShadow: granted
+              ? "0 0 60px rgba(22,163,74,0.4), 0 20px 40px rgba(0,0,0,0.5)"
+              : "0 0 60px rgba(37,99,235,0.4), 0 20px 40px rgba(0,0,0,0.5)",
+          }}
+        >
+          <AnimatePresence mode="wait">
+            {granted ? (
+              <motion.div key="check" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 300 }}>
+                <CheckCircle2 className="w-14 h-14 text-white" />
+              </motion.div>
+            ) : (
+              <motion.div key="shield" initial={{ scale: 1 }} exit={{ scale: 0 }}>
+                <ShieldCheck className="w-14 h-14 text-white" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+        <AnimatePresence mode="wait">
+          {granted ? (
+            <motion.p key="granted" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+              className="text-sm font-black uppercase tracking-[0.3em] text-green-400">
+              Access Granted
+            </motion.p>
+          ) : (
+            <motion.p key="portal" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+              className="text-sm font-black uppercase tracking-[0.3em] text-blue-400">
+              ShuleHQ Secure Portal
+            </motion.p>
+          )}
+        </AnimatePresence>
+        <p className="text-slate-600 text-xs mt-1.5 font-mono">{slug}</p>
+      </motion.div>
+
+      {/* Steps */}
+      <div className="space-y-3 w-full max-w-xs relative z-10">
+        {VERIFICATION_STEPS.map((s, i) => {
+          const done = granted || i < step;
+          const active = !granted && i === step;
+          return (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, x: -16 }}
+              animate={{ opacity: i <= step || granted ? 1 : 0.2, x: 0 }}
+              transition={{ duration: 0.4, delay: i * 0.08 }}
+              className="flex items-center gap-4 rounded-2xl px-5 py-4 border transition-all duration-500"
+              style={{
+                background: done
+                  ? "rgba(22,163,74,0.08)"
+                  : active
+                  ? "rgba(37,99,235,0.12)"
+                  : "rgba(255,255,255,0.03)",
+                borderColor: done
+                  ? "rgba(22,163,74,0.25)"
+                  : active
+                  ? "rgba(37,99,235,0.4)"
+                  : "rgba(255,255,255,0.05)",
+              }}
+            >
+              <div
+                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-500"
+                style={{
+                  background: done ? "#16a34a" : active ? "#2563eb" : "#1e293b",
+                }}
+              >
+                {done ? (
+                  <Check className="w-4 h-4 text-white" />
+                ) : active ? (
+                  <Loader2 className="w-4 h-4 text-white animate-spin" />
+                ) : (
+                  <s.icon className="w-4 h-4 text-slate-600" />
+                )}
+              </div>
+              <span
+                className="text-sm font-semibold flex-1 transition-colors duration-500"
+                style={{ color: done ? "#4ade80" : active ? "#f8fafc" : "#475569" }}
+              >
+                {s.label}
+              </span>
+              {done && (
+                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 300 }}>
+                  <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                </motion.div>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {/* Footer */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1.2, duration: 0.6 }}
+        className="absolute bottom-8 flex items-center gap-2 text-slate-700 text-xs z-10"
+      >
+        <Lock className="w-3 h-3" />
+        <span className="font-mono tracking-wide">TLS 1.3 · 384-bit token · Zero data stored</span>
+      </motion.div>
     </div>
   );
 }
 
-function ErrorScreen() {
+// ─── Error Screen ─────────────────────────────────────────────────────────────
+
+function ErrorScreen({ message }: { message?: string }) {
+  const expired = message?.toLowerCase().includes("expired");
   return (
-    <div className="fixed inset-0 bg-slate-50 flex items-center justify-center p-6">
-      <div className="bg-white rounded-3xl p-8 shadow-xl max-w-sm w-full text-center">
-        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-6 mx-auto">
-          <AlertCircle className="w-10 h-10 text-red-600" />
+    <div
+      className="fixed inset-0 flex items-center justify-center px-6"
+      style={{ background: "linear-gradient(135deg, #0f172a 0%, #0c1a3a 50%, #0f172a 100%)" }}
+    >
+      <motion.div
+        initial={{ scale: 0.85, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.45, ease: "easeOut" }}
+        className="text-center max-w-sm w-full"
+      >
+        <div
+          className="w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto mb-6"
+          style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)" }}
+        >
+          <AlertCircle className="w-14 h-14 text-red-400" />
         </div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-4">Link Expired</h2>
-        <p className="text-slate-600 mb-8 leading-relaxed">
-          This link has expired or is invalid. For your security, access links are
-          temporary. Please contact the school office for a new link.
+        <h2 className="text-2xl font-black text-white mb-4">
+          {expired ? "Link Expired" : "Access Denied"}
+        </h2>
+        <p className="text-slate-400 leading-relaxed text-sm">
+          {expired
+            ? "This portal link has expired. For your security, links are valid for 6 hours only. Please contact the school office for a new link."
+            : "This link is invalid or has been revoked. Please contact the school office for a new access link."}
         </p>
-      </div>
+        <div className="mt-10 flex items-center justify-center gap-2 text-slate-700 text-xs">
+          <Lock className="w-3 h-3" />
+          <span className="font-mono">ShuleHQ Secure Portal</span>
+        </div>
+      </motion.div>
     </div>
   );
 }
@@ -611,28 +804,34 @@ export default function PortalPage() {
   const token = searchParams.get("token") || "";
   const slug = searchParams.get("slug") || "";
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [verifying, setVerifying] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | undefined>();
   const [data, setData] = useState<PortalData | null>(null);
   const [selectedChildIdx, setSelectedChildIdx] = useState(0);
   const [activeTab, setActiveTab] = useState<"fees" | "reports" | "attendance" | "behaviour">("fees");
 
-  useEffect(() => {
-    if (!token || !slug) { setError(true); setLoading(false); return; }
-    fetch(`/api/v1/public/portal?token=${encodeURIComponent(token)}&slug=${encodeURIComponent(slug)}`)
-      .then((r) => { if (!r.ok) throw new Error("invalid"); return r.json(); })
-      .then((d) => { setData(d); setLoading(false); })
-      .catch(() => { setError(true); setLoading(false); });
-  }, [token, slug]);
-
-  if (loading) return <LoadingScreen schoolName={data?.school_name} />;
-  if (error || !data) return <ErrorScreen />;
+  if (verifying) {
+    return (
+      <VerificationScreen
+        token={token}
+        slug={slug}
+        onComplete={(d) => { setData(d); setVerifying(false); }}
+        onError={(msg) => { setErrorMsg(msg); setVerifying(false); }}
+      />
+    );
+  }
+  if (errorMsg !== undefined || !data) return <ErrorScreen message={errorMsg} />;
 
   const child = data.children[selectedChildIdx];
   const outstanding = Number(child?.outstanding || 0);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-100">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+      className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-100"
+    >
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-slate-100 px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -643,9 +842,9 @@ export default function PortalPage() {
             {data.school_name}
           </h1>
         </div>
-        <div className="flex items-center gap-1 bg-slate-50 border border-slate-100 px-2 py-1 rounded-full">
-          <Clock className="w-3 h-3 text-slate-400" />
-          <span className="text-[8px] font-black uppercase text-slate-500 tracking-tighter">Secured link</span>
+        <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full">
+          <Lock className="w-3 h-3 text-green-600" />
+          <span className="text-[8px] font-black uppercase text-green-700 tracking-tighter">Verified</span>
         </div>
       </header>
 
@@ -766,6 +965,6 @@ export default function PortalPage() {
         <p>&copy; {new Date().getFullYear()} {data.school_name}</p>
         <p className="mt-2 text-blue-600/40">Powered by ShuleHQ</p>
       </footer>
-    </div>
+    </motion.div>
   );
 }

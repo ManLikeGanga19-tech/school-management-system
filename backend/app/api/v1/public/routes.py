@@ -707,7 +707,7 @@ def verify_receipt_public(
     response_model=PortalResolveOut,
     summary="Resolve a guardian portal token and return parent + all linked children",
 )
-@limiter.limit("30/minute")
+@limiter.limit("10/minute")
 def resolve_guardian_portal(
     request: Request,
     token: str,
