@@ -163,6 +163,11 @@ class PortalTokenCreated(PortalTokenOut):
     school_slug: str
 
 
+class PortalSmsRequest(BaseModel):
+    portal_base_url: str = Field(min_length=1, max_length=255)
+    label: Optional[str] = Field(default=None, max_length=160)
+
+
 # ─────────────────────────────────────────────
 # Public portal resolution
 # ─────────────────────────────────────────────

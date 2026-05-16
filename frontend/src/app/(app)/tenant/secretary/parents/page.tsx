@@ -390,14 +390,17 @@ function RecordPaymentModal({
   onClose: () => void;
 }) {
   const [mode, setMode] = useState<"auto" | "manual">("auto");
-  const [amount, setAmount] = useState("");
+  // Shared fields
   const [provider, setProvider] = useState("MPESA");
   const [reference, setReference] = useState("");
+  // Auto mode
+  const [amount, setAmount] = useState("");
   const [preview, setPreview] = useState<PaymentPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
-  const [recording, setRecording] = useState(false);
-  // Manual mode: per-invoice amounts keyed by invoice_id
+  // Manual mode
+  const [receivedAmount, setReceivedAmount] = useState("");
   const [manualAmounts, setManualAmounts] = useState<Record<string, string>>({});
+  const [recording, setRecording] = useState(false);
 
   const toNum = (v: string | number | undefined | null) => Number(v || 0);
   const fmtKes = (v: string | number) =>
@@ -406,14 +409,11 @@ function RecordPaymentModal({
   const unpaid = invoices.filter((i) => i.status === "UNPAID" || i.status === "PARTIAL");
   const totalBalance = unpaid.reduce((s, i) => s + toNum(i.balance_amount), 0);
 
-  // Initialise manual amounts to balance for each unpaid invoice
-  useEffect(() => {
-    const init: Record<string, string> = {};
-    unpaid.forEach((i) => { init[i.invoice_id] = String(toNum(i.balance_amount)); });
-    setManualAmounts(init);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
+  // Manual mode derived values
+  const received = parseFloat(receivedAmount) || 0;
   const manualTotal = Object.values(manualAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+  const remaining = received - manualTotal;
+  const manualOverflow = manualTotal > received && received > 0;
 
   async function handlePreview() {
     const amt = parseFloat(amount);
@@ -427,7 +427,7 @@ function RecordPaymentModal({
       );
       setPreview(res);
     } catch (e: unknown) {
-      toast.error((e as { message?: string })?.message || "Preview failed — ensure the backend is running");
+      toast.error((e as { message?: string })?.message || "Preview failed");
     } finally { setPreviewing(false); }
   }
 
@@ -442,21 +442,24 @@ function RecordPaymentModal({
         allocations = preview.lines.map((l) => ({ invoice_id: l.invoice_id, amount: toNum(l.amount) }));
         totalAmt = toNum(preview.total);
       } else {
+        if (received <= 0) { toast.error("Enter the amount received from the parent"); setRecording(false); return; }
+        if (manualOverflow) { toast.error("Allocated amount exceeds what was received"); setRecording(false); return; }
         allocations = unpaid
           .map((inv) => ({ invoice_id: inv.invoice_id, amount: parseFloat(manualAmounts[inv.invoice_id] || "0") || 0 }))
           .filter((a) => a.amount > 0);
-        if (allocations.length === 0) { toast.error("Enter at least one allocation amount"); setRecording(false); return; }
+        if (allocations.length === 0) { toast.error("Allocate at least one invoice amount"); setRecording(false); return; }
+        // Per-invoice: cannot exceed balance
+        const overInv = unpaid.find((inv) => {
+          const alloc = parseFloat(manualAmounts[inv.invoice_id] || "0") || 0;
+          return alloc > toNum(inv.balance_amount) + 0.01;
+        });
+        if (overInv) { toast.error(`Amount for ${overInv.student_name} exceeds the invoice balance`); setRecording(false); return; }
         totalAmt = manualTotal;
       }
 
       await api.post(
         `/parents/${parentId}/payments`,
-        {
-          provider,
-          reference: reference.trim() || null,
-          amount: totalAmt,
-          allocations,
-        },
+        { provider, reference: reference.trim() || null, amount: totalAmt, allocations },
         { tenantRequired: true }
       );
       toast.success("Payment recorded successfully");
@@ -467,15 +470,16 @@ function RecordPaymentModal({
     } finally { setRecording(false); }
   }
 
-  const canSubmit = mode === "auto" ? !!preview : manualTotal > 0;
+  const canSubmit = mode === "auto" ? !!preview : (manualTotal > 0 && received > 0 && !manualOverflow);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col">
+        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 shrink-0">
           <div>
             <h2 className="text-base font-semibold text-slate-800">Record Payment</h2>
-            <p className="text-xs text-slate-400">Outstanding: {fmtKes(totalBalance)}</p>
+            <p className="text-xs text-slate-400">Total outstanding: {fmtKes(totalBalance)}</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
         </div>
@@ -483,8 +487,7 @@ function RecordPaymentModal({
         {/* Mode toggle */}
         <div className="flex gap-1 mx-5 mt-4 rounded-lg border border-slate-200 bg-slate-50 p-1 shrink-0">
           {(["auto", "manual"] as const).map((m) => (
-            <button
-              key={m}
+            <button key={m}
               onClick={() => { setMode(m); setPreview(null); }}
               className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition-all ${mode === m ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
             >
@@ -495,19 +498,24 @@ function RecordPaymentModal({
 
         <div className="flex-1 overflow-y-auto">
           <div className="space-y-4 p-5">
-            <div className="grid grid-cols-2 gap-4">
-              {mode === "auto" && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Amount (KES) *</label>
-                  <Input
-                    type="number" min="1" step="0.01"
-                    value={amount}
+
+            {/* Amount received — top of both modes */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  {mode === "auto" ? "Amount (KES) *" : "Amount Received (KES) *"}
+                </label>
+                {mode === "auto" ? (
+                  <Input type="number" min="1" step="0.01" value={amount}
                     onChange={(e) => { setAmount(e.target.value); setPreview(null); }}
-                    placeholder="0.00" className="h-9 text-sm"
-                  />
-                </div>
-              )}
-              <div className={mode === "auto" ? "" : "col-span-1"}>
+                    placeholder="0.00" className="h-9 text-sm" />
+                ) : (
+                  <Input type="number" min="1" step="0.01" value={receivedAmount}
+                    onChange={(e) => setReceivedAmount(e.target.value)}
+                    placeholder="0.00" className="h-9 text-sm" />
+                )}
+              </div>
+              <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">Payment Method *</label>
                 <Select value={provider} onValueChange={setProvider}>
                   <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -519,25 +527,23 @@ function RecordPaymentModal({
                 </Select>
               </div>
               <div className="col-span-2">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Reference (optional)</label>
-                <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. MPESA transaction code" className="h-9 text-sm" />
+                <label className="mb-1 block text-xs font-medium text-slate-600">Reference / Transaction code (optional)</label>
+                <Input value={reference} onChange={(e) => setReference(e.target.value)}
+                  placeholder="e.g. QDK7YH3P2R" className="h-9 text-sm" />
               </div>
             </div>
 
+            {/* Auto mode: preview */}
             {mode === "auto" && (
               <>
-                <button
-                  onClick={() => void handlePreview()}
-                  disabled={previewing || !amount}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                >
+                <button onClick={() => void handlePreview()} disabled={previewing || !amount}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
                   {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart2 className="h-4 w-4" />}
                   {previewing ? "Calculating…" : "Preview Distribution"}
                 </button>
-
                 {preview && (
                   <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-4">
-                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Distribution Preview</p>
+                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Will be allocated to</p>
                     {preview.lines.map((line, i) => (
                       <div key={i} className="flex items-center justify-between text-sm">
                         <span className="text-slate-700">{line.student_name} — {line.invoice_type.replace(/_/g, " ")}</span>
@@ -546,57 +552,88 @@ function RecordPaymentModal({
                     ))}
                     {toNum(preview.unallocated) > 0 && (
                       <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm">
-                        <span className="text-amber-600">Unallocated</span>
+                        <span className="text-amber-600">Unallocated (credit)</span>
                         <span className="font-semibold text-amber-600">{fmtKes(preview.unallocated)}</span>
                       </div>
                     )}
                     <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm font-bold">
-                      <span className="text-slate-700">Total</span>
-                      <span>{fmtKes(preview.total)}</span>
+                      <span>Total</span><span>{fmtKes(preview.total)}</span>
                     </div>
                   </div>
                 )}
               </>
             )}
 
+            {/* Manual mode: per-invoice allocation */}
             {mode === "manual" && (
-              <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-4">
-                <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3">Allocate per invoice</p>
-                {unpaid.length === 0 && <p className="text-xs text-slate-400">No outstanding invoices.</p>}
-                {unpaid.map((inv) => (
-                  <div key={inv.invoice_id} className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">{inv.student_name}</p>
-                      <p className="text-xs text-slate-400">{inv.invoice_type.replace(/_/g, " ")} · Balance: {fmtKes(inv.balance_amount)}</p>
-                    </div>
-                    <Input
-                      type="number" min="0" step="0.01"
-                      value={manualAmounts[inv.invoice_id] ?? ""}
-                      onChange={(e) => setManualAmounts((prev) => ({ ...prev, [inv.invoice_id]: e.target.value }))}
-                      className="h-8 w-28 text-sm text-right"
-                      placeholder="0.00"
-                    />
-                  </div>
-                ))}
-                <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm font-bold">
-                  <span className="text-slate-700">Total</span>
-                  <span className={manualTotal > totalBalance ? "text-amber-600" : "text-slate-800"}>{fmtKes(manualTotal)}</span>
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200">
+                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Allocate to each invoice</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Enter how much of the received amount goes to each outstanding invoice.</p>
                 </div>
-                {manualTotal > totalBalance && (
-                  <p className="text-xs text-amber-600">Total exceeds outstanding balance</p>
+                {unpaid.length === 0 ? (
+                  <p className="px-4 py-6 text-xs text-slate-400 text-center">No outstanding invoices for this parent.</p>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {unpaid.map((inv) => {
+                      const alloc = parseFloat(manualAmounts[inv.invoice_id] || "0") || 0;
+                      const balance = toNum(inv.balance_amount);
+                      const overBalance = alloc > balance + 0.01;
+                      return (
+                        <div key={inv.invoice_id} className="flex items-center gap-3 px-4 py-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{inv.student_name}</p>
+                            <p className="text-xs text-slate-400">
+                              {normalizeType(inv.invoice_type)} · Balance: <span className="font-medium text-slate-600">{fmtKes(inv.balance_amount)}</span>
+                            </p>
+                            {overBalance && <p className="text-[11px] text-red-500 mt-0.5">Exceeds invoice balance</p>}
+                          </div>
+                          <div className="shrink-0">
+                            <Input type="number" min="0" step="0.01" max={balance}
+                              value={manualAmounts[inv.invoice_id] ?? ""}
+                              onChange={(e) => setManualAmounts((prev) => ({ ...prev, [inv.invoice_id]: e.target.value }))}
+                              className={`h-9 w-32 text-sm text-right ${overBalance ? "border-red-300 focus-visible:ring-red-300" : ""}`}
+                              placeholder="0.00" />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
+                {/* Running tally */}
+                <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 space-y-1">
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Amount received</span>
+                    <span className="font-semibold text-slate-700">{received > 0 ? fmtKes(received) : "—"}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Allocated</span>
+                    <span className={`font-semibold ${manualOverflow ? "text-red-600" : "text-slate-700"}`}>{fmtKes(manualTotal)}</span>
+                  </div>
+                  {received > 0 && (
+                    <div className="flex justify-between text-xs border-t border-slate-200 pt-1">
+                      <span className={remaining >= 0 ? "text-slate-500" : "text-red-600"}>
+                        {remaining >= 0 ? "Unallocated" : "Over-allocated by"}
+                      </span>
+                      <span className={`font-bold ${remaining < 0 ? "text-red-600" : remaining > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                        {fmtKes(Math.abs(remaining))}
+                      </span>
+                    </div>
+                  )}
+                  {manualOverflow && (
+                    <p className="text-[11px] text-red-500">Total allocated exceeds amount received. Reduce invoice amounts.</p>
+                  )}
+                </div>
               </div>
             )}
           </div>
         </div>
 
+        {/* Footer */}
         <div className="flex justify-end gap-3 border-t border-slate-100 px-5 py-4 shrink-0">
           <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
-          <button
-            onClick={() => void handleRecord()}
-            disabled={recording || !canSubmit}
-            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-          >
+          <button onClick={() => void handleRecord()} disabled={recording || !canSubmit}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
             {recording && <Loader2 className="h-4 w-4 animate-spin" />} Record Payment
           </button>
         </div>
@@ -609,11 +646,12 @@ function RecordPaymentModal({
 // Portal token section
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PortalTokenSection({ parentId }: { parentId: string }) {
+function PortalTokenSection({ parentId, parentPhone }: { parentId: string; parentPhone?: string }) {
   const { confirm: confirmAction, confirmDialog } = useConfirm();
   const [tokens, setTokens] = useState<PortalToken[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [sendingSms, setSendingSms] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -670,6 +708,35 @@ function PortalTokenSection({ parentId }: { parentId: string }) {
       setRevoking(null); }
   }
 
+  async function handleSendSms() {
+    if (!parentPhone) { toast.error("Parent has no phone number on record"); return; }
+    const ok = await confirmAction({
+      title: "Send Portal Link via SMS",
+      message: `This will generate a new portal link and send it to ${parentPhone}. Continue?`,
+      confirmLabel: "Send SMS",
+    });
+    if (!ok) return;
+    setSendingSms(true);
+    try {
+      const portalBase = typeof window !== "undefined" ? window.location.origin : "";
+      const res = await api.post<{ sms_sent: boolean; sms_warning?: string; portal_url?: string }>(
+        `/parents/${parentId}/send-portal-sms`,
+        { portal_base_url: portalBase, label: "SMS Link" },
+        { tenantRequired: true }
+      );
+      if (res.sms_sent) {
+        toast.success(`Portal link sent to ${parentPhone}`);
+      } else {
+        toast.error(res.sms_warning || "SMS could not be delivered — check SMS gateway settings");
+      }
+      await loadTokens();
+    } catch (e: unknown) {
+      toast.error((e as { message?: string })?.message || "Failed to send SMS");
+    } finally {
+      setSendingSms(false);
+    }
+  }
+
   async function handleCopy(url: string) {
     await navigator.clipboard.writeText(url).catch(() => {});
     setCopied(true);
@@ -682,12 +749,24 @@ function PortalTokenSection({ parentId }: { parentId: string }) {
       title="Parent Portal Access"
       action={
         !showForm ? (
-          <button
-            onClick={() => setShowForm(true)}
-            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
-          >
-            <KeyRound className="h-3 w-3" /> Generate Link
-          </button>
+          <div className="flex items-center gap-2">
+            {parentPhone && (
+              <button
+                onClick={() => void handleSendSms()}
+                disabled={sendingSms}
+                className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 disabled:opacity-50"
+              >
+                {sendingSms ? <Spinner /> : <MessageSquare className="h-3 w-3" />}
+                Send via SMS
+              </button>
+            )}
+            <button
+              onClick={() => setShowForm(true)}
+              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+            >
+              <KeyRound className="h-3 w-3" /> Generate Link
+            </button>
+          </div>
         ) : undefined
       }
     >
@@ -774,25 +853,35 @@ function PortalTokenSection({ parentId }: { parentId: string }) {
         />
       ) : tokens.length > 0 ? (
         <div className="space-y-2">
-          {tokens.map((t) => (
-            <div key={t.id} className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2.5">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-800 truncate">{t.label || "Unnamed link"}</p>
-                <p className="text-xs text-slate-400">
-                  Created {new Date(t.created_at).toLocaleDateString()}
-                  {t.last_used_at ? ` · Last used ${new Date(t.last_used_at).toLocaleDateString()}` : " · Never used"}
-                </p>
+          {tokens.map((t) => {
+            const opened = !!t.last_used_at;
+            return (
+              <div key={t.id} className="flex items-center gap-3 rounded-xl border border-slate-100 px-3 py-2.5">
+                {/* Opened indicator */}
+                <div
+                  title={opened ? `Opened ${new Date(t.last_used_at!).toLocaleString()}` : "Not yet opened"}
+                  className={`shrink-0 w-2 h-2 rounded-full ${opened ? "bg-emerald-400" : "bg-slate-200"}`}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">{t.label || "Unnamed link"}</p>
+                  <p className="text-xs text-slate-400">
+                    Generated {new Date(t.created_at).toLocaleDateString()} ·{" "}
+                    {opened
+                      ? <span className="text-emerald-600 font-medium">Opened {new Date(t.last_used_at!).toLocaleDateString()}</span>
+                      : <span>Never opened</span>}
+                  </p>
+                </div>
+                <button
+                  onClick={() => void handleRevoke(t.id)}
+                  disabled={revoking === t.id}
+                  title="Revoke link"
+                  className="shrink-0 rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+                >
+                  {revoking === t.id ? <Spinner /> : <Trash2 className="h-3.5 w-3.5" />}
+                </button>
               </div>
-              <button
-                onClick={() => void handleRevoke(t.id)}
-                disabled={revoking === t.id}
-                title="Revoke"
-                className="ml-3 shrink-0 rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
-              >
-                {revoking === t.id ? <Spinner /> : <Trash2 className="h-3.5 w-3.5" />}
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : null}
     </SectionCard>
@@ -1031,7 +1120,7 @@ function ParentDetailView({
             )}
           </SectionCard>
 
-          <PortalTokenSection parentId={parentId} />
+          <PortalTokenSection parentId={parentId} parentPhone={detail?.phone} />
         </div>
 
         {/* Right column: outstanding invoices + link to finance */}

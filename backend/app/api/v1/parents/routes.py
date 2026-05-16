@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ from app.api.v1.parents.schemas import (
     ParentInvoiceOut,
     ParentListItem,
     PaymentPreviewOut,
+    PortalSmsRequest,
     PortalTokenCreate,
     PortalTokenCreated,
     PortalTokenOut,
@@ -350,14 +351,12 @@ def get_sms_history(
 @router.post("/{parent_id}/send-portal-sms", status_code=201)
 def send_portal_sms(
     parent_id: UUID,
-    body: PortalTokenCreate,
-    request: Request,
+    body: PortalSmsRequest,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    _=Depends(require_permission(_DIR_PERM)),
+    _=Depends(require_permission(_PERM)),
     user=Depends(get_current_user),
 ):
-    origin = str(request.base_url).rstrip("/")
     try:
         result = service.send_portal_link_sms(
             db,
@@ -365,7 +364,7 @@ def send_portal_sms(
             parent_id=parent_id,
             actor_user_id=user.id,
             school_slug=str(tenant.slug),
-            portal_base_url=origin,
+            portal_base_url=body.portal_base_url.rstrip("/"),
             label=body.label,
         )
     except ValueError as exc:
