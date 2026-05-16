@@ -515,23 +515,14 @@ def record_bulk_payment(
 
     _get_parent_or_404(db, tenant_id, parent_id)
 
-    alloc_objs = [
-        type("A", (), {"invoice_id": UUID(str(a["invoice_id"])), "amount": Decimal(str(a["amount"]))})()
-        for a in allocations
-    ]
-
-    payment_data = type("P", (), {
-        "provider": provider,
-        "reference": reference,
-        "amount": amount,
-        "allocations": alloc_objs,
-    })()
-
     payment = fin.create_payment(
         db,
         tenant_id=tenant_id,
         actor_user_id=actor_user_id,
-        data=payment_data,
+        provider=provider,
+        reference=reference,
+        amount=amount,
+        allocations=[{"invoice_id": str(a["invoice_id"]), "amount": Decimal(str(a["amount"]))} for a in allocations],
     )
 
     log_event(
