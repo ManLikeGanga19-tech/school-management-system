@@ -406,7 +406,7 @@ function RecordPaymentModal({
   const fmtKes = (v: string | number) =>
     `KES ${Number(v).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const unpaid = invoices.filter((i) => i.status === "UNPAID" || i.status === "PARTIAL");
+  const unpaid = invoices.filter((i) => toNum(i.balance_amount) > 0);
   const totalBalance = unpaid.reduce((s, i) => s + toNum(i.balance_amount), 0);
 
   // Manual mode derived values
@@ -655,8 +655,10 @@ function PortalTokenSection({ parentId, parentPhone }: { parentId: string; paren
   const [revoking, setRevoking] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [newToken, setNewToken] = useState<{ url: string; label: string | null } | null>(null);
+  const [newToken, setNewToken] = useState<{ id: string; url: string; label: string | null } | null>(null);
+  const [tokenUrls, setTokenUrls] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const loadTokens = useCallback(async () => {
     setLoading(true);
@@ -683,7 +685,8 @@ function PortalTokenSection({ parentId, parentPhone }: { parentId: string; paren
       );
       const base = typeof window !== "undefined" ? window.location.origin : "";
       const url = `${base}/portal?token=${encodeURIComponent(res.raw_token)}&slug=${encodeURIComponent(res.school_slug)}`;
-      setNewToken({ url, label: res.label });
+      setNewToken({ id: res.id, url, label: res.label });
+      setTokenUrls((prev) => ({ ...prev, [res.id]: url }));
       setShowForm(false);
       setLabel("");
       await loadTokens();
@@ -741,6 +744,12 @@ function PortalTokenSection({ parentId, parentPhone }: { parentId: string; paren
     await navigator.clipboard.writeText(url).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleCopyRow(tokenId: string, url: string) {
+    await navigator.clipboard.writeText(url).catch(() => {});
+    setCopiedId(tokenId);
+    setTimeout(() => setCopiedId(null), 2000);
   }
 
   return (
@@ -811,7 +820,7 @@ function PortalTokenSection({ parentId, parentPhone }: { parentId: string; paren
             Portal link generated{newToken.label ? ` · ${newToken.label}` : ""}
           </p>
           <p className="text-[11px] text-emerald-600">
-            Copy this link and send it to the guardian. It will not be shown again.
+            Copy this link and send it to the guardian. You can also re-copy it from the list below.
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 truncate rounded-lg bg-white border border-emerald-200 px-2 py-1.5 text-[11px] text-slate-700">
@@ -871,6 +880,15 @@ function PortalTokenSection({ parentId, parentPhone }: { parentId: string; paren
                       : <span>Never opened</span>}
                   </p>
                 </div>
+                {tokenUrls[t.id] && (
+                  <button
+                    onClick={() => void handleCopyRow(t.id, tokenUrls[t.id])}
+                    title="Copy portal link"
+                    className="shrink-0 rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    {copiedId === t.id ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                )}
                 <button
                   onClick={() => void handleRevoke(t.id)}
                   disabled={revoking === t.id}
