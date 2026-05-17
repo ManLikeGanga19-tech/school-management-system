@@ -25,6 +25,17 @@ type Plan = {
 
 type ModuleOption = { code: string; label: string };
 
+type TenantPlan = {
+  tenant_id: string;
+  tenant_name: string;
+  tenant_slug: string;
+  plan_code: string | null;
+  plan_name: string | null;
+  state: "active" | "grace" | "locked";
+  period_end: string | null;
+  grace_until: string | null;
+};
+
 type Draft = {
   code: string;
   name: string;
@@ -50,20 +61,27 @@ const EMPTY_DRAFT: Draft = {
 export default function SubscriptionPlansPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [modules, setModules] = useState<ModuleOption[]>([]);
+  const [tenantPlans, setTenantPlans] = useState<TenantPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<Plan | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [assigning, setAssigning] = useState<TenantPlan | null>(null);
+  const [assignDraft, setAssignDraft] = useState<{ plan_code: string; period_end: string }>(
+    { plan_code: "", period_end: "" },
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [p, m] = await Promise.all([
+      const [p, m, tp] = await Promise.all([
         apiFetch<Plan[]>("/admin/subscription-plans", { tenantRequired: false } as never),
         apiFetch<ModuleOption[]>("/admin/modules", { tenantRequired: false } as never),
+        apiFetch<TenantPlan[]>("/admin/tenant-plans", { tenantRequired: false } as never),
       ]);
       setPlans(Array.isArray(p) ? p : []);
       setModules(Array.isArray(m) ? m : []);
+      setTenantPlans(Array.isArray(tp) ? tp : []);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load plans.");
     } finally {
@@ -150,6 +168,37 @@ export default function SubscriptionPlansPage() {
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save plan.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function startAssign(tp: TenantPlan) {
+    setAssigning(tp);
+    setAssignDraft({
+      plan_code: tp.plan_code || "",
+      period_end: tp.period_end || "",
+    });
+  }
+
+  async function saveAssignment() {
+    if (!assigning) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/admin/tenant-plans/${assigning.tenant_id}`, {
+        method: "PUT",
+        tenantRequired: false,
+        body: JSON.stringify({
+          plan_code: assignDraft.plan_code || null,
+          period_end: assignDraft.period_end || null,
+        }),
+        headers: { "Content-Type": "application/json" },
+      } as never);
+      toast.success("Tenant plan updated.");
+      setAssigning(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update tenant plan.");
     } finally {
       setSaving(false);
     }
@@ -271,6 +320,141 @@ export default function SubscriptionPlansPage() {
           </div>
         )}
       </SaasSurface>
+
+      <div className="mt-4">
+        <SaasSurface>
+          <div className="mb-3">
+            <h2 className="text-sm font-semibold text-slate-800">Tenant Assignments</h2>
+            <p className="text-xs text-slate-500">
+              Assign a tier to each school. A tenant with no tier keeps full access
+              until one is assigned.
+            </p>
+          </div>
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-slate-400">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : tenantPlans.length === 0 ? (
+            <p className="py-10 text-center text-sm text-slate-400">No tenants yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">
+                    <th className="py-2 pr-3">Tenant</th>
+                    <th className="py-2 pr-3">Tier</th>
+                    <th className="py-2 pr-3">State</th>
+                    <th className="py-2 pr-3">Expires</th>
+                    <th className="py-2 pr-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tenantPlans.map((tp) => (
+                    <tr key={tp.tenant_id} className="border-b border-slate-100">
+                      <td className="py-2.5 pr-3">
+                        <div className="font-medium text-slate-800">{tp.tenant_name}</div>
+                        <div className="font-mono text-xs text-slate-400">{tp.tenant_slug}</div>
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {tp.plan_name ? (
+                          <span className="text-slate-700">{tp.plan_name}</span>
+                        ) : (
+                          <span className="text-xs text-slate-400">No tier (full access)</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                            tp.state === "active"
+                              ? "bg-emerald-50 text-emerald-700"
+                              : tp.state === "grace"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-red-50 text-red-700"
+                          }`}
+                        >
+                          {tp.state}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-3 text-slate-600">
+                        {tp.period_end
+                          ? new Date(tp.period_end).toLocaleDateString("en-KE")
+                          : "—"}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right">
+                        <Button variant="outline" size="sm" onClick={() => startAssign(tp)}>
+                          {tp.plan_code ? "Change" : "Assign"}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SaasSurface>
+      </div>
+
+      {assigning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+              <h2 className="text-sm font-semibold text-slate-800">
+                Plan for {assigning.tenant_name}
+              </h2>
+              <button
+                onClick={() => setAssigning(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <div>
+                <Label className="text-xs">Tier</Label>
+                <select
+                  value={assignDraft.plan_code}
+                  onChange={(e) =>
+                    setAssignDraft({ ...assignDraft, plan_code: e.target.value })
+                  }
+                  className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+                >
+                  <option value="">No tier — full access</option>
+                  {plans
+                    .filter((p) => p.is_active || p.code === assignDraft.plan_code)
+                    .map((p) => (
+                      <option key={p.code} value={p.code}>
+                        {p.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs">Expiry date</Label>
+                <Input
+                  type="date"
+                  value={assignDraft.period_end}
+                  onChange={(e) =>
+                    setAssignDraft({ ...assignDraft, period_end: e.target.value })
+                  }
+                />
+                <p className="mt-1 text-[11px] text-slate-400">
+                  After this date the tenant enters the grace window, then becomes
+                  read-only. Leave blank for an open-ended subscription.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+              <Button variant="outline" size="sm" onClick={() => setAssigning(null)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={() => void saveAssignment()} disabled={saving}>
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {draft && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
