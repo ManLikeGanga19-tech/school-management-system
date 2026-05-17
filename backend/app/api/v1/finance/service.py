@@ -1766,7 +1766,7 @@ def create_payment(
     if not allocations:
         raise ValueError("Allocations required")
 
-    invoice_ids = [a["invoice_id"] for a in allocations]
+    invoice_ids = [UUID(str(a["invoice_id"])) for a in allocations]
     if len(set(invoice_ids)) != len(invoice_ids):
         raise ValueError("Duplicate invoice allocations are not allowed")
 
@@ -1775,7 +1775,7 @@ def create_payment(
         alloc_amount = Decimal(a["amount"])
         if alloc_amount <= 0:
             raise ValueError("Allocation amount must be > 0")
-        normalized_allocations.append((a["invoice_id"], alloc_amount))
+        normalized_allocations.append((UUID(str(a["invoice_id"])), alloc_amount))
 
     alloc_sum = sum([alloc for _, alloc in normalized_allocations], Decimal("0"))
     if alloc_sum.quantize(Decimal("0.01")) != Decimal(amount).quantize(Decimal("0.01")):
