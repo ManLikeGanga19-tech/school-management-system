@@ -86,6 +86,11 @@ class TenantMiddleware(BaseHTTPMiddleware):
         # Subscriptions endpoints are SaaS-level admin operations
         if path.startswith("/api/v1/admin/subscriptions"):
             return True
+        # Subscription plan catalogue + module catalogue — SaaS-level
+        if path.startswith("/api/v1/admin/subscription-plans"):
+            return True
+        if path.startswith("/api/v1/admin/modules"):
+            return True
         if path.startswith("/api/v1/admin/audit"):
             return True
         if path.startswith("/api/v1/admin/rbac"):
