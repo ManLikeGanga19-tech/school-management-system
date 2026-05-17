@@ -19,7 +19,7 @@ import {
   type FinanceSection,
 } from "@/components/layout/nav-config";
 import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome";
-import { FileDown, Printer, ClipboardList, AlertTriangle, CheckCircle2, X } from "lucide-react";
+import { FileDown, Printer, ClipboardList, AlertTriangle, CheckCircle2, X, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -495,6 +495,35 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
   );
 }
 
+function ErrorRow({
+  colSpan,
+  message,
+  onRetry,
+}: {
+  colSpan: number;
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <TableRow>
+      <TableCell colSpan={colSpan} className="py-10 text-center">
+        <div className="flex flex-col items-center gap-2">
+          <AlertTriangle className="h-6 w-6 text-amber-400" />
+          <span className="text-sm text-slate-600">{message}</span>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-1 inline-flex items-center gap-1 rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </button>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
+
 function PaginationBar({
   meta,
   loading,
@@ -779,16 +808,19 @@ function SecretaryFinancePageContent() {
   const [invoiceMeta, setInvoiceMeta] = useState<PageMeta>(defaultMeta);
   const [pagedInvoices, setPagedInvoices] = useState<Invoice[]>([]);
   const [invoicePageLoading, setInvoicePageLoading] = useState(false);
+  const [invoicePageError, setInvoicePageError] = useState<string | null>(null);
 
   const [paymentPage, setPaymentPage] = useState(1);
   const [paymentMeta, setPaymentMeta] = useState<PageMeta>(defaultMeta);
   const [pagedPayments, setPagedPayments] = useState<Payment[]>([]);
   const [paymentPageLoading, setPaymentPageLoading] = useState(false);
+  const [paymentPageError, setPaymentPageError] = useState<string | null>(null);
 
   const [receiptPage, setReceiptPage] = useState(1);
   const [receiptMeta, setReceiptMeta] = useState<PageMeta>(defaultMeta);
   const [pagedReceipts, setPagedReceipts] = useState<Invoice[]>([]);
   const [receiptPageLoading, setReceiptPageLoading] = useState(false);
+  const [receiptPageError, setReceiptPageError] = useState<string | null>(null);
 
   async function loadFinance(silent = false) {
     if (!silent) setLoading(true);
@@ -861,6 +893,7 @@ function SecretaryFinancePageContent() {
   // ── Paginated loaders ───────────────────────────────────────────────────────
   const loadPagedInvoices = useCallback(async (page: number, filters: InvoiceFilterState) => {
     setInvoicePageLoading(true);
+    setInvoicePageError(null);
     try {
       const params = new URLSearchParams({ page: String(page), page_size: "20" });
       if (filters.enrollment_id) params.set("enrollment_id", filters.enrollment_id);
@@ -870,25 +903,39 @@ function SecretaryFinancePageContent() {
       const res = await api.get<any>(`/finance/invoices?${params}`, { tenantRequired: true });
       setPagedInvoices(Array.isArray(res?.items) ? res.items : []);
       setInvoiceMeta(res?.meta ?? defaultMeta);
-    } catch { /* silent */ } finally { setInvoicePageLoading(false); }
+    } catch (err) {
+      setInvoicePageError(
+        err instanceof Error ? err.message : "Could not load invoices. Please retry."
+      );
+    } finally { setInvoicePageLoading(false); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadPagedPayments = useCallback(async (page: number) => {
     setPaymentPageLoading(true);
+    setPaymentPageError(null);
     try {
       const res = await api.get<any>(`/finance/payments?page=${page}&page_size=20`, { tenantRequired: true });
       setPagedPayments(Array.isArray(res?.items) ? res.items : []);
       setPaymentMeta(res?.meta ?? defaultMeta);
-    } catch { /* silent */ } finally { setPaymentPageLoading(false); }
+    } catch (err) {
+      setPaymentPageError(
+        err instanceof Error ? err.message : "Could not load payments. Please retry."
+      );
+    } finally { setPaymentPageLoading(false); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadPagedReceipts = useCallback(async (page: number) => {
     setReceiptPageLoading(true);
+    setReceiptPageError(null);
     try {
       const res = await api.get<any>(`/finance/invoices?page=${page}&page_size=20&status=PAID`, { tenantRequired: true });
       setPagedReceipts(Array.isArray(res?.items) ? res.items : []);
       setReceiptMeta(res?.meta ?? defaultMeta);
-    } catch { /* silent */ } finally { setReceiptPageLoading(false); }
+    } catch (err) {
+      setReceiptPageError(
+        err instanceof Error ? err.message : "Could not load receipts. Please retry."
+      );
+    } finally { setReceiptPageLoading(false); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadStructureLookups = useCallback(async () => {
@@ -2205,7 +2252,15 @@ function SecretaryFinancePageContent() {
                     })}
 
                     {pagedInvoices.length === 0 && !invoicePageLoading && (
-                      <EmptyRow colSpan={7} message="No invoices match the current filters." />
+                      invoicePageError ? (
+                        <ErrorRow
+                          colSpan={7}
+                          message={invoicePageError}
+                          onRetry={() => void loadPagedInvoices(invoicePage, invoiceFilters)}
+                        />
+                      ) : (
+                        <EmptyRow colSpan={7} message="No invoices match the current filters." />
+                      )
                     )}
                   </TableBody>
                 </Table>
@@ -2468,7 +2523,15 @@ function SecretaryFinancePageContent() {
                       </TableRow>
                     ))}
                     {pagedPayments.length === 0 && !paymentPageLoading && (
-                      <EmptyRow colSpan={6} message="No payments recorded yet." />
+                      paymentPageError ? (
+                        <ErrorRow
+                          colSpan={6}
+                          message={paymentPageError}
+                          onRetry={() => void loadPagedPayments(paymentPage)}
+                        />
+                      ) : (
+                        <EmptyRow colSpan={6} message="No payments recorded yet." />
+                      )
                     )}
                   </TableBody>
                 </Table>
@@ -2570,7 +2633,15 @@ function SecretaryFinancePageContent() {
                       );
                     })}
                     {pagedReceipts.length === 0 && !receiptPageLoading && (
-                      <EmptyRow colSpan={6} message="No paid receipts yet." />
+                      receiptPageError ? (
+                        <ErrorRow
+                          colSpan={6}
+                          message={receiptPageError}
+                          onRetry={() => void loadPagedReceipts(receiptPage)}
+                        />
+                      ) : (
+                        <EmptyRow colSpan={6} message="No paid receipts yet." />
+                      )
                     )}
                   </TableBody>
                 </Table>
@@ -2660,7 +2731,15 @@ function SecretaryFinancePageContent() {
                       </TableRow>
                     ))}
                     {pagedPayments.length === 0 && !paymentPageLoading && (
-                      <EmptyRow colSpan={7} message="No payments yet." />
+                      paymentPageError ? (
+                        <ErrorRow
+                          colSpan={7}
+                          message={paymentPageError}
+                          onRetry={() => void loadPagedPayments(paymentPage)}
+                        />
+                      ) : (
+                        <EmptyRow colSpan={7} message="No payments yet." />
+                      )
                     )}
                   </TableBody>
                 </Table>
