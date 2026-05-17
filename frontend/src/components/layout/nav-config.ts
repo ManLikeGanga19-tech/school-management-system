@@ -178,6 +178,7 @@ export const saasNav: AppNavItem[] = [
   { href: "/saas/tenants", label: "Tenants", icon: "Building2" },
   { href: "/saas/subscriptions", label: "Subscriptions", icon: "CreditCard" },
   { href: "/saas/subscription-plans", label: "Plans", icon: "Layers" },
+  { href: "/saas/tenant-groups", label: "Tenant Groups", icon: "Building2" },
   { href: "/saas/payment-history", label: "Payment History", icon: "HandCoins" },
   { href: "/saas/academic-calendar", label: "Academic Calendar", icon: "CalendarDays" },
   { href: "/saas/support", label: "Support Inbox", icon: "Headset", badgeKey: "saasSupport" },
