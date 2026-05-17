@@ -502,6 +502,26 @@ def _get_tenant_subscription_row(
     return row
 
 
+def _tenant_billing_amount(db: Session, sub) -> Decimal:
+    """Authoritative billing amount for a subscription.
+
+    When the subscription has a tier (plan_code), the amount is the tier's
+    catalogue price — so a price change on the plan applies to every tenant
+    on that tier and is never hardcoded per subscription. Falls back to the
+    subscription's own amount_kes only when no tier is assigned.
+    """
+    plan_code = str(getattr(sub, "plan_code", None) or "").strip()
+    if plan_code:
+        from app.models.subscription import SubscriptionPlan
+
+        plan = db.execute(
+            select(SubscriptionPlan).where(SubscriptionPlan.code == plan_code)
+        ).scalar_one_or_none()
+        if plan is not None and plan.price_kes is not None:
+            return _to_amount_decimal(plan.price_kes)
+    return _to_amount_decimal(sub.amount_kes)
+
+
 def get_tenant_subscription(db: Session, *, tenant_id: UUID) -> dict | None:
     try:
         sub = db.execute(
@@ -517,7 +537,8 @@ def get_tenant_subscription(db: Session, *, tenant_id: UUID) -> dict | None:
         _raise_if_storage_missing(err)
         raise
 
-    amount_kes = float(sub.amount_kes or 0)
+    # Tier-driven: a subscription on a plan is billed at the plan's price.
+    amount_kes = float(_tenant_billing_amount(db, sub))
     billing_plan = _subscription_billing_plan(sub)
     billing_cycle = _subscription_billing_cycle(sub)
     return {
@@ -525,6 +546,7 @@ def get_tenant_subscription(db: Session, *, tenant_id: UUID) -> dict | None:
         "billing_plan": billing_plan,
         # Backward-compatible mirrors.
         "plan": billing_plan,
+        "plan_code": (str(sub.plan_code) if getattr(sub, "plan_code", None) else None),
         "billing_cycle": billing_cycle,
         "status": str(sub.status or "trialing"),
         "amount_kes": amount_kes,
@@ -652,7 +674,15 @@ def initiate_tenant_subscription_payment(
     )
 
     normalized_phone = _normalize_phone(phone_number)
-    payment_amount = _to_amount_decimal(amount if amount is not None else sub.amount_kes)
+    # The charge is authoritative — the tier price (or the subscription's own
+    # amount when untiered), never an amount supplied by the client.
+    payment_amount = _tenant_billing_amount(db, sub)
+
+    if payment_amount <= 0:
+        raise ValueError(
+            "This plan is custom-priced — contact the platform administrator "
+            "to arrange billing."
+        )
 
     # ── Deduplication guard ───────────────────────────────────────────────────
     # If a PENDING STK push for the same tenant/subscription/phone/amount was
