@@ -163,6 +163,16 @@ def _primary_student(doc: dict[str, Any]) -> str:
     return "Unknown"
 
 
+def _primary_parent(doc: dict[str, Any]) -> str:
+    """Parent/guardian who made the payment, from the first allocation that has one."""
+    for alloc in doc.get("allocations") or []:
+        if isinstance(alloc, dict):
+            name = str(alloc.get("parent_name") or "").strip()
+            if name:
+                return name
+    return ""
+
+
 def _primary_invoice_no(doc: dict[str, Any]) -> str:
     for alloc in doc.get("allocations") or []:
         if isinstance(alloc, dict):
@@ -302,8 +312,12 @@ def _generate_a4_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
     if phone:
         addr_lines.append(phone)
 
-    addr_text = "<br/>".join(addr_lines) if addr_lines else school_name
-    addr_para = Paragraph(addr_text, _s("addr", size=8, space_after=0))
+    # School name is always shown — it is the identity of the document.
+    name_para = Paragraph(school_name, _s("sname", size=15, bold=True, space_after=2))
+    addr_text = "<br/>".join(addr_lines)
+    left_block: list[Any] = [name_para]
+    if addr_text:
+        left_block.append(Paragraph(addr_text, _s("addr", size=8, space_after=0)))
 
     qr_size = 30 * mm
     if verify_url:
@@ -312,7 +326,7 @@ def _generate_a4_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
         qr_img = Spacer(qr_size, qr_size)
 
     header_table = Table(
-        [[addr_para, qr_img]],
+        [[left_block, qr_img]],
         colWidths=[usable_w - qr_size - 4 * mm, qr_size + 4 * mm],
     )
     header_table.setStyle(TableStyle([
@@ -339,9 +353,10 @@ def _generate_a4_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
     story.append(Spacer(1, 2 * mm))
 
     # ── Paid By ────────────────────────────────────────────────────────────
-    student_name = _primary_student(doc)
+    # The payer is the parent/guardian; the student(s) appear in the table below.
+    payer_name = _primary_parent(doc) or _primary_student(doc)
     story.append(Paragraph("<b>Paid By:</b>", _s("pb_label", size=10, space_after=2)))
-    story.append(Paragraph(f"<b>{student_name}</b>", _s("pb_name", size=10, space_after=1)))
+    story.append(Paragraph(f"<b>{payer_name}</b>", _s("pb_name", size=10, space_after=1)))
     story.append(Spacer(1, 6 * mm))
 
     # ── Payment Details ────────────────────────────────────────────────────
@@ -410,23 +425,9 @@ def _generate_a4_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
     ))
     story.append(Spacer(1, 4 * mm))
 
-    # ── Acknowledgment paragraph ───────────────────────────────────────────
-    contact_parts = []
-    if email_str:
-        contact_parts.append(f"email at <b>{email_str}</b>")
-    if phone:
-        contact_parts.append(f"call us at <b>{phone}</b>")
-    contact_str = " or ".join(contact_parts) if contact_parts else "contact the school office"
-
-    ack_text = (
-        f"This receipt acknowledges the payment made on {received_at} for the listed services. "
-        f"If you have any inquiries regarding this receipt, please {contact_str}."
-    )
-    story.append(Paragraph(ack_text, _s("ack", size=9, align=TA_JUSTIFY, space_after=6)))
-    story.append(Spacer(1, 2 * mm))
-
-    footer_msg = str(profile.get("receipt_footer") or "Thank you for your timely payment!")
-    story.append(Paragraph(footer_msg, _s("footer_msg", size=9, space_after=8)))
+    # ── Footer message (tenant-configured) ─────────────────────────────────
+    footer_msg = str(profile.get("receipt_footer") or "Thank you for your payment.")
+    story.append(Paragraph(footer_msg, _s("footer_msg", size=9, align=TA_CENTER, space_after=8)))
 
     # ── Signatory ──────────────────────────────────────────────────────────
     sig_name  = str(profile.get("authorized_signatory_name") or "")

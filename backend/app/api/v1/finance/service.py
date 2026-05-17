@@ -2145,6 +2145,7 @@ def build_payment_receipt_document(
             "student_name": identity["student_name"],
             "admission_no": identity["admission_no"],
             "class_code": identity["class_code"],
+            "parent_name": identity["parent_name"],
             "lines": invoice_lines_map.get(str(row.invoice_id), []),
         })
 
