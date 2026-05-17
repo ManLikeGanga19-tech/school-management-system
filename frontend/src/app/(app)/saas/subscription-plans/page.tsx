@@ -1,11 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, RefreshCw, Loader2, X } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  RefreshCw,
+  Loader2,
+  X,
+  Layers,
+  Building2,
+  CheckCircle2,
+} from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
-import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
+import { SaasPageHeader } from "@/components/saas/page-chrome";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -58,6 +68,31 @@ const EMPTY_DRAFT: Draft = {
   is_active: true,
 };
 
+function formatPrice(kes: number, cycle: string): string {
+  if (!kes || kes <= 0) return "Custom";
+  const suffix = cycle === "per_year" ? "/yr" : "/term";
+  return `KES ${kes.toLocaleString("en-KE")}${suffix}`;
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("en-KE", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+const STATE_STYLES: Record<string, string> = {
+  active: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  grace: "bg-amber-50 text-amber-700 ring-amber-200",
+  locked: "bg-red-50 text-red-700 ring-red-200",
+};
+
 export default function SubscriptionPlansPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [modules, setModules] = useState<ModuleOption[]>([]);
@@ -67,9 +102,10 @@ export default function SubscriptionPlansPage() {
   const [editing, setEditing] = useState<Plan | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [assigning, setAssigning] = useState<TenantPlan | null>(null);
-  const [assignDraft, setAssignDraft] = useState<{ plan_code: string; period_end: string }>(
-    { plan_code: "", period_end: "" },
-  );
+  const [assignDraft, setAssignDraft] = useState<{ plan_code: string; period_end: string }>({
+    plan_code: "",
+    period_end: "",
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,6 +128,9 @@ export default function SubscriptionPlansPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const moduleLabel = (code: string) =>
+    modules.find((m) => m.code === code)?.label ?? code;
 
   function startCreate() {
     setEditing(null);
@@ -175,10 +214,7 @@ export default function SubscriptionPlansPage() {
 
   function startAssign(tp: TenantPlan) {
     setAssigning(tp);
-    setAssignDraft({
-      plan_code: tp.plan_code || "",
-      period_end: tp.period_end || "",
-    });
+    setAssignDraft({ plan_code: tp.plan_code || "", period_end: tp.period_end || "" });
   }
 
   async function saveAssignment() {
@@ -222,7 +258,7 @@ export default function SubscriptionPlansPage() {
     <AppShell title="SaaS" nav={saasNav} activeHref="/saas/subscription-plans">
       <SaasPageHeader
         title="Subscription Plans"
-        description="Define tiers and the modules each one unlocks. Core modules are always available."
+        description="The tier catalogue — define what each plan costs and unlocks, and assign tiers to tenants. Core modules (finance, students, dashboard) are always available."
         actions={
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
@@ -235,230 +271,159 @@ export default function SubscriptionPlansPage() {
         }
       />
 
-      <SaasSurface>
+      {/* ── Plan catalogue ─────────────────────────────────────────────── */}
+      <section className="mt-2">
+        <div className="mb-3 flex items-center gap-2">
+          <Layers className="h-4 w-4 text-slate-400" />
+          <h2 className="text-sm font-semibold text-slate-700">Plan Catalogue</h2>
+        </div>
+
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-slate-400">
+          <div className="flex items-center justify-center rounded-xl border border-slate-100 bg-white py-16 text-slate-400">
             <Loader2 className="h-6 w-6 animate-spin" />
           </div>
         ) : plans.length === 0 ? (
-          <p className="py-12 text-center text-sm text-slate-400">
-            No plans yet. Create the first tier.
-          </p>
+          <div className="rounded-xl border border-dashed border-slate-200 bg-white py-12 text-center text-sm text-slate-400">
+            No plans yet — create the first tier.
+          </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">
-                  <th className="py-2 pr-3">Plan</th>
-                  <th className="py-2 pr-3">Modules</th>
-                  <th className="py-2 pr-3 text-right">Price (KES)</th>
-                  <th className="py-2 pr-3 text-right">Grace</th>
-                  <th className="py-2 pr-3">Status</th>
-                  <th className="py-2 pr-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {plans.map((p) => (
-                  <tr key={p.id} className="border-b border-slate-100">
-                    <td className="py-2.5 pr-3">
-                      <div className="font-medium text-slate-800">{p.name}</div>
-                      <div className="font-mono text-xs text-slate-400">{p.code}</div>
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      {p.modules.length === 0 ? (
-                        <span className="text-xs text-slate-400">Core only</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {p.modules.map((m) => (
-                            <span
-                              key={m}
-                              className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
-                            >
-                              {m}
-                            </span>
-                          ))}
-                        </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {plans.map((p) => (
+              <div
+                key={p.id}
+                className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="truncate text-base font-semibold text-slate-800">
+                        {p.name}
+                      </h3>
+                      {!p.is_active && (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                          Inactive
+                        </span>
                       )}
-                    </td>
-                    <td className="py-2.5 pr-3 text-right tabular-nums">
-                      {p.price_kes.toLocaleString("en-KE")}
-                    </td>
-                    <td className="py-2.5 pr-3 text-right tabular-nums">{p.grace_days}d</td>
-                    <td className="py-2.5 pr-3">
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
-                          p.is_active
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-slate-100 text-slate-500"
-                        }`}
-                      >
-                        {p.is_active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      <div className="flex justify-end gap-1">
-                        <button
-                          onClick={() => startEdit(p)}
-                          className="rounded p-1.5 text-slate-500 hover:bg-slate-100"
-                          title="Edit plan"
+                    </div>
+                    <p className="font-mono text-xs text-slate-400">{p.code}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      onClick={() => startEdit(p)}
+                      className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      title="Edit plan"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => void remove(p)}
+                      className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="Delete plan"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <p className="mt-3 text-xl font-bold tracking-tight text-slate-900">
+                  {formatPrice(p.price_kes, p.billing_cycle)}
+                </p>
+
+                <div className="mt-4 flex-1">
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                    Unlocked modules
+                  </p>
+                  {p.modules.length === 0 ? (
+                    <p className="text-xs text-slate-400">Core modules only</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {p.modules.map((m) => (
+                        <span
+                          key={m}
+                          className="rounded-md bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700"
                         >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => void remove(p)}
-                          className="rounded p-1.5 text-red-500 hover:bg-red-50"
-                          title="Delete plan"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                          {moduleLabel(m)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                  Grace period: <span className="font-medium text-slate-700">{p.grace_days} days</span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
-      </SaasSurface>
+      </section>
 
-      <div className="mt-4">
-        <SaasSurface>
-          <div className="mb-3">
-            <h2 className="text-sm font-semibold text-slate-800">Tenant Assignments</h2>
-            <p className="text-xs text-slate-500">
-              Assign a tier to each school. A tenant with no tier keeps full access
-              until one is assigned.
-            </p>
-          </div>
-          {loading ? (
-            <div className="flex items-center justify-center py-12 text-slate-400">
-              <Loader2 className="h-6 w-6 animate-spin" />
-            </div>
-          ) : tenantPlans.length === 0 ? (
-            <p className="py-10 text-center text-sm text-slate-400">No tenants yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">
-                    <th className="py-2 pr-3">Tenant</th>
-                    <th className="py-2 pr-3">Tier</th>
-                    <th className="py-2 pr-3">State</th>
-                    <th className="py-2 pr-3">Expires</th>
-                    <th className="py-2 pr-3"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tenantPlans.map((tp) => (
-                    <tr key={tp.tenant_id} className="border-b border-slate-100">
-                      <td className="py-2.5 pr-3">
-                        <div className="font-medium text-slate-800">{tp.tenant_name}</div>
-                        <div className="font-mono text-xs text-slate-400">{tp.tenant_slug}</div>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        {tp.plan_name ? (
-                          <span className="text-slate-700">{tp.plan_name}</span>
-                        ) : (
-                          <span className="text-xs text-slate-400">No tier (full access)</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
-                            tp.state === "active"
-                              ? "bg-emerald-50 text-emerald-700"
-                              : tp.state === "grace"
-                                ? "bg-amber-50 text-amber-700"
-                                : "bg-red-50 text-red-700"
-                          }`}
-                        >
-                          {tp.state}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3 text-slate-600">
-                        {tp.period_end
-                          ? new Date(tp.period_end).toLocaleDateString("en-KE")
-                          : "—"}
-                      </td>
-                      <td className="py-2.5 pr-3 text-right">
-                        <Button variant="outline" size="sm" onClick={() => startAssign(tp)}>
-                          {tp.plan_code ? "Change" : "Assign"}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </SaasSurface>
-      </div>
-
-      {assigning && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
-              <h2 className="text-sm font-semibold text-slate-800">
-                Plan for {assigning.tenant_name}
-              </h2>
-              <button
-                onClick={() => setAssigning(null)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-4 px-5 py-4">
-              <div>
-                <Label className="text-xs">Tier</Label>
-                <select
-                  value={assignDraft.plan_code}
-                  onChange={(e) =>
-                    setAssignDraft({ ...assignDraft, plan_code: e.target.value })
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
-                >
-                  <option value="">No tier — full access</option>
-                  {plans
-                    .filter((p) => p.is_active || p.code === assignDraft.plan_code)
-                    .map((p) => (
-                      <option key={p.code} value={p.code}>
-                        {p.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <div>
-                <Label className="text-xs">Expiry date</Label>
-                <Input
-                  type="date"
-                  value={assignDraft.period_end}
-                  onChange={(e) =>
-                    setAssignDraft({ ...assignDraft, period_end: e.target.value })
-                  }
-                />
-                <p className="mt-1 text-[11px] text-slate-400">
-                  After this date the tenant enters the grace window, then becomes
-                  read-only. Leave blank for an open-ended subscription.
-                </p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
-              <Button variant="outline" size="sm" onClick={() => setAssigning(null)}>
-                Cancel
-              </Button>
-              <Button size="sm" onClick={() => void saveAssignment()} disabled={saving}>
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                Save
-              </Button>
-            </div>
-          </div>
+      {/* ── Tenant assignments ─────────────────────────────────────────── */}
+      <section className="mt-8">
+        <div className="mb-3 flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-slate-400" />
+          <h2 className="text-sm font-semibold text-slate-700">Tenant Assignments</h2>
         </div>
-      )}
+        <p className="mb-3 text-xs text-slate-500">
+          A tenant with no tier keeps full access until one is assigned.
+        </p>
 
+        {loading ? (
+          <div className="flex items-center justify-center rounded-xl border border-slate-100 bg-white py-12 text-slate-400">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        ) : tenantPlans.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center text-sm text-slate-400">
+            No tenants yet.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {tenantPlans.map((tp) => (
+              <div
+                key={tp.tenant_id}
+                className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-slate-800">{tp.tenant_name}</p>
+                  <p className="font-mono text-xs text-slate-400">{tp.tenant_slug}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                  <span className="text-sm text-slate-600">
+                    {tp.plan_name || (
+                      <span className="text-slate-400">No tier</span>
+                    )}
+                  </span>
+                  <span
+                    className={`rounded-md px-2 py-0.5 text-[11px] font-medium capitalize ring-1 ring-inset ${
+                      STATE_STYLES[tp.state] ?? STATE_STYLES.active
+                    }`}
+                  >
+                    {tp.state}
+                  </span>
+                  {tp.period_end && (
+                    <span className="text-xs text-slate-400">
+                      expires {formatDate(tp.period_end)}
+                    </span>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => startAssign(tp)}
+                    className="ml-auto sm:ml-0"
+                  >
+                    {tp.plan_code ? "Change" : "Assign"}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Plan editor modal ──────────────────────────────────────────── */}
       {draft && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+          <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
               <h2 className="text-sm font-semibold text-slate-800">
                 {editing ? `Edit ${editing.name}` : "New Plan"}
@@ -467,14 +432,14 @@ export default function SubscriptionPlansPage() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4">
-              <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-4 overflow-y-auto px-5 py-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label className="text-xs">Code</Label>
                   <Input
                     value={draft.code}
                     disabled={!!editing}
-                    placeholder="e.g. standard"
+                    placeholder="e.g. starter"
                     onChange={(e) => setDraft({ ...draft, code: e.target.value })}
                   />
                 </div>
@@ -482,7 +447,7 @@ export default function SubscriptionPlansPage() {
                   <Label className="text-xs">Name</Label>
                   <Input
                     value={draft.name}
-                    placeholder="e.g. Standard"
+                    placeholder="e.g. Starter"
                     onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   />
                 </div>
@@ -490,27 +455,34 @@ export default function SubscriptionPlansPage() {
 
               <div>
                 <Label className="text-xs">Unlocked modules</Label>
-                <div className="mt-1 grid grid-cols-2 gap-1.5">
-                  {modules.map((m) => (
-                    <label
-                      key={m.code}
-                      className="flex items-center gap-2 rounded border border-slate-200 px-2 py-1.5 text-sm"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={draft.modules.includes(m.code)}
-                        onChange={() => toggleModule(m.code)}
-                      />
-                      {m.label}
-                    </label>
-                  ))}
+                <div className="mt-1 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {modules.map((m) => {
+                    const on = draft.modules.includes(m.code);
+                    return (
+                      <button
+                        key={m.code}
+                        type="button"
+                        onClick={() => toggleModule(m.code)}
+                        className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm transition ${
+                          on
+                            ? "border-teal-300 bg-teal-50 text-teal-800"
+                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        <CheckCircle2
+                          className={`h-4 w-4 shrink-0 ${on ? "text-teal-600" : "text-slate-300"}`}
+                        />
+                        {m.label}
+                      </button>
+                    );
+                  })}
                 </div>
                 <p className="mt-1 text-[11px] text-slate-400">
                   Core modules (finance, students, dashboard…) are always available.
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <div>
                   <Label className="text-xs">Price (KES)</Label>
                   <Input
@@ -537,8 +509,8 @@ export default function SubscriptionPlansPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="flex-1 min-w-[160px]">
                   <Label className="text-xs">Billing cycle</Label>
                   <select
                     value={draft.billing_cycle}
@@ -546,10 +518,10 @@ export default function SubscriptionPlansPage() {
                     className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
                   >
                     <option value="per_term">Per term</option>
-                    <option value="full_year">Full year</option>
+                    <option value="per_year">Per year</option>
                   </select>
                 </div>
-                <label className="mt-5 flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 py-2 text-sm">
                   <input
                     type="checkbox"
                     checked={draft.is_active}
@@ -566,6 +538,65 @@ export default function SubscriptionPlansPage() {
               <Button size="sm" onClick={() => void save()} disabled={saving}>
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                 {editing ? "Save changes" : "Create plan"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tenant assignment modal ────────────────────────────────────── */}
+      {assigning && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+              <h2 className="truncate text-sm font-semibold text-slate-800">
+                Plan for {assigning.tenant_name}
+              </h2>
+              <button
+                onClick={() => setAssigning(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <div>
+                <Label className="text-xs">Tier</Label>
+                <select
+                  value={assignDraft.plan_code}
+                  onChange={(e) => setAssignDraft({ ...assignDraft, plan_code: e.target.value })}
+                  className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+                >
+                  <option value="">No tier — full access</option>
+                  {plans
+                    .filter((p) => p.is_active || p.code === assignDraft.plan_code)
+                    .map((p) => (
+                      <option key={p.code} value={p.code}>
+                        {p.name} · {formatPrice(p.price_kes, p.billing_cycle)}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs">Expiry date</Label>
+                <Input
+                  type="date"
+                  value={assignDraft.period_end}
+                  onChange={(e) => setAssignDraft({ ...assignDraft, period_end: e.target.value })}
+                />
+                <p className="mt-1 text-[11px] text-slate-400">
+                  After this date the tenant enters the grace window, then becomes
+                  read-only. Leave blank for an open-ended subscription.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+              <Button variant="outline" size="sm" onClick={() => setAssigning(null)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={() => void saveAssignment()} disabled={saving}>
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save
               </Button>
             </div>
           </div>
