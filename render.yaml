@@ -30,11 +30,14 @@ services:
         generateValue: true          # Render generates a secure random value
       - key: ENVIRONMENT
         value: production
-      # DB connection pool — keep small on Starter (512 MB RAM, 256 MB Postgres)
+      # DB connection pool. Connections are cheap on RAM (~1-2 MB each); the
+      # 512 MB limit was about gunicorn workers, not the pool. 8 steady + 12
+      # burst = 20 max — enough headroom for live polling traffic without
+      # exhausting Postgres (well under the plan's connection limit).
       - key: DB_POOL_SIZE
-        value: "3"
+        value: "8"
       - key: DB_MAX_OVERFLOW
-        value: "5"
+        value: "12"
       # Audit queue — smaller buffer to cap memory spike under load
       - key: AUDIT_QUEUE_MAXSIZE
         value: "500"
