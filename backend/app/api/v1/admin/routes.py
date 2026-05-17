@@ -32,6 +32,7 @@ from app.api.v1.admin.schemas import (
 )
 
 from app.models.tenant import Tenant
+from app.models.subscription import Subscription, SubscriptionPlan
 from app.models.membership import UserTenant
 from app.models.prospect import ProspectRequest
 from app.models.payment import Payment
@@ -44,7 +45,7 @@ from app.models.rbac import (
     UserRole,
     UserPermissionOverride,
 )
-from datetime import date as _date
+from datetime import date as _date, datetime as _datetime, timezone as _timezone
 from app.api.v1.admin.schemas import (
     SaaSMetricsResponse,
     RecentTenantsResponse,
@@ -742,6 +743,155 @@ def cancel_subscription(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     _metrics_cache.invalidate()
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Subscription plan catalogue — Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SubscriptionPlanCreate(BaseModel):
+    code: str = Field(min_length=2, max_length=64)
+    name: str = Field(min_length=1, max_length=120)
+    modules: list[str] = Field(default_factory=list)
+    price_kes: float = Field(default=0, ge=0)
+    billing_cycle: str = Field(default="per_term", max_length=16)
+    grace_days: int = Field(default=14, ge=0, le=365)
+    sort_order: int = Field(default=0)
+
+
+class SubscriptionPlanUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=120)
+    modules: Optional[list[str]] = None
+    price_kes: Optional[float] = Field(default=None, ge=0)
+    billing_cycle: Optional[str] = Field(default=None, max_length=16)
+    grace_days: Optional[int] = Field(default=None, ge=0, le=365)
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+def _plan_to_dict(p: SubscriptionPlan) -> dict:
+    return {
+        "id": str(p.id),
+        "code": p.code,
+        "name": p.name,
+        "modules": list(p.modules) if isinstance(p.modules, list) else [],
+        "price_kes": float(p.price_kes or 0),
+        "billing_cycle": p.billing_cycle,
+        "grace_days": int(p.grace_days or 0),
+        "is_active": bool(p.is_active),
+        "sort_order": int(p.sort_order or 0),
+    }
+
+
+@router.get("/modules")
+def list_gateable_modules(
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    """Catalogue of gateable modules a plan can unlock."""
+    from app.core.modules import GATEABLE_MODULES, MODULE_LABELS
+
+    return [
+        {"code": code, "label": MODULE_LABELS.get(code, code)}
+        for code in sorted(GATEABLE_MODULES)
+    ]
+
+
+@router.get("/subscription-plans")
+def list_subscription_plans(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    rows = db.execute(
+        select(SubscriptionPlan).order_by(
+            SubscriptionPlan.sort_order.asc(), SubscriptionPlan.code.asc()
+        )
+    ).scalars().all()
+    return [_plan_to_dict(p) for p in rows]
+
+
+@router.post("/subscription-plans", status_code=201)
+def create_subscription_plan(
+    payload: SubscriptionPlanCreate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    from app.core.modules import normalize_module_codes
+
+    code = payload.code.strip().lower()
+    if db.execute(
+        select(SubscriptionPlan.id).where(SubscriptionPlan.code == code)
+    ).first():
+        raise HTTPException(status_code=409, detail=f"A plan '{code}' already exists.")
+
+    plan = SubscriptionPlan(
+        code=code,
+        name=payload.name.strip(),
+        modules=normalize_module_codes(payload.modules),
+        price_kes=payload.price_kes,
+        billing_cycle=payload.billing_cycle,
+        grace_days=payload.grace_days,
+        sort_order=payload.sort_order,
+    )
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+    return _plan_to_dict(plan)
+
+
+@router.patch("/subscription-plans/{plan_id}")
+def update_subscription_plan(
+    plan_id: UUID,
+    payload: SubscriptionPlanUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    from app.core.modules import normalize_module_codes
+    from app.core.subscription_gate import invalidate_subscription_cache
+
+    plan = db.get(SubscriptionPlan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Subscription plan not found.")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "modules" in data:
+        plan.modules = normalize_module_codes(data["modules"])
+    for field in ("name", "price_kes", "billing_cycle", "grace_days", "is_active", "sort_order"):
+        if field in data:
+            setattr(plan, field, data[field])
+    plan.updated_at = _datetime.now(_timezone.utc)
+    db.commit()
+    db.refresh(plan)
+
+    # A plan change affects every tenant subscribed to it.
+    invalidate_subscription_cache()
+    return _plan_to_dict(plan)
+
+
+@router.delete("/subscription-plans/{plan_id}")
+def delete_subscription_plan(
+    plan_id: UUID,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    from app.core.subscription_gate import invalidate_subscription_cache
+
+    plan = db.get(SubscriptionPlan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Subscription plan not found.")
+
+    in_use = db.execute(
+        select(Subscription.id).where(Subscription.plan == plan.code).limit(1)
+    ).first()
+    if in_use:
+        raise HTTPException(
+            status_code=409,
+            detail="Plan is in use by a subscription — deactivate it instead of deleting.",
+        )
+
+    db.delete(plan)
+    db.commit()
+    invalidate_subscription_cache()
     return {"ok": True}
 
 
