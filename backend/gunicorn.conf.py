@@ -15,7 +15,7 @@ import os
 bind = "0.0.0.0:8000"
 
 # ── Workers ───────────────────────────────────────────────────────────────────
-workers = int(os.environ.get("GUNICORN_WORKERS", "2"))
+workers = int(os.environ.get("GUNICORN_WORKERS", "1"))
 worker_class = "uvicorn.workers.UvicornWorker"
 
 # ── Timeouts ──────────────────────────────────────────────────────────────────
@@ -36,7 +36,16 @@ access_log_format = (
 proc_name = "sms-backend"
 
 # ── Preload ───────────────────────────────────────────────────────────────────
-# False: each worker runs its own ASGI lifespan (Redis init, audit queue).
-# Set to True only if memory is severely constrained AND you have verified
-# that all startup code is fork-safe.
-preload_app = False
+# Loads Python bytecode once in the master process; workers fork and share
+# read-only pages (copy-on-write).  Saves ~100 MB when running 2+ workers.
+# ASGI lifespan events (Redis init, audit queue) still run per-worker.
+preload_app = True
+
+
+def post_fork(server, worker):
+    """Dispose DB connections inherited from the master so each worker reconnects."""
+    try:
+        from app.core.database import engine
+        engine.dispose()
+    except Exception:
+        pass
