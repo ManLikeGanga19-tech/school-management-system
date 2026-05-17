@@ -3246,6 +3246,19 @@ def whoami(
     }
 
 
+@router.get("/subscription")
+def tenant_subscription(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Current tenant's subscription state — plan, lifecycle state, and the
+    modules it unlocks. Drives nav gating and the renewal banner."""
+    from app.core.subscription_gate import get_cached_subscription_state
+
+    return get_cached_subscription_state(db, tenant.id).to_dict()
+
+
 def _get_or_create_tenant_print_profile(db: Session, *, tenant: Tenant) -> TenantPrintProfile:
     row = db.execute(
         select(TenantPrintProfile).where(TenantPrintProfile.tenant_id == tenant.id)

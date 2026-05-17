@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.core.subscription_gate import gate
 from app.api.v1.tenants.routes import router as tenants_router
 from app.api.v1.auth.routes import router as auth_router
 from app.api.v1.audit.routes import router as audit_router
@@ -42,39 +43,78 @@ api_router.include_router(admin_audit_router, prefix="/admin/audit", tags=["Admi
 # Admin
 api_router.include_router(admin_router, prefix="/admin", tags=["admin"])
 
-# Business modules
-api_router.include_router(enrollments_router, prefix="/enrollments", tags=["enrollments"])
-api_router.include_router(finance_router, prefix="/finance", tags=["finance"])
+# Business modules.
+# Core routers carry the write-lock only (gate() with no module); gateable
+# module routers also enforce plan membership. Billing (/payments) is never
+# gated so a lapsed tenant can always reach the renewal flow.
+api_router.include_router(
+    enrollments_router, prefix="/enrollments", tags=["enrollments"],
+    dependencies=[Depends(gate())],
+)
+api_router.include_router(
+    finance_router, prefix="/finance", tags=["finance"],
+    dependencies=[Depends(gate())],
+)
 api_router.include_router(support_router, prefix="/support", tags=["support"])
 api_router.include_router(payments_router, prefix="/payments", tags=["payments"])
 api_router.include_router(public_router, prefix="/public", tags=["public"])
 
 # SIS
-api_router.include_router(students_router, prefix="/students", tags=["students"])
+api_router.include_router(
+    students_router, prefix="/students", tags=["students"],
+    dependencies=[Depends(gate())],
+)
 
 # Attendance
-api_router.include_router(attendance_router, prefix="/attendance", tags=["attendance"])
+api_router.include_router(
+    attendance_router, prefix="/attendance", tags=["attendance"],
+    dependencies=[Depends(gate())],
+)
 
 # Reports (8-4-4 Report Cards)
-api_router.include_router(reports_router, prefix="/reports", tags=["reports"])
+api_router.include_router(
+    reports_router, prefix="/reports", tags=["reports"],
+    dependencies=[Depends(gate())],
+)
 
 # CBC Assessments (Phase 3B)
-api_router.include_router(cbc_router, prefix="/cbc", tags=["cbc"])
+api_router.include_router(
+    cbc_router, prefix="/cbc", tags=["cbc"],
+    dependencies=[Depends(gate("cbc"))],
+)
 
 # IGCSE Assessments
-api_router.include_router(igcse_router, prefix="/igcse", tags=["igcse"])
+api_router.include_router(
+    igcse_router, prefix="/igcse", tags=["igcse"],
+    dependencies=[Depends(gate("igcse"))],
+)
 
 # Discipline (Phase 4)
-api_router.include_router(discipline_router, prefix="/discipline", tags=["discipline"])
-api_router.include_router(discipline_students_router, prefix="/students", tags=["students"])
+api_router.include_router(
+    discipline_router, prefix="/discipline", tags=["discipline"],
+    dependencies=[Depends(gate("discipline"))],
+)
+api_router.include_router(
+    discipline_students_router, prefix="/students", tags=["students"],
+    dependencies=[Depends(gate("discipline"))],
+)
 
 # SMS Communications (Phase 5)
-api_router.include_router(sms_router, prefix="/sms", tags=["sms"])
+api_router.include_router(
+    sms_router, prefix="/sms", tags=["sms"],
+    dependencies=[Depends(gate("messaging"))],
+)
 api_router.include_router(sms_admin_router, prefix="/admin/sms", tags=["admin-sms"])
 
 # HR Module (Phase 6) — leave, payroll, SMS recipients
-api_router.include_router(hr_router, prefix="/tenants", tags=["hr"])
-api_router.include_router(hr_router, prefix="/tenant", tags=["hr-compat"])
+api_router.include_router(
+    hr_router, prefix="/tenants", tags=["hr"],
+    dependencies=[Depends(gate("hr"))],
+)
+api_router.include_router(
+    hr_router, prefix="/tenant", tags=["hr-compat"],
+    dependencies=[Depends(gate("hr"))],
+)
 
 # Parent Portal (Phase 7) — guardian management, bulk payments
 api_router.include_router(parents_router, prefix="/parents", tags=["parents"])

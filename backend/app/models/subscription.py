@@ -13,7 +13,31 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 
+from sqlalchemy import Boolean
+
 from app.core.database import Base
+
+
+class SubscriptionPlan(Base):
+    """Catalogue of subscription tiers. DB-driven so plans, pricing and the
+    modules each tier unlocks can change without a redeploy."""
+
+    __tablename__ = "subscription_plans"
+    __table_args__ = {"schema": "core"}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    code = Column(String(64), nullable=False, unique=True)          # 'basic' | 'standard' | 'premium'
+    name = Column(String(120), nullable=False)
+    # Gateable module codes this plan unlocks (core modules are always on).
+    modules = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    price_kes = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
+    billing_cycle = Column(String(16), nullable=False, server_default=text("'per_term'"))
+    # Days after period_end the tenant stays usable (renewal banner) before lockout.
+    grace_days = Column(Integer, nullable=False, server_default=text("14"))
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class Subscription(Base):
