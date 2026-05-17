@@ -3,6 +3,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 
 from app.core.database import Base
+from app.models.payment import _new_verify_code
 
 
 class Invoice(Base):
@@ -32,6 +33,11 @@ class Invoice(Base):
     balance_amount = Column(Numeric(12, 2), nullable=False, server_default=text("0"))
 
     meta = Column(JSONB, nullable=True)
+
+    # Opaque, unguessable code embedded in the invoice QR (/v/{verify_code}).
+    verify_code = Column(
+        String(32), nullable=True, unique=True, index=True, default=_new_verify_code
+    )
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())

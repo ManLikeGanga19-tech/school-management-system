@@ -23,7 +23,7 @@ from app.models.enrollment import Enrollment
 from app.models.scholarship import Scholarship
 from app.models.scholarship_allocation import ScholarshipAllocation
 from app.models.invoice import Invoice, InvoiceLine
-from app.models.payment import Payment, PaymentAllocation
+from app.models.payment import Payment, PaymentAllocation, _new_verify_code
 from app.models.student import Student
 from app.models.tenant import Tenant
 from app.models.tenant_payment_settings import TenantPaymentSettings
@@ -241,6 +241,62 @@ def _extract_student_name(payload: dict[str, Any] | None) -> str:
     last = str(payload.get("last_name") or "").strip()
     full = f"{first} {last}".strip()
     return full or "Unknown student"
+
+
+def _resolve_student_identity(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    enrollment: Optional[Enrollment],
+) -> dict[str, str]:
+    """Resolve a student's printable identity (name / admission no / class / parent).
+
+    Shared by the invoice and receipt document builders so the two documents
+    can never disagree about who a student is. Reads the enrollment payload
+    first, then falls back to the linked Student record for name + admission no.
+    """
+    payload: dict = (getattr(enrollment, "payload", None) or {}) if enrollment is not None else {}
+
+    student_name = _extract_student_name(payload)
+    admission_no = str(payload.get("admission_no") or payload.get("admissionNo") or "")
+    class_code = str(
+        payload.get("class_code")
+        or payload.get("classCode")
+        or payload.get("class")
+        or ""
+    )
+    parent_name = str(
+        payload.get("parent_name")
+        or payload.get("parentName")
+        or payload.get("guardian_name")
+        or ""
+    )
+
+    if (
+        (not admission_no or not student_name or student_name == "Unknown student")
+        and enrollment is not None
+        and getattr(enrollment, "student_id", None)
+    ):
+        s = db.execute(
+            select(Student).where(
+                Student.id == enrollment.student_id,
+                Student.tenant_id == tenant_id,
+            )
+        ).scalar_one_or_none()
+        if s:
+            if not admission_no:
+                admission_no = str(getattr(s, "admission_no", "") or "")
+            if not student_name or student_name == "Unknown student":
+                fn = str(getattr(s, "first_name", "") or "").strip()
+                ln = str(getattr(s, "last_name", "") or "").strip()
+                student_name = f"{fn} {ln}".strip() or student_name
+
+    return {
+        "student_name": student_name or "Unknown student",
+        "admission_no": admission_no,
+        "class_code": class_code,
+        "parent_name": parent_name,
+    }
 
 
 def _get_structure_in_tenant(db: Session, *, tenant_id: UUID, fee_structure_id: UUID) -> FeeStructure | None:
@@ -1898,8 +1954,12 @@ def build_invoice_document(
         )
         db.flush()
 
+    # Lazy-fill the QR verification code for any row predating the column.
+    if not getattr(inv, "verify_code", None):
+        inv.verify_code = _new_verify_code()
+        db.flush()
+
     enrollment = None
-    enrollment_payload: dict = {}
     if getattr(inv, "enrollment_id", None):
         enrollment = db.execute(
             select(Enrollment).where(
@@ -1907,42 +1967,12 @@ def build_invoice_document(
                 Enrollment.id == inv.enrollment_id,
             )
         ).scalar_one_or_none()
-        enrollment_payload = getattr(enrollment, "payload", None) or {}
 
-    student_name = _extract_student_name(enrollment_payload)
-
-    # Try to load student admission_no and class_code from Student record or payload
-    admission_no = (
-        str(enrollment_payload.get("admission_no") or enrollment_payload.get("admissionNo") or "")
-    )
-    class_code = str(
-        enrollment_payload.get("class_code")
-        or enrollment_payload.get("classCode")
-        or enrollment_payload.get("class")
-        or ""
-    )
-    # Also try to get parent/guardian name from payload
-    parent_name = str(
-        enrollment_payload.get("parent_name")
-        or enrollment_payload.get("parentName")
-        or enrollment_payload.get("guardian_name")
-        or ""
-    )
-
-    # If enrollment links to a student record, get admission_no from there
-    if not admission_no and enrollment and getattr(enrollment, "student_id", None):
-        s = db.execute(
-            select(Student).where(
-                Student.id == enrollment.student_id,
-                Student.tenant_id == tenant_id,
-            )
-        ).scalar_one_or_none()
-        if s:
-            admission_no = str(getattr(s, "admission_no", "") or "")
-            if not student_name or student_name == "Unknown student":
-                fn = str(getattr(s, "first_name", "") or "").strip()
-                ln = str(getattr(s, "last_name", "") or "").strip()
-                student_name = f"{fn} {ln}".strip() or student_name
+    identity = _resolve_student_identity(db, tenant_id=tenant_id, enrollment=enrollment)
+    student_name = identity["student_name"]
+    admission_no = identity["admission_no"]
+    class_code = identity["class_code"]
+    parent_name = identity["parent_name"]
 
     rows = db.execute(
         select(InvoiceLine).where(InvoiceLine.invoice_id == inv.id).order_by(InvoiceLine.id.asc())
@@ -2018,6 +2048,7 @@ def build_invoice_document(
         "payment_settings": ps_dict,
         "checksum": checksum,
         "qr_payload": qr_payload,
+        "verify_code": str(getattr(inv, "verify_code", "") or ""),
     }
 
 
@@ -2043,6 +2074,11 @@ def build_payment_receipt_document(
             doc_type="RCT",
             created_at=getattr(payment, "received_at", None),
         )
+        db.flush()
+
+    # Lazy-fill the QR verification code for any row predating the column.
+    if not getattr(payment, "verify_code", None):
+        payment.verify_code = _new_verify_code()
         db.flush()
 
     alloc_rows = db.execute(
@@ -2072,8 +2108,9 @@ def build_payment_receipt_document(
         if enrollment_ids
         else []
     )
-    enrollment_name_map = {
-        str(e.id): _extract_student_name(getattr(e, "payload", None)) for e in enrollments
+    enrollment_identity_map = {
+        str(e.id): _resolve_student_identity(db, tenant_id=tenant_id, enrollment=e)
+        for e in enrollments
     }
 
     # Fetch invoice lines (fee descriptions) for each allocated invoice
@@ -2092,16 +2129,24 @@ def build_payment_receipt_document(
                 "amount": str(getattr(line, "amount", 0) or 0),
             })
 
-    allocations = [
-        {
+    _empty_identity = {
+        "student_name": "Unknown student",
+        "admission_no": "",
+        "class_code": "",
+        "parent_name": "",
+    }
+    allocations = []
+    for row in alloc_rows:
+        identity = enrollment_identity_map.get(str(row.enrollment_id), _empty_identity)
+        allocations.append({
             "invoice_id": str(row.invoice_id),
             "invoice_no": (str(row.invoice_no) if row.invoice_no is not None else None),
             "amount": str(row.amount or 0),
-            "student_name": enrollment_name_map.get(str(row.enrollment_id), "Unknown student"),
+            "student_name": identity["student_name"],
+            "admission_no": identity["admission_no"],
+            "class_code": identity["class_code"],
             "lines": invoice_lines_map.get(str(row.invoice_id), []),
-        }
-        for row in alloc_rows
-    ]
+        })
 
     profile = get_tenant_print_profile(db, tenant_id=tenant_id)
     checksum = _document_checksum(
@@ -2144,6 +2189,7 @@ def build_payment_receipt_document(
         "allocations": allocations,
         "checksum": checksum,
         "qr_payload": qr_payload,
+        "verify_code": str(getattr(payment, "verify_code", "") or ""),
         # slug needed by enterprise PDF generator for QR verify URL
         "tenant_slug": str(getattr(db.get(Tenant, tenant_id), "slug", "") or ""),
     }

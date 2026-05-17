@@ -91,6 +91,18 @@ def build_verify_url(*, tenant_slug: str, token: str) -> str:
     return f"{base}/verify/receipt?token={token}&slug={tenant_slug}"
 
 
+def verify_code_url(code: str | None) -> str:
+    """Short, opaque verification URL embedded in a document QR.
+
+    The QR carries only this URL — verification is a live DB lookup of the
+    code, so a tampered or forged code simply has no matching record.
+    """
+    if not code:
+        return ""
+    base = os.environ.get("FRONTEND_BASE_URL", "https://shulehq.co.ke").rstrip("/")
+    return f"{base}/v/{code}"
+
+
 # ─── Formatting helpers ───────────────────────────────────────────────────────
 
 def _fmt(amount: str | None, currency: str = "KES") -> str:
@@ -160,31 +172,47 @@ def _primary_invoice_no(doc: dict[str, Any]) -> str:
     return "—"
 
 
-def _payment_lines(doc: dict[str, Any]) -> list[tuple[str, str]]:
-    """Return [(description, amount), ...] — one row per payment allocation.
+def _payment_groups(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """Group a payment's allocations by student for a consolidated receipt.
 
-    A receipt confirms what was *paid*, not the full fee breakdown of an
-    invoice. Each row is the amount applied to a specific invoice, so the
-    rows always sum to the payment total (never the invoice total).
+    One payment transaction = one receipt; when a parent pays for several
+    children at once the receipt stays single but is grouped per child.
+    Each group: {student, admission_no, class_code, rows: [(invoice_no, amount)]}.
+    Row amounts always sum to the payment total (never the invoice total).
     """
-    rows: list[tuple[str, str]] = []
+    groups: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
     for alloc in doc.get("allocations") or []:
         if not isinstance(alloc, dict):
             continue
+        name = str(alloc.get("student_name") or "").strip()
+        if not name or name.lower() == "unknown student":
+            name = "Student"
+        adm = str(alloc.get("admission_no") or "").strip()
+        cls = str(alloc.get("class_code") or "").strip()
+        key = f"{name}|{adm}"
+        if key not in groups:
+            groups[key] = {
+                "student": name,
+                "admission_no": adm,
+                "class_code": cls,
+                "rows": [],
+            }
+            order.append(key)
         inv = str(alloc.get("invoice_no") or "").strip()
-        student = str(alloc.get("student_name") or "").strip()
-        if student and student.lower() == "unknown student":
-            student = ""
-        if inv and student:
-            desc = f"Payment for Invoice {inv} ({student})"
-        elif inv:
-            desc = f"Payment for Invoice {inv}"
-        elif student:
-            desc = f"Payment for {student}"
-        else:
-            desc = "Payment received"
-        rows.append((desc, str(alloc.get("amount") or "0")))
-    return rows
+        groups[key]["rows"].append((inv, str(alloc.get("amount") or "0")))
+    return [groups[k] for k in order]
+
+
+def _group_caption(group: dict[str, Any]) -> str:
+    """One-line student caption: 'Jane Doe  (Adm 2026/001 · Grade 4)'."""
+    meta = " · ".join(
+        p for p in [
+            f"Adm {group['admission_no']}" if group.get("admission_no") else "",
+            str(group.get("class_code") or ""),
+        ] if p
+    )
+    return f"{group['student']}  ({meta})" if meta else str(group["student"])
 
 
 # ─── QR image ─────────────────────────────────────────────────────────────────
@@ -319,31 +347,38 @@ def _generate_a4_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
     # ── Payment Details ────────────────────────────────────────────────────
     story.append(Paragraph("<b>Payment Details</b>", _s("pd_label", size=11, space_after=4)))
 
-    fee_lines = _payment_lines(doc)
-    tbl_data = [["Description", "Amount", "Date Paid"]]
-    for desc, amt in fee_lines:
-        tbl_data.append([desc, _fmt(amt, currency), _date_long(doc.get("received_at"))])
-    if not fee_lines:
-        tbl_data.append(["—", "—", "—"])
+    groups = _payment_groups(doc)
+    tbl_data: list[list[str]] = [["Description", "Amount"]]
+    header_rows: list[int] = []
+    for g in groups:
+        header_rows.append(len(tbl_data))
+        tbl_data.append([_group_caption(g), ""])
+        for inv, amt in g["rows"]:
+            label = f"    Payment for Invoice {inv}" if inv else "    Payment received"
+            tbl_data.append([label, _fmt(amt, currency)])
+    if not groups:
+        tbl_data.append(["—", "—"])
 
-    col_w = [usable_w * 0.5, usable_w * 0.25, usable_w * 0.25]
+    col_w = [usable_w * 0.72, usable_w * 0.28]
     tbl = Table(tbl_data, colWidths=col_w)
-    tbl.setStyle(TableStyle([
+    tbl_style = [
         # Header row
         ("BACKGROUND",  (0, 0), (-1, 0), colors.HexColor("#e8e8e8")),
         ("TEXTCOLOR",   (0, 0), (-1, 0), colors.HexColor("#444444")),
-        ("FONTNAME",    (0, 0), (-1, 0), "Helvetica"),
+        ("FONTNAME",    (0, 0), (-1, -1), "Helvetica"),
         ("FONTSIZE",    (0, 0), (-1, -1), 9),
         ("ALIGN",       (0, 0), (-1, 0), "CENTER"),
-        # Data rows
-        ("FONTNAME",    (0, 1), (-1, -1), "Helvetica"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
         ("GRID",        (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
         ("TOPPADDING",  (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("ALIGN",       (1, 1), (1, -1), "RIGHT"),
-        ("ALIGN",       (2, 1), (2, -1), "CENTER"),
-    ]))
+    ]
+    # Per-student subheading rows: span both columns, bold, tinted background
+    for hr in header_rows:
+        tbl_style.append(("SPAN", (0, hr), (-1, hr)))
+        tbl_style.append(("BACKGROUND", (0, hr), (-1, hr), colors.HexColor("#eef3f2")))
+        tbl_style.append(("FONTNAME", (0, hr), (-1, hr), "Helvetica-Bold"))
+    tbl.setStyle(TableStyle(tbl_style))
     story.append(tbl)
     story.append(Spacer(1, 5 * mm))
 
@@ -424,13 +459,18 @@ def _generate_thermal_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
     profile  = doc.get("profile") or {}
     currency = str(doc.get("currency") or profile.get("currency") or "KES")
 
-    PAGE_W  = 80 * mm
+    try:
+        _width_mm = int(profile.get("thermal_width_mm") or 80)
+    except (TypeError, ValueError):
+        _width_mm = 80
+
+    PAGE_W  = _width_mm * mm
     PAGE_H  = 300 * mm  # generous — unused space is cut by viewer
     MARGIN  = 4 * mm
     INNER_W = PAGE_W - 2 * MARGIN
 
-    # Width in Courier-8: chars per mm ≈ 0.48  →  inner_w/mm * 0.48 ≈ 34 chars
-    DASH_WIDTH = 40  # characters
+    # Courier-8: chars per mm ≈ 0.50  →  scales with the configured paper width.
+    DASH_WIDTH = max(24, round(_width_mm * 0.50))  # characters
 
     styles = getSampleStyleSheet()
 
@@ -508,19 +548,16 @@ def _generate_thermal_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
     story.append(_sep())
     story.append(Spacer(1, 1 * mm))
 
-    # ── Fee line items ─────────────────────────────────────────────────────
-    fee_lines = _payment_lines(doc)
-    total_from_lines = Decimal("0")
-    for desc, amt in fee_lines:
-        try:
-            total_from_lines += Decimal(str(amt))
-        except Exception:
-            pass
-        # Truncate description to fit
-        max_desc = DASH_WIDTH - 14
-        d = (desc[:max_desc] + "..") if len(desc) > max_desc else desc
-        story.append(_row(d.upper(), _fmt(amt, currency)))
-        story.append(Spacer(1, 0.5 * mm))
+    # ── Payment items, grouped by student ──────────────────────────────────
+    max_desc = DASH_WIDTH - 14
+    for g in _payment_groups(doc):
+        caption = _group_caption(g).upper()
+        story.append(Paragraph(caption[:DASH_WIDTH], _s("stu", bold=True)))
+        for inv, amt in g["rows"]:
+            label = (f"  INV {inv}" if inv else "  PAYMENT")
+            d = (label[:max_desc] + "..") if len(label) > max_desc else label
+            story.append(_row(d, _fmt(amt, currency)))
+            story.append(Spacer(1, 0.5 * mm))
 
     story.append(Spacer(1, 1 * mm))
     story.append(_sep())
@@ -822,7 +859,13 @@ def generate_thermal_html(doc: dict[str, Any]) -> str:
     including Generic/Text Only, renders it correctly.
     @page size: 80mm auto ensures Chrome prints the full roll without page breaks.
     """
-    W = 42  # chars that fit inside 80 mm at Courier 9 pt
+    # Character width scales with the configured paper width
+    # (80 mm → 42 cols, 58 mm → 30 cols at Courier 9 pt).
+    try:
+        _width_mm = int((doc.get("profile") or {}).get("thermal_width_mm") or 80)
+    except (TypeError, ValueError):
+        _width_mm = 80
+    W = max(24, round(_width_mm * 0.525))
 
     def centre(text: str) -> str:
         return text[:W].center(W)
@@ -852,7 +895,6 @@ def generate_thermal_html(doc: dict[str, Any]) -> str:
 
     student_name = _primary_student(doc)
     invoice_no   = _primary_invoice_no(doc)
-    fee_lines    = _payment_lines(doc)
 
     def _dt(iso: str | None) -> str:
         if not iso:
@@ -910,11 +952,14 @@ def generate_thermal_html(doc: dict[str, Any]) -> str:
     out.append(sep())
     out.append("")
 
-    # Fee lines
+    # Payment items, grouped by student
     max_desc = W - 14
-    for desc, amt in fee_lines:
-        d = (desc[:max_desc] + "..") if len(desc) > max_desc else desc
-        out.append(row(d.upper(), _fmt_amt(str(amt))))
+    for g in _payment_groups(doc):
+        out.append(_group_caption(g).upper()[:W])
+        for inv, amt in g["rows"]:
+            label = (f"  INV {inv}" if inv else "  PAYMENT")
+            d = (label[:max_desc] + "..") if len(label) > max_desc else label
+            out.append(row(d, _fmt_amt(str(amt))))
     out.append("")
 
     out.append(sep())
@@ -962,21 +1007,7 @@ def generate_thermal_html(doc: dict[str, Any]) -> str:
     # ── QR code (base64 embedded PNG) ────────────────────────────────────────
     qr_img_tag = ""
     try:
-        tenant_slug = str(doc.get("tenant_slug") or "")
-        if tenant_slug:
-            verify_url = build_verify_url(
-                tenant_slug=tenant_slug,
-                token=create_receipt_verify_token(
-                    payment_id=str(doc.get("document_id") or ""),
-                    tenant_id=str(doc.get("tenant_id") or ""),
-                    tenant_slug=tenant_slug,
-                    receipt_no=receipt_no,
-                    amount=str(doc.get("amount") or "0"),
-                    student_name=student_name,
-                ),
-            )
-        else:
-            verify_url = str(doc.get("qr_payload") or "")
+        verify_url = verify_code_url(doc.get("verify_code"))
         if verify_url:
             import base64
             qr_bytes  = _qr_png(verify_url, box_size=4)
@@ -999,19 +1030,25 @@ def generate_thermal_html(doc: dict[str, Any]) -> str:
 <meta charset="UTF-8">
 <title>Receipt {rno_esc}</title>
 <style>
-  * {{ margin: 0; padding: 0; }}
-  @page {{ size: 80mm auto; margin: 2mm 3mm; }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  @page {{ size: {_width_mm}mm auto; margin: 2mm 3mm; }}
+  html, body {{ width: 100%; }}
   body {{
     font-family: 'Courier New', Courier, monospace;
     font-size: 9pt;
     line-height: 1.35;
     color: #000;
+    text-align: center;          /* centres the receipt block on the roll */
+  }}
+  .receipt {{
+    display: inline-block;
+    text-align: left;
     white-space: pre;
   }}
-  img {{ display: block; }}
+  img {{ display: block; margin: 0 auto; }}
 </style>
 </head>
-<body>{pre_body}{qr_img_tag}<span>{post_body}</span><script>
+<body><div class="receipt">{pre_body}{qr_img_tag}<span>{post_body}</span></div><script>
 window.onload = function() {{
   window.print();
   window.onafterprint = function() {{ window.close(); }};
@@ -1028,20 +1065,8 @@ def generate_receipt_pdf(doc: dict[str, Any]) -> bytes:
     profile     = doc.get("profile") or {}
     paper_size  = str(profile.get("paper_size") or "A4").upper()
     qr_enabled  = bool(profile.get("qr_enabled", True))
-    tenant_slug = str(doc.get("tenant_slug") or "")
 
-    if qr_enabled and tenant_slug:
-        token = create_receipt_verify_token(
-            payment_id=str(doc.get("document_id") or ""),
-            tenant_id=str(doc.get("tenant_id") or ""),
-            tenant_slug=tenant_slug,
-            receipt_no=str(doc.get("document_no") or ""),
-            amount=str(doc.get("amount") or "0"),
-            student_name=_primary_student(doc),
-        )
-        verify_url = build_verify_url(tenant_slug=tenant_slug, token=token)
-    else:
-        verify_url = ""
+    verify_url = verify_code_url(doc.get("verify_code")) if qr_enabled else ""
 
     if paper_size == "THERMAL_80MM":
         return _generate_thermal_receipt(doc, verify_url)

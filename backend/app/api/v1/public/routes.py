@@ -16,6 +16,7 @@ from app.core.rate_limit import limiter
 from app.models.prospect import ProspectAccount, ProspectAuthSession, ProspectRequest
 from app.models.tenant import Tenant
 from app.models.payment import Payment
+from app.models.invoice import Invoice
 import secrets
 
 from app.api.v1.parents import service as parent_svc
@@ -696,6 +697,111 @@ def verify_receipt_public(
         ),
         message="Receipt is valid and belongs to this school.",
     )
+
+
+class DocumentVerifyOut(BaseModel):
+    """Public document verification result (receipt or invoice)."""
+    valid: bool
+    document_type: str                       # RECEIPT | INVOICE
+    document_no: str
+    school_name: str
+    school_motto: Optional[str] = None
+    school_logo_url: Optional[str] = None
+    student_name: str
+    currency: str = "KES"
+    amount: str                              # payment total / invoice total
+    balance_amount: Optional[str] = None     # invoices only
+    status: Optional[str] = None             # invoice status; receipts omit
+    issued_at: Optional[str] = None
+    provider: Optional[str] = None           # receipts only
+    message: str
+
+
+def _verify_students(allocations: list) -> str:
+    """Distinct student names across a payment's allocations, comma-joined."""
+    seen: list[str] = []
+    for alloc in allocations or []:
+        if not isinstance(alloc, dict):
+            continue
+        name = str(alloc.get("student_name") or "").strip()
+        if name and name.lower() != "unknown student" and name not in seen:
+            seen.append(name)
+    return ", ".join(seen) if seen else "—"
+
+
+@router.get(
+    "/verify/{code}",
+    response_model=DocumentVerifyOut,
+    summary="Verify a document by its opaque QR code (public)",
+)
+@limiter.limit("30/minute")
+def verify_document_public(
+    request: Request,
+    code: str,
+    db: Session = Depends(get_db),
+) -> DocumentVerifyOut:
+    """
+    Verify a receipt or invoice from the opaque ``verify_code`` embedded in its
+    QR code. The code is an unguessable random string; a forged code simply has
+    no matching row, so verification is meaningful only inside this system.
+
+    Returns live document data (current status reflects voids/reversals).
+    404 if no document matches the code.
+    """
+    from app.api.v1.finance import service as finance_service
+
+    code = (code or "").strip()
+    if not code or len(code) > 32:
+        raise HTTPException(status_code=400, detail="Invalid verification code.")
+
+    payment = db.execute(
+        select(Payment).where(Payment.verify_code == code)
+    ).scalar_one_or_none()
+    if payment is not None:
+        doc = finance_service.build_payment_receipt_document(
+            db, tenant_id=payment.tenant_id, payment_id=payment.id
+        )
+        profile = doc.get("profile") or {}
+        return DocumentVerifyOut(
+            valid=True,
+            document_type="RECEIPT",
+            document_no=str(doc.get("document_no") or ""),
+            school_name=str(profile.get("school_header") or "School"),
+            school_motto=(str(profile.get("school_motto") or "") or None),
+            school_logo_url=(str(profile.get("logo_url") or "") or None),
+            student_name=_verify_students(doc.get("allocations")),
+            currency=str(doc.get("currency") or "KES"),
+            amount=str(doc.get("amount") or "0"),
+            issued_at=(str(doc.get("received_at")) if doc.get("received_at") else None),
+            provider=(str(doc.get("provider") or "") or None),
+            message="Receipt is genuine and was issued by this school.",
+        )
+
+    invoice = db.execute(
+        select(Invoice).where(Invoice.verify_code == code)
+    ).scalar_one_or_none()
+    if invoice is not None:
+        doc = finance_service.build_invoice_document(
+            db, tenant_id=invoice.tenant_id, invoice_id=invoice.id
+        )
+        profile = doc.get("profile") or {}
+        return DocumentVerifyOut(
+            valid=True,
+            document_type="INVOICE",
+            document_no=str(doc.get("document_no") or ""),
+            school_name=str(profile.get("school_header") or "School"),
+            school_motto=(str(profile.get("school_motto") or "") or None),
+            school_logo_url=(str(profile.get("logo_url") or "") or None),
+            student_name=str(doc.get("student_name") or "—"),
+            currency=str(doc.get("currency") or "KES"),
+            amount=str(doc.get("total_amount") or "0"),
+            balance_amount=str(doc.get("balance_amount") or "0"),
+            status=str(doc.get("status") or "").upper() or None,
+            issued_at=(str(doc.get("created_at")) if doc.get("created_at") else None),
+            message="Invoice is genuine and was issued by this school.",
+        )
+
+    raise HTTPException(status_code=404, detail="No document matches this code.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

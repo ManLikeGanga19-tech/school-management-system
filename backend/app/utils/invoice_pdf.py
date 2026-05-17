@@ -32,10 +32,19 @@
 """
 from __future__ import annotations
 
+import os
 import zlib
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
+
+
+def _verify_url(code: str | None) -> str:
+    """Short opaque verification URL embedded in the invoice QR."""
+    if not code:
+        return ""
+    base = os.environ.get("FRONTEND_BASE_URL", "https://shulehq.co.ke").rstrip("/")
+    return f"{base}/v/{code}"
 
 
 # ── PDF primitives ────────────────────────────────────────────────────────────
@@ -81,6 +90,23 @@ def _fmt_amount(value: Any) -> str:
         return f"{d:,.2f}"
     except (InvalidOperation, TypeError):
         return "0.00"
+
+
+def _qr_matrix(data: str) -> list[list[bool]]:
+    """QR module matrix for `data`; [] if the qrcode lib is unavailable."""
+    try:
+        import qrcode  # type: ignore
+        qr = qrcode.QRCode(
+            version=None,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=1,
+            border=2,
+        )
+        qr.add_data(data)
+        qr.make(fit=True)
+        return qr.get_matrix()
+    except Exception:
+        return []
 
 
 def _wrap_text(text: str, max_chars: int) -> list[str]:
@@ -403,6 +429,7 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
     y -= 10
     rule(ML, y, ML + UW, y, w=0.3)
     y -= 16
+    qr_anchor_y = y + 6
 
     if sig_name or sig_title:
         txt(ML, y, "________________________", size=8)
@@ -412,6 +439,24 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
             y -= 11
         txt(ML, y, sig_title, size=8)
         y -= 14
+
+    # ── VERIFICATION QR (bottom-right) ────────────────────────────────────────
+    qr_enabled = bool(profile.get("qr_enabled", True))
+    verify_url = _verify_url(data.get("verify_code")) if qr_enabled else ""
+    matrix = _qr_matrix(verify_url) if verify_url else []
+    if matrix:
+        n = len(matrix)
+        qr_size = 58.0
+        module = qr_size / n
+        qr_x = ML + UW - qr_size
+        stream_lines.append("0 0 0 rg")
+        for r, row in enumerate(matrix):
+            for c, on in enumerate(row):
+                if on:
+                    mx = qr_x + c * module
+                    my = qr_anchor_y - (r + 1) * module
+                    stream_lines.append(f"{mx:.2f} {my:.2f} {module:.2f} {module:.2f} re f")
+        txt(qr_x, qr_anchor_y - qr_size - 8, "Scan to verify", size=6)
 
     # ── BUILD PDF ─────────────────────────────────────────────────────────────
     stream_content = "\n".join(stream_lines).encode("latin-1", errors="replace")

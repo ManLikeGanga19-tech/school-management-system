@@ -1,8 +1,15 @@
+import secrets
+
 from sqlalchemy import Column, String, DateTime, ForeignKey, Numeric, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
 from app.core.database import Base
+
+
+def _new_verify_code() -> str:
+    """Opaque, unguessable code for document QR verification (~72-bit)."""
+    return secrets.token_urlsafe(12)
 
 
 class Payment(Base):
@@ -18,6 +25,11 @@ class Payment(Base):
 
     amount = Column(Numeric(12, 2), nullable=False)
     currency = Column(String(10), nullable=False, server_default=text("'KES'"))
+
+    # Opaque, unguessable code embedded in the receipt QR (/v/{verify_code}).
+    verify_code = Column(
+        String(32), nullable=True, unique=True, index=True, default=_new_verify_code
+    )
 
     received_at = Column(DateTime(timezone=True), server_default=func.now())
     created_by = Column(UUID(as_uuid=True), nullable=True)
