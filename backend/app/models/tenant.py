@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, text
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -15,6 +15,14 @@ class Tenant(Base):
     name = Column(String, nullable=False)
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
     curriculum_type = Column(String(20), nullable=False, server_default=text("'CBC'"))
+
+    # Multi-campus — set when this tenant is a campus within a tenant group.
+    group_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("core.tenant_groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Branding & contact info (used in PDF headers)
     brand_color = Column(String(7), nullable=True)          # hex e.g. "#1A3C6B"

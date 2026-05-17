@@ -32,6 +32,7 @@ from app.api.v1.admin.schemas import (
 )
 
 from app.models.tenant import Tenant
+from app.models.tenant_group import TenantGroup
 from app.models.subscription import Subscription, SubscriptionPlan
 from app.models.membership import UserTenant
 from app.models.prospect import ProspectRequest
@@ -994,6 +995,181 @@ def assign_tenant_plan(
     _metrics_cache.invalidate()
 
     return _tenant_plan_row(tenant, resolve_subscription_state(db, tenant_id=tenant_id))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tenant groups (multi-campus) — Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TenantGroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    slug: str = Field(min_length=2, max_length=120)
+    billing_email: Optional[str] = Field(default=None, max_length=200)
+    primary_contact: Optional[str] = Field(default=None, max_length=200)
+
+
+class TenantGroupUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=200)
+    billing_email: Optional[str] = Field(default=None, max_length=200)
+    primary_contact: Optional[str] = Field(default=None, max_length=200)
+    plan_code: Optional[str] = Field(default=None, max_length=64)  # null clears the tier
+    period_end: Optional[_date] = None
+
+
+def _group_row(db: Session, g: TenantGroup) -> dict:
+    from datetime import date as _d
+    from app.core.subscription import _state_from_tier
+
+    campuses = db.execute(
+        select(Tenant)
+        .where(Tenant.group_id == g.id, Tenant.deleted_at.is_(None))
+        .order_by(Tenant.name.asc())
+    ).scalars().all()
+    state = _state_from_tier(
+        db, plan_code=g.plan_code, period_end=g.period_end, status=None, today=_d.today()
+    )
+    return {
+        "id": str(g.id),
+        "name": g.name,
+        "slug": g.slug,
+        "billing_email": g.billing_email,
+        "primary_contact": g.primary_contact,
+        "plan_code": state.plan_code,
+        "plan_name": state.plan_name,
+        "state": state.state,
+        "period_end": g.period_end.isoformat() if g.period_end else None,
+        "grace_until": state.grace_until.isoformat() if state.grace_until else None,
+        "campus_count": len(campuses),
+        "campuses": [
+            {"id": str(c.id), "name": c.name, "slug": c.slug} for c in campuses
+        ],
+    }
+
+
+@router.get("/tenant-groups")
+def list_tenant_groups(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    groups = db.execute(
+        select(TenantGroup).order_by(TenantGroup.name.asc())
+    ).scalars().all()
+    return [_group_row(db, g) for g in groups]
+
+
+@router.post("/tenant-groups", status_code=201)
+def create_tenant_group(
+    payload: TenantGroupCreate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    slug = payload.slug.strip().lower()
+    if db.execute(select(TenantGroup.id).where(TenantGroup.slug == slug)).first():
+        raise HTTPException(status_code=409, detail=f"A group '{slug}' already exists.")
+    group = TenantGroup(
+        name=payload.name.strip(),
+        slug=slug,
+        billing_email=(payload.billing_email or None),
+        primary_contact=(payload.primary_contact or None),
+    )
+    db.add(group)
+    db.commit()
+    db.refresh(group)
+    return _group_row(db, group)
+
+
+@router.patch("/tenant-groups/{group_id}")
+def update_tenant_group(
+    group_id: UUID,
+    payload: TenantGroupUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    from app.core.subscription_gate import invalidate_subscription_cache
+
+    group = db.get(TenantGroup, group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Tenant group not found.")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "plan_code" in data:
+        code = (data["plan_code"] or "").strip().lower() or None
+        if code and not db.execute(
+            select(SubscriptionPlan.id).where(SubscriptionPlan.code == code)
+        ).first():
+            raise HTTPException(status_code=404, detail=f"Plan '{code}' not found.")
+        group.plan_code = code
+    for field in ("name", "billing_email", "primary_contact", "period_end"):
+        if field in data:
+            setattr(group, field, data[field])
+    group.updated_at = _datetime.now(_timezone.utc)
+    db.commit()
+    db.refresh(group)
+
+    # Tier/expiry change cascades to every campus — clear all cached state.
+    invalidate_subscription_cache()
+    return _group_row(db, group)
+
+
+@router.delete("/tenant-groups/{group_id}")
+def delete_tenant_group(
+    group_id: UUID,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    from app.core.subscription_gate import invalidate_subscription_cache
+
+    group = db.get(TenantGroup, group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Tenant group not found.")
+    # Campuses are detached automatically (FK ON DELETE SET NULL).
+    db.delete(group)
+    db.commit()
+    invalidate_subscription_cache()
+    return {"ok": True}
+
+
+@router.post("/tenant-groups/{group_id}/campuses/{tenant_id}")
+def attach_campus(
+    group_id: UUID,
+    tenant_id: UUID,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    from app.core.subscription_gate import invalidate_subscription_cache
+
+    group = db.get(TenantGroup, group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Tenant group not found.")
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None or getattr(tenant, "deleted_at", None) is not None:
+        raise HTTPException(status_code=404, detail="Tenant not found.")
+    tenant.group_id = group.id
+    db.commit()
+    invalidate_subscription_cache(tenant_id)
+    return _group_row(db, group)
+
+
+@router.delete("/tenant-groups/{group_id}/campuses/{tenant_id}")
+def detach_campus(
+    group_id: UUID,
+    tenant_id: UUID,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    from app.core.subscription_gate import invalidate_subscription_cache
+
+    group = db.get(TenantGroup, group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Tenant group not found.")
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found.")
+    if tenant.group_id == group.id:
+        tenant.group_id = None
+        db.commit()
+        invalidate_subscription_cache(tenant_id)
+    return _group_row(db, group)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

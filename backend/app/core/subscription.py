@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.core.modules import ALL_MODULES, effective_modules
 from app.models.subscription import Subscription, SubscriptionPlan
+from app.models.tenant import Tenant
+from app.models.tenant_group import TenantGroup
 
 # ── Lifecycle states ──────────────────────────────────────────────────────────
 STATE_ACTIVE = "active"   # within the paid period
@@ -56,83 +58,53 @@ class SubscriptionState:
         }
 
 
-def resolve_subscription_state(
+def _grandfathered(
+    *, period_end: Optional[date] = None, status: Optional[str] = None
+) -> SubscriptionState:
+    """Full access — no tier assigned. Gating only applies once a tier is set."""
+    return SubscriptionState(
+        state=STATE_ACTIVE,
+        plan_code=None,
+        plan_name=None,
+        modules=frozenset(ALL_MODULES),
+        status=status,
+        period_end=period_end,
+        grace_until=None,
+        grace_days=_DEFAULT_GRACE_DAYS,
+    )
+
+
+def _state_from_tier(
     db: Session,
     *,
-    tenant_id: UUID,
-    today: Optional[date] = None,
+    plan_code: Optional[str],
+    period_end: Optional[date],
+    status: Optional[str],
+    today: date,
 ) -> SubscriptionState:
-    """Resolve a tenant's current subscription state and effective modules."""
-    today = today or date.today()
-
-    # The effective subscription is the one running latest — a renewal adds a
-    # new row with a later period_end.
-    sub = db.execute(
-        select(Subscription)
-        .where(Subscription.tenant_id == tenant_id)
-        .order_by(
-            Subscription.period_end.desc().nullslast(),
-            Subscription.created_at.desc(),
-        )
-    ).scalars().first()
-
-    if sub is None:
-        # No subscription on file — grandfather the tenant to full access.
-        # Gating only takes effect once a super-admin assigns a plan, so
-        # existing tenants and tenants mid-onboarding are never disrupted.
-        return SubscriptionState(
-            state=STATE_ACTIVE,
-            plan_code=None,
-            plan_name=None,
-            modules=frozenset(ALL_MODULES),
-            status=None,
-            period_end=None,
-            grace_until=None,
-            grace_days=_DEFAULT_GRACE_DAYS,
-        )
-
-    plan_code = str(getattr(sub, "plan_code", None) or "").strip()
+    """Resolve state from a tier code + expiry. An unknown/blank tier code
+    means no gating — the subject is grandfathered to full access."""
+    code = str(plan_code or "").strip()
     plan = (
         db.execute(
-            select(SubscriptionPlan).where(SubscriptionPlan.code == plan_code)
+            select(SubscriptionPlan).where(SubscriptionPlan.code == code)
         ).scalar_one_or_none()
-        if plan_code
+        if code
         else None
     )
-
     if plan is None:
-        # Subscription exists for billing but no tier is assigned — gating
-        # only takes effect once a super-admin assigns a plan tier. Until
-        # then the tenant keeps full access.
-        return SubscriptionState(
-            state=STATE_ACTIVE,
-            plan_code=None,
-            plan_name=None,
-            modules=frozenset(ALL_MODULES),
-            status=str(getattr(sub, "status", "") or "").lower() or None,
-            period_end=getattr(sub, "period_end", None),
-            grace_until=None,
-            grace_days=_DEFAULT_GRACE_DAYS,
-        )
+        return _grandfathered(period_end=period_end, status=str(status or "").lower() or None)
 
-    plan_modules = list(plan.modules) if plan and isinstance(plan.modules, list) else []
+    plan_modules = list(plan.modules) if isinstance(plan.modules, list) else []
     modules = frozenset(effective_modules(plan_modules))
-    grace_days = (
-        int(plan.grace_days)
-        if plan and plan.grace_days is not None
-        else _DEFAULT_GRACE_DAYS
-    )
-
-    status = str(getattr(sub, "status", "") or "").lower()
-    period_end: Optional[date] = getattr(sub, "period_end", None)
+    grace_days = int(plan.grace_days) if plan.grace_days is not None else _DEFAULT_GRACE_DAYS
     grace_until = period_end + timedelta(days=grace_days) if period_end else None
 
-    # Explicit admin states override the date logic.
-    if status in ("cancelled", "paused"):
+    st = str(status or "").lower()
+    if st in ("cancelled", "paused"):
         state = STATE_LOCKED
     elif period_end is None:
-        # Open-ended subscription (no expiry set) — treated as active.
-        state = STATE_ACTIVE
+        state = STATE_ACTIVE  # open-ended — no expiry set
     elif today <= period_end:
         state = STATE_ACTIVE
     elif grace_until is not None and today <= grace_until:
@@ -142,11 +114,61 @@ def resolve_subscription_state(
 
     return SubscriptionState(
         state=state,
-        plan_code=(plan.code if plan else sub.plan),
-        plan_name=(plan.name if plan else sub.plan),
+        plan_code=plan.code,
+        plan_name=plan.name,
         modules=modules,
-        status=status or None,
+        status=st or None,
         period_end=period_end,
         grace_until=grace_until,
         grace_days=grace_days,
+    )
+
+
+def resolve_subscription_state(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    today: Optional[date] = None,
+) -> SubscriptionState:
+    """Resolve a tenant's current subscription state and effective modules.
+
+    A campus (tenant in a group) inherits the group's shared tier; a
+    standalone tenant uses its own subscription.
+    """
+    today = today or date.today()
+
+    tenant = db.get(Tenant, tenant_id)
+    group_id = getattr(tenant, "group_id", None) if tenant is not None else None
+
+    # ── Campus of a group — inherits the group's shared tier ──────────────────
+    if group_id is not None:
+        group = db.get(TenantGroup, group_id)
+        if group is not None and str(getattr(group, "plan_code", "") or "").strip():
+            return _state_from_tier(
+                db,
+                plan_code=group.plan_code,
+                period_end=group.period_end,
+                status=None,
+                today=today,
+            )
+        return _grandfathered()  # group has no tier yet
+
+    # ── Standalone tenant — its own latest subscription ──────────────────────
+    sub = db.execute(
+        select(Subscription)
+        .where(Subscription.tenant_id == tenant_id)
+        .order_by(
+            Subscription.period_end.desc().nullslast(),
+            Subscription.created_at.desc(),
+        )
+    ).scalars().first()
+    if sub is None:
+        return _grandfathered()
+
+    return _state_from_tier(
+        db,
+        plan_code=getattr(sub, "plan_code", None),
+        period_end=getattr(sub, "period_end", None),
+        status=getattr(sub, "status", None),
+        today=today,
     )

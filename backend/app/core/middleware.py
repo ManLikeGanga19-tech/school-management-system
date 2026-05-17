@@ -93,6 +93,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
             return True
         if path.startswith("/api/v1/admin/tenant-plans"):
             return True
+        if path.startswith("/api/v1/admin/tenant-groups"):
+            return True
         if path.startswith("/api/v1/admin/audit"):
             return True
         if path.startswith("/api/v1/admin/rbac"):
