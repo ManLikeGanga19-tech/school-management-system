@@ -160,26 +160,30 @@ def _primary_invoice_no(doc: dict[str, Any]) -> str:
     return "—"
 
 
-def _all_fee_lines(doc: dict[str, Any]) -> list[tuple[str, str]]:
-    """Return [(description, amount), ...] from invoice lines across all allocations."""
+def _payment_lines(doc: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return [(description, amount), ...] — one row per payment allocation.
+
+    A receipt confirms what was *paid*, not the full fee breakdown of an
+    invoice. Each row is the amount applied to a specific invoice, so the
+    rows always sum to the payment total (never the invoice total).
+    """
     rows: list[tuple[str, str]] = []
     for alloc in doc.get("allocations") or []:
         if not isinstance(alloc, dict):
             continue
-        lines = alloc.get("lines") or []
-        if lines:
-            for line in lines:
-                if isinstance(line, dict):
-                    rows.append((
-                        str(line.get("description") or ""),
-                        str(line.get("amount") or "0"),
-                    ))
+        inv = str(alloc.get("invoice_no") or "").strip()
+        student = str(alloc.get("student_name") or "").strip()
+        if student and student.lower() == "unknown student":
+            student = ""
+        if inv and student:
+            desc = f"Payment for Invoice {inv} ({student})"
+        elif inv:
+            desc = f"Payment for Invoice {inv}"
+        elif student:
+            desc = f"Payment for {student}"
         else:
-            # fallback: use the allocation itself labelled by student
-            rows.append((
-                f"Payment — {alloc.get('student_name') or 'Student'}",
-                str(alloc.get("amount") or "0"),
-            ))
+            desc = "Payment received"
+        rows.append((desc, str(alloc.get("amount") or "0")))
     return rows
 
 
@@ -315,7 +319,7 @@ def _generate_a4_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
     # ── Payment Details ────────────────────────────────────────────────────
     story.append(Paragraph("<b>Payment Details</b>", _s("pd_label", size=11, space_after=4)))
 
-    fee_lines = _all_fee_lines(doc)
+    fee_lines = _payment_lines(doc)
     tbl_data = [["Description", "Amount", "Date Paid"]]
     for desc, amt in fee_lines:
         tbl_data.append([desc, _fmt(amt, currency), _date_long(doc.get("received_at"))])
@@ -341,12 +345,32 @@ def _generate_a4_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
         ("ALIGN",       (2, 1), (2, -1), "CENTER"),
     ]))
     story.append(tbl)
-    story.append(Spacer(1, 6 * mm))
+    story.append(Spacer(1, 5 * mm))
+
+    # ── Payment method / reference ─────────────────────────────────────────
+    provider  = str(doc.get("provider") or "").upper() or "—"
+    reference = str(doc.get("reference") or "").strip() or "—"
+    meta_tbl = Table(
+        [
+            ["Payment Method:", provider],
+            ["Reference:", reference],
+        ],
+        colWidths=[usable_w * 0.25, usable_w * 0.75],
+    )
+    meta_tbl.setStyle(TableStyle([
+        ("FONTNAME",      (0, 0), (0, -1),  "Helvetica-Bold"),
+        ("FONTNAME",      (1, 0), (1, -1),  "Helvetica"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 9),
+        ("TOPPADDING",    (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    story.append(meta_tbl)
+    story.append(Spacer(1, 5 * mm))
 
     # ── Total ──────────────────────────────────────────────────────────────
     total_str = f"{currency} {_fmt_plain(doc.get('amount'))}"
     story.append(Paragraph(
-        f"<b>Total Payment: {total_str}</b>",
+        f"<b>Total Amount Paid: {total_str}</b>",
         _s("total", size=14, bold=True, space_after=10),
     ))
     story.append(Spacer(1, 4 * mm))
@@ -485,7 +509,7 @@ def _generate_thermal_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
     story.append(Spacer(1, 1 * mm))
 
     # ── Fee line items ─────────────────────────────────────────────────────
-    fee_lines = _all_fee_lines(doc)
+    fee_lines = _payment_lines(doc)
     total_from_lines = Decimal("0")
     for desc, amt in fee_lines:
         try:
@@ -828,7 +852,7 @@ def generate_thermal_html(doc: dict[str, Any]) -> str:
 
     student_name = _primary_student(doc)
     invoice_no   = _primary_invoice_no(doc)
-    fee_lines    = _all_fee_lines(doc)
+    fee_lines    = _payment_lines(doc)
 
     def _dt(iso: str | None) -> str:
         if not iso:

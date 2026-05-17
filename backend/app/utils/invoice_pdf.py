@@ -156,7 +156,6 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
     school_address  = str(profile.get("physical_address") or "")
     school_phone    = str(profile.get("phone") or "")
     school_email    = str(profile.get("email") or "")
-    receipt_footer  = str(profile.get("receipt_footer") or "")
     sig_name        = str(profile.get("authorized_signatory_name") or "")
     sig_title       = str(profile.get("authorized_signatory_title") or "Authorized Signatory")
 
@@ -413,14 +412,6 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
             y -= 11
         txt(ML, y, sig_title, size=8)
         y -= 14
-
-    if receipt_footer:
-        for chunk in _wrap_text(receipt_footer, int(UW / 5.0)):
-            txt(ML, y, chunk, size=8)
-            y -= 11
-        y -= 4
-
-    txt(ML, y, "This is a computer-generated document. No physical signature required.", size=7)
 
     # ── BUILD PDF ─────────────────────────────────────────────────────────────
     stream_content = "\n".join(stream_lines).encode("latin-1", errors="replace")
