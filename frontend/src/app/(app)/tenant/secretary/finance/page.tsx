@@ -2129,7 +2129,7 @@ function SecretaryFinancePageContent() {
                       <TableHead className="text-xs text-right">Total</TableHead>
                       <TableHead className="text-xs text-right">Paid</TableHead>
                       <TableHead className="text-xs text-right">Balance</TableHead>
-                      <TableHead className="text-xs text-right">PDF</TableHead>
+                      <TableHead className="text-xs text-right">Print / PDF</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2166,22 +2166,39 @@ function SecretaryFinancePageContent() {
                             {formatAmount(invoice.balance_amount)}
                           </TableCell>
                           <TableCell className="text-right">
-                            <button
-                              title="Download invoice PDF"
-                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
-                              onClick={() => {
-                                const name = enrollment
-                                  ? enrollmentName(enrollment.payload || {})
-                                  : "invoice";
-                                void api.downloadFile(
-                                  `/finance/documents/invoices/${invoice.id}/pdf`,
-                                  `${name.replace(/\s+/g, "_")}_invoice.pdf`,
-                                  { tenantRequired: true }
-                                ).catch(() => toast.error("Failed to download invoice PDF."));
-                              }}
-                            >
-                              <FileDown className="h-3.5 w-3.5" />
-                            </button>
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                title="Open invoice PDF in new tab"
+                                className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+                                onClick={() => {
+                                  void apiFetchRaw(`/finance/documents/invoices/${invoice.id}/pdf`, { method: "GET", tenantRequired: true })
+                                    .then((res) => res.blob())
+                                    .then((blob) => {
+                                      const tab = window.open(URL.createObjectURL(blob), "_blank");
+                                      if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");
+                                    })
+                                    .catch(() => toast.error("Failed to open invoice PDF."));
+                                }}
+                              >
+                                <Printer className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                title="Download invoice PDF"
+                                className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+                                onClick={() => {
+                                  const name = enrollment
+                                    ? enrollmentName(enrollment.payload || {})
+                                    : "invoice";
+                                  void api.downloadFile(
+                                    `/finance/documents/invoices/${invoice.id}/pdf`,
+                                    `${name.replace(/\s+/g, "_")}_invoice.pdf`,
+                                    { tenantRequired: true }
+                                  ).catch(() => toast.error("Failed to download invoice PDF."));
+                                }}
+                              >
+                                <FileDown className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -2489,7 +2506,7 @@ function SecretaryFinancePageContent() {
                       <TableHead className="text-xs">Status</TableHead>
                       <TableHead className="text-xs text-right">Total</TableHead>
                       <TableHead className="text-xs text-right">Paid</TableHead>
-                      <TableHead className="text-xs text-right">PDF</TableHead>
+                      <TableHead className="text-xs text-right">Print / PDF</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2515,22 +2532,39 @@ function SecretaryFinancePageContent() {
                             {formatAmount(invoice.paid_amount)}
                           </TableCell>
                           <TableCell className="text-right">
-                            <button
-                              title="Download invoice PDF"
-                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
-                              onClick={() => {
-                                const name = enrollment
-                                  ? enrollmentName(enrollment.payload || {})
-                                  : "invoice";
-                                void api.downloadFile(
-                                  `/finance/documents/invoices/${invoice.id}/pdf`,
-                                  `${name.replace(/\s+/g, "_")}_invoice.pdf`,
-                                  { tenantRequired: true }
-                                ).catch(() => toast.error("Failed to download invoice PDF."));
-                              }}
-                            >
-                              <FileDown className="h-3.5 w-3.5" />
-                            </button>
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                title="Open invoice PDF in new tab"
+                                className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+                                onClick={() => {
+                                  void apiFetchRaw(`/finance/documents/invoices/${invoice.id}/pdf`, { method: "GET", tenantRequired: true })
+                                    .then((res) => res.blob())
+                                    .then((blob) => {
+                                      const tab = window.open(URL.createObjectURL(blob), "_blank");
+                                      if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");
+                                    })
+                                    .catch(() => toast.error("Failed to open invoice PDF."));
+                                }}
+                              >
+                                <Printer className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                title="Download invoice PDF"
+                                className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+                                onClick={() => {
+                                  const name = enrollment
+                                    ? enrollmentName(enrollment.payload || {})
+                                    : "invoice";
+                                  void api.downloadFile(
+                                    `/finance/documents/invoices/${invoice.id}/pdf`,
+                                    `${name.replace(/\s+/g, "_")}_invoice.pdf`,
+                                    { tenantRequired: true }
+                                  ).catch(() => toast.error("Failed to download invoice PDF."));
+                                }}
+                              >
+                                <FileDown className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -2560,7 +2594,7 @@ function SecretaryFinancePageContent() {
                       <TableHead className="text-xs">Reference</TableHead>
                       <TableHead className="text-xs text-right">Amount</TableHead>
                       <TableHead className="text-xs">Invoices</TableHead>
-                      <TableHead className="text-xs text-right">PDF</TableHead>
+                      <TableHead className="text-xs text-right">Print / PDF</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { secretaryNav } from "@/components/layout/nav-config";
-import { api } from "@/lib/api";
+import { api, apiFetchRaw } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -30,11 +30,13 @@ import {
   Copy,
   Edit2,
   ExternalLink,
+  FileDown,
   KeyRound,
   Link2,
   Link2Off,
   Loader2,
   MessageSquare,
+  Printer,
   RefreshCw,
   Search,
   Trash2,
@@ -401,6 +403,7 @@ function RecordPaymentModal({
   const [receivedAmount, setReceivedAmount] = useState("");
   const [manualAmounts, setManualAmounts] = useState<Record<string, string>>({});
   const [recording, setRecording] = useState(false);
+  const [lastPayment, setLastPayment] = useState<{ payment_id: string; receipt_no: string } | null>(null);
 
   const toNum = (v: string | number | undefined | null) => Number(v || 0);
   const fmtKes = (v: string | number) =>
@@ -457,14 +460,14 @@ function RecordPaymentModal({
         totalAmt = manualTotal;
       }
 
-      await api.post(
+      const result = await api.post<{ payment_id: string; receipt_no: string }>(
         `/parents/${parentId}/payments`,
         { provider, reference: reference.trim() || null, amount: totalAmt, allocations },
         { tenantRequired: true }
       );
       toast.success("Payment recorded successfully");
       onSaved();
-      onClose();
+      setLastPayment(result);
     } catch (e: unknown) {
       toast.error((e as { message?: string })?.message || "Failed to record payment");
     } finally { setRecording(false); }
@@ -630,13 +633,56 @@ function RecordPaymentModal({
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-3 border-t border-slate-100 px-5 py-4 shrink-0">
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
-          <button onClick={() => void handleRecord()} disabled={recording || !canSubmit}
-            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
-            {recording && <Loader2 className="h-4 w-4 animate-spin" />} Record Payment
-          </button>
-        </div>
+        {lastPayment ? (
+          <div className="border-t border-emerald-100 bg-emerald-50 px-5 py-4 shrink-0 space-y-3">
+            <p className="text-sm font-semibold text-emerald-800">
+              Payment recorded · Receipt {lastPayment.receipt_no}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  void apiFetchRaw(`/finance/documents/payments/${lastPayment.payment_id}/thermal`, { method: "GET", tenantRequired: true })
+                    .then((res) => res.text())
+                    .then((html) => {
+                      const blob = new Blob([html], { type: "text/html" });
+                      const tab = window.open(URL.createObjectURL(blob), "_blank");
+                      if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");
+                    })
+                    .catch(() => toast.error("Failed to open thermal receipt."));
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+              >
+                <Printer className="h-3.5 w-3.5" /> Thermal Print
+              </button>
+              <button
+                onClick={() => {
+                  void api.downloadFile(
+                    `/finance/documents/payments/${lastPayment.payment_id}/pdf`,
+                    `receipt_${lastPayment.receipt_no}.pdf`,
+                    { tenantRequired: true }
+                  ).catch(() => toast.error("Failed to download receipt."));
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+              >
+                <FileDown className="h-3.5 w-3.5" /> A4 Receipt PDF
+              </button>
+              <button
+                onClick={onClose}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-end gap-3 border-t border-slate-100 px-5 py-4 shrink-0">
+            <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+            <button onClick={() => void handleRecord()} disabled={recording || !canSubmit}
+              className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+              {recording && <Loader2 className="h-4 w-4 animate-spin" />} Record Payment
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1173,6 +1219,7 @@ function ParentDetailView({
                         <TableHead className="text-xs">Student</TableHead>
                         <TableHead className="text-xs">Type</TableHead>
                         <TableHead className="text-xs text-right">Balance</TableHead>
+                        <TableHead className="text-xs text-right w-8"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1187,10 +1234,25 @@ function ParentDetailView({
                           <TableCell className="text-right text-sm font-bold text-red-600">
                             {fmtKes(inv.balance_amount)}
                           </TableCell>
+                          <TableCell className="text-right">
+                            <button
+                              title="Download invoice PDF"
+                              onClick={() => {
+                                void api.downloadFile(
+                                  `/finance/documents/invoices/${inv.invoice_id}/pdf`,
+                                  `invoice_${inv.student_name.replace(/\s+/g, "_")}.pdf`,
+                                  { tenantRequired: true }
+                                ).catch(() => toast.error("Failed to download invoice PDF."));
+                              }}
+                              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+                            >
+                              <FileDown className="h-3.5 w-3.5" />
+                            </button>
+                          </TableCell>
                         </TableRow>
                       ))}
                       <TableRow>
-                        <TableCell colSpan={2} className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Total</TableCell>
+                        <TableCell colSpan={3} className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Total</TableCell>
                         <TableCell className="text-right text-sm font-bold text-red-700">
                           {fmtKes(invoices.reduce((s, i) => s + toNum(i.balance_amount), 0))}
                         </TableCell>
