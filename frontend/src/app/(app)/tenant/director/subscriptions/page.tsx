@@ -38,6 +38,29 @@ import {
   Zap,
   ArrowUpRight,
 } from "lucide-react";
+import { useSubscription } from "@/lib/auth/useSubscription";
+
+// Friendly labels for the module codes returned by /tenants/subscription.
+const MODULE_LABELS: Record<string, string> = {
+  dashboard: "Dashboard",
+  students: "Students",
+  enrollments: "Enrollments",
+  finance: "Finance",
+  school_setup: "School Setup",
+  parents: "Parents",
+  notifications: "Notifications",
+  users: "Users",
+  rbac: "Roles & Permissions",
+  audit: "Audit Logs",
+  exams: "Exams",
+  cbc: "CBC Assessments",
+  igcse: "IGCSE",
+  discipline: "Discipline",
+  events: "Events",
+  messaging: "Messaging (SMS)",
+  hr: "HR & Payroll",
+  analytics: "Analytics",
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -250,6 +273,9 @@ export default function DirectorSubscriptionsPage() {
   const [paymentResultDesc, setPaymentResultDesc] = useState<string | null>(null);
   const [paymentConfirmedAt, setPaymentConfirmedAt] = useState<string | null>(null);
 
+  // Tier + module state assigned from the super-admin dashboard.
+  const { subscription: tier } = useSubscription();
+
   const SUB_ENDPOINT         = "/finance/subscription";
   const SUB_PAYMENTS_ENDPOINT = "/finance/subscription/payments";
   const SUB_PAY_ENDPOINT     = "/finance/subscription/pay";
@@ -386,7 +412,7 @@ export default function DirectorSubscriptionsPage() {
               Pay via M-Pesa
             </DialogTitle>
             <DialogDescription>
-              {sub?.plan} Plan ·{" "}
+              {tier?.plan_name || sub?.plan} Plan ·{" "}
               {sub?.billing_cycle === "per_term" ? "Per Term Payment" : "Annual Payment"}
             </DialogDescription>
           </DialogHeader>
@@ -735,7 +761,9 @@ export default function DirectorSubscriptionsPage() {
                         </span>
                       )}
                     </div>
-                    <div className="mt-2 text-2xl font-bold text-white">{sub.plan} Plan</div>
+                    <div className="mt-2 text-2xl font-bold text-white">
+                      {tier?.plan_name || sub.plan} Plan
+                    </div>
                     <div className="mt-1 flex items-center gap-1.5 text-sm text-slate-400">
                       <CycleIcon className="h-3.5 w-3.5" />
                       {sub.billing_cycle === "per_term"
@@ -825,6 +853,58 @@ export default function DirectorSubscriptionsPage() {
                   </Button>
                 )}
               </div>
+            </div>
+
+            {/* ── Plan tier & unlocked modules (set by the platform admin) ── */}
+            <SectionLabel>Plan &amp; Modules</SectionLabel>
+
+            <div className="dashboard-surface rounded-[1.6rem] p-6">
+              {tier && tier.plan_code ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-lg font-bold text-slate-800">
+                      {tier.plan_name} tier
+                    </span>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ring-1 ring-inset ${
+                        tier.state === "active"
+                          ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                          : tier.state === "grace"
+                            ? "bg-amber-50 text-amber-700 ring-amber-200"
+                            : "bg-red-50 text-red-700 ring-red-200"
+                      }`}
+                    >
+                      {tier.state}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {tier.state === "locked"
+                      ? "Your subscription has expired — the system is read-only until you renew."
+                      : tier.state === "grace"
+                        ? `Subscription expired — renew before ${tier.grace_until ?? "the grace period ends"} to avoid a read-only lockout.`
+                        : "These modules are unlocked for your school under the current plan."}
+                  </p>
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {tier.modules.map((m) => (
+                      <div
+                        key={m}
+                        className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                      >
+                        <CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" />
+                        {MODULE_LABELS[m] ?? m}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-3 text-sm text-slate-500">
+                  <ShieldCheck className="h-5 w-5 shrink-0 text-slate-400" />
+                  <span>
+                    Your school currently has full access to every module — no tier
+                    restriction has been applied by the platform administrator.
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* ── Billing cycle cards ── */}

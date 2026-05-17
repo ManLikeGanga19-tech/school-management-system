@@ -42,6 +42,30 @@ function normalize(d: Partial<SubscriptionState> | null | undefined): Subscripti
   };
 }
 
+// Persist the last known state so a hard page reload renders the gated nav
+// correctly on the first paint — no flash of locked modules before the
+// /tenants/subscription fetch resolves.
+const STORAGE_KEY = "sms_subscription_state";
+
+function readStored(): SubscriptionState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    return raw ? normalize(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(s: SubscriptionState): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  } catch {
+    /* storage full / unavailable — non-fatal */
+  }
+}
+
 async function fetchSubscription(): Promise<SubscriptionState | null> {
   if (cache) return cache;
   if (!inflight) {
@@ -49,6 +73,7 @@ async function fetchSubscription(): Promise<SubscriptionState | null> {
       .get<Partial<SubscriptionState>>("/tenants/subscription", { tenantRequired: true })
       .then((d) => {
         cache = normalize(d);
+        writeStored(cache);
         return cache;
       })
       .catch(() => {
@@ -63,32 +88,39 @@ async function fetchSubscription(): Promise<SubscriptionState | null> {
 export function resetSubscriptionCache(): void {
   cache = null;
   inflight = null;
+  if (typeof window !== "undefined") {
+    try {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export function useSubscription() {
-  const [sub, setSub] = useState<SubscriptionState | null>(cache);
-  const [status, setStatus] = useState<LoadStatus>(cache ? "ready" : "loading");
+  // Boot from in-memory cache, else the persisted snapshot — so gating is
+  // applied from the very first render and never flashes.
+  const [boot] = useState<SubscriptionState | null>(() => cache ?? readStored());
+  const [sub, setSub] = useState<SubscriptionState | null>(boot);
+  const [status, setStatus] = useState<LoadStatus>(boot ? "ready" : "loading");
 
   useEffect(() => {
-    if (cache) {
-      setSub(cache);
-      setStatus("ready");
-      return;
-    }
     let active = true;
+    // Always refresh in the background; the snapshot keeps the UI stable
+    // until the live state arrives.
     void fetchSubscription().then((d) => {
       if (!active) return;
       if (d) {
         setSub(d);
         setStatus("ready");
-      } else {
+      } else if (!boot) {
         setStatus("error");
       }
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [boot]);
 
   const ready = status === "ready" && sub !== null;
 
