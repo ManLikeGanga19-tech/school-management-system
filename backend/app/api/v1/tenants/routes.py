@@ -3230,12 +3230,19 @@ def _query_tenant_exam_marks(
 # ---------------------------------------------------------------------
 
 @router.get("/whoami")
-def whoami(tenant=Depends(get_tenant)):
+def whoami(
+    request: Request,
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
     return {
         "tenant_id": str(tenant.id),
         "tenant_slug": tenant.slug,
         "tenant_name": tenant.name,
         "curriculum_type": getattr(tenant, "curriculum_type", "CBC") or "CBC",
+        # RBAC context for the current user — drives UI permission gating.
+        "roles": sorted(_request_roles(request)),
+        "permissions": sorted(_request_permissions(request)),
     }
 
 

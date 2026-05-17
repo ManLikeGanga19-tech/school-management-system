@@ -5,6 +5,7 @@ import { GraduationCap, Plus, Pencil, Trash2, RefreshCw, Users, ChevronDown, Che
 
 import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
+import { usePermissions } from "@/lib/auth/usePermissions";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -224,7 +225,8 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
     role === "secretary"
       ? "/tenants/secretary/finance/setup"
       : "/tenants/director/finance/setup";
-  const readonly = role === "director";
+  const { has } = usePermissions();
+  const readonly = !has("finance.scholarships.manage");
 
   const [scholarships, setScholarships] = useState<Scholarship[]>([]);
   const [loading, setLoading] = useState(true);

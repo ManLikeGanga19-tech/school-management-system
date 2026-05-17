@@ -5,6 +5,7 @@ import { CreditCard, RefreshCw, Save } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
+import { usePermissions } from "@/lib/auth/usePermissions";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -84,7 +85,8 @@ function Field({
 }
 
 export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
-  const canManage = role === "director";
+  const { has } = usePermissions();
+  const canManage = has("finance.policy.manage");
 
   const [form, setForm] = useState<PaymentSettings>({});
   const [loading, setLoading] = useState(true);

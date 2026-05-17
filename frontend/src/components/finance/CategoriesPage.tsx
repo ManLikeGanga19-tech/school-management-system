@@ -5,6 +5,7 @@ import { Layers, Tag, Plus, Pencil, Trash2, RefreshCw, Rocket, CheckCircle2, Cli
 
 import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
+import { usePermissions } from "@/lib/auth/usePermissions";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,7 +90,9 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
     role === "secretary"
       ? "/tenants/secretary/finance/setup"
       : "/tenants/director/finance/setup";
-  const readonly = role === "director";
+  // Gate edits on the actual permission, not the role the page tree assumes.
+  const { has } = usePermissions();
+  const readonly = !has("finance.fees.manage");
 
   const [categories, setCategories] = useState<FeeCategory[]>([]);
   const [items, setItems] = useState<FeeItem[]>([]);

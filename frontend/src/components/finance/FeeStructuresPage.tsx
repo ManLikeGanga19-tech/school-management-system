@@ -15,6 +15,7 @@ import {
 
 import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
+import { usePermissions } from "@/lib/auth/usePermissions";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -116,7 +117,8 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
     role === "secretary"
       ? "/tenants/secretary/finance/setup"
       : "/tenants/director/finance/setup";
-  const canManage = role === "secretary";
+  const { has } = usePermissions();
+  const canManage = has("finance.fees.manage");
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const [structures, setStructures] = useState<FeeStructure[]>([]);
