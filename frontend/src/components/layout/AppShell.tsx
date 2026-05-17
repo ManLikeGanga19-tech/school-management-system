@@ -76,6 +76,8 @@ import { api, apiFetchRaw } from "@/lib/api";
 import { logout as authLogout } from "@/lib/auth/auth";
 import { TENANT_BRANDING_UPDATED_EVENT } from "@/lib/tenant-branding";
 import { FloatingSupportWidget } from "@/components/support/FloatingSupportWidget";
+import { SubscriptionBanner } from "@/components/layout/SubscriptionBanner";
+import { useSubscription } from "@/lib/auth/useSubscription";
 
 type AppNavLink = {
   href: string;
@@ -85,6 +87,8 @@ type AppNavLink = {
   badgeKey?: AppBadgeKey;
   /** If set, only show this item when the tenant's curriculum_type matches one of these values */
   curriculumGate?: string[];
+  /** If set, only show this item when the tenant's subscription plan unlocks this module */
+  moduleKey?: string;
 };
 
 export type AppNavItem = AppNavLink & {
@@ -483,13 +487,31 @@ export function AppShell({
     };
   }, [sidebarBadgeUrl, revokeObjectUrl]);
 
+  const { subscription, ready: subReady } = useSubscription();
+  const subModules = subscription?.modules;
+
   const filteredNav = useMemo(() => {
-    if (!curriculumType) return nav; // Not yet loaded — show all
     return nav.filter((item) => {
-      if (!item.curriculumGate) return true;
-      return item.curriculumGate.includes(curriculumType);
+      // Curriculum gate (only applies once curriculum_type is known).
+      if (
+        curriculumType &&
+        item.curriculumGate &&
+        !item.curriculumGate.includes(curriculumType)
+      ) {
+        return false;
+      }
+      // Subscription module gate — fail-open until the state is loaded.
+      if (
+        item.moduleKey &&
+        subReady &&
+        subModules &&
+        !subModules.includes(item.moduleKey)
+      ) {
+        return false;
+      }
+      return true;
     });
-  }, [nav, curriculumType]);
+  }, [nav, curriculumType, subReady, subModules]);
 
   const requestedBadgeKeys = useMemo(() => {
     const keys = new Set<AppBadgeKey>();
@@ -1007,7 +1029,10 @@ export function AppShell({
 
 
       <main className="min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(252,251,247,0.96))] px-3 py-4 sm:px-4 md:ml-[260px] md:px-6 md:py-6">
-        <div className="mx-auto w-full max-w-6xl">{children}</div>
+        <div className="mx-auto w-full max-w-6xl">
+          <SubscriptionBanner />
+          {children}
+        </div>
       </main>
 
       <FloatingSupportWidget

@@ -240,7 +240,7 @@ export const directorNav: AppNavItem[] = [
   },
   {
     href: directorExamsHref("setup"),
-    label: "Exams",
+    label: "Exams", moduleKey: "exams",
     icon: "CalendarDays",
     curriculumGate: ["8-4-4"],
     children: [
@@ -253,7 +253,7 @@ export const directorNav: AppNavItem[] = [
   },
   {
     href: directorCbcHref("assessments"),
-    label: "CBC",
+    label: "CBC", moduleKey: "cbc",
     icon: "BookOpenCheck",
     curriculumGate: ["CBC"],
     children: [
@@ -264,7 +264,7 @@ export const directorNav: AppNavItem[] = [
   },
   {
     href: directorIgcseHref("assessments"),
-    label: "IGCSE",
+    label: "IGCSE", moduleKey: "igcse",
     icon: "BookOpenCheck",
     curriculumGate: ["IGCSE"],
     children: [
@@ -275,7 +275,7 @@ export const directorNav: AppNavItem[] = [
   },
   {
     href: directorDisciplineHref("incidents"),
-    label: "Discipline",
+    label: "Discipline", moduleKey: "discipline",
     icon: "Shield",
     children: [
       { href: directorDisciplineHref("incidents"), label: "Incidents", icon: "ClipboardList" },
@@ -284,12 +284,12 @@ export const directorNav: AppNavItem[] = [
   },
   {
     href: directorEventsHref(),
-    label: "Events",
+    label: "Events", moduleKey: "events",
     icon: "CalendarDays",
   },
   {
     href: directorSmsHref("send"),
-    label: "Messages",
+    label: "Messages", moduleKey: "messaging",
     icon: "MessageSquare",
     children: [
       { href: directorSmsHref("send"),      label: "Send Message",    icon: "Send" },
@@ -316,7 +316,7 @@ export const directorNav: AppNavItem[] = [
   },
   {
     href: directorHrHref("staff"),
-    label: "HR",
+    label: "HR", moduleKey: "hr",
     icon: "BriefcaseBusiness",
     children: [
       { href: directorHrHref("staff"), label: "Staff Registry", icon: "IdCard" },
@@ -392,7 +392,7 @@ export const secretaryNav: AppNavItem[] = [
   },
   {
     href: secretaryExamsHref("setup"),
-    label: "Exams",
+    label: "Exams", moduleKey: "exams",
     icon: "CalendarDays",
     curriculumGate: ["8-4-4"],
     children: [
@@ -405,7 +405,7 @@ export const secretaryNav: AppNavItem[] = [
   },
   {
     href: secretaryCbcHref("assessments"),
-    label: "CBC",
+    label: "CBC", moduleKey: "cbc",
     icon: "BookOpenCheck",
     curriculumGate: ["CBC"],
     children: [
@@ -416,7 +416,7 @@ export const secretaryNav: AppNavItem[] = [
   },
   {
     href: secretaryIgcseHref("assessments"),
-    label: "IGCSE",
+    label: "IGCSE", moduleKey: "igcse",
     icon: "BookOpenCheck",
     curriculumGate: ["IGCSE"],
     children: [
@@ -427,7 +427,7 @@ export const secretaryNav: AppNavItem[] = [
   },
   {
     href: secretaryDisciplineHref("incidents"),
-    label: "Discipline",
+    label: "Discipline", moduleKey: "discipline",
     icon: "Shield",
     children: [
       { href: secretaryDisciplineHref("incidents"), label: "Incidents", icon: "ClipboardList" },
@@ -436,12 +436,12 @@ export const secretaryNav: AppNavItem[] = [
   },
   {
     href: secretaryEventsHref(),
-    label: "Events",
+    label: "Events", moduleKey: "events",
     icon: "CalendarDays",
   },
   {
     href: secretarySmsHref("send"),
-    label: "Messages",
+    label: "Messages", moduleKey: "messaging",
     icon: "MessageSquare",
     children: [
       { href: secretarySmsHref("send"),      label: "Send Message",    icon: "Send" },
@@ -467,7 +467,7 @@ export const secretaryNav: AppNavItem[] = [
   },
   {
     href: secretaryHrHref("teachers"),
-    label: "HR",
+    label: "HR", moduleKey: "hr",
     icon: "BriefcaseBusiness",
     children: [
       { href: secretaryHrHref("staff"), label: "Staff Registry", icon: "IdCard" },
@@ -501,7 +501,7 @@ export const principalNav: AppNavItem[] = [
   },
   {
     href: principalExamsHref("setup"),
-    label: "Exams",
+    label: "Exams", moduleKey: "exams",
     icon: "CalendarDays",
     children: [
       { href: principalExamsHref("setup"), label: "Exam Setup", icon: "FileSpreadsheet" },
@@ -512,7 +512,7 @@ export const principalNav: AppNavItem[] = [
   },
   {
     href: principalEventsHref(),
-    label: "Events",
+    label: "Events", moduleKey: "events",
     icon: "CalendarDays",
   },
   {
