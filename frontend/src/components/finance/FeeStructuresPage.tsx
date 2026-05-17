@@ -116,7 +116,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
     role === "secretary"
       ? "/tenants/secretary/finance/setup"
       : "/tenants/director/finance/setup";
-  const canManage = true;
+  const canManage = role === "secretary";
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const [structures, setStructures] = useState<FeeStructure[]>([]);
