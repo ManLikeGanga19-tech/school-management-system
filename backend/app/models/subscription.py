@@ -46,7 +46,10 @@ class Subscription(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("core.tenants.id", ondelete="CASCADE"), nullable=False)
-    plan = Column(String(64), nullable=False)
+    plan = Column(String(64), nullable=False)            # billing plan: 'per_term' | 'per_year'
+    # Subscription tier — references subscription_plans.code. Drives module
+    # gating; null means no tier assigned (tenant grandfathered to full access).
+    plan_code = Column(String(64), nullable=True, index=True)
     billing_cycle = Column(String(16), nullable=False)  # 'per_term' | 'full_year'
     status = Column(String(16), nullable=False, server_default=text("'trialing'"))  # 'active' | 'trialing' | 'past_due' | 'cancelled' | 'paused'
     amount_kes = Column(Numeric(12, 2), nullable=False)

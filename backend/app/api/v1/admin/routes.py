@@ -896,6 +896,107 @@ def delete_subscription_plan(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tenant plan assignment — Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TenantPlanAssign(BaseModel):
+    # null / empty clears the tier (tenant reverts to grandfathered full access)
+    plan_code: Optional[str] = Field(default=None, max_length=64)
+    period_end: Optional[_date] = None
+
+
+def _tenant_plan_row(tenant: Tenant, state) -> dict:
+    return {
+        "tenant_id": str(tenant.id),
+        "tenant_name": tenant.name,
+        "tenant_slug": tenant.slug,
+        "plan_code": state.plan_code,
+        "plan_name": state.plan_name,
+        "state": state.state,
+        "period_end": state.period_end.isoformat() if state.period_end else None,
+        "grace_until": state.grace_until.isoformat() if state.grace_until else None,
+    }
+
+
+@router.get("/tenant-plans")
+def list_tenant_plans(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    """Every tenant with its current subscription tier and lifecycle state."""
+    from app.core.subscription import resolve_subscription_state
+
+    tenants = db.execute(
+        select(Tenant).where(Tenant.deleted_at.is_(None)).order_by(Tenant.name.asc())
+    ).scalars().all()
+    return [
+        _tenant_plan_row(t, resolve_subscription_state(db, tenant_id=t.id))
+        for t in tenants
+    ]
+
+
+@router.put("/tenant-plans/{tenant_id}")
+def assign_tenant_plan(
+    tenant_id: UUID,
+    payload: TenantPlanAssign,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    """Assign or change a tenant's subscription tier (and optional expiry).
+
+    Creates a subscription row if the tenant has none. A null plan_code
+    clears the tier — the tenant reverts to full (grandfathered) access.
+    """
+    from app.core.subscription import resolve_subscription_state
+    from app.core.subscription_gate import invalidate_subscription_cache
+
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None or getattr(tenant, "deleted_at", None) is not None:
+        raise HTTPException(status_code=404, detail="Tenant not found.")
+
+    plan_code = (payload.plan_code or "").strip().lower() or None
+    plan = None
+    if plan_code:
+        plan = db.execute(
+            select(SubscriptionPlan).where(SubscriptionPlan.code == plan_code)
+        ).scalar_one_or_none()
+        if plan is None:
+            raise HTTPException(status_code=404, detail=f"Plan '{plan_code}' not found.")
+
+    sub = db.execute(
+        select(Subscription)
+        .where(Subscription.tenant_id == tenant_id)
+        .order_by(
+            Subscription.period_end.desc().nullslast(),
+            Subscription.created_at.desc(),
+        )
+    ).scalars().first()
+
+    if sub is None:
+        sub = Subscription(
+            tenant_id=tenant_id,
+            plan="per_term",
+            billing_cycle="per_term",
+            status="active",
+            amount_kes=float(getattr(plan, "price_kes", 0) or 0) if plan else 0,
+            plan_code=plan_code,
+            period_end=payload.period_end,
+        )
+        db.add(sub)
+    else:
+        sub.plan_code = plan_code
+        if payload.period_end is not None:
+            sub.period_end = payload.period_end
+        sub.updated_at = _datetime.now(_timezone.utc)
+
+    db.commit()
+    invalidate_subscription_cache(tenant_id)
+    _metrics_cache.invalidate()
+
+    return _tenant_plan_row(tenant, resolve_subscription_state(db, tenant_id=tenant_id))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # RBAC: Permissions — Super Admin global
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -91,9 +91,29 @@ def resolve_subscription_state(
             grace_days=_DEFAULT_GRACE_DAYS,
         )
 
-    plan = db.execute(
-        select(SubscriptionPlan).where(SubscriptionPlan.code == sub.plan)
-    ).scalar_one_or_none()
+    plan_code = str(getattr(sub, "plan_code", None) or "").strip()
+    plan = (
+        db.execute(
+            select(SubscriptionPlan).where(SubscriptionPlan.code == plan_code)
+        ).scalar_one_or_none()
+        if plan_code
+        else None
+    )
+
+    if plan is None:
+        # Subscription exists for billing but no tier is assigned — gating
+        # only takes effect once a super-admin assigns a plan tier. Until
+        # then the tenant keeps full access.
+        return SubscriptionState(
+            state=STATE_ACTIVE,
+            plan_code=None,
+            plan_name=None,
+            modules=frozenset(ALL_MODULES),
+            status=str(getattr(sub, "status", "") or "").lower() or None,
+            period_end=getattr(sub, "period_end", None),
+            grace_until=None,
+            grace_days=_DEFAULT_GRACE_DAYS,
+        )
 
     plan_modules = list(plan.modules) if plan and isinstance(plan.modules, list) else []
     modules = frozenset(effective_modules(plan_modules))
