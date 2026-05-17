@@ -12208,7 +12208,10 @@ def secretary_finance(
 
     if can_view_invoices:
         try:
-            rows = finance_service.list_invoices(db, tenant_id=tenant.id)
+            # list_invoices returns a paginated {"items": [...], "meta": {...}}
+            # dict — the dashboard needs every invoice for its aggregates.
+            result = finance_service.list_invoices(db, tenant_id=tenant.id, page_size=2000)
+            rows = result.get("items", []) if isinstance(result, dict) else result
             invoices = [_serialize_invoice(r) for r in rows]
             health["invoices"] = True
         except Exception:
@@ -12325,7 +12328,10 @@ def secretary_finance(
 
     if can_view_payments:
         try:
-            rows = finance_service.list_payments(db, tenant_id=tenant.id)
+            # list_payments returns a paginated {"items": [...], "meta": {...}}
+            # dict — the dashboard needs every payment for its aggregates.
+            result = finance_service.list_payments(db, tenant_id=tenant.id, page_size=2000)
+            rows = result.get("items", []) if isinstance(result, dict) else result
             payments = [_serialize_payment(r) for r in rows if isinstance(r, dict)]
             health["payments"] = True
         except Exception:
