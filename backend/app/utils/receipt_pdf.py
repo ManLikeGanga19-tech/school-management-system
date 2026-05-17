@@ -1061,10 +1061,15 @@ window.onload = function() {{
 
 # ─── Public entrypoint ────────────────────────────────────────────────────────
 
-def generate_receipt_pdf(doc: dict[str, Any]) -> bytes:
-    """Generate an enterprise receipt PDF for a RECEIPT document."""
+def generate_receipt_pdf(doc: dict[str, Any], *, force_a4: bool = False) -> bytes:
+    """Generate an enterprise receipt PDF for a RECEIPT document.
+
+    force_a4: when True, always render A4 regardless of the tenant's
+    paper_size setting. Used by the "Download PDF" action — a saved file
+    is for filing/email, so it is never thermal-sized.
+    """
     profile     = doc.get("profile") or {}
-    paper_size  = str(profile.get("paper_size") or "A4").upper()
+    paper_size  = "A4" if force_a4 else str(profile.get("paper_size") or "A4").upper()
     qr_enabled  = bool(profile.get("qr_enabled", True))
 
     verify_url = verify_code_url(doc.get("verify_code")) if qr_enabled else ""

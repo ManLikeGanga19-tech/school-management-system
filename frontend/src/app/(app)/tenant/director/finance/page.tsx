@@ -1231,7 +1231,8 @@ function TenantFinancePageContent() {
   }
 
   function printPaymentReceipt(payment: DecoratedPayment) {
-    void printEnterprisePdf(`/finance/documents/payments/${payment.id}/pdf`);
+    // /print follows the tenant's paper_size setting (thermal HTML or A4 PDF).
+    void printEnterprisePdf(`/finance/documents/payments/${payment.id}/print`);
   }
 
   async function downloadPdf(path: string, fallbackName: string) {

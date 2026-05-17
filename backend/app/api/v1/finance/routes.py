@@ -837,7 +837,8 @@ def download_payment_pdf(
             tenant_id=tenant.id,
             payment_id=payment_id,
         )
-        pdf = service.render_document_pdf(payload)
+        # Downloaded receipt is always A4 — a saved file is never thermal-sized.
+        pdf = service.render_document_pdf(payload, receipt_force_a4=True)
         db.commit()
         filename = f"{payload.get('document_no') or 'receipt'}.pdf"
         return Response(
@@ -872,6 +873,44 @@ def download_payment_thermal(
         html = generate_thermal_html(payload)
         db.commit()
         return Response(content=html, media_type="text/html")
+    except ValueError as e:
+        db.rollback()
+        msg = str(e)
+        raise HTTPException(status_code=404 if "not found" in msg.lower() else 400, detail=msg)
+
+
+@router.get(
+    "/documents/payments/{payment_id}/print",
+    dependencies=[Depends(require_permission("finance.payments.view"))],
+)
+def print_payment_receipt(
+    payment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    """Receipt for printing — format follows the tenant's paper_size setting.
+
+    THERMAL_80MM → auto-printing 80 mm HTML; otherwise → A4 PDF. The caller
+    just opens the response; the backend owns the thermal-vs-A4 decision.
+    """
+    try:
+        payload = service.build_payment_receipt_document(
+            db,
+            tenant_id=tenant.id,
+            payment_id=payment_id,
+        )
+        profile = payload.get("profile") or {}
+        is_thermal = str(profile.get("paper_size") or "A4").upper() == "THERMAL_80MM"
+        if is_thermal:
+            from app.utils.receipt_pdf import generate_thermal_html
+            body = generate_thermal_html(payload)
+            media = "text/html"
+        else:
+            body = service.render_document_pdf(payload, receipt_force_a4=True)
+            media = "application/pdf"
+        db.commit()
+        return Response(content=body, media_type=media)
     except ValueError as e:
         db.rollback()
         msg = str(e)

@@ -2548,7 +2548,7 @@ def _render_timetable_pdf(payload: dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
-def render_document_pdf(payload: dict[str, Any]) -> bytes:
+def render_document_pdf(payload: dict[str, Any], *, receipt_force_a4: bool = False) -> bytes:
     dtype = str(payload.get("document_type") or "").upper()
 
     # Fee structure sheet PDF
@@ -2571,7 +2571,7 @@ def render_document_pdf(payload: dict[str, Any]) -> bytes:
     if dtype == "RECEIPT":
         try:
             from app.utils.receipt_pdf import generate_receipt_pdf
-            return generate_receipt_pdf(payload)
+            return generate_receipt_pdf(payload, force_a4=receipt_force_a4)
         except Exception as exc:
             logger.exception("receipt_pdf rendering failed, falling back to plain-text: %s", exc)
 

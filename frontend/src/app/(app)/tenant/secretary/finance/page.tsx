@@ -2695,15 +2695,16 @@ function SecretaryFinancePageContent() {
                         <TableCell className="text-right">
                           <div className="inline-flex items-center gap-1">
                             <button
-                              title="Print thermal receipt"
+                              title="Print receipt (follows print settings)"
                               className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
                               onClick={() => {
-                                void apiFetchRaw(`/finance/documents/payments/${payment.id}/thermal`, {
+                                void apiFetchRaw(`/finance/documents/payments/${payment.id}/print`, {
                                   method: "GET",
                                   tenantRequired: true,
                                 }).then(async (res) => {
-                                  const html = await res.text();
-                                  const blob = new Blob([html], { type: "text/html" });
+                                  // /print returns thermal HTML or A4 PDF per settings;
+                                  // blob() preserves whichever content type came back.
+                                  const blob = await res.blob();
                                   const url = window.URL.createObjectURL(blob);
                                   const tab = window.open(url, "_blank");
                                   if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");

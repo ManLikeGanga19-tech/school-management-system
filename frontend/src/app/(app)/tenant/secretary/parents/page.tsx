@@ -641,18 +641,19 @@ function RecordPaymentModal({
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => {
-                  void apiFetchRaw(`/finance/documents/payments/${lastPayment.payment_id}/thermal`, { method: "GET", tenantRequired: true })
-                    .then((res) => res.text())
-                    .then((html) => {
-                      const blob = new Blob([html], { type: "text/html" });
+                  // /print follows the tenant's paper_size setting (thermal HTML or A4 PDF);
+                  // blob() preserves whichever content type the backend returned.
+                  void apiFetchRaw(`/finance/documents/payments/${lastPayment.payment_id}/print`, { method: "GET", tenantRequired: true })
+                    .then((res) => res.blob())
+                    .then((blob) => {
                       const tab = window.open(URL.createObjectURL(blob), "_blank");
                       if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");
                     })
-                    .catch(() => toast.error("Failed to open thermal receipt."));
+                    .catch(() => toast.error("Failed to open the receipt."));
                 }}
                 className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
               >
-                <Printer className="h-3.5 w-3.5" /> Thermal Print
+                <Printer className="h-3.5 w-3.5" /> Print Receipt
               </button>
               <button
                 onClick={() => {
@@ -664,7 +665,7 @@ function RecordPaymentModal({
                 }}
                 className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
               >
-                <FileDown className="h-3.5 w-3.5" /> A4 Receipt PDF
+                <FileDown className="h-3.5 w-3.5" /> Download PDF
               </button>
               <button
                 onClick={onClose}
