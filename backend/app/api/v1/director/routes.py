@@ -178,3 +178,95 @@ def get_director_kpis(
             for r in recent_rows
         ],
     }
+
+
+@router.get("/group-dashboard")
+def get_group_dashboard(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(require_permission(_PERM)),
+    user=Depends(get_current_user),
+):
+    """Consolidated KPIs across every campus in the current tenant's group.
+
+    Returns ``grouped: false`` when the tenant is standalone.
+    """
+    from datetime import date as _date
+    from app.models.tenant_group import TenantGroup
+    from app.core.subscription import _state_from_tier
+
+    group_id = getattr(tenant, "group_id", None)
+    if group_id is None:
+        return {"grouped": False}
+
+    group = db.get(TenantGroup, group_id)
+    if group is None:
+        return {"grouped": False}
+
+    rows = db.execute(sa.text("""
+        SELECT
+            t.id   AS tenant_id,
+            t.name AS name,
+            t.slug AS slug,
+            COALESCE((SELECT COUNT(*) FROM core.students s WHERE s.tenant_id = t.id), 0) AS students,
+            COALESCE((SELECT SUM(total_amount)   FROM core.invoices i WHERE i.tenant_id = t.id), 0) AS billed,
+            COALESCE((SELECT SUM(paid_amount)    FROM core.invoices i WHERE i.tenant_id = t.id), 0) AS collected,
+            COALESCE((SELECT SUM(balance_amount) FROM core.invoices i WHERE i.tenant_id = t.id), 0) AS outstanding
+        FROM core.tenants t
+        WHERE t.group_id = :gid AND t.deleted_at IS NULL
+        ORDER BY t.name ASC
+    """), {"gid": str(group_id)}).mappings().all()
+
+    campuses = []
+    tot_students = 0
+    tot_billed = Decimal("0")
+    tot_collected = Decimal("0")
+    tot_outstanding = Decimal("0")
+    for r in rows:
+        billed = _dec(r["billed"])
+        collected = _dec(r["collected"])
+        outstanding = _dec(r["outstanding"])
+        students = int(r["students"] or 0)
+        tot_students += students
+        tot_billed += billed
+        tot_collected += collected
+        tot_outstanding += outstanding
+        campuses.append({
+            "tenant_id":   str(r["tenant_id"]),
+            "name":        r["name"],
+            "slug":        r["slug"],
+            "students":    students,
+            "billed":      float(billed),
+            "collected":   float(collected),
+            "outstanding": float(outstanding),
+            "collection_rate_pct": (
+                int(collected / billed * 100) if billed > 0 else 0
+            ),
+        })
+
+    state = _state_from_tier(
+        db, plan_code=group.plan_code, period_end=group.period_end,
+        status=None, today=_date.today(),
+    )
+
+    return {
+        "grouped": True,
+        "group": {
+            "name":        group.name,
+            "slug":        group.slug,
+            "plan_name":   state.plan_name,
+            "state":       state.state,
+            "period_end":  group.period_end.isoformat() if group.period_end else None,
+        },
+        "totals": {
+            "campuses":    len(campuses),
+            "students":    tot_students,
+            "billed":      float(tot_billed),
+            "collected":   float(tot_collected),
+            "outstanding": float(tot_outstanding),
+            "collection_rate_pct": (
+                int(tot_collected / tot_billed * 100) if tot_billed > 0 else 0
+            ),
+        },
+        "campuses": campuses,
+    }
