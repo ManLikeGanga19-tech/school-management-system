@@ -205,6 +205,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
             name=tenant.name,
             is_active=tenant.is_active,
             curriculum_type=getattr(tenant, "curriculum_type", "CBC") or "CBC",
+            group_id=getattr(tenant, "group_id", None),
         )
 
         request.state.tenant = tenant_ctx
