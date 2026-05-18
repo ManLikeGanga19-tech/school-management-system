@@ -329,6 +329,7 @@ export const directorNav: AppNavItem[] = [
     ],
   },
   { href: "/tenant/director/parents", label: "Parents", icon: "UsersRound" },
+  { href: "/tenant/director/group", label: "Group Overview", icon: "Building2" },
   {
     href: directorNotificationsHref(),
     label: "Notifications",
