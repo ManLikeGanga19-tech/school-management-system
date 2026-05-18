@@ -174,6 +174,49 @@ def me(
     )
 
 
+# ── Multi-campus switching ────────────────────────────────────────────────────
+
+@router.get("/my-campuses")
+def my_campuses(
+    tenant=Depends(get_tenant),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Campuses in the current group this user can switch between."""
+    return service.list_user_campuses(db, user_id=user.id, tenant_id=tenant.id)
+
+
+@router.post("/switch-campus", response_model=TokenResponse)
+def switch_campus(
+    payload: dict,
+    response: Response,
+    tenant=Depends(get_tenant),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Issue a fresh session scoped to a sibling campus — no re-login."""
+    target_raw = (payload or {}).get("tenant_id")
+    if not target_raw:
+        raise HTTPException(status_code=400, detail="tenant_id is required")
+    try:
+        target_id = UUID(str(target_raw))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid tenant_id")
+
+    try:
+        access, refresh_token = service.switch_campus(
+            db,
+            user_id=user.id,
+            current_tenant_id=tenant.id,
+            target_tenant_id=target_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    _set_refresh_cookie(response, refresh_token)
+    return TokenResponse(access_token=access)
+
+
 # ── SaaS Login (SUPER_ADMIN) — no tenant resolution ───────────────────────────
 
 @router.post("/login/saas", response_model=TokenResponse)

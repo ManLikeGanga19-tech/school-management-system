@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from app.models.user import User
 from app.models.membership import UserTenant
 from app.models.auth import AuthSession
+from app.models.tenant import Tenant
 
 from app.utils.hashing import verify_password, hash_password
 from app.utils.tokens import create_access_token, create_refresh_token, decode_token
@@ -412,3 +413,106 @@ def logout_saas(db: Session, *, refresh_token: str) -> None:
     if session and session.revoked_at is None:
         session.revoked_at = datetime.now(timezone.utc)
         db.commit()
+
+
+# ── Multi-campus: switch between campuses of the same group ───────────────────
+
+def list_user_campuses(db: Session, *, user_id, tenant_id) -> list[dict]:
+    """Campuses (tenants) in the current tenant's group that this user is an
+    active member of. Empty when the current tenant is not in a group."""
+    current = db.get(Tenant, tenant_id)
+    if current is None or getattr(current, "group_id", None) is None:
+        return []
+
+    rows = db.execute(
+        select(Tenant)
+        .join(UserTenant, UserTenant.tenant_id == Tenant.id)
+        .where(
+            and_(
+                Tenant.group_id == current.group_id,
+                Tenant.is_active == True,
+                Tenant.deleted_at.is_(None),
+                UserTenant.user_id == user_id,
+                UserTenant.is_active == True,
+            )
+        )
+        .order_by(Tenant.name.asc())
+    ).scalars().all()
+
+    return [
+        {
+            "tenant_id": str(t.id),
+            "name": t.name,
+            "slug": t.slug,
+            "is_current": t.id == tenant_id,
+        }
+        for t in rows
+    ]
+
+
+def switch_campus(
+    db: Session,
+    *,
+    user_id,
+    current_tenant_id,
+    target_tenant_id,
+) -> tuple[str, str]:
+    """Issue a fresh token pair scoped to a sibling campus.
+
+    Hard requirements: the target is an active tenant, it shares a group with
+    the current tenant, and the user is an active member of it.
+    """
+    user = db.get(User, user_id)
+    if user is None or not user.is_active:
+        raise ValueError("Invalid session")
+
+    current = db.get(Tenant, current_tenant_id)
+    target = db.get(Tenant, target_tenant_id)
+    if target is None or not target.is_active or getattr(target, "deleted_at", None):
+        raise ValueError("Campus not found")
+
+    current_group = getattr(current, "group_id", None) if current else None
+    if current_group is None or current_group != getattr(target, "group_id", None):
+        raise ValueError("That campus is not part of this group")
+
+    membership = db.execute(
+        select(UserTenant).where(
+            and_(
+                UserTenant.tenant_id == target_tenant_id,
+                UserTenant.user_id == user_id,
+                UserTenant.is_active == True,
+            )
+        )
+    ).scalar_one_or_none()
+    if not membership:
+        raise ValueError("You are not a member of that campus")
+
+    roles, permissions = _load_roles_permissions(db, target_tenant_id, user_id)
+
+    access = create_access_token(
+        sub=str(user_id),
+        tenant_id=str(target_tenant_id),
+        roles=roles,
+        permissions=permissions,
+    )
+
+    session_id = uuid4()
+    refresh_token, refresh_exp = create_refresh_token(
+        session_id=str(session_id),
+        sub=str(user_id),
+        tenant_id=str(target_tenant_id),
+    )
+    db.add(
+        AuthSession(
+            id=session_id,
+            tenant_id=target_tenant_id,
+            user_id=user_id,
+            refresh_token_hash=hash_password(refresh_token),
+            expires_at=refresh_exp,
+            revoked_at=None,
+            last_used_at=None,
+        )
+    )
+    db.commit()
+
+    return access, refresh_token
