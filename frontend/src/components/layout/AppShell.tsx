@@ -77,6 +77,7 @@ import { logout as authLogout } from "@/lib/auth/auth";
 import { TENANT_BRANDING_UPDATED_EVENT } from "@/lib/tenant-branding";
 import { FloatingSupportWidget } from "@/components/support/FloatingSupportWidget";
 import { SubscriptionBanner } from "@/components/layout/SubscriptionBanner";
+import { CampusSwitcher } from "@/components/layout/CampusSwitcher";
 import { useSubscription } from "@/lib/auth/useSubscription";
 
 type AppNavLink = {
@@ -776,6 +777,8 @@ export function AppShell({
         <div className="p-4">
           {renderShellBrand({ mode: "desktop" })}
         </div>
+
+        <CampusSwitcher />
 
         <Separator />
 
