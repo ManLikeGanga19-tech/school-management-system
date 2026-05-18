@@ -25,6 +25,7 @@ from app.models.scholarship_allocation import ScholarshipAllocation
 from app.models.invoice import Invoice, InvoiceLine
 from app.models.payment import Payment, PaymentAllocation, _new_verify_code
 from app.models.student import Student
+from app.models.parent import Parent, ParentEnrollmentLink
 from app.models.tenant import Tenant
 from app.models.tenant_payment_settings import TenantPaymentSettings
 from app.models.tenant_print_profile import TenantPrintProfile
@@ -265,12 +266,34 @@ def _resolve_student_identity(
         or payload.get("class")
         or ""
     )
-    parent_name = str(
-        payload.get("parent_name")
-        or payload.get("parentName")
-        or payload.get("guardian_name")
-        or ""
-    )
+    # Prefer the registered Parent record's full name (first + last) over the
+    # free-text guardian name typed into the enrollment payload — the receipt's
+    # "Paid By" line must show the parent's proper full name.
+    parent_name = ""
+    if enrollment is not None and getattr(enrollment, "id", None):
+        link = db.execute(
+            select(ParentEnrollmentLink)
+            .where(
+                ParentEnrollmentLink.tenant_id == tenant_id,
+                ParentEnrollmentLink.enrollment_id == enrollment.id,
+            )
+            .order_by(ParentEnrollmentLink.is_primary.desc(),
+                      ParentEnrollmentLink.created_at.asc())
+        ).scalars().first()
+        if link is not None:
+            parent = db.get(Parent, link.parent_id)
+            if parent is not None:
+                parent_name = (
+                    f"{parent.first_name or ''} {parent.last_name or ''}".strip()
+                )
+
+    if not parent_name:
+        parent_name = str(
+            payload.get("parent_name")
+            or payload.get("parentName")
+            or payload.get("guardian_name")
+            or ""
+        )
 
     if (
         (not admission_no or not student_name or student_name == "Unknown student")

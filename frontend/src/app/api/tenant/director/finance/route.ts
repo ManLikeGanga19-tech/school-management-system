@@ -25,7 +25,11 @@ function readError(body: any, fallback: string) {
 }
 
 function asList<T = unknown>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
+  if (Array.isArray(value)) return value as T[];
+  // Paginated endpoints (invoices, payments) return { items, meta } — unwrap it.
+  const items = (value as { items?: unknown } | null)?.items;
+  if (Array.isArray(items)) return items as T[];
+  return [];
 }
 
 function asObject<T extends Record<string, unknown>>(value: unknown): T | null {
@@ -57,13 +61,13 @@ export async function GET() {
     paymentsRes,
   ] = await Promise.all([
     safeFetch("/api/v1/finance/policy"),
-    safeFetch("/api/v1/finance/invoices"),
+    safeFetch("/api/v1/finance/invoices?page_size=100"),
     safeFetch("/api/v1/finance/fee-categories"),
     safeFetch("/api/v1/finance/fee-items"),
     safeFetch("/api/v1/finance/fee-structures"),
     safeFetch("/api/v1/finance/scholarships"),
     safeFetch("/api/v1/enrollments/"),
-    safeFetch("/api/v1/finance/payments"),
+    safeFetch("/api/v1/finance/payments?page_size=100"),
   ]);
 
   const [
