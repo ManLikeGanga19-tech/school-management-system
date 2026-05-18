@@ -1,7 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, RefreshCw, Loader2, X, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  RefreshCw,
+  Loader2,
+  X,
+  Sparkles,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
@@ -26,6 +36,13 @@ type Draft = {
   body: string;
   category: string;
   is_published: boolean;
+};
+
+type Quality = {
+  score: number;
+  passed: boolean;
+  threshold: number;
+  issues: string[];
 };
 
 const EMPTY: Draft = { title: "", body: "", category: "new", is_published: false };
@@ -55,6 +72,8 @@ export default function ChangelogAdminPage() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<Entry | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [quality, setQuality] = useState<Quality | null>(null);
+  const [checking, setChecking] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,13 +93,42 @@ export default function ChangelogAdminPage() {
     void load();
   }, [load]);
 
+  // Debounced live quality check while the editor is open.
+  const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftTitle = draft?.title ?? "";
+  const draftBody = draft?.body ?? "";
+  useEffect(() => {
+    if (draft === null) {
+      setQuality(null);
+      return;
+    }
+    if (checkTimer.current) clearTimeout(checkTimer.current);
+    checkTimer.current = setTimeout(() => {
+      setChecking(true);
+      apiFetch<Quality>("/admin/changelog/check", {
+        method: "POST",
+        tenantRequired: false,
+        body: JSON.stringify({ title: draftTitle, body: draftBody }),
+        headers: { "Content-Type": "application/json" },
+      } as never)
+        .then((q) => setQuality(q))
+        .catch(() => setQuality(null))
+        .finally(() => setChecking(false));
+    }, 400);
+    return () => {
+      if (checkTimer.current) clearTimeout(checkTimer.current);
+    };
+  }, [draft, draftTitle, draftBody]);
+
   function startCreate() {
     setEditing(null);
+    setQuality(null);
     setDraft({ ...EMPTY });
   }
 
   function startEdit(e: Entry) {
     setEditing(e);
+    setQuality(null);
     setDraft({
       title: e.title,
       body: e.body,
@@ -93,6 +141,12 @@ export default function ChangelogAdminPage() {
     if (!draft) return;
     if (!draft.title.trim() || !draft.body.trim()) {
       toast.error("Title and body are required.");
+      return;
+    }
+    if (draft.is_published && quality && !quality.passed) {
+      toast.error(
+        `Can't publish — quality score ${quality.score}/100 (needs ${quality.threshold}). Fix the issues or save as a draft.`,
+      );
       return;
     }
     setSaving(true);
@@ -282,12 +336,78 @@ export default function ChangelogAdminPage() {
                 Publishing notifies every tenant user with a banner. Leave unpublished
                 to keep it as a draft.
               </p>
+
+              {(quality || checking) && (
+                <div
+                  className={`rounded-lg border p-3 ${
+                    !quality
+                      ? "border-slate-200 bg-slate-50"
+                      : quality.passed
+                        ? "border-emerald-200 bg-emerald-50"
+                        : "border-amber-200 bg-amber-50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                      {checking ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                      ) : quality?.passed ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      )}
+                      <span
+                        className={
+                          !quality
+                            ? "text-slate-500"
+                            : quality.passed
+                              ? "text-emerald-700"
+                              : "text-amber-700"
+                        }
+                      >
+                        {checking
+                          ? "Checking quality…"
+                          : quality?.passed
+                            ? "Ready to publish"
+                            : "Not ready to publish"}
+                      </span>
+                    </div>
+                    {quality && (
+                      <span className="text-xs font-semibold text-slate-500">
+                        {quality.score}/100
+                      </span>
+                    )}
+                  </div>
+                  {quality && quality.issues.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-[11px] text-slate-600">
+                      {quality.issues.map((issue, i) => (
+                        <li key={i} className="flex gap-1.5">
+                          <span className="text-amber-500">•</span>
+                          <span>{issue}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
               <Button variant="outline" size="sm" onClick={() => setDraft(null)}>
                 Cancel
               </Button>
-              <Button size="sm" onClick={() => void save()} disabled={saving}>
+              <Button
+                size="sm"
+                onClick={() => void save()}
+                disabled={
+                  saving ||
+                  (draft.is_published && !!quality && !quality.passed)
+                }
+                title={
+                  draft.is_published && quality && !quality.passed
+                    ? "Resolve the quality issues before publishing."
+                    : undefined
+                }
+              >
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                 {editing ? "Save" : "Create"}
               </Button>

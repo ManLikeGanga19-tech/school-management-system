@@ -35,6 +35,7 @@ from app.models.tenant import Tenant
 from app.models.tenant_group import TenantGroup
 from app.models.subscription import Subscription, SubscriptionPlan
 from app.models.changelog import ChangelogEntry
+from app.api.v1.changelog.quality import assess_changelog
 from app.models.membership import UserTenant
 from app.models.prospect import ProspectRequest
 from app.models.payment import Payment
@@ -1290,6 +1291,27 @@ class ChangelogUpdate(BaseModel):
     is_published: Optional[bool] = None
 
 
+def _enforce_changelog_quality(title: str, body: str) -> None:
+    """Block publishing an entry that fails the quality bar.
+
+    Drafts are never checked — only entries that would go live to tenants.
+    """
+    result = assess_changelog(title, body)
+    if not result["passed"]:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": (
+                    "This update isn't ready to publish — "
+                    f"quality score {result['score']}/100 "
+                    f"(needs {result['threshold']}). Save it as a draft and "
+                    "address the issues below."
+                ),
+                "quality": result,
+            },
+        )
+
+
 def _changelog_row(e: ChangelogEntry) -> dict:
     return {
         "id": str(e.id),
@@ -1300,6 +1322,20 @@ def _changelog_row(e: ChangelogEntry) -> dict:
         "published_at": e.published_at.isoformat() if e.published_at else None,
         "created_at": e.created_at.isoformat() if e.created_at else None,
     }
+
+
+class ChangelogCheck(BaseModel):
+    title: str = ""
+    body: str = ""
+
+
+@router.post("/changelog/check")
+def check_changelog(
+    payload: ChangelogCheck,
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    """Score a draft entry without saving — powers the live editor feedback."""
+    return assess_changelog(payload.title, payload.body)
 
 
 @router.get("/changelog")
@@ -1321,9 +1357,13 @@ def create_changelog(
     db: Session = Depends(get_db),
     _=Depends(require_permission_saas("admin.dashboard.view_all")),
 ):
+    title = payload.title.strip()
+    body = payload.body.strip()
+    if payload.is_published:
+        _enforce_changelog_quality(title, body)
     entry = ChangelogEntry(
-        title=payload.title.strip(),
-        body=payload.body.strip(),
+        title=title,
+        body=body,
         category=_norm_category(payload.category),
         is_published=bool(payload.is_published),
         # Publishing stamps the time tenants are notified from.
@@ -1355,10 +1395,18 @@ def update_changelog(
         entry.category = _norm_category(data["category"])
     if "is_published" in data:
         publish = bool(data["is_published"])
+        # A live entry — whether newly published or edited while live — must
+        # still clear the quality bar.
+        if publish:
+            _enforce_changelog_quality(entry.title, entry.body)
         entry.is_published = publish
         # Stamp published_at the first time it goes live; clearing keeps history.
         if publish and entry.published_at is None:
             entry.published_at = _datetime.now(_timezone.utc)
+    elif entry.is_published:
+        # Editing the text of an already-published entry must not let it
+        # drop below the bar.
+        _enforce_changelog_quality(entry.title, entry.body)
     entry.updated_at = _datetime.now(_timezone.utc)
     db.commit()
     db.refresh(entry)
