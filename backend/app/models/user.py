@@ -16,5 +16,8 @@ class User(Base):
     phone = Column(String, nullable=True)
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
 
+    # Marks how far through the changelog this user has been notified.
+    changelog_seen_at = Column(DateTime(timezone=True), server_default=func.now())
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())

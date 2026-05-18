@@ -34,6 +34,7 @@ from app.api.v1.admin.schemas import (
 from app.models.tenant import Tenant
 from app.models.tenant_group import TenantGroup
 from app.models.subscription import Subscription, SubscriptionPlan
+from app.models.changelog import ChangelogEntry
 from app.models.membership import UserTenant
 from app.models.prospect import ProspectRequest
 from app.models.payment import Payment
@@ -1261,6 +1262,121 @@ def detach_campus(
         db.commit()
         invalidate_subscription_cache(tenant_id)
     return _group_row(db, group)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Changelog / "What's New" — Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CHANGELOG_CATEGORIES = {"new", "improved", "fixed"}
+
+
+def _norm_category(value) -> str:
+    s = str(value or "").strip().lower()
+    return s if s in _CHANGELOG_CATEGORIES else "new"
+
+
+class ChangelogCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1)
+    category: str = Field(default="new", max_length=16)
+    is_published: bool = False
+
+
+class ChangelogUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, max_length=200)
+    body: Optional[str] = None
+    category: Optional[str] = Field(default=None, max_length=16)
+    is_published: Optional[bool] = None
+
+
+def _changelog_row(e: ChangelogEntry) -> dict:
+    return {
+        "id": str(e.id),
+        "title": e.title,
+        "body": e.body,
+        "category": e.category,
+        "is_published": bool(e.is_published),
+        "published_at": e.published_at.isoformat() if e.published_at else None,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+    }
+
+
+@router.get("/changelog")
+def list_changelog(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    rows = db.execute(
+        select(ChangelogEntry).order_by(
+            ChangelogEntry.created_at.desc()
+        )
+    ).scalars().all()
+    return [_changelog_row(e) for e in rows]
+
+
+@router.post("/changelog", status_code=201)
+def create_changelog(
+    payload: ChangelogCreate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    entry = ChangelogEntry(
+        title=payload.title.strip(),
+        body=payload.body.strip(),
+        category=_norm_category(payload.category),
+        is_published=bool(payload.is_published),
+        # Publishing stamps the time tenants are notified from.
+        published_at=_datetime.now(_timezone.utc) if payload.is_published else None,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return _changelog_row(entry)
+
+
+@router.patch("/changelog/{entry_id}")
+def update_changelog(
+    entry_id: UUID,
+    payload: ChangelogUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    entry = db.get(ChangelogEntry, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Changelog entry not found.")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "title" in data and data["title"]:
+        entry.title = str(data["title"]).strip()
+    if "body" in data and data["body"]:
+        entry.body = str(data["body"]).strip()
+    if "category" in data:
+        entry.category = _norm_category(data["category"])
+    if "is_published" in data:
+        publish = bool(data["is_published"])
+        entry.is_published = publish
+        # Stamp published_at the first time it goes live; clearing keeps history.
+        if publish and entry.published_at is None:
+            entry.published_at = _datetime.now(_timezone.utc)
+    entry.updated_at = _datetime.now(_timezone.utc)
+    db.commit()
+    db.refresh(entry)
+    return _changelog_row(entry)
+
+
+@router.delete("/changelog/{entry_id}")
+def delete_changelog(
+    entry_id: UUID,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("admin.dashboard.view_all")),
+):
+    entry = db.get(ChangelogEntry, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Changelog entry not found.")
+    db.delete(entry)
+    db.commit()
+    return {"ok": True}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

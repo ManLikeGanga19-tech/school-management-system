@@ -24,6 +24,7 @@ from app.api.v1.hr.routes import router as hr_router
 from app.api.v1.parents.routes import router as parents_router
 from app.api.v1.portal.routes import router as portal_router
 from app.api.v1.director.routes import router as director_router
+from app.api.v1.changelog.routes import router as changelog_router
 
 api_router = APIRouter()
 
@@ -124,3 +125,6 @@ api_router.include_router(portal_router, prefix="/portal", tags=["portal"])
 
 # Director KPI aggregation (Phase 8)
 api_router.include_router(director_router, prefix="/director", tags=["director"])
+
+# In-app changelog / "What's New" (tenant-facing — never subscription-gated)
+api_router.include_router(changelog_router, prefix="/changelog", tags=["changelog"])
