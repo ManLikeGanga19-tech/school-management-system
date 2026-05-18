@@ -287,6 +287,7 @@ export function AppShell({
 
   const [expandedModuleKey, setExpandedModuleKey] = useState<string | null>(activeModuleKey);
   const [curriculumType, setCurriculumType] = useState<string | null>(null);
+  const [schoolName, setSchoolName] = useState<string | null>(null);
   const [badgeCounts, setBadgeCounts] = useState<BadgeCounts>(EMPTY_BADGE_COUNTS);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [accountMenuOpenDesktop, setAccountMenuOpenDesktop] = useState(false);
@@ -407,6 +408,11 @@ export function AppShell({
         const obj = asObject(raw);
         const ct = asString(obj?.curriculum_type).toUpperCase() || "8-4-4";
         if (!cancelled) setCurriculumType(ct);
+        const nm =
+          asString(obj?.name) ||
+          asString(obj?.school_name) ||
+          asString(obj?.tenant_name);
+        if (!cancelled && nm) setSchoolName(nm);
       } catch {
         // Leave null — show all nav items
       }
@@ -753,7 +759,9 @@ export function AppShell({
         : "text-base font-semibold text-[#132129]";
     return (
       <>
-        <div className="text-xs uppercase tracking-wide text-[#7c4b24]">Platform</div>
+        <div className="text-xs uppercase tracking-wide text-[#7c4b24]">
+          {schoolName || "Platform"}
+        </div>
         <div className={titleClass}>{title}</div>
       </>
     );
