@@ -507,14 +507,13 @@ export function AppShell({
       ) {
         return false;
       }
-      // Subscription module gate — fail-open until the state is loaded.
-      if (
-        item.moduleKey &&
-        subReady &&
-        subModules &&
-        !subModules.includes(item.moduleKey)
-      ) {
-        return false;
+      // Subscription module gate — fail-CLOSED: a gateable nav item appears
+      // only once we know the plan includes it, so modules a tenant isn't
+      // entitled to never flash into the sidebar before the state loads.
+      if (item.moduleKey) {
+        if (!subReady || !subModules || !subModules.includes(item.moduleKey)) {
+          return false;
+        }
       }
       return true;
     });
