@@ -11,11 +11,15 @@ import {
   Building2,
   Users,
   Check,
+  CheckCircle,
+  AlertTriangle,
+  Layers,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
 import { SaasPageHeader } from "@/components/saas/page-chrome";
+import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -54,6 +58,12 @@ const STATE_STYLES: Record<string, string> = {
   active: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   grace: "bg-amber-50 text-amber-700 ring-amber-200",
   locked: "bg-red-50 text-red-700 ring-red-200",
+};
+
+const STATE_ACCENT: Record<string, string> = {
+  active: "border-t-emerald-400",
+  grace: "border-t-amber-400",
+  locked: "border-t-red-400",
 };
 
 function formatDate(iso: string | null): string {
@@ -215,6 +225,10 @@ export default function TenantGroupsPage() {
 
   const managedCampusIds = new Set((managing?.campuses ?? []).map((c) => c.id));
 
+  const totalCampuses = groups.reduce((n, g) => n + g.campus_count, 0);
+  const activeGroups = groups.filter((g) => g.state === "active").length;
+  const attentionGroups = groups.filter((g) => g.state !== "active").length;
+
   return (
     <AppShell title="SaaS" nav={saasNav} activeHref="/saas/tenant-groups">
       <SaasPageHeader
@@ -232,7 +246,43 @@ export default function TenantGroupsPage() {
         }
       />
 
-      <section className="mt-2">
+      {/* ── Summary metrics ────────────────────────────────────────────── */}
+      <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <DashboardStatCard
+          label="Groups"
+          value={groups.length}
+          sub="Multi-campus customers"
+          icon={Building2}
+          tone="accent"
+          loading={loading}
+        />
+        <DashboardStatCard
+          label="Campuses"
+          value={totalCampuses}
+          sub="Tenants under a group"
+          icon={Users}
+          tone="secondary"
+          loading={loading}
+        />
+        <DashboardStatCard
+          label="Active"
+          value={activeGroups}
+          sub="Subscriptions in good standing"
+          icon={CheckCircle}
+          tone="sage"
+          loading={loading}
+        />
+        <DashboardStatCard
+          label="Need Attention"
+          value={attentionGroups}
+          sub="In grace or locked"
+          icon={AlertTriangle}
+          tone="warning"
+          loading={loading}
+        />
+      </div>
+
+      <section className="mt-5">
         {loading ? (
           <div className="flex items-center justify-center rounded-xl border border-slate-100 bg-white py-16 text-slate-400">
             <Loader2 className="h-6 w-6 animate-spin" />
@@ -246,14 +296,21 @@ export default function TenantGroupsPage() {
             {groups.map((g) => (
               <div
                 key={g.id}
-                className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+                className={`flex flex-col rounded-xl border border-t-4 border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md ${
+                  STATE_ACCENT[g.state] ?? STATE_ACCENT.active
+                }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h3 className="truncate text-base font-semibold text-slate-800">
-                      {g.name}
-                    </h3>
-                    <p className="font-mono text-xs text-slate-400">{g.slug}</p>
+                  <div className="flex min-w-0 items-start gap-2.5">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                      <Building2 className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="truncate text-base font-semibold text-slate-800">
+                        {g.name}
+                      </h3>
+                      <p className="font-mono text-xs text-slate-400">{g.slug}</p>
+                    </div>
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <button
@@ -274,7 +331,8 @@ export default function TenantGroupsPage() {
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium text-slate-700">
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                    <Layers className="h-3.5 w-3.5 text-slate-400" />
                     {g.plan_name ?? "No tier"}
                   </span>
                   <span
