@@ -502,13 +502,28 @@ def _get_tenant_subscription_row(
     return row
 
 
+def _safe_amount(value) -> Decimal:
+    """Coerce an amount to Decimal, tolerating 0 / null.
+
+    Unlike _to_amount_decimal (which validates a *payment* and rejects 0),
+    a catalogue/billing amount may legitimately be 0 — e.g. a custom-priced
+    Enterprise tier.
+    """
+    try:
+        d = Decimal(str(value if value is not None else 0))
+    except Exception:
+        return Decimal("0")
+    return d if d > 0 else Decimal("0")
+
+
 def _tenant_billing_amount(db: Session, sub) -> Decimal:
     """Authoritative billing amount for a subscription.
 
     When the subscription has a tier (plan_code), the amount is the tier's
     catalogue price — so a price change on the plan applies to every tenant
     on that tier and is never hardcoded per subscription. Falls back to the
-    subscription's own amount_kes only when no tier is assigned.
+    subscription's own amount_kes only when no tier is assigned. May be 0
+    for a custom-priced tier (the pay flow handles that separately).
     """
     plan_code = str(getattr(sub, "plan_code", None) or "").strip()
     if plan_code:
@@ -518,8 +533,8 @@ def _tenant_billing_amount(db: Session, sub) -> Decimal:
             select(SubscriptionPlan).where(SubscriptionPlan.code == plan_code)
         ).scalar_one_or_none()
         if plan is not None and plan.price_kes is not None:
-            return _to_amount_decimal(plan.price_kes)
-    return _to_amount_decimal(sub.amount_kes)
+            return _safe_amount(plan.price_kes)
+    return _safe_amount(sub.amount_kes)
 
 
 def get_tenant_subscription(db: Session, *, tenant_id: UUID) -> dict | None:
