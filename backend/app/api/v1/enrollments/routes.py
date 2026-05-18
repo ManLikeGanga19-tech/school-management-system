@@ -4,7 +4,6 @@ from uuid import UUID
 
 from app.core.database import get_db
 from app.core.dependencies import get_tenant, get_current_user, require_permission
-from app.core.subscription_gate import block_if_locked
 from app.api.v1.enrollments import service
 from app.api.v1.enrollments.schemas import (
     EnrollmentCreate,
@@ -44,10 +43,7 @@ def _parse_csv_param(raw: str | None) -> list[str]:
     "/",
     response_model=EnrollmentOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[
-        Depends(require_permission("enrollment.manage")),
-        Depends(block_if_locked),
-    ],
+    dependencies=[Depends(require_permission("enrollment.manage"))],
     summary="Create a new DRAFT enrollment",
 )
 def create_enrollment(

@@ -49,12 +49,11 @@ def invalidate_subscription_cache(tenant_id: UUID | str | None = None) -> None:
 
 
 def gate(module: Optional[str] = None):
-    """Router-level dependency enforcing subscription *module* access.
+    """Router-level dependency enforcing subscription rules.
 
-    403 if `module` is a gateable module the tenant's plan does not unlock.
-    A locked subscription does NOT block here — lockout is applied
-    surgically to specific high-value features via `block_if_locked`,
-    so a lapsed tenant is never shut out of the system entirely.
+    - 403 if `module` is a gateable module the tenant's plan does not unlock.
+    - 402 on writes once the subscription is LOCKED (past grace) — the
+      system goes read-only. Grace-period writes are still allowed.
     """
 
     def _dependency(
@@ -81,31 +80,39 @@ def gate(module: Optional[str] = None):
                 ),
             )
 
+        if state.is_locked and request.method.upper() in _WRITE_METHODS:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=(
+                    "Your subscription has expired — the system is read-only. "
+                    "Renew the subscription to make changes; your data stays "
+                    "fully available to view."
+                ),
+            )
+
     return _dependency
 
 
-def block_if_locked(
+def block_when_inactive(
     request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
 ) -> None:
-    """Per-route dependency for high-value features that a lapsed tenant
-    loses until they renew (receipt/document printing, adding students).
-
-    The tenant can still log in, view everything, and operate normally —
-    only the routes carrying this dependency are blocked while locked.
+    """Per-route dependency for high-value features cut off from the grace
+    period onward — receipt/document printing. Blocked in BOTH grace and
+    locked states; only an active subscription may use these routes.
     Fails open on a resolver error.
     """
     try:
         state = get_cached_subscription_state(db, tenant.id)
     except Exception:
-        logger.exception("block_if_locked: state resolution failed; allowing request")
+        logger.exception("block_when_inactive: state resolution failed; allowing request")
         return
-    if state.is_locked:
+    if state.state != "active":
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=(
-                "Your subscription has expired. Renew it to use this feature — "
-                "your existing data stays fully available to view."
+                "Receipt printing is paused — renew your subscription to print "
+                "documents. Your existing records stay available to view."
             ),
         )
