@@ -16,9 +16,6 @@ import {
   Layers,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
-import { SaasPageHeader } from "@/components/saas/page-chrome";
 import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +33,7 @@ type Group = {
   plan_code: string | null;
   plan_name: string | null;
   state: "active" | "grace" | "locked";
+  state_override: string | null;
   period_end: string | null;
   grace_until: string | null;
   campus_count: number;
@@ -52,6 +50,7 @@ type GroupDraft = {
   primary_contact: string;
   plan_code: string;
   period_end: string;
+  state_override: string;
 };
 
 const STATE_STYLES: Record<string, string> = {
@@ -121,6 +120,7 @@ export default function TenantGroupsPage() {
       primary_contact: "",
       plan_code: "",
       period_end: "",
+      state_override: "",
     });
   }
 
@@ -133,6 +133,7 @@ export default function TenantGroupsPage() {
       primary_contact: g.primary_contact || "",
       plan_code: g.plan_code || "",
       period_end: g.period_end || "",
+      state_override: g.state_override || "",
     });
   }
 
@@ -154,6 +155,7 @@ export default function TenantGroupsPage() {
             primary_contact: draft.primary_contact.trim() || null,
             plan_code: draft.plan_code || null,
             period_end: draft.period_end || null,
+            state_override: draft.state_override || null,
           }),
           headers: { "Content-Type": "application/json" },
         } as never);
@@ -230,21 +232,24 @@ export default function TenantGroupsPage() {
   const attentionGroups = groups.filter((g) => g.state !== "active").length;
 
   return (
-    <AppShell title="SaaS" nav={saasNav} activeHref="/saas/tenant-groups">
-      <SaasPageHeader
-        title="Tenant Groups"
-        description="Multi-campus Enterprise customers. A group's tier is shared by every campus under it."
-        actions={
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            </Button>
-            <Button size="sm" onClick={startCreate}>
-              <Plus className="h-4 w-4" /> New Group
-            </Button>
-          </div>
-        }
-      />
+    <div>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-800">Tenant Groups</h1>
+          <p className="text-sm text-slate-500">
+            Multi-campus Enterprise customers. A group&rsquo;s tier is shared by every
+            campus under it.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+          <Button size="sm" onClick={startCreate}>
+            <Plus className="h-4 w-4" /> New Group
+          </Button>
+        </div>
+      </div>
 
       {/* ── Summary metrics ────────────────────────────────────────────── */}
       <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -461,6 +466,22 @@ export default function TenantGroupsPage() {
                       onChange={(e) => setDraft({ ...draft, period_end: e.target.value })}
                     />
                   </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-xs">Lifecycle state</Label>
+                    <select
+                      value={draft.state_override}
+                      onChange={(e) => setDraft({ ...draft, state_override: e.target.value })}
+                      className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+                    >
+                      <option value="">Auto — computed from the expiry date</option>
+                      <option value="active">Force Active</option>
+                      <option value="grace">Force Grace</option>
+                      <option value="locked">Force Locked</option>
+                    </select>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      A forced state overrides the expiry date for the whole group.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -558,6 +579,6 @@ export default function TenantGroupsPage() {
           </div>
         </div>
       )}
-    </AppShell>
+    </div>
   );
 }
