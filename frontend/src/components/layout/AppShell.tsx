@@ -250,6 +250,61 @@ function resolveBadgeKey(link: AppNavLink): AppBadgeKey | null {
   return null;
 }
 
+// Tenant profile (curriculum + school name) cached across client-side
+// navigations and persisted for hard reloads. Each page renders its own
+// AppShell, so without this the curriculum gate would re-resolve from scratch
+// on every navigation — flashing un-gated nav items into the sidebar until the
+// /tenants/profile fetch returns. Booting from this snapshot keeps the gated
+// sidebar stable from the very first render of every page.
+type TenantProfileSnapshot = { curriculumType: string; schoolName: string };
+let tenantProfileCache: TenantProfileSnapshot | null = null;
+const TENANT_PROFILE_STORAGE_KEY = "sms_tenant_profile";
+
+function readTenantProfile(): TenantProfileSnapshot | null {
+  if (tenantProfileCache) return tenantProfileCache;
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(TENANT_PROFILE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<TenantProfileSnapshot>;
+    tenantProfileCache = {
+      curriculumType: String(parsed.curriculumType || ""),
+      schoolName: String(parsed.schoolName || ""),
+    };
+    return tenantProfileCache;
+  } catch {
+    return null;
+  }
+}
+
+function writeTenantProfile(snap: TenantProfileSnapshot): void {
+  tenantProfileCache = snap;
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(TENANT_PROFILE_STORAGE_KEY, JSON.stringify(snap));
+  } catch {
+    /* storage unavailable — non-fatal */
+  }
+}
+
+// The school badge is identical on every page — cache it (as a data URL, so
+// there's no object-URL lifecycle to manage) so it isn't re-fetched and
+// re-painted on every navigation. undefined = not fetched, null = no badge.
+let sidebarBadgeCache: string | null | undefined;
+
+// The signed-in user's sidebar identity, cached so a navigation doesn't blank
+// the name back to "Tenant user" while /auth/me re-resolves.
+let sidebarUserCache: { email: string; name: string } | null = null;
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
 export function AppShell({
   title,
   children,
@@ -287,16 +342,28 @@ export function AppShell({
   }, [active.full, active.path, nav]);
 
   const [expandedModuleKey, setExpandedModuleKey] = useState<string | null>(activeModuleKey);
-  const [curriculumType, setCurriculumType] = useState<string | null>(null);
-  const [schoolName, setSchoolName] = useState<string | null>(null);
+  // Boot the curriculum gate from the cached snapshot so a page navigation
+  // never flashes curriculum-gated nav items before /tenants/profile loads.
+  const [curriculumType, setCurriculumType] = useState<string | null>(
+    () => readTenantProfile()?.curriculumType || null
+  );
+  const [schoolName, setSchoolName] = useState<string | null>(
+    () => readTenantProfile()?.schoolName || null
+  );
   const [badgeCounts, setBadgeCounts] = useState<BadgeCounts>(EMPTY_BADGE_COUNTS);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [accountMenuOpenDesktop, setAccountMenuOpenDesktop] = useState(false);
   const [accountMenuOpenMobile, setAccountMenuOpenMobile] = useState(false);
-  const [sidebarUserEmail, setSidebarUserEmail] = useState("Tenant user");
-  const [sidebarUserName, setSidebarUserName] = useState("");
+  const [sidebarUserEmail, setSidebarUserEmail] = useState(
+    () => sidebarUserCache?.email || "Tenant user"
+  );
+  const [sidebarUserName, setSidebarUserName] = useState(
+    () => sidebarUserCache?.name || ""
+  );
   const [loggingOut, setLoggingOut] = useState(false);
-  const [sidebarBadgeUrl, setSidebarBadgeUrl] = useState<string | null>(null);
+  const [sidebarBadgeUrl, setSidebarBadgeUrl] = useState<string | null>(
+    () => (typeof sidebarBadgeCache === "string" ? sidebarBadgeCache : null)
+  );
   const seenUnreadIdsRef = useRef<Set<string>>(new Set());
   const initializedRealtimeRef = useRef(false);
   const lastNotificationSoundAtRef = useRef(0);
@@ -363,7 +430,9 @@ export function AppShell({
       const path = pathname || "/";
 
       if (path.startsWith("/tenant/")) {
-        if (!cancelled) {
+        // Only fall back to the placeholder when nothing is cached — a
+        // navigation must not blank the name while /auth/me re-resolves.
+        if (!cancelled && !sidebarUserCache) {
           setSidebarUserEmail("Tenant user");
           setSidebarUserName("");
         }
@@ -373,9 +442,14 @@ export function AppShell({
             noRedirect: true,
           });
           const parsed = normalizeCurrentUserPreview(raw);
-          if (!cancelled && parsed) {
-            setSidebarUserEmail(parsed.email || "Tenant user");
-            setSidebarUserName(parsed.fullName || "");
+          if (parsed) {
+            const email = parsed.email || "Tenant user";
+            const name = parsed.fullName || "";
+            sidebarUserCache = { email, name };
+            if (!cancelled) {
+              setSidebarUserEmail(email);
+              setSidebarUserName(name);
+            }
           }
         } catch {
           // Keep fallback labels.
@@ -408,12 +482,19 @@ export function AppShell({
         });
         const obj = asObject(raw);
         const ct = asString(obj?.curriculum_type).toUpperCase() || "8-4-4";
-        if (!cancelled) setCurriculumType(ct);
         const nm =
           asString(obj?.name) ||
           asString(obj?.school_name) ||
           asString(obj?.tenant_name);
-        if (!cancelled && nm) setSchoolName(nm);
+        if (!cancelled) {
+          setCurriculumType(ct);
+          if (nm) setSchoolName(nm);
+        }
+        // Cache for the next navigation so the gated sidebar never flashes.
+        writeTenantProfile({
+          curriculumType: ct,
+          schoolName: nm || tenantProfileCache?.schoolName || "",
+        });
       } catch {
         // Leave null — show all nav items
       }
@@ -431,6 +512,16 @@ export function AppShell({
     } catch {
       // Best effort logout; redirect anyway.
     } finally {
+      // Drop cached tenant state so the next sign-in (possibly a different
+      // tenant in the same tab) never inherits this one's sidebar.
+      tenantProfileCache = null;
+      sidebarBadgeCache = undefined;
+      sidebarUserCache = null;
+      try {
+        window.sessionStorage.removeItem(TENANT_PROFILE_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
       setLoggingOut(false);
       window.location.href = "/login";
     }
@@ -451,10 +542,19 @@ export function AppShell({
     [revokeObjectUrl]
   );
 
-  const loadSidebarBadge = useCallback(async () => {
+  const loadSidebarBadge = useCallback(async (force = false) => {
     const path = pathname || "/";
     if (!path.startsWith("/tenant/")) {
       replaceSidebarBadgeUrl(null);
+      return;
+    }
+
+    // Serve the cached badge instantly on a navigation — only hit the network
+    // on the first load of the session or when branding is explicitly updated.
+    if (!force && sidebarBadgeCache !== undefined) {
+      replaceSidebarBadgeUrl(
+        typeof sidebarBadgeCache === "string" ? sidebarBadgeCache : null
+      );
       return;
     }
 
@@ -466,12 +566,17 @@ export function AppShell({
       });
       const blob = await response.blob();
       if (!blob || blob.size === 0) {
+        sidebarBadgeCache = null;
         replaceSidebarBadgeUrl(null);
         return;
       }
-      replaceSidebarBadgeUrl(URL.createObjectURL(blob));
+      const dataUrl = await blobToDataUrl(blob);
+      sidebarBadgeCache = dataUrl;
+      replaceSidebarBadgeUrl(dataUrl);
     } catch {
-      replaceSidebarBadgeUrl(null);
+      replaceSidebarBadgeUrl(
+        typeof sidebarBadgeCache === "string" ? sidebarBadgeCache : null
+      );
     }
   }, [pathname, replaceSidebarBadgeUrl]);
 
@@ -481,7 +586,9 @@ export function AppShell({
 
   useEffect(() => {
     const handleBrandingUpdated = () => {
-      void loadSidebarBadge();
+      // Branding changed — drop the cache and re-fetch.
+      sidebarBadgeCache = undefined;
+      void loadSidebarBadge(true);
     };
     window.addEventListener(TENANT_BRANDING_UPDATED_EVENT, handleBrandingUpdated as EventListener);
     return () => {
