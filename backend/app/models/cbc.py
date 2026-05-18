@@ -10,6 +10,12 @@ from sqlalchemy.sql import func, text
 
 from app.core.database import Base
 
+# CbcAssessment.term_id has a foreign key to core.tenant_terms. SQLAlchemy
+# resolves that string target lazily against Base.metadata, so the TenantTerm
+# model must be registered whenever the CBC models are loaded — importing it
+# here guarantees that and avoids a NoReferencedTableError on first flush.
+from app.models.tenant_term import TenantTerm  # noqa: F401
+
 
 class CbcLearningArea(Base):
     """Top-level subject equivalent (e.g. 'English Language')."""
