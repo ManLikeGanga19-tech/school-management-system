@@ -15,6 +15,23 @@ from app.models.user import User
 router = APIRouter()
 
 
+def unseen_entries(db: Session, seen_at) -> list[ChangelogEntry]:
+    """Published changelog entries published after `seen_at`, newest first.
+
+    Drafts (is_published=False) and entries without a published_at are
+    always excluded.
+    """
+    q = select(ChangelogEntry).where(
+        ChangelogEntry.is_published.is_(True),
+        ChangelogEntry.published_at.isnot(None),
+    )
+    if seen_at is not None:
+        q = q.where(ChangelogEntry.published_at > seen_at)
+    return list(
+        db.execute(q.order_by(ChangelogEntry.published_at.desc())).scalars().all()
+    )
+
+
 @router.get("/unseen")
 def list_unseen_changelog(
     db: Session = Depends(get_db),
@@ -22,18 +39,7 @@ def list_unseen_changelog(
 ):
     """Published changelog entries this user has not yet acknowledged —
     everything published after their changelog_seen_at, newest first."""
-    seen_at = getattr(user, "changelog_seen_at", None)
-
-    q = select(ChangelogEntry).where(
-        ChangelogEntry.is_published.is_(True),
-        ChangelogEntry.published_at.isnot(None),
-    )
-    if seen_at is not None:
-        q = q.where(ChangelogEntry.published_at > seen_at)
-
-    rows = db.execute(
-        q.order_by(ChangelogEntry.published_at.desc())
-    ).scalars().all()
+    rows = unseen_entries(db, getattr(user, "changelog_seen_at", None))
 
     return [
         {

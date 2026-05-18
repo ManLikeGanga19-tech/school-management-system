@@ -77,6 +77,7 @@ import { logout as authLogout } from "@/lib/auth/auth";
 import { TENANT_BRANDING_UPDATED_EVENT } from "@/lib/tenant-branding";
 import { FloatingSupportWidget } from "@/components/support/FloatingSupportWidget";
 import { SubscriptionBanner } from "@/components/layout/SubscriptionBanner";
+import { ChangelogBanner } from "@/components/layout/ChangelogBanner";
 import { CampusSwitcher } from "@/components/layout/CampusSwitcher";
 import { useSubscription } from "@/lib/auth/useSubscription";
 
@@ -1041,6 +1042,7 @@ export function AppShell({
       <main className="min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(252,251,247,0.96))] px-3 py-4 sm:px-4 md:ml-[260px] md:px-6 md:py-6">
         <div className="mx-auto w-full max-w-6xl">
           <SubscriptionBanner />
+          <ChangelogBanner />
           {children}
         </div>
       </main>
