@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { MarketingNavbar } from "./MarketingNavbar";
 import { MarketingFooter } from "./MarketingFooter";
 import { TrustBar } from "./TrustBar";
@@ -82,30 +83,18 @@ export function PublicSite({
             </div>
           </div>
 
-          {/* Dashboard preview skeleton */}
+          {/* Dashboard preview */}
           <div className="relative mx-auto max-w-5xl group">
             <div className="absolute -inset-4 bg-brand-primary/5 rounded-[3rem] blur-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="relative ds-card border-brand-border/40 overflow-hidden aspect-[16/10] flex items-center justify-center bg-white">
-              <div className="bg-muted-warm w-full h-full flex flex-col p-8 opacity-90">
-                <div className="flex justify-between items-center mb-8">
-                  <div className="h-8 w-48 bg-brand-border/40 rounded-lg" />
-                  <div className="flex gap-4">
-                    <div className="h-10 w-10 bg-brand-border/40 rounded-full" />
-                    <div className="h-10 w-10 bg-brand-border/40 rounded-full" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 gap-6 mb-8">
-                  {[1,2,3,4].map(i => (
-                    <div key={i} className="h-32 bg-white rounded-2xl border border-brand-border flex flex-col p-4 shadow-sm">
-                      <span className="bg-muted-warm h-4 w-12 rounded mb-auto" />
-                      <span className="bg-light-sand/50 h-10 w-24 rounded-lg" />
-                    </div>
-                  ))}
-                </div>
-                <div className="flex-1 bg-white rounded-2xl border border-brand-border flex items-center justify-center text-muted-text font-medium text-sm">
-                  Director dashboard — CBC analytics & fee overview
-                </div>
-              </div>
+            <div className="relative ds-card border-brand-border/40 overflow-hidden aspect-[16/10] bg-white">
+              <Image
+                src="/screenshots/Hero.jpg"
+                alt="ShuleHQ director dashboard — CBC analytics and fee overview"
+                fill
+                priority
+                sizes="(max-width: 1024px) 100vw, 1024px"
+                className="object-cover object-top"
+              />
             </div>
           </div>
         </div>
@@ -191,11 +180,14 @@ export function PublicSite({
           <div className="flex flex-col lg:flex-row items-center gap-20">
             <div className="lg:w-1/2">
               <div className="bg-white/10 backdrop-blur-xl rounded-[2rem] p-4 border border-white/10 shadow-2xl overflow-hidden aspect-video relative group">
-                <div className="bg-white rounded-2xl w-full h-full flex items-center justify-center p-8 opacity-90">
-                  <div className="flex flex-col items-center gap-4 text-dark-navy">
-                    <BarChart3 size={48} className="text-brand-primary" />
-                    <p className="italic font-medium text-muted-text text-sm">CBC Analytics Dashboard</p>
-                  </div>
+                <div className="relative w-full h-full rounded-2xl overflow-hidden">
+                  <Image
+                    src="/screenshots/cbc.jpg"
+                    alt="ShuleHQ CBC analytics dashboard"
+                    fill
+                    sizes="(max-width: 1024px) 100vw, 600px"
+                    className="object-cover"
+                  />
                 </div>
               </div>
             </div>
@@ -284,8 +276,14 @@ export function PublicSite({
                 </div>
               </div>
               <div className="md:w-1/2">
-                <div className="bg-page-bg rounded-[2rem] aspect-[4/3] border border-brand-border p-8 flex items-center justify-center shadow-inner group">
-                  <Camera size={64} className="text-brand-border group-hover:scale-110 transition-transform" />
+                <div className="relative bg-page-bg rounded-[2rem] aspect-[4/3] border border-brand-border overflow-hidden shadow-inner group">
+                  <Image
+                    src="/screenshots/finance.jpg"
+                    alt="ShuleHQ receipt scanning and payment recording"
+                    fill
+                    sizes="(max-width: 768px) 100vw, 500px"
+                    className="object-cover group-hover:scale-105 transition-transform"
+                  />
                 </div>
               </div>
             </div>
