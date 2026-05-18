@@ -28,6 +28,13 @@ type TenantPlan = {
   grace_until: string | null;
 };
 
+type Term = {
+  available: boolean;
+  term_name?: string;
+  academic_year?: number;
+  end_date?: string;
+};
+
 const STATE_STYLES: Record<string, string> = {
   active: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   grace: "bg-amber-50 text-amber-700 ring-amber-200",
@@ -55,6 +62,7 @@ function formatDate(iso: string | null): string {
 export default function TenantsTab() {
   const [tenantPlans, setTenantPlans] = useState<TenantPlan[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [term, setTerm] = useState<Term | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [assigning, setAssigning] = useState<TenantPlan | null>(null);
@@ -67,12 +75,14 @@ export default function TenantsTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [tp, p] = await Promise.all([
+      const [tp, p, tm] = await Promise.all([
         apiFetch<TenantPlan[]>("/admin/tenant-plans", { tenantRequired: false } as never),
         apiFetch<Plan[]>("/admin/subscription-plans", { tenantRequired: false } as never),
+        apiFetch<Term>("/admin/academic-term/current", { tenantRequired: false } as never),
       ]);
       setTenantPlans(Array.isArray(tp) ? tp : []);
       setPlans(Array.isArray(p) ? p : []);
+      setTerm(tm && tm.available ? tm : null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load tenants.");
     } finally {
@@ -88,7 +98,8 @@ export default function TenantsTab() {
     setAssigning(tp);
     setDraft({
       plan_code: tp.plan_code || "",
-      period_end: tp.period_end || "",
+      // Default a fresh assignment's expiry to the current academic term end.
+      period_end: tp.period_end || term?.end_date || "",
       state_override: tp.state_override || "",
     });
   }
@@ -220,9 +231,19 @@ export default function TenantsTab() {
                   value={draft.period_end}
                   onChange={(e) => setDraft({ ...draft, period_end: e.target.value })}
                 />
+                {term?.end_date && (
+                  <button
+                    type="button"
+                    onClick={() => setDraft({ ...draft, period_end: term.end_date! })}
+                    className="mt-1 text-[11px] font-medium text-teal-600 hover:underline"
+                  >
+                    Use academic term end — {term.term_name}
+                    {term.academic_year ? ` ${term.academic_year}` : ""} ({term.end_date})
+                  </button>
+                )}
                 <p className="mt-1 text-[11px] text-slate-400">
-                  After this date the tenant enters the grace window, then becomes read-only.
-                  Leave blank for an open-ended subscription.
+                  Termly tiers should expire at the term end so every school shares one
+                  date. After expiry the tenant enters grace, then read-only.
                 </p>
               </div>
               <div>

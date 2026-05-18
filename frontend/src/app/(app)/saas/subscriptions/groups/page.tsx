@@ -42,6 +42,12 @@ type Group = {
 
 type Plan = { code: string; name: string; is_active: boolean };
 type TenantRow = { tenant_id: string; tenant_name: string; tenant_slug: string };
+type Term = {
+  available: boolean;
+  term_name?: string;
+  academic_year?: number;
+  end_date?: string;
+};
 
 type GroupDraft = {
   name: string;
@@ -82,6 +88,7 @@ export default function TenantGroupsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [tenants, setTenants] = useState<TenantRow[]>([]);
+  const [term, setTerm] = useState<Term | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -92,14 +99,16 @@ export default function TenantGroupsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [g, p, t] = await Promise.all([
+      const [g, p, t, tm] = await Promise.all([
         apiFetch<Group[]>("/admin/tenant-groups", { tenantRequired: false } as never),
         apiFetch<Plan[]>("/admin/subscription-plans", { tenantRequired: false } as never),
         apiFetch<TenantRow[]>("/admin/tenant-plans", { tenantRequired: false } as never),
+        apiFetch<Term>("/admin/academic-term/current", { tenantRequired: false } as never),
       ]);
       setGroups(Array.isArray(g) ? g : []);
       setPlans(Array.isArray(p) ? p : []);
       setTenants(Array.isArray(t) ? t : []);
+      setTerm(tm && tm.available ? tm : null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load tenant groups.");
     } finally {
@@ -132,7 +141,7 @@ export default function TenantGroupsPage() {
       billing_email: g.billing_email || "",
       primary_contact: g.primary_contact || "",
       plan_code: g.plan_code || "",
-      period_end: g.period_end || "",
+      period_end: g.period_end || term?.end_date || "",
       state_override: g.state_override || "",
     });
   }
@@ -465,6 +474,16 @@ export default function TenantGroupsPage() {
                       value={draft.period_end}
                       onChange={(e) => setDraft({ ...draft, period_end: e.target.value })}
                     />
+                    {term?.end_date && (
+                      <button
+                        type="button"
+                        onClick={() => setDraft({ ...draft, period_end: term.end_date! })}
+                        className="mt-1 text-[11px] font-medium text-teal-600 hover:underline"
+                      >
+                        Use academic term end — {term.term_name}
+                        {term.academic_year ? ` ${term.academic_year}` : ""} ({term.end_date})
+                      </button>
+                    )}
                   </div>
                   <div className="sm:col-span-2">
                     <Label className="text-xs">Lifecycle state</Label>

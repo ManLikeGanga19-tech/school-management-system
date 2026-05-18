@@ -798,6 +798,34 @@ def list_gateable_modules(
     ]
 
 
+@router.get("/academic-term/current")
+def current_academic_term(
+    db: Session = Depends(get_db),
+    _=Depends(require_permission_saas("subscriptions.manage")),
+):
+    """The current (or next upcoming) academic term from the SaaS calendar.
+
+    Termly subscriptions anchor their expiry to this term's end date, so
+    every school on the term shares one constant expiry.
+    """
+    term = service._next_or_current_saas_term(db, when=service._service_today())
+    if not term:
+        return {"available": False}
+
+    def _iso(v):
+        return v.isoformat() if hasattr(v, "isoformat") else str(v)
+
+    return {
+        "available": True,
+        "academic_year": int(term["academic_year"]),
+        "term_no": int(term["term_no"]),
+        "term_code": str(term["term_code"]),
+        "term_name": str(term["term_name"]),
+        "start_date": _iso(term["start_date"]),
+        "end_date": _iso(term["end_date"]),
+    }
+
+
 @router.get("/subscription-plans")
 def list_subscription_plans(
     db: Session = Depends(get_db),
@@ -989,6 +1017,20 @@ def assign_tenant_plan(
     ).scalars().first()
 
     override = _norm_state_override(payload.state_override)
+
+    # Termly tiers anchor their expiry to the academic term end when the
+    # caller didn't supply one — so every termly tenant shares one constant
+    # expiry regardless of when they onboarded.
+    period_end = payload.period_end
+    if (
+        period_end is None
+        and plan is not None
+        and str(getattr(plan, "billing_cycle", "") or "").lower() == "per_term"
+    ):
+        term = service._next_or_current_saas_term(db, when=service._service_today())
+        if term:
+            period_end = term["end_date"]
+
     if sub is None:
         sub = Subscription(
             tenant_id=tenant_id,
@@ -997,14 +1039,14 @@ def assign_tenant_plan(
             status="active",
             amount_kes=float(getattr(plan, "price_kes", 0) or 0) if plan else 0,
             plan_code=plan_code,
-            period_end=payload.period_end,
+            period_end=period_end,
             state_override=override,
         )
         db.add(sub)
     else:
         sub.plan_code = plan_code
-        if payload.period_end is not None:
-            sub.period_end = payload.period_end
+        if period_end is not None:
+            sub.period_end = period_end
         sub.state_override = override
         sub.updated_at = _datetime.now(_timezone.utc)
 
@@ -1125,6 +1167,11 @@ def update_tenant_group(
     for field in ("name", "billing_email", "primary_contact", "period_end"):
         if field in data:
             setattr(group, field, data[field])
+    # Anchor a tiered group with no expiry to the current academic term end.
+    if group.plan_code and group.period_end is None:
+        term = service._next_or_current_saas_term(db, when=service._service_today())
+        if term:
+            group.period_end = term["end_date"]
     group.updated_at = _datetime.now(_timezone.utc)
     db.commit()
     db.refresh(group)
