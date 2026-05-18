@@ -881,13 +881,19 @@ def delete_subscription_plan(
     if plan is None:
         raise HTTPException(status_code=404, detail="Subscription plan not found.")
 
-    in_use = db.execute(
-        select(Subscription.id).where(Subscription.plan == plan.code).limit(1)
+    # A tier is "in use" when a subscription OR a tenant group is assigned to
+    # it. Guards against deleting a plan out from under tenants, which would
+    # silently revert their tier.
+    tenant_in_use = db.execute(
+        select(Subscription.id).where(Subscription.plan_code == plan.code).limit(1)
     ).first()
-    if in_use:
+    group_in_use = db.execute(
+        select(TenantGroup.id).where(TenantGroup.plan_code == plan.code).limit(1)
+    ).first()
+    if tenant_in_use or group_in_use:
         raise HTTPException(
             status_code=409,
-            detail="Plan is in use by a subscription — deactivate it instead of deleting.",
+            detail="Plan is assigned to a tenant or group — deactivate it instead of deleting.",
         )
 
     db.delete(plan)

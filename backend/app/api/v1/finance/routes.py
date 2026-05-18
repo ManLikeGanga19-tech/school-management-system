@@ -4,6 +4,7 @@ from uuid import UUID
 
 from app.core.database import get_db
 from app.core.dependencies import get_tenant, get_current_user, require_permission
+from app.core.subscription_gate import block_if_locked
 
 from app.api.v1.finance import service
 from app.api.v1.payments import service as payments_service
@@ -823,7 +824,10 @@ def get_payment_document(
 
 @router.get(
     "/documents/payments/{payment_id}/pdf",
-    dependencies=[Depends(require_permission("finance.payments.view"))],
+    dependencies=[
+        Depends(require_permission("finance.payments.view")),
+        Depends(block_if_locked),
+    ],
 )
 def download_payment_pdf(
     payment_id: UUID,
@@ -854,7 +858,10 @@ def download_payment_pdf(
 
 @router.get(
     "/documents/payments/{payment_id}/thermal",
-    dependencies=[Depends(require_permission("finance.payments.view"))],
+    dependencies=[
+        Depends(require_permission("finance.payments.view")),
+        Depends(block_if_locked),
+    ],
 )
 def download_payment_thermal(
     payment_id: UUID,
@@ -881,7 +888,10 @@ def download_payment_thermal(
 
 @router.get(
     "/documents/payments/{payment_id}/print",
-    dependencies=[Depends(require_permission("finance.payments.view"))],
+    dependencies=[
+        Depends(require_permission("finance.payments.view")),
+        Depends(block_if_locked),
+    ],
 )
 def print_payment_receipt(
     payment_id: UUID,

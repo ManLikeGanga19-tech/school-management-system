@@ -49,13 +49,12 @@ def invalidate_subscription_cache(tenant_id: UUID | str | None = None) -> None:
 
 
 def gate(module: Optional[str] = None):
-    """Router-level dependency enforcing subscription rules.
+    """Router-level dependency enforcing subscription *module* access.
 
-    - 403 if `module` is a gateable module the tenant's plan does not unlock.
-    - 402 if the subscription is locked (past grace) and the request writes.
-
-    Reads stay allowed even when locked, so a lapsed tenant keeps full
-    visibility of their data and can reach the renewal flow.
+    403 if `module` is a gateable module the tenant's plan does not unlock.
+    A locked subscription does NOT block here — lockout is applied
+    surgically to specific high-value features via `block_if_locked`,
+    so a lapsed tenant is never shut out of the system entirely.
     """
 
     def _dependency(
@@ -82,13 +81,31 @@ def gate(module: Optional[str] = None):
                 ),
             )
 
-        if state.is_locked and request.method.upper() in _WRITE_METHODS:
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=(
-                    "Your subscription has expired. Renew the subscription "
-                    "to make changes — your data stays available to view."
-                ),
-            )
-
     return _dependency
+
+
+def block_if_locked(
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+) -> None:
+    """Per-route dependency for high-value features that a lapsed tenant
+    loses until they renew (receipt/document printing, adding students).
+
+    The tenant can still log in, view everything, and operate normally —
+    only the routes carrying this dependency are blocked while locked.
+    Fails open on a resolver error.
+    """
+    try:
+        state = get_cached_subscription_state(db, tenant.id)
+    except Exception:
+        logger.exception("block_if_locked: state resolution failed; allowing request")
+        return
+    if state.is_locked:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(
+                "Your subscription has expired. Renew it to use this feature — "
+                "your existing data stays fully available to view."
+            ),
+        )
