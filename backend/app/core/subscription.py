@@ -29,7 +29,7 @@ _DEFAULT_GRACE_DAYS = 14
 
 @dataclass(frozen=True)
 class SubscriptionState:
-    state: str                          # active | grace | locked
+    state: str                          # active | grace | locked (effective)
     plan_code: Optional[str]
     plan_name: Optional[str]
     modules: frozenset[str]             # effective modules (core ∪ plan-unlocked)
@@ -37,6 +37,7 @@ class SubscriptionState:
     period_end: Optional[date]
     grace_until: Optional[date]
     grace_days: int
+    state_override: Optional[str] = None  # raw manual override; null = auto
 
     @property
     def is_locked(self) -> bool:
@@ -55,6 +56,7 @@ class SubscriptionState:
             "period_end": self.period_end.isoformat() if self.period_end else None,
             "grace_until": self.grace_until.isoformat() if self.grace_until else None,
             "grace_days": self.grace_days,
+            "state_override": self.state_override,
         }
 
 
@@ -81,9 +83,14 @@ def _state_from_tier(
     period_end: Optional[date],
     status: Optional[str],
     today: date,
+    state_override: Optional[str] = None,
 ) -> SubscriptionState:
     """Resolve state from a tier code + expiry. An unknown/blank tier code
-    means no gating — the subject is grandfathered to full access."""
+    means no gating — the subject is grandfathered to full access.
+
+    state_override, when a valid lifecycle value, forces the state and
+    wins over the date-computed result.
+    """
     code = str(plan_code or "").strip()
     plan = (
         db.execute(
@@ -112,6 +119,13 @@ def _state_from_tier(
     else:
         state = STATE_LOCKED
 
+    # A manual override wins over the date-computed state.
+    override = str(state_override or "").strip().lower()
+    if override not in (STATE_ACTIVE, STATE_GRACE, STATE_LOCKED):
+        override = ""
+    if override:
+        state = override
+
     return SubscriptionState(
         state=state,
         plan_code=plan.code,
@@ -121,6 +135,7 @@ def _state_from_tier(
         period_end=period_end,
         grace_until=grace_until,
         grace_days=grace_days,
+        state_override=override or None,
     )
 
 
@@ -150,6 +165,7 @@ def resolve_subscription_state(
                 period_end=group.period_end,
                 status=None,
                 today=today,
+                state_override=getattr(group, "state_override", None),
             )
         return _grandfathered()  # group has no tier yet
 
@@ -171,4 +187,5 @@ def resolve_subscription_state(
         period_end=getattr(sub, "period_end", None),
         status=getattr(sub, "status", None),
         today=today,
+        state_override=getattr(sub, "state_override", None),
     )

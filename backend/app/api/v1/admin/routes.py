@@ -906,10 +906,18 @@ def delete_subscription_plan(
 # Tenant plan assignment — Super Admin
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _norm_state_override(value) -> Optional[str]:
+    """Accept only the three lifecycle states; anything else means Auto."""
+    s = str(value or "").strip().lower()
+    return s if s in ("active", "grace", "locked") else None
+
+
 class TenantPlanAssign(BaseModel):
     # null / empty clears the tier (tenant reverts to grandfathered full access)
     plan_code: Optional[str] = Field(default=None, max_length=64)
     period_end: Optional[_date] = None
+    # null = Auto (state computed from expiry); else forces the lifecycle state
+    state_override: Optional[str] = Field(default=None, max_length=16)
 
 
 def _tenant_plan_row(tenant: Tenant, state) -> dict:
@@ -920,6 +928,7 @@ def _tenant_plan_row(tenant: Tenant, state) -> dict:
         "plan_code": state.plan_code,
         "plan_name": state.plan_name,
         "state": state.state,
+        "state_override": state.state_override,
         "period_end": state.period_end.isoformat() if state.period_end else None,
         "grace_until": state.grace_until.isoformat() if state.grace_until else None,
     }
@@ -979,6 +988,7 @@ def assign_tenant_plan(
         )
     ).scalars().first()
 
+    override = _norm_state_override(payload.state_override)
     if sub is None:
         sub = Subscription(
             tenant_id=tenant_id,
@@ -988,12 +998,14 @@ def assign_tenant_plan(
             amount_kes=float(getattr(plan, "price_kes", 0) or 0) if plan else 0,
             plan_code=plan_code,
             period_end=payload.period_end,
+            state_override=override,
         )
         db.add(sub)
     else:
         sub.plan_code = plan_code
         if payload.period_end is not None:
             sub.period_end = payload.period_end
+        sub.state_override = override
         sub.updated_at = _datetime.now(_timezone.utc)
 
     db.commit()
@@ -1020,6 +1032,7 @@ class TenantGroupUpdate(BaseModel):
     primary_contact: Optional[str] = Field(default=None, max_length=200)
     plan_code: Optional[str] = Field(default=None, max_length=64)  # null clears the tier
     period_end: Optional[_date] = None
+    state_override: Optional[str] = Field(default=None, max_length=16)  # null = Auto
 
 
 def _group_row(db: Session, g: TenantGroup) -> dict:
@@ -1032,7 +1045,8 @@ def _group_row(db: Session, g: TenantGroup) -> dict:
         .order_by(Tenant.name.asc())
     ).scalars().all()
     state = _state_from_tier(
-        db, plan_code=g.plan_code, period_end=g.period_end, status=None, today=_d.today()
+        db, plan_code=g.plan_code, period_end=g.period_end, status=None,
+        today=_d.today(), state_override=g.state_override,
     )
     return {
         "id": str(g.id),
@@ -1043,6 +1057,7 @@ def _group_row(db: Session, g: TenantGroup) -> dict:
         "plan_code": state.plan_code,
         "plan_name": state.plan_name,
         "state": state.state,
+        "state_override": state.state_override,
         "period_end": g.period_end.isoformat() if g.period_end else None,
         "grace_until": state.grace_until.isoformat() if state.grace_until else None,
         "campus_count": len(campuses),
@@ -1105,6 +1120,8 @@ def update_tenant_group(
         ).first():
             raise HTTPException(status_code=404, detail=f"Plan '{code}' not found.")
         group.plan_code = code
+    if "state_override" in data:
+        group.state_override = _norm_state_override(data["state_override"])
     for field in ("name", "billing_email", "primary_contact", "period_end"):
         if field in data:
             setattr(group, field, data[field])

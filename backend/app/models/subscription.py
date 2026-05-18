@@ -56,6 +56,8 @@ class Subscription(Base):
     discount_percent = Column(Numeric(5, 2), server_default=text("0.0"))
     period_start = Column(Date(), nullable=True)
     period_end = Column(Date(), nullable=True)
+    # Manual lifecycle override — 'active' | 'grace' | 'locked'; null = auto.
+    state_override = Column(String(16), nullable=True)
     notes = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=True)
