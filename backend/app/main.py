@@ -12,9 +12,16 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+import app.models  # noqa: F401 — register every ORM table before mappers configure
+from sqlalchemy.orm import configure_mappers
+
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
+
+# Resolve every model's foreign keys now, at import time — so a schema mistake
+# fails fast on boot rather than as a NoReferencedTableError on a first write.
+configure_mappers()
 
 # Configure logging as early as possible — before any module-level loggers fire.
 # Uses JSON in all non-dev environments (staging, ci, production).
