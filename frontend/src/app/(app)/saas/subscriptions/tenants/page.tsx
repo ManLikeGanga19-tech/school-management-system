@@ -26,6 +26,8 @@ type TenantPlan = {
   state_override: string | null;
   period_end: string | null;
   grace_until: string | null;
+  group_id: string | null;
+  group_name: string | null;
 };
 
 type Term = {
@@ -178,14 +180,20 @@ export default function TenantsTab() {
                     expires {formatDate(tp.period_end)}
                   </span>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => startAssign(tp)}
-                  className="ml-auto sm:ml-0"
-                >
-                  {tp.plan_code ? "Change" : "Assign"}
-                </Button>
+                {tp.group_id ? (
+                  <span className="ml-auto rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500 sm:ml-0">
+                    Tier set by group · {tp.group_name ?? "—"}
+                  </span>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => startAssign(tp)}
+                    className="ml-auto sm:ml-0"
+                  >
+                    {tp.plan_code ? "Change" : "Assign"}
+                  </Button>
+                )}
               </div>
             </div>
           ))}

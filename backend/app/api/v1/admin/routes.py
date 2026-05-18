@@ -948,7 +948,7 @@ class TenantPlanAssign(BaseModel):
     state_override: Optional[str] = Field(default=None, max_length=16)
 
 
-def _tenant_plan_row(tenant: Tenant, state) -> dict:
+def _tenant_plan_row(tenant: Tenant, state, group_name: Optional[str] = None) -> dict:
     return {
         "tenant_id": str(tenant.id),
         "tenant_name": tenant.name,
@@ -959,6 +959,9 @@ def _tenant_plan_row(tenant: Tenant, state) -> dict:
         "state_override": state.state_override,
         "period_end": state.period_end.isoformat() if state.period_end else None,
         "grace_until": state.grace_until.isoformat() if state.grace_until else None,
+        # When set, the tier is governed by this group, not a per-tenant plan.
+        "group_id": str(tenant.group_id) if getattr(tenant, "group_id", None) else None,
+        "group_name": group_name,
     }
 
 
@@ -973,8 +976,15 @@ def list_tenant_plans(
     tenants = db.execute(
         select(Tenant).where(Tenant.deleted_at.is_(None)).order_by(Tenant.name.asc())
     ).scalars().all()
+    group_names = {
+        g.id: g.name for g in db.execute(select(TenantGroup)).scalars().all()
+    }
     return [
-        _tenant_plan_row(t, resolve_subscription_state(db, tenant_id=t.id))
+        _tenant_plan_row(
+            t,
+            resolve_subscription_state(db, tenant_id=t.id),
+            group_name=group_names.get(getattr(t, "group_id", None)),
+        )
         for t in tenants
     ]
 
@@ -997,6 +1007,17 @@ def assign_tenant_plan(
     tenant = db.get(Tenant, tenant_id)
     if tenant is None or getattr(tenant, "deleted_at", None) is not None:
         raise HTTPException(status_code=404, detail="Tenant not found.")
+
+    # A campus inherits its group's tier — a per-tenant assignment would be
+    # silently ignored by the resolver, so block it with a clear message.
+    if getattr(tenant, "group_id", None) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This tenant belongs to a group — set the tier on the group "
+                "(Groups tab); every campus in the group inherits it."
+            ),
+        )
 
     plan_code = (payload.plan_code or "").strip().lower() or None
     plan = None
