@@ -241,20 +241,23 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
     # instructions — if that field is blank the uniform section stays empty for
     # them; it never falls back to the standard text. Every other class uses
     # the standard uniform details.
+    is_jss = _is_junior_secondary(class_code)
     base_uniform = str(ps.get("uniform_details_text") or "").strip()
     jss_uniform = str(ps.get("uniform_details_text_jss") or "").strip()
-    if _is_junior_secondary(class_code):
-        uniform_text = jss_uniform
-    else:
-        uniform_text = base_uniform
-    assessment_amount = ps.get("assessment_books_amount")
+    uniform_text = jss_uniform if is_jss else base_uniform
     assessment_note = str(ps.get("assessment_books_note") or "Assessment Books")
-    # Remedial fee is a flat per-term charge shown only on JSS (Grade 7/8/9) sheets.
-    is_jss = _is_junior_secondary(class_code)
+    # JSS (Grade 7/8/9) classes do not take assessment books — they have the
+    # per-term remedial fee instead. The two are mutually exclusive per class.
+    assessment_amount = None if is_jss else ps.get("assessment_books_amount")
     remedial_amount = ps.get("remedial_fee_amount") if is_jss else None
 
     if uniform_text or assessment_amount or remedial_amount:
-        y = section_header_bar(y, "UNIFORM REQUIREMENTS & ASSESSMENT BOOKS")
+        y = section_header_bar(
+            y,
+            "UNIFORM REQUIREMENTS & REMEDIAL FEE"
+            if is_jss
+            else "UNIFORM REQUIREMENTS & ASSESSMENT BOOKS",
+        )
 
         if assessment_amount:
             try:
