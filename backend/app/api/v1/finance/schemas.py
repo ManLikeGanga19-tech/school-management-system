@@ -227,7 +227,6 @@ class GenerateFeesInvoiceV2Request(BaseModel):
     scholarship_amount: Optional[Decimal] = None
     scholarship_reason: Optional[str] = None
     include_carry_forward: bool = False
-    include_uniforms: bool = False
 
 
 # -------------------------
@@ -317,6 +316,7 @@ class TenantPaymentSettingsUpsert(BaseModel):
     bank_branch: Optional[str] = None
     cash_payment_instructions: Optional[str] = None
     uniform_details_text: Optional[str] = None
+    uniform_details_text_jss: Optional[str] = None
     assessment_books_amount: Optional[Decimal] = None
     assessment_books_note: Optional[str] = None
 
@@ -325,23 +325,3 @@ class TenantPaymentSettingsOut(ORMOutModel, TenantPaymentSettingsUpsert):
     id: UUID
     tenant_id: UUID
 
-
-# -------------------------
-# Uniform Requirements
-# -------------------------
-class UniformRequirementCreate(BaseModel):
-    class_code: str
-    item_name: str
-    description: Optional[str] = None
-    quantity: int = 1
-    unit_price: Decimal = Decimal("0")
-    is_mandatory: bool = True
-
-
-class UniformRequirementUpdate(BaseModel):
-    item_name: Optional[str] = None
-    description: Optional[str] = None
-    quantity: Optional[int] = None
-    unit_price: Optional[Decimal] = None
-    is_mandatory: Optional[bool] = None
-    is_active: Optional[bool] = None

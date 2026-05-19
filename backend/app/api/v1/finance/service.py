@@ -3207,6 +3207,7 @@ def build_fee_structure_document(
             "bank_branch": getattr(payment_settings, "bank_branch", None),
             "cash_payment_instructions": getattr(payment_settings, "cash_payment_instructions", None),
             "uniform_details_text": getattr(payment_settings, "uniform_details_text", None),
+            "uniform_details_text_jss": getattr(payment_settings, "uniform_details_text_jss", None),
             "assessment_books_amount": getattr(payment_settings, "assessment_books_amount", None),
             "assessment_books_note": getattr(payment_settings, "assessment_books_note", None),
         }
@@ -3261,6 +3262,7 @@ def upsert_payment_settings(
         "mpesa_paybill", "mpesa_business_no", "mpesa_account_format",
         "bank_name", "bank_account_name", "bank_account_number", "bank_branch",
         "cash_payment_instructions", "uniform_details_text",
+        "uniform_details_text_jss",
         "assessment_books_amount", "assessment_books_note",
     )
     for field in updatable:
@@ -3345,7 +3347,6 @@ def generate_school_fees_invoice_v2(
     scholarship_amount: Optional[Decimal] = None,
     scholarship_reason: Optional[str] = None,
     include_carry_forward: bool = False,
-    include_uniforms: bool = False,
 ) -> Invoice:
     """
     Smart invoice generator:
@@ -3603,32 +3604,6 @@ def generate_school_fees_invoice_v2(
             cf.invoice_id = inv.id
         db.flush()
 
-    # Attach this class's mandatory uniform items as invoice lines.
-    if include_uniforms:
-        from app.models.uniform_requirement import UniformRequirement
-        uniform_rows = db.execute(
-            select(UniformRequirement).where(
-                UniformRequirement.tenant_id == tenant_id,
-                UniformRequirement.class_code == structure.class_code,
-                UniformRequirement.is_mandatory.is_(True),
-                UniformRequirement.is_active.is_(True),
-            )
-        ).scalars().all()
-        for u in uniform_rows:
-            qty = int(u.quantity or 0)
-            unit = Decimal(str(u.unit_price or "0"))
-            line_total = (unit * qty).quantize(Decimal("0.01"))
-            if line_total <= 0:
-                continue
-            label = f"Uniform: {u.item_name}" + (f" x{qty}" if qty != 1 else "")
-            db.add(InvoiceLine(
-                invoice_id=inv.id,
-                description=label,
-                amount=line_total,
-                meta={"line_type": "UNIFORM", "uniform_requirement_id": str(u.id)},
-            ))
-        db.flush()
-
     db.flush()
     _recalc_invoice_amounts(db, inv)
     db.flush()
@@ -3866,148 +3841,5 @@ def delete_carry_forward(
         raise ValueError("Balance record not found")
     if row.status != "PENDING":
         raise ValueError("Only PENDING balances can be deleted")
-    db.delete(row)
-    db.flush()
-
-
-# ── Uniform Requirements ───────────────────────────────────────────────────────
-
-def _serialize_uniform(row: Any) -> dict:
-    qty = int(row.quantity or 0)
-    unit = Decimal(str(row.unit_price or "0"))
-    return {
-        "id": str(row.id),
-        "class_code": str(row.class_code or ""),
-        "item_name": str(row.item_name or ""),
-        "description": str(row.description or ""),
-        "quantity": qty,
-        "unit_price": str(unit),
-        "line_total": str((unit * qty).quantize(Decimal("0.01"))),
-        "is_mandatory": bool(row.is_mandatory),
-        "is_active": bool(row.is_active),
-    }
-
-
-def list_uniform_requirements(
-    db: Session,
-    *,
-    tenant_id: UUID,
-    class_code: str | None = None,
-) -> list[dict]:
-    from app.models.uniform_requirement import UniformRequirement
-
-    q = select(UniformRequirement).where(UniformRequirement.tenant_id == tenant_id)
-    if class_code:
-        q = q.where(UniformRequirement.class_code == class_code.strip())
-    rows = db.execute(
-        q.order_by(
-            UniformRequirement.class_code.asc(),
-            UniformRequirement.is_mandatory.desc(),
-            UniformRequirement.item_name.asc(),
-        )
-    ).scalars().all()
-    return [_serialize_uniform(r) for r in rows]
-
-
-def create_uniform_requirement(
-    db: Session,
-    *,
-    tenant_id: UUID,
-    class_code: str,
-    item_name: str,
-    description: str | None,
-    quantity: int,
-    unit_price: Decimal,
-    is_mandatory: bool,
-) -> dict:
-    from app.models.uniform_requirement import UniformRequirement
-
-    class_code = (class_code or "").strip()
-    item_name = (item_name or "").strip()
-    if not class_code:
-        raise ValueError("Class is required")
-    if not item_name:
-        raise ValueError("Uniform item name is required")
-    if quantity < 1:
-        raise ValueError("Quantity must be at least 1")
-    if unit_price < 0:
-        raise ValueError("Unit price cannot be negative")
-
-    row = UniformRequirement(
-        tenant_id=tenant_id,
-        class_code=class_code,
-        item_name=item_name,
-        description=(description or "").strip() or None,
-        quantity=quantity,
-        unit_price=unit_price,
-        is_mandatory=is_mandatory,
-    )
-    db.add(row)
-    db.flush()
-    return _serialize_uniform(row)
-
-
-def update_uniform_requirement(
-    db: Session,
-    *,
-    tenant_id: UUID,
-    requirement_id: UUID,
-    item_name: str | None = None,
-    description: str | None = None,
-    quantity: int | None = None,
-    unit_price: Decimal | None = None,
-    is_mandatory: bool | None = None,
-    is_active: bool | None = None,
-) -> dict:
-    from app.models.uniform_requirement import UniformRequirement
-
-    row = db.execute(
-        select(UniformRequirement).where(
-            UniformRequirement.id == requirement_id,
-            UniformRequirement.tenant_id == tenant_id,
-        )
-    ).scalar_one_or_none()
-    if not row:
-        raise ValueError("Uniform requirement not found")
-
-    if item_name is not None:
-        name = item_name.strip()
-        if not name:
-            raise ValueError("Uniform item name is required")
-        row.item_name = name
-    if description is not None:
-        row.description = description.strip() or None
-    if quantity is not None:
-        if quantity < 1:
-            raise ValueError("Quantity must be at least 1")
-        row.quantity = quantity
-    if unit_price is not None:
-        if unit_price < 0:
-            raise ValueError("Unit price cannot be negative")
-        row.unit_price = unit_price
-    if is_mandatory is not None:
-        row.is_mandatory = is_mandatory
-    if is_active is not None:
-        row.is_active = is_active
-    db.flush()
-    return _serialize_uniform(row)
-
-
-def delete_uniform_requirement(
-    db: Session,
-    *,
-    tenant_id: UUID,
-    requirement_id: UUID,
-) -> None:
-    from app.models.uniform_requirement import UniformRequirement
-
-    row = db.execute(
-        select(UniformRequirement).where(
-            UniformRequirement.id == requirement_id,
-            UniformRequirement.tenant_id == tenant_id,
-        )
-    ).scalar_one_or_none()
-    if not row:
-        raise ValueError("Uniform requirement not found")
     db.delete(row)
     db.flush()

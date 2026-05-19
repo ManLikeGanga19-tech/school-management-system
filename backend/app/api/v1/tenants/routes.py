@@ -12791,7 +12791,6 @@ def secretary_finance_action(
                 )
 
             include_cf = bool(payload.get("include_carry_forward", False))
-            include_uniforms = bool(payload.get("include_uniforms", False))
             row = finance_service.generate_school_fees_invoice_v2(
                 db,
                 tenant_id=tenant.id,
@@ -12803,7 +12802,6 @@ def secretary_finance_action(
                 scholarship_amount=v2_scholarship_amount,
                 scholarship_reason=v2_scholarship_reason,
                 include_carry_forward=include_cf,
-                include_uniforms=include_uniforms,
             )
             db.commit()
             db.refresh(row)

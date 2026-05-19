@@ -33,6 +33,8 @@ class TenantPaymentSettings(Base):
 
     # Uniform details block (printed on fee structure sheet)
     uniform_details_text = Column(Text(), nullable=True)
+    # Separate uniform instructions for Junior Secondary (Grade 7/8/9) classes.
+    uniform_details_text_jss = Column(Text(), nullable=True)
 
     # Assessment books (ONCE_PER_YEAR fee printed on structure sheet)
     assessment_books_amount = Column(Numeric(12, 2), nullable=True)

@@ -775,7 +775,6 @@ function SecretaryFinancePageContent() {
     scholarship_amount: "",
     scholarship_reason: "",
     include_carry_forward: false,
-    include_uniforms: false,
   });
   const [interviewInvoiceForm, setInterviewInvoiceForm] = useState({
     enrollment_id: "",
@@ -1671,7 +1670,6 @@ function SecretaryFinancePageContent() {
           ? feesInvoiceForm.scholarship_reason.trim()
           : null,
         include_carry_forward: feesInvoiceForm.include_carry_forward,
-        include_uniforms: feesInvoiceForm.include_uniforms,
       },
       "School fees invoice generated."
     );
@@ -1978,19 +1976,6 @@ function SecretaryFinancePageContent() {
                         }
                       />
                       Include outstanding arrears from previous terms
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={feesInvoiceForm.include_uniforms}
-                        onChange={(e) =>
-                          setFeesInvoiceForm((p) => ({
-                            ...p,
-                            include_uniforms: e.target.checked,
-                          }))
-                        }
-                      />
-                      Include this class&apos;s mandatory uniform items
                     </label>
                   </div>
                   <ActionButton

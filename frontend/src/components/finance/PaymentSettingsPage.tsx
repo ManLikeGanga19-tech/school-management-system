@@ -26,6 +26,7 @@ type PaymentSettings = {
   bank_branch?: string | null;
   cash_payment_instructions?: string | null;
   uniform_details_text?: string | null;
+  uniform_details_text_jss?: string | null;
   assessment_books_amount?: string | null;
   assessment_books_note?: string | null;
 };
@@ -247,11 +248,29 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
               />
               <div className="space-y-1.5">
                 <Label className="text-sm">Uniform Details</Label>
+                <p className="text-xs text-slate-500">
+                  Applies to all classes except Junior Secondary (Grade 7, 8 &amp; 9).
+                </p>
                 <Textarea
                   rows={4}
                   placeholder="e.g. School uniform: White shirt with school badge, grey trousers/skirt, black shoes. Available from the school shop."
                   value={(form.uniform_details_text as string) ?? ""}
                   onChange={(e) => updateField("uniform_details_text", e.target.value)}
+                  disabled={!canManage}
+                  className="max-w-xl"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">Junior Secondary Uniform Details (Grade 7, 8 &amp; 9)</Label>
+                <p className="text-xs text-slate-500">
+                  Used on the fee structure sheet for Grade 7, 8 and 9 classes. Leave blank
+                  to use the standard uniform details above.
+                </p>
+                <Textarea
+                  rows={4}
+                  placeholder="e.g. Junior Secondary uniform: navy blazer with crest, white shirt, school tie, grey trousers/skirt."
+                  value={(form.uniform_details_text_jss as string) ?? ""}
+                  onChange={(e) => updateField("uniform_details_text_jss", e.target.value)}
                   disabled={!canManage}
                   className="max-w-xl"
                 />

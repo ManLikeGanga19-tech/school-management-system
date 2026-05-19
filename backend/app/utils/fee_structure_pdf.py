@@ -237,7 +237,14 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
     y -= row_h + 14
 
     # ── Uniform / assessment books block ─────────────────────────────────────
-    uniform_text = str(ps.get("uniform_details_text") or "")
+    # Junior Secondary (Grade 7/8/9) classes use their own uniform instructions
+    # when set; everyone else uses the standard uniform details.
+    base_uniform = str(ps.get("uniform_details_text") or "").strip()
+    jss_uniform = str(ps.get("uniform_details_text_jss") or "").strip()
+    if _is_junior_secondary(class_code) and jss_uniform:
+        uniform_text = jss_uniform
+    else:
+        uniform_text = base_uniform
     assessment_amount = ps.get("assessment_books_amount")
     assessment_note = str(ps.get("assessment_books_note") or "Assessment Books")
 
@@ -247,21 +254,21 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
         if assessment_amount:
             try:
                 amt_str = _fmt(Decimal(str(assessment_amount)))
-                txt(ML + 6, y, f"{assessment_note}: {currency} {amt_str}  (charged once per year)", size=9)
+                txt(ML + 6, y, f"{assessment_note}: {currency} {amt_str}  (charged once per year)", size=11)
             except Exception:
                 pass
-            y -= 14
+            y -= 17
 
         if uniform_text:
             for item in _parse_structured_lines(uniform_text):
                 y -= item["space_before"]
                 x_item = ML + 6 + item["indent"]
-                available = int((UW - 6 - item["indent"]) / 5.5)
-                for i, chunk in enumerate(_wrap_text(item["text"], max(40, available))):
+                available = int((UW - 6 - item["indent"]) / 6.6)
+                for i, chunk in enumerate(_wrap_text(item["text"], max(34, available))):
                     # continuation lines indent slightly more
                     x_chunk = x_item + (12 if i > 0 else 0)
-                    txt(x_chunk, y, chunk, size=9, bold=item["bold"])
-                    y -= 13
+                    txt(x_chunk, y, chunk, size=11, bold=item["bold"])
+                    y -= 16
         y -= 8
 
     # ── Payment instructions ──────────────────────────────────────────────────
@@ -280,9 +287,9 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
                 parts.append(f"Account No: {ps['mpesa_business_no']}")
             if ps.get("mpesa_account_format"):
                 parts.append(f"(Use {ps['mpesa_account_format']})")
-            for chunk in _wrap_text("  ".join(parts), int((UW - 6) / 5.5)):
-                txt(ML + 6, y, chunk, size=9)
-                y -= 13
+            for chunk in _wrap_text("  ".join(parts), int((UW - 6) / 6.6)):
+                txt(ML + 6, y, chunk, size=11)
+                y -= 16
 
         if ps.get("bank_name") or ps.get("bank_account_number"):
             bparts = []
@@ -294,26 +301,26 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
                 bparts.append(f"A/C Name: {ps['bank_account_name']}")
             if ps.get("bank_account_number"):
                 bparts.append(f"A/C No: {ps['bank_account_number']}")
-            for chunk in _wrap_text("  |  ".join(bparts), int((UW - 6) / 5.5)):
-                txt(ML + 6, y, chunk, size=9)
-                y -= 13
+            for chunk in _wrap_text("  |  ".join(bparts), int((UW - 6) / 6.6)):
+                txt(ML + 6, y, chunk, size=11)
+                y -= 16
 
         if ps.get("cash_payment_instructions"):
             for item in _parse_structured_lines(str(ps["cash_payment_instructions"])):
                 y -= item["space_before"]
                 x_item = ML + 6 + item["indent"]
-                available = int((UW - 6 - item["indent"]) / 5.5)
-                for i, chunk in enumerate(_wrap_text(item["text"], max(40, available))):
+                available = int((UW - 6 - item["indent"]) / 6.6)
+                for i, chunk in enumerate(_wrap_text(item["text"], max(34, available))):
                     x_chunk = x_item + (12 if i > 0 else 0)
-                    txt(x_chunk, y, chunk, size=9, bold=item["bold"])
-                    y -= 13
+                    txt(x_chunk, y, chunk, size=11, bold=item["bold"])
+                    y -= 16
         y -= 6
 
     # ── Footer ────────────────────────────────────────────────────────────────
     y -= 6
     rule(ML, y, ML + UW, y, w=0.5)
     y -= 13
-    txt(ML, y, "This is an official fee structure document. Fees are subject to annual review.", size=8)
+    txt(ML, y, "This is an official fee structure document. Fees are subject to annual review.", size=10)
 
     # ── Build PDF ─────────────────────────────────────────────────────────────
     stream_content = "\n".join(stream_lines).encode("latin-1", errors="replace")
@@ -353,6 +360,20 @@ def _wrap_text(text: str, max_chars: int) -> list[str]:
     if current:
         lines.append(current)
     return lines or [""]
+
+
+def _is_junior_secondary(class_code: str) -> bool:
+    """A class is Junior Secondary when it is Grade 7, 8 or 9.
+
+    Matches a JSS-style code, or any grade number 7/8/9 in the class code
+    (e.g. "Grade 7", "G8", "9 West").
+    """
+    import re
+
+    s = (class_code or "").upper()
+    if "JSS" in s:
+        return True
+    return any(n in ("7", "8", "9") for n in re.findall(r"\d+", s))
 
 
 def _parse_structured_lines(text: str) -> list[dict]:
