@@ -6077,10 +6077,18 @@ def tenant_student_profile(
         return created
 
     try:
-        invoice_rows = finance_service.list_invoices(
+        invoice_result = finance_service.list_invoices(
             db,
             tenant_id=tenant.id,
             enrollment_id=enrollment_id,
+            page_size=1000,
+        )
+        # list_invoices returns a paginated { items, meta } envelope — the
+        # student profile needs every invoice for this enrollment.
+        invoice_rows = (
+            invoice_result.get("items", [])
+            if isinstance(invoice_result, dict)
+            else invoice_result
         )
     except Exception:
         db.rollback()
@@ -6136,10 +6144,17 @@ def tenant_student_profile(
         )
 
     try:
-        payment_rows = finance_service.list_payments(
+        payment_result = finance_service.list_payments(
             db,
             tenant_id=tenant.id,
             enrollment_id=enrollment_id,
+            page_size=1000,
+        )
+        # list_payments also returns a paginated { items, meta } envelope.
+        payment_rows = (
+            payment_result.get("items", [])
+            if isinstance(payment_result, dict)
+            else payment_result
         )
     except Exception:
         db.rollback()
