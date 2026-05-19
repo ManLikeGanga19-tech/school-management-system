@@ -98,29 +98,36 @@ export function resetSubscriptionCache(): void {
 }
 
 export function useSubscription() {
-  // Boot from in-memory cache, else the persisted snapshot — so gating is
-  // applied from the very first render and never flashes.
-  const [boot] = useState<SubscriptionState | null>(() => cache ?? readStored());
-  const [sub, setSub] = useState<SubscriptionState | null>(boot);
-  const [status, setStatus] = useState<LoadStatus>(boot ? "ready" : "loading");
+  // Boot from the in-memory cache only. On a fresh page load `cache` is null on
+  // both the server and the first client render, so the hydration HTML matches
+  // (no React #418). The persisted sessionStorage snapshot is read in the
+  // effect below — after hydration — and on later client-side navigations the
+  // in-memory cache is already populated, so gating still never flashes.
+  const [sub, setSub] = useState<SubscriptionState | null>(() => cache);
+  const [status, setStatus] = useState<LoadStatus>(() => (cache ? "ready" : "loading"));
 
   useEffect(() => {
     let active = true;
-    // Always refresh in the background; the snapshot keeps the UI stable
-    // until the live state arrives.
+    // Safe post-hydration: seed instantly from the persisted snapshot, then
+    // always refresh in the background so the live state wins.
+    const stored = cache ?? readStored();
+    if (stored && active) {
+      setSub((s) => s ?? stored);
+      setStatus("ready");
+    }
     void fetchSubscription().then((d) => {
       if (!active) return;
       if (d) {
         setSub(d);
         setStatus("ready");
-      } else if (!boot) {
+      } else if (!stored) {
         setStatus("error");
       }
     });
     return () => {
       active = false;
     };
-  }, [boot]);
+  }, []);
 
   const ready = status === "ready" && sub !== null;
 

@@ -296,6 +296,14 @@ let sidebarBadgeCache: string | null | undefined;
 // the name back to "Tenant user" while /auth/me re-resolves.
 let sidebarUserCache: { email: string; name: string } | null = null;
 
+// Flips true after the first client mount. The server render and the first
+// client (hydration) render must produce identical HTML, so cached values
+// from sessionStorage/module memory must NOT seed initial state until after
+// hydration — otherwise React throws hydration error #418 and regenerates the
+// whole tree. On every later (client-side navigation) mount this is already
+// true, so the cache seeds state immediately with no flash.
+let appShellHydrated = false;
+
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -344,29 +352,51 @@ export function AppShell({
   const [expandedModuleKey, setExpandedModuleKey] = useState<string | null>(activeModuleKey);
   // Boot the curriculum gate from the cached snapshot so a page navigation
   // never flashes curriculum-gated nav items before /tenants/profile loads.
+  // Cached seeds are only used once hydrated — see appShellHydrated above.
   const [curriculumType, setCurriculumType] = useState<string | null>(
-    () => readTenantProfile()?.curriculumType || null
+    () => (appShellHydrated ? readTenantProfile()?.curriculumType || null : null)
   );
   const [schoolName, setSchoolName] = useState<string | null>(
-    () => readTenantProfile()?.schoolName || null
+    () => (appShellHydrated ? readTenantProfile()?.schoolName || null : null)
   );
   const [badgeCounts, setBadgeCounts] = useState<BadgeCounts>(EMPTY_BADGE_COUNTS);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [accountMenuOpenDesktop, setAccountMenuOpenDesktop] = useState(false);
   const [accountMenuOpenMobile, setAccountMenuOpenMobile] = useState(false);
   const [sidebarUserEmail, setSidebarUserEmail] = useState(
-    () => sidebarUserCache?.email || "Tenant user"
+    () => (appShellHydrated && sidebarUserCache ? sidebarUserCache.email : "Tenant user")
   );
   const [sidebarUserName, setSidebarUserName] = useState(
-    () => sidebarUserCache?.name || ""
+    () => (appShellHydrated && sidebarUserCache ? sidebarUserCache.name : "")
   );
   const [loggingOut, setLoggingOut] = useState(false);
   const [sidebarBadgeUrl, setSidebarBadgeUrl] = useState<string | null>(
-    () => (typeof sidebarBadgeCache === "string" ? sidebarBadgeCache : null)
+    () => (appShellHydrated && typeof sidebarBadgeCache === "string" ? sidebarBadgeCache : null)
   );
   const seenUnreadIdsRef = useRef<Set<string>>(new Set());
   const initializedRealtimeRef = useRef(false);
   const lastNotificationSoundAtRef = useRef(0);
+
+  // Once the first client render has hydrated, seed the sidebar from the
+  // cross-navigation caches. Doing this in an effect (not in useState) keeps
+  // the hydration render identical to the server's — avoiding React #418.
+  useEffect(() => {
+    appShellHydrated = true;
+    const snap = readTenantProfile();
+    if (snap?.curriculumType) setCurriculumType((c) => c ?? snap.curriculumType);
+    if (snap?.schoolName) setSchoolName((s) => s ?? snap.schoolName);
+    if (sidebarUserCache) {
+      const cached = sidebarUserCache;
+      setSidebarUserEmail((e) => (e === "Tenant user" ? cached.email : e));
+      setSidebarUserName((n) => n || cached.name);
+    }
+    if (typeof sidebarBadgeCache === "string") {
+      const cachedBadge = sidebarBadgeCache;
+      setSidebarBadgeUrl((u) => u ?? cachedBadge);
+    }
+    // Run once per mount — intentionally no deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const settingsHref = useMemo(() => resolveSettingsHref(pathname || "/"), [pathname]);
   const supportWidgetEnabled = useMemo(() => {
     const current = normalizePath(pathname || "/");
