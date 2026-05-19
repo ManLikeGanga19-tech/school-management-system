@@ -97,8 +97,21 @@ export async function backendFetch(path: string, init?: RequestInit) {
   const tenantHeaders = await getTenantHeaders();
   const authHeader = await getAuthHeader(normalizedPath);
 
+  // When the caller explicitly names the tenant (e.g. login passes
+  // x-tenant-slug for the school being signed into), that choice is
+  // authoritative. The cookie-derived x-tenant-id must NOT leak in: the
+  // backend ranks X-Tenant-ID above X-Tenant-Slug, so a stale tenant cookie
+  // from a previous session would silently override the slug and resolve the
+  // wrong school — the cause of intermittent "User not allowed in this school"
+  // login failures. Skip both cookie tenant headers in that case.
+  const callerNamedTenant =
+    headers.has("x-tenant-id") || headers.has("x-tenant-slug");
+
   // Do not override explicitly provided headers (critical for login with tenant switch).
   Object.entries(tenantHeaders).forEach(([k, v]) => {
+    if (callerNamedTenant && (k === "x-tenant-id" || k === "x-tenant-slug")) {
+      return;
+    }
     if (!headers.has(k)) headers.set(k, v);
   });
 
