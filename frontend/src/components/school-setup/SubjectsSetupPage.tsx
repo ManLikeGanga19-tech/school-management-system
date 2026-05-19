@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, BookOpen } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,7 @@ export function SubjectsSetupPage({ appTitle, nav, activeHref }: SubjectsSetupPa
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const [form, setForm] = useState<SubjectDraft>({
     code: "",
@@ -102,6 +103,36 @@ export function SubjectsSetupPage({ appTitle, nav, activeHref }: SubjectsSetupPa
     }
   }
 
+  async function importFromCbc() {
+    setImporting(true);
+    try {
+      const res = await api.post<{ imported?: number; skipped?: number }>(
+        "/tenants/subjects/import-from-cbc",
+        {},
+        { tenantRequired: true }
+      );
+      const imported = res?.imported ?? 0;
+      const skipped = res?.skipped ?? 0;
+      if (imported > 0) {
+        toast.success(
+          `Imported ${imported} subject${imported === 1 ? "" : "s"} from the CBC curriculum` +
+            (skipped > 0 ? ` (${skipped} already existed).` : ".")
+        );
+      } else {
+        toast.info("Every CBC learning area is already in your subjects list.");
+      }
+      await load();
+    } catch (err: any) {
+      toast.error(
+        typeof err?.message === "string"
+          ? err.message
+          : "Failed to import subjects from the CBC curriculum."
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
+
   function startEdit(row: TenantSubject) {
     setEditing((prev) => ({
       ...prev,
@@ -157,14 +188,25 @@ export function SubjectsSetupPage({ appTitle, nav, activeHref }: SubjectsSetupPa
                 Configure subjects used for teacher assignment and class delivery planning.
               </p>
             </div>
-            <Button
-              variant="outline"
-              className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-              onClick={() => void load()}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Refresh
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                onClick={() => void importFromCbc()}
+                disabled={importing}
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                {importing ? "Importing…" : "Import from CBC"}
+              </Button>
+              <Button
+                variant="outline"
+                className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                onClick={() => void load()}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Refresh
+              </Button>
+            </div>
           </div>
         </div>
 

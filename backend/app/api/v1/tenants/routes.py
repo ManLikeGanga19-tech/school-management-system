@@ -7153,6 +7153,79 @@ def create_tenant_subject(
     )
 
 
+@router.post(
+    "/subjects/import-from-cbc",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def import_subjects_from_cbc(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Copy the seeded CBC learning areas into the tenant's subject list.
+
+    Learning areas already present as a subject (matched on code) are skipped,
+    so the action is safe to run repeatedly.
+    """
+    learning_areas = db.execute(
+        sa.text(
+            """
+            SELECT code, name
+            FROM core.cbc_learning_areas
+            WHERE tenant_id = :tid AND COALESCE(is_active, true) = true
+            ORDER BY display_order ASC, name ASC
+            """
+        ),
+        {"tid": str(tenant.id)},
+    ).mappings().all()
+
+    if not learning_areas:
+        raise HTTPException(
+            status_code=404,
+            detail="No CBC learning areas found — seed the CBC curriculum first.",
+        )
+
+    existing_result, table_name = _execute_on_first_table(
+        db,
+        table_candidates=TENANT_SUBJECT_TABLE_CANDIDATES,
+        sql_template=(
+            "SELECT UPPER(code) AS code FROM {table} WHERE tenant_id = :tenant_id"
+        ),
+        params={"tenant_id": str(tenant.id)},
+    )
+    existing_codes = {str(r["code"]).upper() for r in existing_result.mappings().all()}
+
+    imported = 0
+    skipped = 0
+    for area in learning_areas:
+        code = _normalize_code(str(area["code"] or ""))
+        name = _normalize_name(str(area["name"] or ""))
+        if not code or not name:
+            continue
+        if code in existing_codes:
+            skipped += 1
+            continue
+        db.execute(
+            sa.text(
+                f"""
+                INSERT INTO {table_name} (id, tenant_id, code, name, is_active)
+                VALUES (:id, :tenant_id, :code, :name, true)
+                """
+            ),
+            {
+                "id": str(uuid4()),
+                "tenant_id": str(tenant.id),
+                "code": code,
+                "name": name,
+            },
+        )
+        existing_codes.add(code)
+        imported += 1
+
+    db.commit()
+    return {"imported": imported, "skipped": skipped}
+
+
 @router.put(
     "/subjects/{subject_id}",
     response_model=TenantSubjectOut,
