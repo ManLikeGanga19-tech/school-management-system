@@ -562,6 +562,32 @@ def create_session(
                 "marked_by": str(user.id) if user else None,
             },
         )
+
+        # Seed a register row (default PRESENT) for every active student on the
+        # class roster so the roll call opens pre-populated — the teacher just
+        # flips the absentees instead of starting from an empty list.
+        db.execute(
+            sa.text(
+                """
+                INSERT INTO core.attendance_records
+                    (id, tenant_id, session_id, enrollment_id, student_id, status)
+                SELECT gen_random_uuid(), :tid, :session_id, sce.id,
+                       sce.student_id, 'PRESENT'
+                FROM core.student_class_enrollments sce
+                WHERE sce.class_id  = :class_id
+                  AND sce.term_id   = :term_id
+                  AND sce.tenant_id = :tid
+                  AND sce.status    = 'ACTIVE'
+                ON CONFLICT (session_id, student_id) DO NOTHING
+                """
+            ),
+            {
+                "tid": str(tenant.id),
+                "session_id": new_id,
+                "class_id": payload.class_id,
+                "term_id": payload.term_id,
+            },
+        )
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -588,6 +614,36 @@ def get_session(
     _user=Depends(get_current_user),
 ):
     row = _require_session(db, session_id=session_id, tenant_id=tenant.id)
+
+    # Self-heal: ensure every active roster student has a register row. This
+    # backfills sessions created before seeding existed and picks up students
+    # added to the roster after the session was created. FINALIZED sessions are
+    # locked, so they are left untouched.
+    if row["status"] != "FINALIZED":
+        db.execute(
+            sa.text(
+                """
+                INSERT INTO core.attendance_records
+                    (id, tenant_id, session_id, enrollment_id, student_id, status)
+                SELECT gen_random_uuid(), :tid, :session_id, sce.id,
+                       sce.student_id, 'PRESENT'
+                FROM core.student_class_enrollments sce
+                WHERE sce.class_id  = :class_id
+                  AND sce.term_id   = :term_id
+                  AND sce.tenant_id = :tid
+                  AND sce.status    = 'ACTIVE'
+                ON CONFLICT (session_id, student_id) DO NOTHING
+                """
+            ),
+            {
+                "tid": str(tenant.id),
+                "session_id": str(session_id),
+                "class_id": str(row["class_id"]),
+                "term_id": str(row["term_id"]),
+            },
+        )
+        db.commit()
+
     records = _fetch_records_for_session(db, session_id=session_id, tenant_id=tenant.id)
     return _session_out(row, records=records)
 
