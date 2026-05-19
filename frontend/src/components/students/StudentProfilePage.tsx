@@ -18,6 +18,8 @@ import {
   History,
   AlertTriangle,
   Shield,
+  CalendarCheck,
+  Wallet,
 } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -89,6 +91,59 @@ type ExamTotals = {
   record_count: number;
   subject_count: number;
   term_count: number;
+};
+
+type ProfileInvoice = {
+  id: string;
+  invoice_no: string | null;
+  invoice_type: string;
+  status: string;
+  term_code: string;
+  total_amount: string;
+  paid_amount: string;
+  balance_amount: string;
+  created_at: string | null;
+};
+
+type ProfilePayment = {
+  id: string;
+  receipt_no: string | null;
+  provider: string;
+  reference: string | null;
+  amount: string;
+  received_at: string | null;
+};
+
+type AttendanceTerm = {
+  term_name: string;
+  present: number;
+  absent: number;
+  late: number;
+  excused: number;
+  off_grounds: number;
+  total: number;
+  rate: number;
+};
+
+type AttendanceAbsence = {
+  date: string;
+  session_type: string;
+  status: string;
+  reason: string;
+};
+
+type AttendanceData = {
+  totals: {
+    present: number;
+    absent: number;
+    late: number;
+    excused: number;
+    off_grounds: number;
+    total: number;
+    rate: number;
+  };
+  term_summary: AttendanceTerm[];
+  recent_absences: AttendanceAbsence[];
 };
 
 type SisStudent = {
@@ -173,6 +228,14 @@ function formatKes(value: unknown): string {
     currency: "KES",
     maximumFractionDigits: 2,
   }).format(toNumber(value));
+}
+
+function formatDate(value: unknown): string {
+  const s = typeof value === "string" ? value.trim() : "";
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "numeric" });
 }
 
 function str(v: unknown): string {
@@ -273,7 +336,15 @@ const DOC_TYPES = [
   "OTHER",
 ];
 
-type Tab = "overview" | "biodata" | "guardian" | "emergency" | "documents" | "discipline";
+type Tab =
+  | "overview"
+  | "biodata"
+  | "guardian"
+  | "emergency"
+  | "documents"
+  | "finance"
+  | "attendance"
+  | "discipline";
 
 type DisciplineRecord = {
   id: string;
@@ -317,6 +388,9 @@ export function StudentProfilePage({
   const [loading, setLoading] = useState(true);
   const [enrollment, setEnrollment] = useState<EnrollmentInfo | null>(null);
   const [financeTotals, setFinanceTotals] = useState<FinanceTotals | null>(null);
+  const [invoices, setInvoices] = useState<ProfileInvoice[]>([]);
+  const [payments, setPayments] = useState<ProfilePayment[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceData | null>(null);
   const [examTotals, setExamTotals] = useState<ExamTotals | null>(null);
 
   const [tab, setTab] = useState<Tab>("overview");
@@ -397,6 +471,76 @@ export function StudentProfilePage({
           invoice_count: toNumber(totalsObj.invoice_count),
           payment_count: toNumber(totalsObj.payment_count),
         });
+      }
+
+      setInvoices(
+        asArray<unknown>(financeObj?.invoices).map((r) => {
+          const o = asObject(r) ?? {};
+          return {
+            id: str(o.id),
+            invoice_no: strOrNull(o.invoice_no),
+            invoice_type: str(o.invoice_type),
+            status: str(o.status),
+            term_code: str(o.term_code),
+            total_amount: str(o.total_amount) || "0",
+            paid_amount: str(o.paid_amount) || "0",
+            balance_amount: str(o.balance_amount) || "0",
+            created_at: strOrNull(o.created_at),
+          };
+        }),
+      );
+      setPayments(
+        asArray<unknown>(financeObj?.payments).map((r) => {
+          const o = asObject(r) ?? {};
+          return {
+            id: str(o.id),
+            receipt_no: strOrNull(o.receipt_no),
+            provider: str(o.provider),
+            reference: strOrNull(o.reference),
+            amount: str(o.amount) || "0",
+            received_at: strOrNull(o.received_at),
+          };
+        }),
+      );
+
+      const attObj = asObject(obj.attendance);
+      const attTotals = asObject(attObj?.totals ?? null);
+      if (attObj && attTotals) {
+        setAttendance({
+          totals: {
+            present: toNumber(attTotals.present),
+            absent: toNumber(attTotals.absent),
+            late: toNumber(attTotals.late),
+            excused: toNumber(attTotals.excused),
+            off_grounds: toNumber(attTotals.off_grounds),
+            total: toNumber(attTotals.total),
+            rate: toNumber(attTotals.rate),
+          },
+          term_summary: asArray<unknown>(attObj.term_summary).map((r) => {
+            const o = asObject(r) ?? {};
+            return {
+              term_name: str(o.term_name),
+              present: toNumber(o.present),
+              absent: toNumber(o.absent),
+              late: toNumber(o.late),
+              excused: toNumber(o.excused),
+              off_grounds: toNumber(o.off_grounds),
+              total: toNumber(o.total),
+              rate: toNumber(o.rate),
+            };
+          }),
+          recent_absences: asArray<unknown>(attObj.recent_absences).map((r) => {
+            const o = asObject(r) ?? {};
+            return {
+              date: str(o.date),
+              session_type: str(o.session_type),
+              status: str(o.status),
+              reason: str(o.reason),
+            };
+          }),
+        });
+      } else {
+        setAttendance(null);
       }
 
       const examsObj = asObject(obj.exams);
@@ -729,6 +873,8 @@ export function StudentProfilePage({
     { id: "guardian", label: "Guardian", icon: <Users className="h-3.5 w-3.5" /> },
     { id: "emergency", label: "Emergency Contacts", icon: <Phone className="h-3.5 w-3.5" /> },
     { id: "documents", label: "Documents", icon: <FileText className="h-3.5 w-3.5" /> },
+    { id: "finance", label: "Finance", icon: <Wallet className="h-3.5 w-3.5" /> },
+    { id: "attendance", label: "Attendance", icon: <CalendarCheck className="h-3.5 w-3.5" /> },
     { id: "discipline", label: "Discipline", icon: <Shield className="h-3.5 w-3.5" /> },
   ];
 
@@ -804,7 +950,11 @@ export function StudentProfilePage({
             <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
               <div className="flex gap-1 border-b border-slate-100 px-4 pt-3">
                 {tabs.map((t) => {
-                  const disabled = !hasSis && t.id !== "overview" && t.id !== "discipline";
+                  const disabled =
+                    !hasSis &&
+                    t.id !== "overview" &&
+                    t.id !== "discipline" &&
+                    t.id !== "finance";
                   return (
                     <button
                       key={t.id}
@@ -1167,6 +1317,205 @@ export function StudentProfilePage({
                         </TableBody>
                       </Table>
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── FINANCE TAB ── */}
+              {tab === "finance" && (
+                <div className="space-y-8 p-6">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {[
+                      { label: "Total Invoiced", value: formatKes(financeTotals?.total_invoiced), className: "text-slate-900" },
+                      { label: "Total Paid", value: formatKes(financeTotals?.total_paid), className: "text-emerald-700" },
+                      { label: "Outstanding Balance", value: formatKes(financeTotals?.total_balance), className: "text-red-700" },
+                    ].map((c) => (
+                      <div key={c.label} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{c.label}</div>
+                        <div className={`mt-1 text-base font-bold ${c.className}`}>{c.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div>
+                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Invoices ({invoices.length})
+                    </h3>
+                    <div className="overflow-x-auto rounded-xl border border-slate-100">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50">
+                            <TableHead className="text-xs">Invoice No.</TableHead>
+                            <TableHead className="text-xs">Type</TableHead>
+                            <TableHead className="text-xs">Term</TableHead>
+                            <TableHead className="text-xs">Status</TableHead>
+                            <TableHead className="text-xs text-right">Total</TableHead>
+                            <TableHead className="text-xs text-right">Paid</TableHead>
+                            <TableHead className="text-xs text-right">Balance</TableHead>
+                            <TableHead className="text-xs">Date</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {invoices.length > 0 ? (
+                            invoices.map((inv) => (
+                              <TableRow key={inv.id}>
+                                <TableCell className="font-mono text-xs">{inv.invoice_no || "—"}</TableCell>
+                                <TableCell className="text-xs">{inv.invoice_type || "—"}</TableCell>
+                                <TableCell className="text-xs">{inv.term_code || "—"}</TableCell>
+                                <TableCell className="text-xs">{inv.status || "—"}</TableCell>
+                                <TableCell className="text-right text-xs">{formatKes(inv.total_amount)}</TableCell>
+                                <TableCell className="text-right text-xs text-emerald-700">{formatKes(inv.paid_amount)}</TableCell>
+                                <TableCell className="text-right text-xs font-semibold text-red-700">{formatKes(inv.balance_amount)}</TableCell>
+                                <TableCell className="text-xs text-slate-500">{formatDate(inv.created_at)}</TableCell>
+                              </TableRow>
+                            ))
+                          ) : (
+                            <TableRow>
+                              <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-400">
+                                No invoices for this student yet.
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Payments ({payments.length})
+                    </h3>
+                    <div className="overflow-x-auto rounded-xl border border-slate-100">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50">
+                            <TableHead className="text-xs">Receipt No.</TableHead>
+                            <TableHead className="text-xs">Date</TableHead>
+                            <TableHead className="text-xs">Method</TableHead>
+                            <TableHead className="text-xs">Reference</TableHead>
+                            <TableHead className="text-xs text-right">Amount</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {payments.length > 0 ? (
+                            payments.map((pay) => (
+                              <TableRow key={pay.id}>
+                                <TableCell className="font-mono text-xs">{pay.receipt_no || "—"}</TableCell>
+                                <TableCell className="text-xs text-slate-500">{formatDate(pay.received_at)}</TableCell>
+                                <TableCell className="text-xs">{pay.provider || "—"}</TableCell>
+                                <TableCell className="text-xs">{pay.reference || "—"}</TableCell>
+                                <TableCell className="text-right text-xs font-semibold text-emerald-700">{formatKes(pay.amount)}</TableCell>
+                              </TableRow>
+                            ))
+                          ) : (
+                            <TableRow>
+                              <TableCell colSpan={5} className="py-10 text-center text-sm text-slate-400">
+                                No payments recorded for this student yet.
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── ATTENDANCE TAB ── */}
+              {tab === "attendance" && (
+                <div className="space-y-8 p-6">
+                  {!attendance || attendance.totals.total === 0 ? (
+                    <div className="py-10 text-center text-sm text-slate-400">
+                      No finalized attendance records for this student yet.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+                        {[
+                          { label: "Attendance Rate", value: `${Math.round(attendance.totals.rate * 100)}%`, className: "text-blue-700" },
+                          { label: "Present", value: attendance.totals.present, className: "text-emerald-700" },
+                          { label: "Absent", value: attendance.totals.absent, className: "text-red-700" },
+                          { label: "Late", value: attendance.totals.late, className: "text-amber-700" },
+                          { label: "Excused", value: attendance.totals.excused, className: "text-slate-700" },
+                          { label: "Off Grounds", value: attendance.totals.off_grounds, className: "text-slate-700" },
+                        ].map((c) => (
+                          <div key={c.label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{c.label}</div>
+                            <div className={`mt-1 text-lg font-bold ${c.className}`}>{c.value}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div>
+                        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          By Term
+                        </h3>
+                        <div className="overflow-x-auto rounded-xl border border-slate-100">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-slate-50">
+                                <TableHead className="text-xs">Term</TableHead>
+                                <TableHead className="text-xs text-right">Present</TableHead>
+                                <TableHead className="text-xs text-right">Absent</TableHead>
+                                <TableHead className="text-xs text-right">Late</TableHead>
+                                <TableHead className="text-xs text-right">Excused</TableHead>
+                                <TableHead className="text-xs text-right">Sessions</TableHead>
+                                <TableHead className="text-xs text-right">Rate</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {attendance.term_summary.map((t, i) => (
+                                <TableRow key={`${t.term_name}-${i}`}>
+                                  <TableCell className="text-xs font-medium">{t.term_name || "—"}</TableCell>
+                                  <TableCell className="text-right text-xs text-emerald-700">{t.present}</TableCell>
+                                  <TableCell className="text-right text-xs text-red-700">{t.absent}</TableCell>
+                                  <TableCell className="text-right text-xs text-amber-700">{t.late}</TableCell>
+                                  <TableCell className="text-right text-xs">{t.excused}</TableCell>
+                                  <TableCell className="text-right text-xs">{t.total}</TableCell>
+                                  <TableCell className="text-right text-xs font-semibold">{Math.round(t.rate * 100)}%</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Recent Absences &amp; Lateness
+                        </h3>
+                        <div className="overflow-x-auto rounded-xl border border-slate-100">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-slate-50">
+                                <TableHead className="text-xs">Date</TableHead>
+                                <TableHead className="text-xs">Session</TableHead>
+                                <TableHead className="text-xs">Status</TableHead>
+                                <TableHead className="text-xs">Reason</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {attendance.recent_absences.length > 0 ? (
+                                attendance.recent_absences.map((a, i) => (
+                                  <TableRow key={`${a.date}-${a.session_type}-${i}`}>
+                                    <TableCell className="text-xs text-slate-500">{formatDate(a.date)}</TableCell>
+                                    <TableCell className="text-xs">{a.session_type || "—"}</TableCell>
+                                    <TableCell className="text-xs font-medium">{a.status || "—"}</TableCell>
+                                    <TableCell className="text-xs text-slate-600">{a.reason || "—"}</TableCell>
+                                  </TableRow>
+                                ))
+                              ) : (
+                                <TableRow>
+                                  <TableCell colSpan={4} className="py-10 text-center text-sm text-slate-400">
+                                    No absences recorded — full attendance.
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
               )}

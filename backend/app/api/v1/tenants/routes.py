@@ -6385,6 +6385,83 @@ def tenant_student_profile(
         key=lambda item: str(item.get("scope") or ""),
     )
 
+    # ── Attendance summary (finalized sessions only) ──────────────────────────
+    attendance_term_rows: list[dict[str, Any]] = []
+    attendance_recent: list[dict[str, Any]] = []
+    att_present = att_absent = att_late = att_excused = att_off = att_total = 0
+    if sis_student_id:
+        try:
+            term_rows = db.execute(
+                sa.text(
+                    """
+                    SELECT
+                        tt.name AS term_name,
+                        COUNT(*) FILTER (WHERE ar.status = 'PRESENT')     AS present,
+                        COUNT(*) FILTER (WHERE ar.status = 'ABSENT')      AS absent,
+                        COUNT(*) FILTER (WHERE ar.status = 'LATE')        AS late,
+                        COUNT(*) FILTER (WHERE ar.status = 'EXCUSED')     AS excused,
+                        COUNT(*) FILTER (WHERE ar.status = 'OFF_GROUNDS') AS off_grounds,
+                        COUNT(*) AS total
+                    FROM core.attendance_records ar
+                    JOIN core.attendance_sessions sess ON sess.id = ar.session_id
+                    JOIN core.tenant_terms tt ON tt.id = sess.term_id
+                    WHERE ar.student_id = :sid
+                      AND ar.tenant_id = :tid
+                      AND sess.status = 'FINALIZED'
+                    GROUP BY tt.id, tt.name
+                    ORDER BY MIN(sess.session_date) DESC
+                    """
+                ),
+                {"sid": str(sis_student_id), "tid": str(tenant.id)},
+            ).mappings().all()
+            for tr in term_rows:
+                present = int(tr["present"] or 0)
+                total = int(tr["total"] or 0)
+                att_present += present
+                att_absent += int(tr["absent"] or 0)
+                att_late += int(tr["late"] or 0)
+                att_excused += int(tr["excused"] or 0)
+                att_off += int(tr["off_grounds"] or 0)
+                att_total += total
+                attendance_term_rows.append({
+                    "term_name": str(tr["term_name"] or ""),
+                    "present": present,
+                    "absent": int(tr["absent"] or 0),
+                    "late": int(tr["late"] or 0),
+                    "excused": int(tr["excused"] or 0),
+                    "off_grounds": int(tr["off_grounds"] or 0),
+                    "total": total,
+                    "rate": round(present / total, 4) if total else 0.0,
+                })
+
+            recent_rows = db.execute(
+                sa.text(
+                    """
+                    SELECT TO_CHAR(sess.session_date, 'YYYY-MM-DD') AS session_date,
+                           sess.session_type, ar.status, ar.notes
+                    FROM core.attendance_records ar
+                    JOIN core.attendance_sessions sess ON sess.id = ar.session_id
+                    WHERE ar.student_id = :sid
+                      AND ar.tenant_id = :tid
+                      AND sess.status = 'FINALIZED'
+                      AND ar.status <> 'PRESENT'
+                    ORDER BY sess.session_date DESC
+                    LIMIT 30
+                    """
+                ),
+                {"sid": str(sis_student_id), "tid": str(tenant.id)},
+            ).mappings().all()
+            for rr in recent_rows:
+                attendance_recent.append({
+                    "date": str(rr["session_date"] or ""),
+                    "session_type": str(rr["session_type"] or ""),
+                    "status": str(rr["status"] or ""),
+                    "reason": str(rr["notes"] or ""),
+                })
+        except Exception:
+            # Attendance is supplementary — never let it break the profile.
+            db.rollback()
+
     return {
         "enrollment": {
             "id": str(enrollment.id),
@@ -6421,6 +6498,19 @@ def tenant_student_profile(
             "subject_summary": subject_summary,
             "term_summary": term_exam_summary,
             "records": exam_records,
+        },
+        "attendance": {
+            "totals": {
+                "present": att_present,
+                "absent": att_absent,
+                "late": att_late,
+                "excused": att_excused,
+                "off_grounds": att_off,
+                "total": att_total,
+                "rate": round(att_present / att_total, 4) if att_total else 0.0,
+            },
+            "term_summary": attendance_term_rows,
+            "recent_absences": attendance_recent,
         },
     }
 
