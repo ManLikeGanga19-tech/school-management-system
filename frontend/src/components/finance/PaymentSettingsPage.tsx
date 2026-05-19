@@ -264,8 +264,9 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
               <div className="space-y-1.5">
                 <Label className="text-sm">Junior Secondary Uniform Details (Grade 7, 8 &amp; 9)</Label>
                 <p className="text-xs text-slate-500">
-                  Used on the fee structure sheet for Grade 7, 8 and 9 classes. Leave blank
-                  to use the standard uniform details above.
+                  Used on the fee structure sheet for Grade 7, 8 and 9 classes only.
+                  If left blank, those sheets show no uniform details — the standard
+                  text above is never used for Junior Secondary.
                 </p>
                 <Textarea
                   rows={4}

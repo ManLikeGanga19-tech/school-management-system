@@ -237,11 +237,13 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
     y -= row_h + 14
 
     # ── Uniform / assessment books block ─────────────────────────────────────
-    # Junior Secondary (Grade 7/8/9) classes use their own uniform instructions
-    # when set; everyone else uses the standard uniform details.
+    # Junior Secondary (Grade 7/8/9) classes use ONLY their own uniform
+    # instructions — if that field is blank the uniform section stays empty for
+    # them; it never falls back to the standard text. Every other class uses
+    # the standard uniform details.
     base_uniform = str(ps.get("uniform_details_text") or "").strip()
     jss_uniform = str(ps.get("uniform_details_text_jss") or "").strip()
-    if _is_junior_secondary(class_code) and jss_uniform:
+    if _is_junior_secondary(class_code):
         uniform_text = jss_uniform
     else:
         uniform_text = base_uniform
