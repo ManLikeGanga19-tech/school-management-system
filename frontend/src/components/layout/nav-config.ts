@@ -8,7 +8,7 @@ export type FinanceSection =
   | "receipts"
   | "scan-receipt";
 export type EnrollmentSection = "intake" | "students";
-export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings" | "curriculum" | "admission-number";
+export type SchoolSetupSection = "terms" | "classes" | "subjects" | "uniforms" | "timetable" | "calendar" | "print-settings" | "curriculum" | "admission-number";
 export type StudentSection = "all" | "fee-balance" | "clearance" | "attendance";
 export type HrSection = "staff" | "teachers" | "assets" | "leave" | "payroll";
 export type ExamSection = "setup" | "timetable" | "enter-marks" | "marks-review" | "report-cards";
@@ -309,6 +309,7 @@ export const directorNav: AppNavItem[] = [
       { href: directorSchoolSetupHref("terms"), label: "Terms", icon: "CalendarDays" },
       { href: directorSchoolSetupHref("classes"), label: "Classes", icon: "School" },
       { href: directorSchoolSetupHref("subjects"), label: "Subjects", icon: "BookOpenText" },
+      { href: directorSchoolSetupHref("uniforms"), label: "Uniforms", icon: "Package" },
       { href: directorSchoolSetupHref("timetable"), label: "School Timetable", icon: "CalendarDays" },
       { href: directorSchoolSetupHref("calendar"), label: "Calendar & Exams", icon: "CalendarDays" },
       { href: directorSchoolSetupHref("print-settings"), label: "Print Settings", icon: "Printer" },
@@ -462,6 +463,7 @@ export const secretaryNav: AppNavItem[] = [
       { href: secretarySchoolSetupHref("terms"), label: "Terms", icon: "CalendarDays" },
       { href: secretarySchoolSetupHref("classes"), label: "Classes", icon: "School" },
       { href: secretarySchoolSetupHref("subjects"), label: "Subjects", icon: "BookOpenText" },
+      { href: secretarySchoolSetupHref("uniforms"), label: "Uniforms", icon: "Package" },
       { href: secretarySchoolSetupHref("timetable"), label: "School Timetable", icon: "CalendarDays" },
       { href: secretarySchoolSetupHref("calendar"), label: "Calendar & Exams", icon: "CalendarDays" },
       { href: secretarySchoolSetupHref("admission-number"), label: "Admission Number Counter", icon: "Hash" },

@@ -21,6 +21,7 @@ from app.api.v1.finance.schemas import (
     GenerateFeesInvoiceV2Request,
     PaymentCreate, PaymentOut, PaymentWithAllocationsOut, PaymentPageOut,
     TenantPaymentSettingsUpsert, TenantPaymentSettingsOut,
+    UniformRequirementCreate, UniformRequirementUpdate,
 )
 
 router = APIRouter()
@@ -632,6 +633,8 @@ def generate_fees_invoice_v2(
             scholarship_id=payload.scholarship_id,
             scholarship_amount=payload.scholarship_amount,
             scholarship_reason=payload.scholarship_reason,
+            include_carry_forward=payload.include_carry_forward,
+            include_uniforms=payload.include_uniforms,
         )
         db.commit()
         db.refresh(inv)
@@ -1150,3 +1153,96 @@ def upsert_payment_settings(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# -------------------------
+# Uniform Requirements
+# -------------------------
+@router.get(
+    "/uniform-requirements",
+    dependencies=[Depends(require_permission("finance.fees.view"))],
+)
+def list_uniform_requirements(
+    class_code: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    return service.list_uniform_requirements(
+        db, tenant_id=tenant.id, class_code=class_code
+    )
+
+
+@router.post(
+    "/uniform-requirements",
+    status_code=201,
+    dependencies=[Depends(require_permission("finance.fees.manage"))],
+)
+def create_uniform_requirement(
+    payload: UniformRequirementCreate,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    try:
+        row = service.create_uniform_requirement(
+            db,
+            tenant_id=tenant.id,
+            class_code=payload.class_code,
+            item_name=payload.item_name,
+            description=payload.description,
+            quantity=payload.quantity,
+            unit_price=payload.unit_price,
+            is_mandatory=payload.is_mandatory,
+        )
+        db.commit()
+        return row
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.put(
+    "/uniform-requirements/{requirement_id}",
+    dependencies=[Depends(require_permission("finance.fees.manage"))],
+)
+def update_uniform_requirement(
+    requirement_id: UUID,
+    payload: UniformRequirementUpdate,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    try:
+        row = service.update_uniform_requirement(
+            db,
+            tenant_id=tenant.id,
+            requirement_id=requirement_id,
+            **payload.model_dump(exclude_unset=True),
+        )
+        db.commit()
+        return row
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete(
+    "/uniform-requirements/{requirement_id}",
+    status_code=204,
+    dependencies=[Depends(require_permission("finance.fees.manage"))],
+)
+def delete_uniform_requirement(
+    requirement_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    try:
+        service.delete_uniform_requirement(
+            db, tenant_id=tenant.id, requirement_id=requirement_id
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc))

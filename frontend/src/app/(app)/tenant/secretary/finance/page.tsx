@@ -774,6 +774,8 @@ function SecretaryFinancePageContent() {
     scholarship_id: "",
     scholarship_amount: "",
     scholarship_reason: "",
+    include_carry_forward: false,
+    include_uniforms: false,
   });
   const [interviewInvoiceForm, setInterviewInvoiceForm] = useState({
     enrollment_id: "",
@@ -1668,6 +1670,8 @@ function SecretaryFinancePageContent() {
         scholarship_reason: scholarshipSelected
           ? feesInvoiceForm.scholarship_reason.trim()
           : null,
+        include_carry_forward: feesInvoiceForm.include_carry_forward,
+        include_uniforms: feesInvoiceForm.include_uniforms,
       },
       "School fees invoice generated."
     );
@@ -1961,6 +1965,34 @@ function SecretaryFinancePageContent() {
                       )}
                     </p>
                   )}
+                  <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={feesInvoiceForm.include_carry_forward}
+                        onChange={(e) =>
+                          setFeesInvoiceForm((p) => ({
+                            ...p,
+                            include_carry_forward: e.target.checked,
+                          }))
+                        }
+                      />
+                      Include outstanding arrears from previous terms
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={feesInvoiceForm.include_uniforms}
+                        onChange={(e) =>
+                          setFeesInvoiceForm((p) => ({
+                            ...p,
+                            include_uniforms: e.target.checked,
+                          }))
+                        }
+                      />
+                      Include this class&apos;s mandatory uniform items
+                    </label>
+                  </div>
                   <ActionButton
                     onClick={generateFeesInvoice}
                     loading={pendingAction === "generate_fees_invoice_v2"}
