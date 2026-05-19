@@ -319,6 +319,7 @@ class TenantPaymentSettingsUpsert(BaseModel):
     uniform_details_text_jss: Optional[str] = None
     assessment_books_amount: Optional[Decimal] = None
     assessment_books_note: Optional[str] = None
+    remedial_fee_amount: Optional[Decimal] = None
 
 
 class TenantPaymentSettingsOut(ORMOutModel, TenantPaymentSettingsUpsert):

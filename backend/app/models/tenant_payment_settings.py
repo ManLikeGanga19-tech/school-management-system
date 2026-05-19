@@ -40,5 +40,9 @@ class TenantPaymentSettings(Base):
     assessment_books_amount = Column(Numeric(12, 2), nullable=True)
     assessment_books_note = Column(String(200), nullable=True)
 
+    # Remedial fee — flat per-term charge, printed only on Junior Secondary
+    # (Grade 7/8/9) fee structure sheets.
+    remedial_fee_amount = Column(Numeric(12, 2), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())

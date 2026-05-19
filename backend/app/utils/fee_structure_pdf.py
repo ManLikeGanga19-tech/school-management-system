@@ -247,17 +247,28 @@ def generate_fee_structure_pdf(data: dict[str, Any]) -> bytes:
         uniform_text = base_uniform
     assessment_amount = ps.get("assessment_books_amount")
     assessment_note = str(ps.get("assessment_books_note") or "Assessment Books")
+    # Remedial fee is a flat per-term charge shown only on JSS (Grade 7/8/9) sheets.
+    is_jss = _is_junior_secondary(class_code)
+    remedial_amount = ps.get("remedial_fee_amount") if is_jss else None
 
-    if uniform_text or assessment_amount:
+    if uniform_text or assessment_amount or remedial_amount:
         y = section_header_bar(y, "UNIFORM REQUIREMENTS & ASSESSMENT BOOKS")
 
         if assessment_amount:
             try:
                 amt_str = _fmt(Decimal(str(assessment_amount)))
                 txt(ML + 6, y, f"{assessment_note}: {currency} {amt_str}  (charged once per year)", size=11)
+                y -= 17
             except Exception:
                 pass
-            y -= 17
+
+        if remedial_amount:
+            try:
+                rem_str = _fmt(Decimal(str(remedial_amount)))
+                txt(ML + 6, y, f"Remedial Fee: {currency} {rem_str}  (charged per term)", size=11)
+                y -= 17
+            except Exception:
+                pass
 
         if uniform_text:
             for item in _parse_structured_lines(uniform_text):

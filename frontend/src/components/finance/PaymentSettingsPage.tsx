@@ -29,6 +29,7 @@ type PaymentSettings = {
   uniform_details_text_jss?: string | null;
   assessment_books_amount?: string | null;
   assessment_books_note?: string | null;
+  remedial_fee_amount?: string | null;
 };
 
 type Props = {
@@ -295,6 +296,23 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
                   label="Description"
                   field="assessment_books_note"
                   placeholder="e.g. Assessment books (once per year)"
+                  form={form} disabled={!canManage} onChange={updateField}
+                />
+              </div>
+            </FieldGroup>
+
+            {/* Remedial fee — JSS only */}
+            <FieldGroup>
+              <SectionHeader
+                title="Remedial Fee"
+                subtitle="Flat per-term charge — shown on the fee structure sheet for Junior Secondary classes (Grade 7, 8 & 9) only."
+              />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field
+                  label="Amount per term (KES)"
+                  field="remedial_fee_amount"
+                  placeholder="e.g. 1000"
+                  type="number"
                   form={form} disabled={!canManage} onChange={updateField}
                 />
               </div>

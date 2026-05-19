@@ -3210,6 +3210,7 @@ def build_fee_structure_document(
             "uniform_details_text_jss": getattr(payment_settings, "uniform_details_text_jss", None),
             "assessment_books_amount": getattr(payment_settings, "assessment_books_amount", None),
             "assessment_books_note": getattr(payment_settings, "assessment_books_note", None),
+            "remedial_fee_amount": getattr(payment_settings, "remedial_fee_amount", None),
         }
 
     school_name = str(profile.get("school_header") or profile.get("school_name") or profile.get("name") or "School") if profile else "School"
@@ -3264,6 +3265,7 @@ def upsert_payment_settings(
         "cash_payment_instructions", "uniform_details_text",
         "uniform_details_text_jss",
         "assessment_books_amount", "assessment_books_note",
+        "remedial_fee_amount",
     )
     for field in updatable:
         if field in data:
