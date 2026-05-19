@@ -590,3 +590,119 @@ def test_all_performance_levels_accepted(client: TestClient, db_session: Session
     )
     assert r.status_code == 200
     assert r.json()[0]["performance_level"] == level
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 12. Report — class bulk PDF
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _setup_class(client, db_session, *, n_students: int = 2):
+    """Tenant + curriculum + class/term with `n_students` learners enrolled.
+
+    Returns (tenant, headers, sub_strand, class_id, term_id, [enrollment_id, ...]).
+    """
+    tenant = create_tenant(db_session, slug=f"cbc-cls-{uuid4().hex[:6]}")
+    _, headers = make_actor(db_session, tenant=tenant, permissions=ALL_CBC)
+
+    la = _create_la(client, headers, tenant.id)
+    strand = _create_strand(client, headers, tenant.id, la["id"])
+    ss = _create_sub_strand(client, headers, strand["id"])
+
+    class_id = _seed_class(db_session, tenant_id=tenant.id)
+    term_id = _seed_term(db_session, tenant_id=tenant.id)
+
+    enrollment_ids = []
+    for i in range(n_students):
+        student_id = _seed_student(
+            db_session, tenant_id=tenant.id, admission_no=f"ADM-CLS-{uuid4().hex[:6]}"
+        )
+        enrollment_ids.append(
+            _seed_enrollment(
+                db_session, tenant_id=tenant.id,
+                student_id=student_id, class_id=class_id, term_id=term_id,
+            )
+        )
+    return tenant, headers, ss, class_id, term_id, enrollment_ids
+
+
+def test_class_bulk_pdf_download(client: TestClient, db_session: Session):
+    """A class with at least one assessed learner yields a merged PDF."""
+    tenant, headers, ss, class_id, term_id, enrollments = _setup_class(
+        client, db_session, n_students=2
+    )
+    # Assess only the first learner — the second has no data and is skipped.
+    client.put(
+        f"{BASE}/assessments",
+        json={
+            "enrollment_id": enrollments[0],
+            "term_id": term_id,
+            "assessments": [{"sub_strand_id": ss["id"], "performance_level": "ME"}],
+        },
+        headers=headers,
+    )
+    r = client.get(
+        f"{BASE}/classes/{class_id}/term/{term_id}/bulk-pdf", headers=headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content[:4] == b"%PDF"
+    assert len(r.content) > 100
+
+
+def test_class_bulk_pdf_no_students(client: TestClient, db_session: Session):
+    """A class with no enrolled learners returns 404."""
+    tenant, headers, ss, class_id, term_id, _ = _setup_class(
+        client, db_session, n_students=0
+    )
+    r = client.get(
+        f"{BASE}/classes/{class_id}/term/{term_id}/bulk-pdf", headers=headers
+    )
+    assert r.status_code == 404
+    assert "no students" in r.json()["detail"].lower()
+
+
+def test_class_bulk_pdf_no_assessments(client: TestClient, db_session: Session):
+    """Learners enrolled but none assessed — 404 with a clear message, not a crash."""
+    tenant, headers, ss, class_id, term_id, _ = _setup_class(
+        client, db_session, n_students=2
+    )
+    r = client.get(
+        f"{BASE}/classes/{class_id}/term/{term_id}/bulk-pdf", headers=headers
+    )
+    assert r.status_code == 404
+    assert "no report data" in r.json()["detail"].lower()
+
+
+def test_class_bulk_pdf_requires_generate_permission(client: TestClient, db_session: Session):
+    """Bulk PDF is gated on cbc.reports.generate — view-only is rejected."""
+    tenant, _, ss, class_id, term_id, _ = _setup_class(
+        client, db_session, n_students=1
+    )
+    _, view_headers = make_actor(db_session, tenant=tenant, permissions=VIEW_ONLY)
+    r = client.get(
+        f"{BASE}/classes/{class_id}/term/{term_id}/bulk-pdf", headers=view_headers
+    )
+    assert r.status_code == 403
+
+
+def test_class_bulk_pdf_tenant_isolation(client: TestClient, db_session: Session):
+    """Another tenant cannot pull this class's bulk report."""
+    tenant, headers, ss, class_id, term_id, enrollments = _setup_class(
+        client, db_session, n_students=1
+    )
+    client.put(
+        f"{BASE}/assessments",
+        json={
+            "enrollment_id": enrollments[0],
+            "term_id": term_id,
+            "assessments": [{"sub_strand_id": ss["id"], "performance_level": "EE"}],
+        },
+        headers=headers,
+    )
+    other = create_tenant(db_session, slug=f"cbc-iso-{uuid4().hex[:6]}")
+    _, other_headers = make_actor(db_session, tenant=other, permissions=ALL_CBC)
+    r = client.get(
+        f"{BASE}/classes/{class_id}/term/{term_id}/bulk-pdf", headers=other_headers
+    )
+    # The class belongs to another tenant — no students resolve for this caller.
+    assert r.status_code == 404

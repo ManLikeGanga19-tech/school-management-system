@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -54,6 +55,8 @@ from .schemas import (
 )
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 # ── Curriculum tree ───────────────────────────────────────────────────────────
@@ -372,28 +375,62 @@ def download_class_bulk_pdf(
     ).mappings().all()
 
     if not enrollments:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="No students found for this class and term")
-
-    pdf_pages: list[bytes] = []
-    for row in enrollments:
-        try:
-            report_data = service.get_learner_report(
-                db,
-                tenant_id=tenant.id,
-                enrollment_id=row["enrollment_id"],
-                term_id=term_id,
-            )
-            pdf_pages.append(generate_cbc_report_pdf(report_data, branding=branding))
-        except Exception:
-            # Skip students with no assessments
-            continue
-
-    if not pdf_pages:
-        from fastapi import HTTPException
         raise HTTPException(
             status_code=404,
-            detail="No report data available for students in this class"
+            detail="No students found for this class and term.",
+        )
+
+    pdf_pages: list[bytes] = []
+    skipped_no_data = 0  # learners with no assessments — expected, nothing to print
+    failed = 0           # learners whose report genuinely failed to render — a bug
+    for row in enrollments:
+        eid = row["enrollment_id"]
+        try:
+            report_data = service.get_learner_report(
+                db, tenant_id=tenant.id, enrollment_id=eid, term_id=term_id
+            )
+        except HTTPException:
+            # The enrollment disappeared between the listing query and now.
+            logger.warning("CBC bulk PDF: enrollment %s no longer resolvable", eid)
+            failed += 1
+            continue
+
+        # A learner with no recorded assessments has nothing to print — skip
+        # them quietly rather than padding the batch with a blank report card.
+        if not report_data.get("learning_areas"):
+            skipped_no_data += 1
+            continue
+
+        try:
+            pdf_pages.append(generate_cbc_report_pdf(report_data, branding=branding))
+        except Exception:
+            # A real rendering failure — never swallow it silently. Log the
+            # stack trace so the bug surfaces, but keep the batch going so one
+            # bad record can't block every other learner's report.
+            logger.exception(
+                "CBC bulk PDF: failed to render report for enrollment %s", eid
+            )
+            failed += 1
+
+    if not pdf_pages:
+        # Distinguish "nobody has been assessed yet" from "every render broke".
+        if failed and not skipped_no_data:
+            raise HTTPException(
+                status_code=500,
+                detail="Report generation failed for every student in this class.",
+            )
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No report data available — no learner in this class has CBC "
+                "assessments recorded for this term."
+            ),
+        )
+
+    if failed:
+        logger.warning(
+            "CBC bulk PDF for class %s term %s: %d page(s) generated, %d failed",
+            class_id, term_id, len(pdf_pages), failed,
         )
 
     merged = merge_pdfs(pdf_pages)
