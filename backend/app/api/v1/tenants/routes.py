@@ -3588,12 +3588,12 @@ def tenant_settings_get_badge(
     row = db.execute(
         select(TenantPrintProfile).where(TenantPrintProfile.tenant_id == tenant.id)
     ).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="School badge not configured.")
+    badge_path = _tenant_badge_path(tenant.id) if row is not None else None
 
-    badge_path = _tenant_badge_path(tenant.id)
+    # No badge configured is a normal state, not an error — return 204 so the
+    # browser console doesn't log a failed resource on every page load.
     if badge_path is None or not badge_path.exists() or not badge_path.is_file():
-        raise HTTPException(status_code=404, detail="School badge not configured.")
+        return Response(status_code=204)
 
     ext = badge_path.suffix.lower().lstrip(".")
     media_type = TENANT_BADGE_CONTENT_TYPE_BY_EXT.get(ext, "application/octet-stream")

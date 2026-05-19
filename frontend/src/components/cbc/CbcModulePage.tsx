@@ -931,22 +931,14 @@ function ReportsTab() {
     if (!selectedEnrollment || !selectedTerm) return;
     setDownloadingPdf(true);
     try {
-      const response = await fetch(
-        `/api/v1/cbc/enrollments/${selectedEnrollment}/term/${selectedTerm}/pdf`,
-        {
-          headers: {
-            Authorization: `Bearer ${document.cookie.match(/access_token=([^;]+)/)?.[1] ?? ""}`,
-          },
-        }
+      // Route through the API client so the request reaches the backend with
+      // the tenant headers and auth — a raw fetch to /api/v1/... hit the
+      // Next.js origin (404) and read an httpOnly cookie that is never visible.
+      await api.downloadFile(
+        `/cbc/enrollments/${selectedEnrollment}/term/${selectedTerm}/pdf`,
+        `cbc_report_${selectedEnrollment}.pdf`,
+        { tenantRequired: true },
       );
-      if (!response.ok) throw new Error("PDF download failed");
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `cbc_report_${selectedEnrollment}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "PDF download failed");
     } finally {
