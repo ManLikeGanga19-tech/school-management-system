@@ -395,6 +395,9 @@ export function StudentProfilePage({
   const [structureId, setStructureId] = useState("");
   const [genInvoiceOnAssign, setGenInvoiceOnAssign] = useState(true);
   const [assigningStructure, setAssigningStructure] = useState(false);
+  const [replaceTarget, setReplaceTarget] = useState<ProfileInvoice | null>(null);
+  const [replaceType, setReplaceType] = useState<"NEW" | "RETURNING">("RETURNING");
+  const [replacing, setReplacing] = useState(false);
   const [examTotals, setExamTotals] = useState<ExamTotals | null>(null);
 
   const [tab, setTab] = useState<Tab>("overview");
@@ -598,6 +601,26 @@ export function StudentProfilePage({
       active = false;
     };
   }, []);
+
+  async function replaceInvoiceStructure() {
+    if (!replaceTarget) return;
+    setReplacing(true);
+    try {
+      await api.post(
+        `/finance/invoices/${replaceTarget.id}/replace`,
+        { student_type: replaceType },
+        { tenantRequired: true }
+      );
+      toast.success("Invoice replaced with the correct fee structure.");
+      setReplaceTarget(null);
+      await loadProfile();
+    } catch (err: unknown) {
+      const msg = asObject(err)?.message;
+      toast.error(typeof msg === "string" ? msg : "Failed to replace the invoice.");
+    } finally {
+      setReplacing(false);
+    }
+  }
 
   async function assignFeeStructure() {
     if (!structureId) {
@@ -1177,6 +1200,7 @@ export function StudentProfilePage({
                     <div className="space-y-4">
                       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {[
+                          { key: "admission_no", label: "Admission Number" },
                           { key: "first_name", label: "First Name" },
                           { key: "last_name", label: "Last Name" },
                           { key: "other_names", label: "Other Names" },
@@ -1495,12 +1519,17 @@ export function StudentProfilePage({
                             <TableHead className="text-xs text-right">Paid</TableHead>
                             <TableHead className="text-xs text-right">Balance</TableHead>
                             <TableHead className="text-xs">Date</TableHead>
+                            <TableHead className="text-xs text-right">Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {invoices.length > 0 ? (
-                            invoices.map((inv) => (
-                              <TableRow key={inv.id}>
+                            invoices.map((inv) => {
+                              const cancelled = inv.status.toUpperCase() === "CANCELLED";
+                              const canFix =
+                                inv.invoice_type.toUpperCase() === "SCHOOL_FEES" && !cancelled;
+                              return (
+                              <TableRow key={inv.id} className={cancelled ? "opacity-50" : undefined}>
                                 <TableCell className="font-mono text-xs">{inv.invoice_no || "—"}</TableCell>
                                 <TableCell className="text-xs">{inv.invoice_type || "—"}</TableCell>
                                 <TableCell className="text-xs">{inv.term_code || "—"}</TableCell>
@@ -1509,11 +1538,24 @@ export function StudentProfilePage({
                                 <TableCell className="text-right text-xs text-emerald-700">{formatKes(inv.paid_amount)}</TableCell>
                                 <TableCell className="text-right text-xs font-semibold text-red-700">{formatKes(inv.balance_amount)}</TableCell>
                                 <TableCell className="text-xs text-slate-500">{formatDate(inv.created_at)}</TableCell>
+                                <TableCell className="text-right">
+                                  {canFix && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs"
+                                      onClick={() => { setReplaceTarget(inv); setReplaceType("RETURNING"); }}
+                                    >
+                                      Fix structure
+                                    </Button>
+                                  )}
+                                </TableCell>
                               </TableRow>
-                            ))
+                              );
+                            })
                           ) : (
                             <TableRow>
-                              <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-400">
+                              <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-400">
                                 No invoices for this student yet.
                               </TableCell>
                             </TableRow>
@@ -1922,6 +1964,39 @@ export function StudentProfilePage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Replace invoice (fix fee structure) ── */}
+      {replaceTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <h2 className="text-sm font-semibold text-slate-900">Fix the fee structure</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              This voids invoice{" "}
+              <span className="font-mono">{replaceTarget.invoice_no || replaceTarget.id.slice(0, 8)}</span>{" "}
+              and regenerates it from the chosen structure. Any payments already
+              made move to the corrected invoice — nothing is lost.
+            </p>
+            <div className="mt-4 space-y-1.5">
+              <Label className="text-xs">Bill this student as</Label>
+              <Select value={replaceType} onValueChange={(v) => setReplaceType(v as "NEW" | "RETURNING")}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="RETURNING">Returning (no admission fee)</SelectItem>
+                  <SelectItem value="NEW">New (includes admission fee)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setReplaceTarget(null)} disabled={replacing}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={() => void replaceInvoiceStructure()} disabled={replacing}>
+                {replacing ? "Replacing…" : "Replace invoice"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Carry-Forward Dialog ── */}
       {studentId && (

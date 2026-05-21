@@ -143,10 +143,28 @@ def update_student_biodata(
 ):
     _require_student(db, student_id=student_id, tenant_id=tenant.id)
 
+    data = payload.model_dump(exclude_unset=True)
+
+    # Admission number must stay unique within the tenant.
+    new_adm = data.get("admission_no")
+    if new_adm:
+        clash = db.execute(
+            sa.text(
+                "SELECT 1 FROM core.students "
+                "WHERE tenant_id = :tid AND admission_no = :adm AND id <> :id LIMIT 1"
+            ),
+            {"tid": str(tenant.id), "adm": str(new_adm).strip(), "id": str(student_id)},
+        ).first()
+        if clash:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Admission number '{new_adm}' is already used by another student.",
+            )
+
     updates: list[str] = []
     params: dict = {"id": str(student_id), "tenant_id": str(tenant.id)}
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    for field, value in data.items():
         if value is not None:
             updates.append(f"{field} = :{field}")
             params[field] = value

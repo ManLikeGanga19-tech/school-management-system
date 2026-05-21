@@ -647,6 +647,33 @@ def generate_fees_invoice_v2(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/invoices/{invoice_id}/replace", response_model=InvoiceOut, dependencies=[Depends(require_permission("finance.invoices.manage"))])
+def replace_invoice(
+    invoice_id: UUID,
+    payload: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Void a wrong school-fees invoice and regenerate it from the correct
+    structure (NEW/RETURNING), moving any payments onto the new invoice."""
+    try:
+        inv = service.replace_fees_invoice(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            invoice_id=invoice_id,
+            student_type=str(payload.get("student_type") or ""),
+            include_carry_forward=bool(payload.get("include_carry_forward", False)),
+        )
+        db.commit()
+        db.refresh(inv)
+        return inv
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/invoices", response_model=InvoicePageOut, dependencies=[Depends(require_permission("finance.invoices.view"))])
 def list_invoices(
     enrollment_id: UUID | None = Query(default=None),

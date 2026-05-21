@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 # ── Student bio-data ──────────────────────────────────────────────────────────
 
 class StudentBiodataUpdate(BaseModel):
+    admission_no:         Optional[str] = Field(default=None, min_length=1, max_length=120)
     first_name:           Optional[str] = Field(default=None, min_length=1, max_length=120)
     last_name:            Optional[str] = Field(default=None, min_length=1, max_length=120)
     other_names:          Optional[str] = Field(default=None, max_length=120)

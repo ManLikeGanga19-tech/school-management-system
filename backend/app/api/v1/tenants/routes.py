@@ -6136,6 +6136,9 @@ def tenant_student_profile(
         invoice_rows = []
 
     for inv in invoice_rows:
+        # Voided invoices are kept for audit but excluded from every total.
+        if str(getattr(inv, "status", "") or "").upper() == "CANCELLED":
+            continue
         invoice_id = str(getattr(inv, "id"))
         meta = getattr(inv, "meta", None)
         term_key = _invoice_term_bucket(meta, enrollment_payload=payload)
