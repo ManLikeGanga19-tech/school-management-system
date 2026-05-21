@@ -1015,7 +1015,7 @@ export function StudentProfilePage({
 
             {/* Tabs */}
             <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
-              <div className="flex gap-1 border-b border-slate-100 px-4 pt-3">
+              <div className="flex gap-1 border-b border-slate-100 px-4 pt-3 overflow-x-auto">
                 {tabs.map((t) => {
                   const disabled =
                     !hasSis &&
@@ -1027,7 +1027,7 @@ export function StudentProfilePage({
                       key={t.id}
                       onClick={() => !disabled && setTab(t.id)}
                       disabled={disabled}
-                      className={`flex items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                      className={`flex shrink-0 items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                         tab === t.id
                           ? "border-b-2 border-blue-600 text-blue-700"
                           : "text-slate-500 hover:text-slate-800"

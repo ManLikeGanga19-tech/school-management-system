@@ -43,6 +43,8 @@ import {
   Tag,
   LogOut,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   UserCog,
   UserRoundPlus,
   Users,
@@ -361,6 +363,9 @@ export function AppShell({
   );
   const [badgeCounts, setBadgeCounts] = useState<BadgeCounts>(EMPTY_BADGE_COUNTS);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Desktop sidebar collapse — init false (SSR-safe), restored from storage
+  // after hydration to avoid a hydration mismatch.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [accountMenuOpenDesktop, setAccountMenuOpenDesktop] = useState(false);
   const [accountMenuOpenMobile, setAccountMenuOpenMobile] = useState(false);
   const [sidebarUserEmail, setSidebarUserEmail] = useState(
@@ -380,6 +385,26 @@ export function AppShell({
   // Once the first client render has hydrated, seed the sidebar from the
   // cross-navigation caches. Doing this in an effect (not in useState) keeps
   // the hydration render identical to the server's — avoiding React #418.
+  useEffect(() => {
+    try {
+      setSidebarCollapsed(window.localStorage.getItem("sms_sidebar_collapsed") === "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("sms_sidebar_collapsed", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     appShellHydrated = true;
     const snap = readTenantProfile();
@@ -912,18 +937,31 @@ export function AppShell({
         │  w-[260px] matches the md:grid-cols-[260px_1fr] column below        │
         └────────────────────────────────────────────────────────────────────┘
       */}
-      <aside className="
-        hidden md:flex md:flex-col
-        fixed top-0 left-0 z-30
-        h-screen w-[260px]
-        border-r border-[#e1d4c0] bg-white/80 backdrop-blur-xl
-        overflow-y-auto
-      ">
-        <div className="p-4">
-          {renderShellBrand({ mode: "desktop" })}
+      <aside className={cn(
+        "hidden md:flex md:flex-col",
+        "fixed top-0 left-0 z-30 h-screen",
+        "border-r border-[#e1d4c0] bg-white/80 backdrop-blur-xl",
+        "overflow-y-auto overflow-x-hidden transition-[width] duration-200",
+        sidebarCollapsed ? "w-[76px]" : "w-[260px]"
+      )}>
+        <div className={cn("flex items-center gap-2 p-4", sidebarCollapsed && "justify-center px-2")}>
+          {!sidebarCollapsed && (
+            <div className="min-w-0 flex-1">{renderShellBrand({ mode: "desktop" })}</div>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={toggleSidebar}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
         </div>
 
-        <CampusSwitcher />
+        {!sidebarCollapsed && <CampusSwitcher />}
 
         <Separator />
 
@@ -944,8 +982,10 @@ export function AppShell({
                 <div className="flex items-center gap-1">
                   <Link
                     href={item.href}
+                    title={sidebarCollapsed ? item.label : undefined}
                     className={cn(
                       "flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+                      sidebarCollapsed && "justify-center px-2",
                       itemIsActive
                         ? "bg-[#e4edef] font-medium text-[#173f49]"
                         : "text-slate-600 hover:bg-[#f5ece1] hover:text-[#173f49]"
@@ -959,10 +999,10 @@ export function AppShell({
                         </span>
                       )}
                     </span>
-                    <span>{item.label}</span>
+                    {!sidebarCollapsed && <span>{item.label}</span>}
                   </Link>
 
-                  {hasChildren && (
+                  {hasChildren && !sidebarCollapsed && (
                     <Button
                       type="button"
                       variant="ghost"
@@ -983,7 +1023,7 @@ export function AppShell({
                   )}
                 </div>
 
-                {hasChildren && itemIsExpanded && (
+                {hasChildren && itemIsExpanded && !sidebarCollapsed && (
                   <div className="space-y-1 pl-4">
                     {(item.children || []).map((child) => {
                       const childIsExactActive = isExactActive(child.href);
@@ -1021,7 +1061,7 @@ export function AppShell({
           })}
         </nav>
 
-        {renderSidebarFooter()}
+        {!sidebarCollapsed && renderSidebarFooter()}
       </aside>
 
       <div className="sticky top-0 z-40 border-b border-[#e1d4c0] bg-white/92 backdrop-blur-xl md:hidden">
@@ -1176,7 +1216,11 @@ export function AppShell({
       )}
 
 
-      <main className="min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(252,251,247,0.96))] px-3 py-4 sm:px-4 md:ml-[260px] md:px-6 md:py-6">
+      <main className={cn(
+        "min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(252,251,247,0.96))]",
+        "px-3 py-4 sm:px-4 md:px-6 md:py-6 transition-[margin] duration-200",
+        sidebarCollapsed ? "md:ml-[76px]" : "md:ml-[260px]"
+      )}>
         <div className="mx-auto w-full max-w-6xl">
           <SubscriptionBanner />
           <ChangelogBanner />
