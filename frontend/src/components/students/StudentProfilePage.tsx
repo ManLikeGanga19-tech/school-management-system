@@ -419,6 +419,11 @@ export function StudentProfilePage({
   const [bioForm, setBioForm] = useState<Partial<SisStudent>>({});
   const [savingBio, setSavingBio] = useState(false);
 
+  // Enrollment-payload editing (guardian, class, term, intake details)
+  const [editingEnroll, setEditingEnroll] = useState(false);
+  const [enrollForm, setEnrollForm] = useState<Record<string, string>>({});
+  const [savingEnroll, setSavingEnroll] = useState(false);
+
   // Guardian editing
   const [editingGuardianId, setEditingGuardianId] = useState<string | null>(null);
   const [guardianForm, setGuardianForm] = useState<Partial<Guardian>>({});
@@ -601,6 +606,39 @@ export function StudentProfilePage({
       active = false;
     };
   }, []);
+
+  function openEditEnroll() {
+    const p = enrollment?.payload ?? {};
+    setEnrollForm({
+      class_code: str(p.class_code ?? p.class ?? enrollment?.class_code ?? ""),
+      term: str(p.term ?? p.term_code ?? enrollment?.term_code ?? ""),
+      guardian_name: str(p.guardian_name ?? ""),
+      guardian_phone: str(p.guardian_phone ?? ""),
+      guardian_email: str(p.guardian_email ?? ""),
+      previous_school: str(p.previous_school ?? ""),
+      intake_date: str(p.intake_date ?? ""),
+    });
+    setEditingEnroll(true);
+  }
+
+  async function saveEnroll() {
+    setSavingEnroll(true);
+    try {
+      await api.patch(
+        `/enrollments/${encodeURIComponent(enrollmentId)}`,
+        { payload: enrollForm },
+        { tenantRequired: true }
+      );
+      toast.success("Enrollment details updated.");
+      setEditingEnroll(false);
+      await loadProfile();
+    } catch (err: unknown) {
+      const msg = asObject(err)?.message;
+      toast.error(typeof msg === "string" ? msg : "Failed to update enrollment details.");
+    } finally {
+      setSavingEnroll(false);
+    }
+  }
 
   async function replaceInvoiceStructure() {
     if (!replaceTarget) return;
@@ -1072,14 +1110,53 @@ export function StudentProfilePage({
               {tab === "overview" && (
                 <div className="space-y-6 p-6">
                   <div>
-                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Enrollment Details</h3>
-                    <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-                      <FieldRow label="Full Name" value={enrollment.student_name} />
-                      <FieldRow label="Admission Number" value={enrollment.admission_number} />
-                      <FieldRow label="Class" value={enrollment.class_code} />
-                      <FieldRow label="Term" value={enrollment.term_code} />
-                      <FieldRow label="Status" value={enrollment.status} />
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Enrollment Details</h3>
+                      {!editingEnroll && (
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openEditEnroll}>
+                          <Pencil className="mr-1.5 h-3.5 w-3.5" />Edit
+                        </Button>
+                      )}
                     </div>
+                    {editingEnroll ? (
+                      <div className="space-y-4">
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                          {[
+                            { key: "class_code", label: "Class" },
+                            { key: "term", label: "Term" },
+                            { key: "guardian_name", label: "Guardian Name" },
+                            { key: "guardian_phone", label: "Guardian Phone" },
+                            { key: "guardian_email", label: "Guardian Email" },
+                            { key: "previous_school", label: "Previous School" },
+                            { key: "intake_date", label: "Intake Date" },
+                          ].map(({ key, label }) => (
+                            <div key={key} className="space-y-1.5">
+                              <Label className="text-xs">{label}</Label>
+                              <Input
+                                value={enrollForm[key] ?? ""}
+                                onChange={(e) => setEnrollForm((p) => ({ ...p, [key]: e.target.value }))}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => void saveEnroll()} disabled={savingEnroll}>
+                            <Save className="mr-1.5 h-3.5 w-3.5" />{savingEnroll ? "Saving…" : "Save"}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setEditingEnroll(false)}>
+                            <X className="mr-1.5 h-3.5 w-3.5" />Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <FieldRow label="Full Name" value={enrollment.student_name} />
+                        <FieldRow label="Admission Number" value={enrollment.admission_number} />
+                        <FieldRow label="Class" value={enrollment.class_code} />
+                        <FieldRow label="Term" value={enrollment.term_code} />
+                        <FieldRow label="Status" value={enrollment.status} />
+                      </div>
+                    )}
                   </div>
                   <div>
                     <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Finance Summary</h3>
