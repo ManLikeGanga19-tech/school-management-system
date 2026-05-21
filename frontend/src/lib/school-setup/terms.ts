@@ -5,10 +5,21 @@ export type TenantTerm = {
   is_active?: boolean;
   start_date?: string | null;
   end_date?: string | null;
+  is_current?: boolean;
 };
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * The term that should be selected by default — the current term (by date,
+ * flagged `is_current` from the backend), falling back to the first term.
+ * Returns the term id, or "" if there are none.
+ */
+export function defaultTermId(terms: TenantTerm[]): string {
+  if (!terms.length) return "";
+  return (terms.find((t) => t.is_current) ?? terms[0]).id;
 }
 
 export function buildDefaultTerms(now = new Date()): TenantTerm[] {
@@ -48,6 +59,7 @@ export function normalizeTerms(input: unknown): TenantTerm[] {
         is_active: typeof rec.is_active === "boolean" ? rec.is_active : true,
         start_date: asString(rec.start_date) || null,
         end_date: asString(rec.end_date) || null,
+        is_current: rec.is_current === true,
       };
     })
     .filter((row): row is TenantTerm => Boolean(row))

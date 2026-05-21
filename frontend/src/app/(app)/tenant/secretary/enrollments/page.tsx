@@ -995,11 +995,17 @@ function InterviewFeeCell({
   onPayClick: () => void;
 }) {
   const fromPayload = isInterviewFeePaidFromPayload(payload);
+  // Students brought over from the existing registry skip the interview
+  // pipeline entirely — they are exempt, not "unpaid".
+  const isExisting =
+    String((payload as Record<string, unknown>)?.enrollment_source || "")
+      .toUpperCase() === "EXISTING_STUDENT";
   const [status, setStatus] = useState<"loading" | "paid" | "unpaid">(
     fromPayload === true ? "paid" : "loading"
   );
 
   useEffect(() => {
+    if (isExisting) return;
     let mounted = true;
     setStatus(fromPayload === true ? "paid" : "loading");
 
@@ -1032,6 +1038,14 @@ function InterviewFeeCell({
       mounted = false;
     };
   }, [enrollmentId, fromPayload]);
+
+  if (isExisting) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
+        N/A — existing student
+      </span>
+    );
+  }
 
   if (status === "loading") {
     return (

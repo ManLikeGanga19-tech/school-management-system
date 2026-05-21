@@ -40,7 +40,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
-import { normalizeTerms, type TenantTerm } from "@/lib/school-setup/terms";
+import { normalizeTerms, defaultTermId, type TenantTerm } from "@/lib/school-setup/terms";
 import { normalizeClassOptions, type TenantClassOption } from "@/lib/hr";
 import { normalizeEnrollmentRows, studentName, type EnrollmentRow } from "@/lib/students";
 
@@ -603,7 +603,9 @@ function AssessmentsTab() {
         api.get("/tenants/terms"),
         api.get("/tenants/classes"),
       ]);
-      setTerms(normalizeTerms(termsRes));
+      const _terms = normalizeTerms(termsRes);
+      setTerms(_terms);
+      setSelectedTerm((p) => p || defaultTermId(_terms));
       setClasses(normalizeClassOptions(classesRes));
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to load setup data");
@@ -900,7 +902,9 @@ function ReportsTab() {
         api.get("/tenants/terms"),
         api.get("/tenants/classes"),
       ]);
-      setTerms(normalizeTerms(termsRes));
+      const _terms = normalizeTerms(termsRes);
+      setTerms(_terms);
+      setSelectedTerm((p) => p || defaultTermId(_terms));
       setClasses(normalizeClassOptions(classesRes));
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to load data");
@@ -1182,8 +1186,10 @@ function AnalyticsTab() {
       api.get("/classes/", { tenantRequired: true }).catch(() => []),
       api.get("/terms/", { tenantRequired: true }).catch(() => []),
     ]).then(([cls, trms]) => {
+      const _terms = normalizeTerms(trms);
       setClasses(normalizeClassOptions(cls));
-      setTerms(normalizeTerms(trms));
+      setTerms(_terms);
+      setTermId((p) => p || defaultTermId(_terms));
     });
   }, []);
 

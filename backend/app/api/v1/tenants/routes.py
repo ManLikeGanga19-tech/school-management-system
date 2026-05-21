@@ -124,6 +124,7 @@ class TenantTermOut(BaseModel):
     is_active: bool = True
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    is_current: bool = False
 
 
 class TenantTermCreateIn(BaseModel):
@@ -1136,6 +1137,43 @@ def _serialize_payment(row: dict[str, Any]) -> dict:
 
 TENANT_CLASS_TABLE_CANDIDATES = ("core.tenant_classes", "tenant_classes")
 TENANT_TERM_TABLE_CANDIDATES = ("core.tenant_terms", "tenant_terms")
+
+
+def _resolve_current_term_id(term_rows: list) -> Optional[str]:
+    """Pick the current academic term by date.
+
+    The current term is the one whose [start_date, end_date] range contains
+    today. If none match (e.g. mid-break), fall back to the most recent term
+    that has already started. Returns the term id, or None.
+    """
+    from datetime import date as _date
+
+    today = _date.today()
+
+    def _parse(value) -> Optional[_date]:
+        if not value:
+            return None
+        try:
+            return _date.fromisoformat(str(value)[:10])
+        except Exception:
+            return None
+
+    # 1) A term whose range contains today.
+    for r in term_rows:
+        start = _parse(r.get("start_date"))
+        end = _parse(r.get("end_date"))
+        if start and end and start <= today <= end:
+            return str(r.get("id"))
+
+    # 2) Otherwise the most recently started term.
+    started = []
+    for r in term_rows:
+        start = _parse(r.get("start_date"))
+        if start and start <= today:
+            started.append((start, str(r.get("id"))))
+    if started:
+        return max(started, key=lambda x: x[0])[1]
+    return None
 TENANT_SCHOOL_CALENDAR_EVENT_TABLE_CANDIDATES = (
     "core.tenant_school_calendar_events",
     "tenant_school_calendar_events",
@@ -3996,6 +4034,8 @@ def list_tenant_terms(
         params={"tenant_id": str(tenant.id)},
     )
 
+    current_id = _resolve_current_term_id(rows)
+
     return [
         TenantTermOut(
             id=str(r.get("id")),
@@ -4004,6 +4044,7 @@ def list_tenant_terms(
             is_active=bool(r.get("is_active", True)),
             start_date=(str(r.get("start_date")) if r.get("start_date") is not None else None),
             end_date=(str(r.get("end_date")) if r.get("end_date") is not None else None),
+            is_current=(str(r.get("id")) == current_id),
         )
         for r in rows
     ]

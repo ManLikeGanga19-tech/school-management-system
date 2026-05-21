@@ -47,7 +47,7 @@ import {
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { normalizeClassOptions, type TenantClassOption } from "@/lib/hr";
-import { normalizeTerms as normalizeTermsFromSetup, type TenantTerm } from "@/lib/school-setup/terms";
+import { normalizeTerms as normalizeTermsFromSetup, defaultTermId, type TenantTerm } from "@/lib/school-setup/terms";
 
 type Props = {
   appTitle: string;
@@ -225,7 +225,7 @@ export function AttendancePage({ appTitle, nav, activeHref }: Props) {
       setClassId((c) => c || (cls[0]?.id ?? ""));
       const ts = normalizeTermsFromSetup(termsRaw);
       setTerms(ts);
-      setTermId((t) => t || (ts[0]?.id ?? ""));
+      setTermId((t) => t || defaultTermId(ts));
     } catch {
       toast.error("Failed to load classes and terms.");
     }

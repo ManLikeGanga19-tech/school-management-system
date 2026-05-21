@@ -1110,6 +1110,39 @@ export function StudentProfilePage({
                     <div className="space-y-4">
                       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {[
+                          { key: "first_name", label: "First Name" },
+                          { key: "last_name", label: "Last Name" },
+                          { key: "other_names", label: "Other Names" },
+                        ].map(({ key, label }) => (
+                          <div key={key} className="space-y-1.5">
+                            <Label className="text-xs">{label}</Label>
+                            <Input
+                              value={(bioForm as Record<string, string | null>)[key] ?? ""}
+                              onChange={(e) => setBioForm((p) => ({ ...p, [key]: e.target.value || null }))}
+                            />
+                          </div>
+                        ))}
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Gender</Label>
+                          <select
+                            value={bioForm.gender ?? ""}
+                            onChange={(e) => setBioForm((p) => ({ ...p, gender: e.target.value || null }))}
+                            className="h-9 w-full rounded-md border border-slate-200 px-2 text-sm"
+                          >
+                            <option value="">—</option>
+                            <option value="MALE">Male</option>
+                            <option value="FEMALE">Female</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Date of Birth</Label>
+                          <Input
+                            type="date"
+                            value={bioForm.date_of_birth ?? ""}
+                            onChange={(e) => setBioForm((p) => ({ ...p, date_of_birth: e.target.value || null }))}
+                          />
+                        </div>
+                        {[
                           { key: "phone", label: "Phone" },
                           { key: "email", label: "Email" },
                           { key: "nationality", label: "Nationality" },
