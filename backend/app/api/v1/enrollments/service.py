@@ -246,24 +246,39 @@ def _create_student_for_existing_enrollment(
         g_first = g_parts[0]
         g_last = g_parts[1] if len(g_parts) > 1 else ""
 
-        parent_id = db.execute(
-            sa.text(
-                """
-                INSERT INTO core.parents
-                    (tenant_id, first_name, last_name, phone, email, is_active)
-                VALUES
-                    (:tid, :fn, :ln, :phone, :email, true)
-                RETURNING id
-                """
-            ),
-            {
-                "tid": str(tenant_id),
-                "fn": g_first,
-                "ln": g_last,
-                "phone": guardian_phone,
-                "email": guardian_email,
-            },
-        ).scalar_one()
+        # One parent can have many children. Reuse an existing parent with the
+        # same phone (the (tenant, phone) unique index keeps one record per
+        # guardian) and just link this student to them — never insert a
+        # duplicate, which would crash on the unique index.
+        parent_id = None
+        if guardian_phone:
+            parent_id = db.execute(
+                sa.text(
+                    "SELECT id FROM core.parents "
+                    "WHERE tenant_id = :tid AND phone = :phone LIMIT 1"
+                ),
+                {"tid": str(tenant_id), "phone": guardian_phone},
+            ).scalar_one_or_none()
+
+        if parent_id is None:
+            parent_id = db.execute(
+                sa.text(
+                    """
+                    INSERT INTO core.parents
+                        (tenant_id, first_name, last_name, phone, email, is_active)
+                    VALUES
+                        (:tid, :fn, :ln, :phone, :email, true)
+                    RETURNING id
+                    """
+                ),
+                {
+                    "tid": str(tenant_id),
+                    "fn": g_first,
+                    "ln": g_last,
+                    "phone": guardian_phone,
+                    "email": guardian_email,
+                },
+            ).scalar_one()
 
         db.execute(
             sa.text(

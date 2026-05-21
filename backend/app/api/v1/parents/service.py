@@ -221,14 +221,15 @@ def create_parent(
     if not phone:
         raise ValueError("Phone number is required")
 
-    # Deduplication — same phone → return existing
+    # Deduplication — one parent can have many children, so a repeated phone
+    # reuses the existing parent record instead of erroring or duplicating.
     existing = (
         db.query(Parent)
         .filter(Parent.tenant_id == tenant_id, Parent.phone == phone, Parent.is_active.is_(True))
         .first()
     )
     if existing:
-        raise ValueError(f"A parent with phone {phone} already exists")
+        return get_parent_detail(db, tenant_id=tenant_id, parent_id=existing.id)
 
     p = Parent(
         tenant_id=tenant_id,
