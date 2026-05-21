@@ -1230,9 +1230,21 @@ function TenantFinancePageContent() {
     void printEnterprisePdf(`/finance/documents/invoices/${invoice.id}/pdf`);
   }
 
-  function printPaymentReceipt(payment: DecoratedPayment) {
+  async function printPaymentReceipt(payment: DecoratedPayment) {
     // /print follows the tenant's paper_size setting (thermal HTML or A4 PDF).
-    void printEnterprisePdf(`/finance/documents/payments/${payment.id}/print`);
+    await printEnterprisePdf(`/finance/documents/payments/${payment.id}/print`);
+    // Also print the related invoice(s) as a second document — the up-to-date
+    // fee statement alongside the receipt.
+    const invoiceIds = Array.from(
+      new Set(
+        (payment.allocations || [])
+          .map((a) => String(a.invoice_id || ""))
+          .filter(Boolean)
+      )
+    );
+    for (const id of invoiceIds) {
+      await printEnterprisePdf(`/finance/documents/invoices/${id}/pdf`);
+    }
   }
 
   async function downloadPdf(path: string, fallbackName: string) {
@@ -2153,7 +2165,7 @@ function TenantFinancePageContent() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => printPaymentReceipt(payment)}
+                            onClick={() => void printPaymentReceipt(payment)}
                           >
                             <Printer className="mr-1 h-3.5 w-3.5" />
                             Print
@@ -2367,7 +2379,7 @@ function TenantFinancePageContent() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => printPaymentReceipt(payment)}
+                              onClick={() => void printPaymentReceipt(payment)}
                             >
                               <Printer className="mr-1 h-3.5 w-3.5" />
                               Print

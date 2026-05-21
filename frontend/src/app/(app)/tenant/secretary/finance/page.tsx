@@ -1111,6 +1111,35 @@ function SecretaryFinancePageContent() {
     }
   }
 
+  async function openDocInTab(path: string) {
+    try {
+      const res = await apiFetchRaw(path, { method: "GET", tenantRequired: true });
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const tab = window.open(url, "_blank");
+      if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");
+      setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    } catch {
+      toast.error("Failed to open print preview.");
+    }
+  }
+
+  // Print the receipt and, as a second document, the related invoice(s) so the
+  // parent leaves with both the receipt and the up-to-date fee statement.
+  async function printReceiptWithInvoice(payment: Payment) {
+    await openDocInTab(`/finance/documents/payments/${payment.id}/print`);
+    const invoiceIds = Array.from(
+      new Set(
+        (payment.allocations || [])
+          .map((a) => String(a.invoice_id || ""))
+          .filter(Boolean)
+      )
+    );
+    for (const id of invoiceIds) {
+      await openDocInTab(`/finance/documents/invoices/${id}/pdf`);
+    }
+  }
+
   const totals = useMemo(
     () =>
       data.invoices.reduce(
@@ -2712,22 +2741,9 @@ function SecretaryFinancePageContent() {
                         <TableCell className="text-right">
                           <div className="inline-flex items-center gap-1">
                             <button
-                              title="Print receipt (follows print settings)"
+                              title="Print receipt + invoice (follows print settings)"
                               className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
-                              onClick={() => {
-                                void apiFetchRaw(`/finance/documents/payments/${payment.id}/print`, {
-                                  method: "GET",
-                                  tenantRequired: true,
-                                }).then(async (res) => {
-                                  // /print returns thermal HTML or A4 PDF per settings;
-                                  // blob() preserves whichever content type came back.
-                                  const blob = await res.blob();
-                                  const url = window.URL.createObjectURL(blob);
-                                  const tab = window.open(url, "_blank");
-                                  if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");
-                                  setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
-                                }).catch(() => toast.error("Failed to open print preview."));
-                              }}
+                              onClick={() => void printReceiptWithInvoice(payment)}
                             >
                               <Printer className="h-3.5 w-3.5" />
                             </button>
