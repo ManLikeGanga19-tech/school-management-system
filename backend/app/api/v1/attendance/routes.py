@@ -370,6 +370,58 @@ def enroll_student(
     )
 
 
+@router.post(
+    "/classes/{class_id}/sync-roster",
+    dependencies=[Depends(require_permission("attendance.enroll"))],
+)
+def sync_class_roster(
+    class_id: UUID,
+    term_id: UUID = Query(...),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Populate the attendance roster from the school's enrolled students.
+
+    Pulls every actively-enrolled student whose enrollment class matches this
+    class (by class code) into the roster for the given term. Idempotent —
+    students already on the roster are skipped, so it is safe to re-run.
+    """
+    cls = _require_class(db, class_id=class_id, tenant_id=tenant.id)
+    _require_term(db, term_id=term_id, tenant_id=tenant.id)
+    class_code = str(cls.get("code") or "").strip().upper()
+
+    result = db.execute(
+        sa.text(
+            """
+            INSERT INTO core.student_class_enrollments
+                (id, tenant_id, student_id, class_id, term_id, status, created_by_user_id)
+            SELECT gen_random_uuid(), :tid, e.student_id, :class_id, :term_id,
+                   'ACTIVE', :uid
+            FROM core.enrollments e
+            WHERE e.tenant_id = :tid
+              AND e.student_id IS NOT NULL
+              AND e.status IN ('ENROLLED', 'ENROLLED_PARTIAL', 'APPROVED')
+              AND UPPER(TRIM(COALESCE(
+                    e.payload->>'class_code',
+                    e.payload->>'classCode',
+                    e.payload->>'class'
+              ))) = :class_code
+            ON CONFLICT ON CONSTRAINT uq_sce_student_class_term DO NOTHING
+            """
+        ),
+        {
+            "tid": str(tenant.id),
+            "class_id": str(class_id),
+            "term_id": str(term_id),
+            "uid": str(user.id) if user else None,
+            "class_code": class_code,
+        },
+    )
+    db.commit()
+    return {"synced": result.rowcount or 0, "class_code": class_code}
+
+
 @router.patch(
     "/classes/{class_id}/roster/{enrollment_id}",
     response_model=EnrollmentOut,

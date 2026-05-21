@@ -208,6 +208,7 @@ export function AttendancePage({ appTitle, nav, activeHref }: Props) {
   const [enrollDialog, setEnrollDialog] = useState(false);
   const [enrollStudentId, setEnrollStudentId] = useState("");
   const [savingRoster, setSavingRoster] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   // Reports tab
   const [report, setReport] = useState<ReportRow[] | null>(null);
@@ -458,6 +459,33 @@ export function AttendancePage({ appTitle, nav, activeHref }: Props) {
   useEffect(() => {
     if (tab === "roster") void loadRoster();
   }, [tab, loadRoster]);
+
+  async function syncRoster() {
+    if (!classId || !termId) {
+      toast.error("Select a class and term first.");
+      return;
+    }
+    setSyncing(true);
+    try {
+      const res = await api.post<{ synced?: number }>(
+        `/attendance/classes/${encodeURIComponent(classId)}/sync-roster?term_id=${encodeURIComponent(termId)}`,
+        {},
+        { tenantRequired: true }
+      );
+      const n = res?.synced ?? 0;
+      toast.success(
+        n > 0
+          ? `Added ${n} enrolled student${n === 1 ? "" : "s"} to the roster.`
+          : "Roster already up to date — every enrolled student is on it."
+      );
+      await loadRoster();
+    } catch (err: unknown) {
+      const msg = asObject(err)?.detail;
+      toast.error(typeof msg === "string" ? msg : "Failed to sync the roster.");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function enrollStudent() {
     if (!classId || !termId || !enrollStudentId.trim()) {
@@ -831,9 +859,15 @@ export function AttendancePage({ appTitle, nav, activeHref }: Props) {
                 <p className="text-sm text-slate-500">
                   {roster.length} student{roster.length === 1 ? "" : "s"} on this class roster
                 </p>
-                <Button size="sm" variant="outline" onClick={() => setEnrollDialog(true)} disabled={!classId || !termId}>
-                  <Plus className="mr-1 h-3.5 w-3.5" />Add Student
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => void syncRoster()} disabled={!classId || !termId || syncing}>
+                    <RefreshCw className={`mr-1 h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                    {syncing ? "Syncing…" : "Sync from Enrollments"}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setEnrollDialog(true)} disabled={!classId || !termId}>
+                    <Plus className="mr-1 h-3.5 w-3.5" />Add Student
+                  </Button>
+                </div>
               </div>
               <div className="overflow-x-auto rounded-xl border border-slate-100">
                 <Table>
