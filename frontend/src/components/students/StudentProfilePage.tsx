@@ -2048,10 +2048,10 @@ export function StudentProfilePage({
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
             <h2 className="text-sm font-semibold text-slate-900">Fix the fee structure</h2>
             <p className="mt-1 text-xs text-slate-500">
-              This voids invoice{" "}
+              Regenerates invoice{" "}
               <span className="font-mono">{replaceTarget.invoice_no || replaceTarget.id.slice(0, 8)}</span>{" "}
-              and regenerates it from the chosen structure. Any payments already
-              made move to the corrected invoice — nothing is lost.
+              from the chosen structure. The invoice number and any payments
+              already made stay on it — only the fee lines are corrected.
             </p>
             <div className="mt-4 space-y-1.5">
               <Label className="text-xs">Bill this student as</Label>

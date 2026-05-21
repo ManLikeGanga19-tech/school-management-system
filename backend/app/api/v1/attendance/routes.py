@@ -390,7 +390,11 @@ def sync_class_roster(
     cls = _require_class(db, class_id=class_id, tenant_id=tenant.id)
     _require_term(db, term_id=term_id, tenant_id=tenant.id)
     class_code = str(cls.get("code") or "").strip().upper()
+    class_name = str(cls.get("name") or "").strip().upper()
 
+    # Enrollments store the class under 'admission_class' (primary), with a few
+    # legacy aliases. Match the enrollment's class against this class's code OR
+    # name so it works regardless of which the school selected at intake.
     result = db.execute(
         sa.text(
             """
@@ -403,10 +407,12 @@ def sync_class_roster(
               AND e.student_id IS NOT NULL
               AND e.status IN ('ENROLLED', 'ENROLLED_PARTIAL', 'APPROVED')
               AND UPPER(TRIM(COALESCE(
+                    e.payload->>'admission_class',
                     e.payload->>'class_code',
                     e.payload->>'classCode',
-                    e.payload->>'class'
-              ))) = :class_code
+                    e.payload->>'class',
+                    ''
+              ))) IN (:class_code, :class_name)
             ON CONFLICT ON CONSTRAINT uq_sce_student_class_term DO NOTHING
             """
         ),
@@ -416,6 +422,7 @@ def sync_class_roster(
             "term_id": str(term_id),
             "uid": str(user.id) if user else None,
             "class_code": class_code,
+            "class_name": class_name,
         },
     )
     db.commit()

@@ -3371,6 +3371,7 @@ def generate_school_fees_invoice_v2(
     scholarship_reason: Optional[str] = None,
     include_carry_forward: bool = False,
     force_student_type: Optional[str] = None,
+    existing_invoice: Optional[Invoice] = None,
 ) -> Invoice:
     """
     Smart invoice generator:
@@ -3450,23 +3451,23 @@ def generate_school_fees_invoice_v2(
         )
 
     # Duplicate guard: one SCHOOL_FEES invoice per enrollment per term per year.
-    # Cancelled (voided) invoices don't count — replacing a wrong invoice works.
-    existing_invoice = db.execute(
-        select(Invoice).where(
-            Invoice.tenant_id == tenant_id,
-            Invoice.enrollment_id == enrollment_id,
-            Invoice.term_number == term_number,
-            Invoice.academic_year == academic_year,
-            Invoice.invoice_type == "SCHOOL_FEES",
-            Invoice.status != "CANCELLED",
-        )
-    ).scalar_one_or_none()
-    if existing_invoice:
-        raise ValueError(
-            f"A SCHOOL_FEES invoice already exists for this student in "
-            f"Term {term_number} {academic_year} "
-            f"(invoice: {existing_invoice.invoice_no or str(existing_invoice.id)[:8]})"
-        )
+    # Skipped when regenerating an invoice in place (replace flow).
+    if existing_invoice is None:
+        dupe = db.execute(
+            select(Invoice).where(
+                Invoice.tenant_id == tenant_id,
+                Invoice.enrollment_id == enrollment_id,
+                Invoice.term_number == term_number,
+                Invoice.academic_year == academic_year,
+                Invoice.invoice_type == "SCHOOL_FEES",
+            )
+        ).scalar_one_or_none()
+        if dupe:
+            raise ValueError(
+                f"A SCHOOL_FEES invoice already exists for this student in "
+                f"Term {term_number} {academic_year} "
+                f"(invoice: {dupe.invoice_no or str(dupe.id)[:8]})"
+            )
 
     # Load student for admission_year
     student = db.execute(
@@ -3578,26 +3579,54 @@ def generate_school_fees_invoice_v2(
         if interview_inv and Decimal(interview_inv.paid_amount or 0) > 0:
             interview_credit = Decimal(str(interview_inv.paid_amount))
 
-    # Create the invoice
-    inv = Invoice(
-        tenant_id=tenant_id,
-        invoice_type="SCHOOL_FEES",
-        enrollment_id=enrollment_id,
-        status="DRAFT",
-        term_number=term_number,
-        academic_year=academic_year,
-        student_type_snapshot=student_type,
-    )
-    db.add(inv)
-    db.flush()
+    if existing_invoice is not None:
+        # Regenerate in place — keep the same invoice row (and its payments),
+        # just rebuild the lines from the correct structure.
+        inv = existing_invoice
+        old_lines = db.execute(
+            select(InvoiceLine).where(InvoiceLine.invoice_id == inv.id)
+        ).scalars().all()
+        for old_ln in old_lines:
+            meta = old_ln.meta or {}
+            # Release any carry-forward balances this invoice had absorbed so
+            # they aren't lost when the line is removed.
+            if meta.get("line_type") == "CARRY_FORWARD" and meta.get("carry_forward_id"):
+                from app.models.student_carry_forward import StudentCarryForward
+                cf = db.get(StudentCarryForward, UUID(str(meta["carry_forward_id"])))
+                if cf is not None and cf.status == "INCLUDED":
+                    cf.status = "PENDING"
+                    cf.invoice_id = None
+            db.delete(old_ln)
+        inv.status = "DRAFT"
+        inv.student_type_snapshot = student_type
+        db.flush()
+        if not inv.invoice_no:
+            inv.invoice_no = _next_document_number(
+                db, tenant_id=tenant_id, doc_type="INV",
+                created_at=getattr(inv, "created_at", None),
+            )
+            db.flush()
+    else:
+        # Create the invoice
+        inv = Invoice(
+            tenant_id=tenant_id,
+            invoice_type="SCHOOL_FEES",
+            enrollment_id=enrollment_id,
+            status="DRAFT",
+            term_number=term_number,
+            academic_year=academic_year,
+            student_type_snapshot=student_type,
+        )
+        db.add(inv)
+        db.flush()
 
-    inv.invoice_no = _next_document_number(
-        db,
-        tenant_id=tenant_id,
-        doc_type="INV",
-        created_at=getattr(inv, "created_at", None),
-    )
-    db.flush()
+        inv.invoice_no = _next_document_number(
+            db,
+            tenant_id=tenant_id,
+            doc_type="INV",
+            created_at=getattr(inv, "created_at", None),
+        )
+        db.flush()
 
     for ln in lines:
         db.add(InvoiceLine(
@@ -3743,47 +3772,32 @@ def replace_fees_invoice(
     if st not in ("NEW", "RETURNING"):
         raise ValueError("student_type must be NEW or RETURNING")
 
-    old = db.execute(
+    inv = db.execute(
         select(Invoice).where(Invoice.id == invoice_id, Invoice.tenant_id == tenant_id)
     ).scalar_one_or_none()
-    if not old:
+    if not inv:
         raise ValueError("Invoice not found")
-    if old.invoice_type != "SCHOOL_FEES":
+    if inv.invoice_type != "SCHOOL_FEES":
         raise ValueError("Only school-fees invoices can be replaced")
-    if old.status == "CANCELLED":
+    if inv.status == "CANCELLED":
         raise ValueError("This invoice has already been cancelled")
-    if old.enrollment_id is None or old.term_number is None or old.academic_year is None:
+    if inv.enrollment_id is None or inv.term_number is None or inv.academic_year is None:
         raise ValueError("Invoice is missing the enrollment/term context needed to replace it")
 
-    alloc_rows = db.execute(
-        select(PaymentAllocation).where(PaymentAllocation.invoice_id == old.id)
-    ).scalars().all()
-
-    # Freeze the old invoice — kept for audit (its lines remain) but zeroed so
-    # it contributes nothing to any total wherever invoices are summed.
-    old.status = "CANCELLED"
-    old.total_amount = Decimal("0")
-    old.paid_amount = Decimal("0")
-    old.balance_amount = Decimal("0")
-    db.flush()
-
+    # Regenerate the invoice in place from the chosen structure. The same row
+    # is reused — its invoice number and any payments stay attached, so nothing
+    # is lost and there is no unique-key clash on (enrollment, term, year).
     new_inv = generate_school_fees_invoice_v2(
         db,
         tenant_id=tenant_id,
         actor_user_id=actor_user_id,
-        enrollment_id=old.enrollment_id,
-        term_number=old.term_number,
-        academic_year=old.academic_year,
+        enrollment_id=inv.enrollment_id,
+        term_number=inv.term_number,
+        academic_year=inv.academic_year,
         include_carry_forward=include_carry_forward,
         force_student_type=st,
+        existing_invoice=inv,
     )
-
-    # Re-allocate the old invoice's payments onto the corrected invoice.
-    for alloc in alloc_rows:
-        alloc.invoice_id = new_inv.id
-    db.flush()
-    _recalc_invoice_amounts(db, new_inv)
-    db.flush()
 
     log_event(
         db,
@@ -3792,11 +3806,7 @@ def replace_fees_invoice(
         action="invoice.replace",
         resource="invoice",
         resource_id=new_inv.id,
-        payload={
-            "old_invoice_id": str(old.id),
-            "student_type": st,
-            "moved_allocations": len(alloc_rows),
-        },
+        payload={"invoice_id": str(new_inv.id), "student_type": st},
         meta=None,
     )
     return new_inv
