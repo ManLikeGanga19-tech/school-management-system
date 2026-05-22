@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -223,9 +224,9 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   // Filters
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterType, setFilterType] = useState("");
-  const [filterSeverity, setFilterSeverity] = useState("");
+  const [filterStatus, setFilterStatus] = usePersistedState("discipline.status", "");
+  const [filterType, setFilterType] = usePersistedState("discipline.type", "");
+  const [filterSeverity, setFilterSeverity] = usePersistedState("discipline.severity", "");
 
   // New incident form
   const [newForm, setNewForm] = useState({

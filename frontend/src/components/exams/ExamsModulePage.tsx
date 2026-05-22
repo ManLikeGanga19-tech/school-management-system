@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { useSearchParams } from "next/navigation";
 import {
   CalendarDays,
@@ -294,8 +295,8 @@ export function ExamsModulePage({ appTitle, nav, activeHref }: ExamsModulePagePr
 
   const [examForm, setExamForm] = useState<ExamForm>(defaultExamForm);
   const [markForm, setMarkForm] = useState<MarkForm>(defaultMarkForm);
-  const [timetableFilters, setTimetableFilters] = useState<TimetableFilters>(defaultTimetableFilters);
-  const [marksFilters, setMarksFilters] = useState<MarksFilters>(defaultMarksFilters);
+  const [timetableFilters, setTimetableFilters] = usePersistedState<TimetableFilters>("exams.timetableFilters", defaultTimetableFilters);
+  const [marksFilters, setMarksFilters] = usePersistedState<MarksFilters>("exams.marksFilters", defaultMarksFilters);
   const [timetableViewMode, setTimetableViewMode] = useState<"table" | "calendar">("table");
   const [timetableCalendarMonth, setTimetableCalendarMonth] = useState<Date>(() =>
     startOfMonthLocal(new Date())

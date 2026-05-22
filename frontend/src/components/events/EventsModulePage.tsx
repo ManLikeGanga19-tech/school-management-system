@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { CalendarDays, ChevronLeft, ChevronRight, List, RefreshCw } from "lucide-react";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -224,12 +225,12 @@ export function EventsModulePage({ appTitle, nav, activeHref }: EventsModulePage
   const [form, setForm] = useState<EventForm>(defaultForm);
   const { confirm, confirmDialog } = useConfirm();
 
-  const [search, setSearch] = useState("");
-  const [termFilter, setTermFilter] = useState<string>("__all__");
-  const [yearFilter, setYearFilter] = useState<string>("__all__");
-  const [scopeFilter, setScopeFilter] = useState<string>("__all__");
-  const [studentSearch, setStudentSearch] = useState("");
-  const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
+  const [search, setSearch] = usePersistedState("events.search", "");
+  const [termFilter, setTermFilter] = usePersistedState<string>("events.term", "__all__");
+  const [yearFilter, setYearFilter] = usePersistedState<string>("events.year", "__all__");
+  const [scopeFilter, setScopeFilter] = usePersistedState<string>("events.scope", "__all__");
+  const [studentSearch, setStudentSearch] = usePersistedState("events.studentSearch", "");
+  const [viewMode, setViewMode] = usePersistedState<"table" | "calendar">("events.viewMode", "table");
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonthLocal(new Date()));
   const [calendarDialogOpen, setCalendarDialogOpen] = useState(false);
   const [calendarDialogMode, setCalendarDialogMode] = useState<"entry" | "empty">("empty");

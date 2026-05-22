@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { ClipboardList, RefreshCw } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -68,7 +69,7 @@ export function MarksReviewPage({ appTitle, nav, activeHref }: Props) {
   const [classRows, setClassRows] = useState<TenantClassOption[]>([]);
   const [subjectRows, setSubjectRows] = useState<TenantSubject[]>([]);
 
-  const [filters, setFilters] = useState<Filters>(defaultFilters);
+  const [filters, setFilters] = usePersistedState<Filters>("exams.marksReview.filters", defaultFilters);
 
   const load = useCallback(async () => {
     setLoading(true);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import {
   BellRing,
   CheckCheck,
@@ -119,9 +120,9 @@ export function TenantNotificationsPage({
 }: TenantNotificationsPageProps) {
   const [rows, setRows] = useState<TenantNotification[]>([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
-  const [severityFilter, setSeverityFilter] = useState("__all__");
-  const [typeFilter, setTypeFilter] = useState("__all__");
+  const [query, setQuery] = usePersistedState("notif.query", "");
+  const [severityFilter, setSeverityFilter] = usePersistedState("notif.severity", "__all__");
+  const [typeFilter, setTypeFilter] = usePersistedState("notif.type", "__all__");
   const [selectedNotificationId, setSelectedNotificationId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [markingNotificationId, setMarkingNotificationId] = useState<string | null>(null);

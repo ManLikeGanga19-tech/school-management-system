@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
@@ -224,7 +225,7 @@ export default function SaaSTenantsPage() {
 
   // Filters
   const [q, setQ]           = useState("");
-  const [status, setStatus] = useState<"all" | "active" | "inactive">("all");
+  const [status, setStatus] = usePersistedState<"all" | "active" | "inactive">("saas.tenants.status", "all");
 
   // Confirm dialogs
   const [suspendTarget, setSuspendTarget] = useState<TenantRow | null>(null);

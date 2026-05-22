@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import {
   Building2,
   CalendarClock,
@@ -92,8 +93,8 @@ function statusBadge(status: RolloutStatus) {
 }
 
 export function SaasRolloutDeskPage() {
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<RolloutStatus | "ALL">("ALL");
+  const [query, setQuery] = usePersistedState("saas.rollout.query", "");
+  const [status, setStatus] = usePersistedState<RolloutStatus | "ALL">("saas.rollout.status", "ALL");
   const [requestType, setRequestType] = useState<RolloutType>("ALL");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
