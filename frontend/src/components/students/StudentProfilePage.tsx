@@ -391,10 +391,10 @@ export function StudentProfilePage({
   const [invoices, setInvoices] = useState<ProfileInvoice[]>([]);
   const [payments, setPayments] = useState<ProfilePayment[]>([]);
   const [attendance, setAttendance] = useState<AttendanceData | null>(null);
-  const [feeStructures, setFeeStructures] = useState<{ id: string; label: string }[]>([]);
-  const [structureId, setStructureId] = useState("");
-  const [genInvoiceOnAssign, setGenInvoiceOnAssign] = useState(true);
-  const [assigningStructure, setAssigningStructure] = useState(false);
+  const [genTerm, setGenTerm] = useState("1");
+  const [genYear, setGenYear] = useState(String(new Date().getFullYear()));
+  const [genType, setGenType] = useState<"NEW" | "RETURNING">("RETURNING");
+  const [generatingFees, setGeneratingFees] = useState(false);
   const [replaceTarget, setReplaceTarget] = useState<ProfileInvoice | null>(null);
   const [replaceType, setReplaceType] = useState<"NEW" | "RETURNING">("RETURNING");
   const [replacing, setReplacing] = useState(false);
@@ -575,38 +575,6 @@ export function StudentProfilePage({
     void loadProfile();
   }, [loadProfile]);
 
-  // Fee structures for the "attach a fee structure" picker (NEW / RETURNING).
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const raw = await api.get<unknown>("/finance/fee-structures", {
-          tenantRequired: true,
-          noRedirect: true,
-        });
-        const items = asArray<unknown>(
-          (asObject(raw)?.items as unknown) ?? raw
-        );
-        const opts = items
-          .map((r) => asObject(r))
-          .filter((r): r is Record<string, unknown> => Boolean(r))
-          .map((r) => ({
-            id: str(r.id),
-            label: `${str(r.class_code)} · ${str(r.student_type)} · ${str(r.name)}${
-              r.academic_year ? ` (${str(r.academic_year)})` : ""
-            }`,
-          }))
-          .filter((o) => o.id);
-        if (active) setFeeStructures(opts);
-      } catch {
-        /* non-fatal — picker just stays empty */
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
-
   function openEditEnroll() {
     const p = enrollment?.payload ?? {};
     setEnrollForm({
@@ -660,34 +628,34 @@ export function StudentProfilePage({
     }
   }
 
-  async function assignFeeStructure() {
-    if (!structureId) {
-      toast.error("Select a fee structure first.");
+  async function generateFeesInvoice() {
+    const term = parseInt(genTerm, 10);
+    const year = parseInt(genYear, 10);
+    if (!term || !year) {
+      toast.error("Pick a term and a valid year.");
       return;
     }
-    setAssigningStructure(true);
+    setGeneratingFees(true);
     try {
       await api.post(
-        "/finance/assignments",
+        "/finance/invoices/generate/fees/v2",
         {
           enrollment_id: enrollmentId,
-          fee_structure_id: structureId,
-          generate_invoice: genInvoiceOnAssign,
+          term_number: term,
+          academic_year: year,
+          force_student_type: genType,
         },
         { tenantRequired: true }
       );
       toast.success(
-        genInvoiceOnAssign
-          ? "Fee structure attached and invoice generated."
-          : "Fee structure attached."
+        `Term ${term} fees invoice generated (${genType === "RETURNING" ? "no admission fee" : "with admission fee"}).`
       );
-      setStructureId("");
       await loadProfile();
     } catch (err: unknown) {
       const msg = asObject(err)?.message;
-      toast.error(typeof msg === "string" ? msg : "Failed to attach the fee structure.");
+      toast.error(typeof msg === "string" ? msg : "Failed to generate the fees invoice.");
     } finally {
-      setAssigningStructure(false);
+      setGeneratingFees(false);
     }
   }
 
@@ -1538,44 +1506,54 @@ export function StudentProfilePage({
                     ))}
                   </div>
 
-                  {/* Attach a fee structure (choose the NEW or RETURNING variant) */}
+                  {/* Generate a term's fees invoice (returning = no admission fee) */}
                   <div className="rounded-xl border border-slate-200 bg-white p-4">
                     <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Attach Fee Structure
+                      Generate Fees Invoice
                     </h3>
                     <p className="mb-3 text-xs text-slate-400">
-                      Pick the structure for this student — the list shows each class&apos;s
-                      NEW and RETURNING variants. Optionally generate the invoice now.
+                      Builds this term&apos;s fees invoice from the matching structure for the
+                      student&apos;s class. <strong>Returning</strong> bills without the admission
+                      fee; <strong>New</strong> includes it.
                     </p>
                     <div className="flex flex-wrap items-end gap-3">
-                      <div className="min-w-[260px] flex-1 space-y-1.5">
-                        <Label className="text-xs">Fee structure</Label>
-                        <Select value={structureId} onValueChange={setStructureId}>
-                          <SelectTrigger className="h-9 text-sm">
-                            <SelectValue placeholder="Select a fee structure…" />
-                          </SelectTrigger>
+                      <div className="w-28 space-y-1.5">
+                        <Label className="text-xs">Term</Label>
+                        <Select value={genTerm} onValueChange={setGenTerm}>
+                          <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            {feeStructures.map((s) => (
-                              <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
-                            ))}
+                            <SelectItem value="1">Term 1</SelectItem>
+                            <SelectItem value="2">Term 2</SelectItem>
+                            <SelectItem value="3">Term 3</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
-                      <label className="flex items-center gap-2 pb-2 text-sm text-slate-600">
-                        <input
-                          type="checkbox"
-                          checked={genInvoiceOnAssign}
-                          onChange={(e) => setGenInvoiceOnAssign(e.target.checked)}
+                      <div className="w-28 space-y-1.5">
+                        <Label className="text-xs">Year</Label>
+                        <Input
+                          type="number"
+                          className="h-9 text-sm"
+                          value={genYear}
+                          onChange={(e) => setGenYear(e.target.value)}
                         />
-                        Generate invoice now
-                      </label>
+                      </div>
+                      <div className="w-40 space-y-1.5">
+                        <Label className="text-xs">Bill as</Label>
+                        <Select value={genType} onValueChange={(v) => setGenType(v as "NEW" | "RETURNING")}>
+                          <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="RETURNING">Returning (no admission)</SelectItem>
+                            <SelectItem value="NEW">New (with admission)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <Button
                         size="sm"
                         className="h-9"
-                        onClick={() => void assignFeeStructure()}
-                        disabled={assigningStructure || !structureId}
+                        onClick={() => void generateFeesInvoice()}
+                        disabled={generatingFees}
                       >
-                        {assigningStructure ? "Attaching…" : "Attach"}
+                        {generatingFees ? "Generating…" : "Generate"}
                       </Button>
                     </div>
                   </div>

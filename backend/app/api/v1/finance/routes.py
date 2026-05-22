@@ -633,6 +633,7 @@ def generate_fees_invoice_v2(
             scholarship_amount=payload.scholarship_amount,
             scholarship_reason=payload.scholarship_reason,
             include_carry_forward=payload.include_carry_forward,
+            force_student_type=payload.force_student_type,
         )
         db.commit()
         db.refresh(inv)

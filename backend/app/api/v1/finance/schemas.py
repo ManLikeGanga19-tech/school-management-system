@@ -227,6 +227,7 @@ class GenerateFeesInvoiceV2Request(BaseModel):
     scholarship_amount: Optional[Decimal] = None
     scholarship_reason: Optional[str] = None
     include_carry_forward: bool = False
+    force_student_type: Optional[Literal["NEW", "RETURNING"]] = None
 
 
 # -------------------------
