@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, Reply, Send, X } from "lucide-react";
+import { usePersistedState } from "@/lib/usePersistedState";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
@@ -60,11 +61,11 @@ export function SaasSupportInboxPage() {
   const [sendingReply, setSendingReply] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [query, setQuery] = usePersistedState("saas.support.query", "");
+  const [statusFilter, setStatusFilter] = usePersistedState<string>("saas.support.status", "ALL");
   const [replyMessage, setReplyMessage] = useState("");
   const [replyTarget, setReplyTarget] = useState<SupportMessage | null>(null);
-  const [threadPage, setThreadPage] = useState(1);
+  const [threadPage, setThreadPage] = usePersistedState("saas.support.page", 1);
   const [threadPageSize, setThreadPageSize] =
     useState<(typeof THREAD_PAGE_SIZE_OPTIONS)[number]>(20);
   const [threadHasMore, setThreadHasMore] = useState(false);
@@ -143,9 +144,15 @@ export function SaasSupportInboxPage() {
     }
   }, []);
 
+  const supportResetReady = useRef(false);
   useEffect(() => {
+    const t = setTimeout(() => { supportResetReady.current = true; }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!supportResetReady.current) return;
     setThreadPage(1);
-  }, [query, statusFilter, threadPageSize]);
+  }, [query, statusFilter, threadPageSize, setThreadPage]);
 
   useEffect(() => {
     void loadThreads();

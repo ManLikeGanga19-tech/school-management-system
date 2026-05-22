@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { Headset, RefreshCw, Reply, Send, X } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -69,13 +70,13 @@ export function TenantContactAdminPage({
   const [creatingThread, setCreatingThread] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [statusFilter, setStatusFilter] = usePersistedState<string>("tenant.support.status", "ALL");
   const [subject, setSubject] = useState("");
   const [priority, setPriority] = useState<SupportThreadPriority>("NORMAL");
   const [openingMessage, setOpeningMessage] = useState("");
   const [replyMessage, setReplyMessage] = useState("");
   const [replyTarget, setReplyTarget] = useState<SupportMessage | null>(null);
-  const [threadPage, setThreadPage] = useState(1);
+  const [threadPage, setThreadPage] = usePersistedState("tenant.support.page", 1);
   const [threadPageSize, setThreadPageSize] =
     useState<(typeof THREAD_PAGE_SIZE_OPTIONS)[number]>(20);
   const [threadHasMore, setThreadHasMore] = useState(false);
@@ -157,9 +158,15 @@ export function TenantContactAdminPage({
     }
   }, []);
 
+  const supportResetReady = useRef(false);
   useEffect(() => {
+    const t = setTimeout(() => { supportResetReady.current = true; }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!supportResetReady.current) return;
     setThreadPage(1);
-  }, [statusFilter, threadPageSize]);
+  }, [statusFilter, threadPageSize, setThreadPage]);
 
   useEffect(() => {
     void loadThreads();
