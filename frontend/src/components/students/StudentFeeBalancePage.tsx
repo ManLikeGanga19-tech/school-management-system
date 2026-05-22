@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { Eye, RefreshCw, Search } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -67,11 +68,11 @@ export function StudentFeeBalancePage({
     {}
   );
 
-  const [query, setQuery] = useState("");
-  const [classFilter, setClassFilter] = useState("__all__");
-  const [statusFilter, setStatusFilter] = useState("__all__");
-  const [balanceFilter, setBalanceFilter] = useState("__all__");
-  const [page, setPage] = useState(1);
+  const [query, setQuery] = usePersistedState("students.feebal.query", "");
+  const [classFilter, setClassFilter] = usePersistedState("students.feebal.class", "__all__");
+  const [statusFilter, setStatusFilter] = usePersistedState("students.feebal.status", "__all__");
+  const [balanceFilter, setBalanceFilter] = usePersistedState("students.feebal.balance", "__all__");
+  const [page, setPage] = usePersistedState("students.feebal.page", 1);
 
   const [viewRow, setViewRow] = useState<EnrollmentRow | null>(null);
   const [viewOpen, setViewOpen] = useState(false);
@@ -173,9 +174,16 @@ export function StudentFeeBalancePage({
     });
   }, [rows, query, classFilter, statusFilter, balanceFilter]);
 
+  // Reset to page 1 only on a user filter change, not on restore-from-storage.
+  const pageResetReady = useRef(false);
   useEffect(() => {
+    const t = setTimeout(() => { pageResetReady.current = true; }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!pageResetReady.current) return;
     setPage(1);
-  }, [query, classFilter, statusFilter, balanceFilter]);
+  }, [query, classFilter, statusFilter, balanceFilter, setPage]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);

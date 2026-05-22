@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { Eye, RefreshCw, Search } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -51,12 +52,12 @@ export function AllStudentsPage({
 }: AllStudentsPageProps) {
   const [rows, setRows] = useState<EnrollmentRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("__all__");
-  const [classFilter, setClassFilter] = useState("__all__");
-  const [termFilter, setTermFilter] = useState("__all__");
-  const [medicalFilter, setMedicalFilter] = useState("__all__");
-  const [page, setPage] = useState(1);
+  const [query, setQuery] = usePersistedState("students.all.query", "");
+  const [statusFilter, setStatusFilter] = usePersistedState("students.all.status", "__all__");
+  const [classFilter, setClassFilter] = usePersistedState("students.all.class", "__all__");
+  const [termFilter, setTermFilter] = usePersistedState("students.all.term", "__all__");
+  const [medicalFilter, setMedicalFilter] = usePersistedState("students.all.medical", "__all__");
+  const [page, setPage] = usePersistedState("students.all.page", 1);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -141,9 +142,18 @@ export function AllStudentsPage({
     });
   }, [rows, query, statusFilter, classFilter, termFilter, medicalFilter]);
 
+  // Reset to page 1 only when the USER changes a filter — not when the saved
+  // filters are restored from storage on mount (which would clobber the saved
+  // page). The gate flips true after the initial restore settles.
+  const pageResetReady = useRef(false);
   useEffect(() => {
+    const t = setTimeout(() => { pageResetReady.current = true; }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!pageResetReady.current) return;
     setPage(1);
-  }, [query, statusFilter, classFilter, termFilter, medicalFilter]);
+  }, [query, statusFilter, classFilter, termFilter, medicalFilter, setPage]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);

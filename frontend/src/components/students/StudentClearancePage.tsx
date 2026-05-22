@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { CheckCircle2, RefreshCw, Search, ShieldCheck } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -99,9 +100,9 @@ export function StudentClearancePage({
 }: StudentClearancePageProps) {
   const [rows, setRows] = useState<StudentClearanceRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
-  const [workflow, setWorkflow] = useState<WorkflowFilter>("all");
-  const [page, setPage] = useState(1);
+  const [query, setQuery] = usePersistedState("students.clearance.query", "");
+  const [workflow, setWorkflow] = usePersistedState<WorkflowFilter>("students.clearance.workflow", "all");
+  const [page, setPage] = usePersistedState("students.clearance.page", 1);
   const [hasNextPage, setHasNextPage] = useState(false);
 
   const [actionTarget, setActionTarget] = useState<StudentClearanceRow | null>(null);
@@ -142,9 +143,16 @@ export function StudentClearancePage({
     void load();
   }, [load]);
 
+  // Reset to page 1 only on a user filter change, not on restore-from-storage.
+  const pageResetReady = useRef(false);
   useEffect(() => {
+    const t = setTimeout(() => { pageResetReady.current = true; }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!pageResetReady.current) return;
     setPage(1);
-  }, [query, workflow]);
+  }, [query, workflow, setPage]);
 
   const readyCount = useMemo(() => {
     if (canRequest) {
