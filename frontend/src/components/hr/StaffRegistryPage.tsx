@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { Eye, PencilLine, RefreshCw, Search } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -224,9 +225,9 @@ export function StaffRegistryPage({
   const [viewOpen, setViewOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
-  const [query, setQuery] = useState("");
-  const [staffTypeFilter, setStaffTypeFilter] = useState("__all__");
-  const [statusFilter, setStatusFilter] = useState("__all__");
+  const [query, setQuery] = usePersistedState("hr.staff.query", "");
+  const [staffTypeFilter, setStaffTypeFilter] = usePersistedState("hr.staff.type", "__all__");
+  const [statusFilter, setStatusFilter] = usePersistedState("hr.staff.status", "__all__");
 
   const load = useCallback(async () => {
     setLoading(true);

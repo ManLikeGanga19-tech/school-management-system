@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { RefreshCw, Search } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -98,9 +99,9 @@ export function SchoolAssetsPage({ appTitle, nav, activeHref }: SchoolAssetsPage
   const [returningId, setReturningId] = useState<string | null>(null);
 
   const [assetQuery, setAssetQuery] = useState("");
-  const [assetStatusFilter, setAssetStatusFilter] = useState("__all__");
+  const [assetStatusFilter, setAssetStatusFilter] = usePersistedState("hr.assets.status", "__all__");
   const [assignmentQuery, setAssignmentQuery] = useState("");
-  const [assignmentStatusFilter, setAssignmentStatusFilter] = useState("__all__");
+  const [assignmentStatusFilter, setAssignmentStatusFilter] = usePersistedState("hr.assets.assignStatus", "__all__");
 
   const load = useCallback(async () => {
     setLoading(true);

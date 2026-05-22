@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { toast } from "@/components/ui/sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { secretaryNav } from "@/components/layout/nav-config";
@@ -1292,8 +1293,8 @@ function SecretaryParentsPageContent() {
   const [classes, setClasses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [q, setQ] = useState("");
-  const [classFilter, setClassFilter] = useState("");
+  const [q, setQ] = usePersistedState("sec.parents.q", "");
+  const [classFilter, setClassFilter] = usePersistedState("sec.parents.class", "");
   const [syncing, setSyncing] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addSaving, setAddSaving] = useState(false);

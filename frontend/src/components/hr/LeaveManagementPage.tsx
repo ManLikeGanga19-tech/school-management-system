@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import {
   CalendarOff,
   CheckCircle2,
@@ -130,8 +131,8 @@ export function LeaveManagementPage({ appTitle, nav, activeHref, canApprove = fa
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [staff, setStaff] = useState<TenantStaff[]>([]);
   const [loading, setLoading] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("__all__");
-  const [staffFilter, setStaffFilter] = useState("__all__");
+  const [statusFilter, setStatusFilter] = usePersistedState("hr.leave.status", "__all__");
+  const [staffFilter, setStaffFilter] = usePersistedState("hr.leave.staff", "__all__");
 
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false);

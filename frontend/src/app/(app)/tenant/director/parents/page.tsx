@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import {
   ArrowLeft,
   BarChart2,
@@ -624,7 +625,7 @@ function FinanceTab({
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPayment, setShowPayment] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = usePersistedState("dir.parents.status", "ALL");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1484,8 +1485,8 @@ export default function DirectorParentsPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [q, setQ] = useState("");
-  const [classFilter, setClassFilter] = useState("");
+  const [q, setQ] = usePersistedState("dir.parents.q", "");
+  const [classFilter, setClassFilter] = usePersistedState("dir.parents.class", "");
   const [syncing, setSyncing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [showAdd, setShowAdd] = useState(false);

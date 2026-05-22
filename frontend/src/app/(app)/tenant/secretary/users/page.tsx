@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { Cell, Pie, PieChart } from "recharts";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -137,7 +138,7 @@ export default function SecretaryUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = usePersistedState("sec.users.search", "");
 
   const [userId, setUserId] = useState("");
   const [roleCode, setRoleCode] = useState("");

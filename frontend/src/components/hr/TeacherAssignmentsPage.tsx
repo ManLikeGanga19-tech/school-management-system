@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { RefreshCw, Search } from "lucide-react";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -103,13 +104,13 @@ export function TeacherAssignmentsPage({
   const [classTeacherUpdatingId, setClassTeacherUpdatingId] = useState<string | null>(null);
   const [classTeacherDeletingId, setClassTeacherDeletingId] = useState<string | null>(null);
 
-  const [query, setQuery] = useState("");
-  const [classFilter, setClassFilter] = useState("__all__");
-  const [subjectFilter, setSubjectFilter] = useState("__all__");
-  const [statusFilter, setStatusFilter] = useState("__all__");
+  const [query, setQuery] = usePersistedState("hr.teach.query", "");
+  const [classFilter, setClassFilter] = usePersistedState("hr.teach.class", "__all__");
+  const [subjectFilter, setSubjectFilter] = usePersistedState("hr.teach.subject", "__all__");
+  const [statusFilter, setStatusFilter] = usePersistedState("hr.teach.status", "__all__");
   const [classTeacherQuery, setClassTeacherQuery] = useState("");
-  const [classTeacherClassFilter, setClassTeacherClassFilter] = useState("__all__");
-  const [classTeacherStatusFilter, setClassTeacherStatusFilter] = useState("__all__");
+  const [classTeacherClassFilter, setClassTeacherClassFilter] = usePersistedState("hr.teach.ctClass", "__all__");
+  const [classTeacherStatusFilter, setClassTeacherStatusFilter] = usePersistedState("hr.teach.ctStatus", "__all__");
 
   const load = useCallback(async () => {
     setLoading(true);

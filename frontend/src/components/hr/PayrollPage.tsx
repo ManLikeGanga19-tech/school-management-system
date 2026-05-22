@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import {
   BadgeDollarSign,
   ChevronDown,
@@ -167,7 +168,7 @@ type Tab = "structures" | "generate" | "payslips";
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function PayrollPage({ appTitle, nav, activeHref }: Props) {
-  const [tab, setTab] = useState<Tab>("structures");
+  const [tab, setTab] = usePersistedState<Tab>("hr.payroll.tab", "structures");
 
   // Salary structures
   const [structures, setStructures] = useState<SalaryStructure[]>([]);
@@ -203,8 +204,8 @@ export function PayrollPage({ appTitle, nav, activeHref }: Props) {
   const [generating, setGenerating] = useState(false);
 
   // Payslip filters
-  const [filterYear, setFilterYear] = useState(String(new Date().getFullYear()));
-  const [filterMonth, setFilterMonth] = useState("");
+  const [filterYear, setFilterYear] = usePersistedState("hr.payroll.year", String(new Date().getFullYear()));
+  const [filterMonth, setFilterMonth] = usePersistedState("hr.payroll.month", "");
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
