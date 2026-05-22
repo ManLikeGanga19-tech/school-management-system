@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { CalendarDays, FileDown, List, Printer, RefreshCw } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -253,15 +254,15 @@ export function SchoolTimetableSetupPage({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<TimetableForm>(defaultForm);
 
-  const [search, setSearch] = useState("");
-  const [termFilter, setTermFilter] = useState<string>("__all__");
-  const [classFilter, setClassFilter] = useState<string>("__all__");
-  const [dayFilter, setDayFilter] = useState<string>("__all__");
-  const [typeFilter, setTypeFilter] = useState<string>("__all__");
-  const [statusFilter, setStatusFilter] = useState<string>("active");
-  const [viewMode, setViewMode] = useState<"table" | "grid">("table");
-  const [tablePageSize, setTablePageSize] = useState<number>(20);
-  const [tablePage, setTablePage] = useState<number>(1);
+  const [search, setSearch] = usePersistedState("timetable.search", "");
+  const [termFilter, setTermFilter] = usePersistedState<string>("timetable.term", "__all__");
+  const [classFilter, setClassFilter] = usePersistedState<string>("timetable.class", "__all__");
+  const [dayFilter, setDayFilter] = usePersistedState<string>("timetable.day", "__all__");
+  const [typeFilter, setTypeFilter] = usePersistedState<string>("timetable.type", "__all__");
+  const [statusFilter, setStatusFilter] = usePersistedState<string>("timetable.status", "active");
+  const [viewMode, setViewMode] = usePersistedState<"table" | "grid">("timetable.viewMode", "table");
+  const [tablePageSize, setTablePageSize] = usePersistedState<number>("timetable.pageSize", 20);
+  const [tablePage, setTablePage] = usePersistedState<number>("timetable.page", 1);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
   const [bulkSelectMode, setBulkSelectMode] = useState<BulkSelectMode>("type");
   const [bulkSelectValue, setBulkSelectValue] = useState<string>("__none__");
@@ -375,9 +376,16 @@ export function SchoolTimetableSetupPage({
     setClassFilter(classes[0].code);
   }, [viewMode, classFilter, classes]);
 
+  // Reset to page 1 only on a user filter change, not when restoring saved state.
+  const ttResetReady = useRef(false);
   useEffect(() => {
+    const t = setTimeout(() => { ttResetReady.current = true; }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!ttResetReady.current) return;
     setTablePage(1);
-  }, [search, termFilter, classFilter, dayFilter, typeFilter, statusFilter, tablePageSize]);
+  }, [search, termFilter, classFilter, dayFilter, typeFilter, statusFilter, tablePageSize, setTablePage]);
 
   useEffect(() => {
     setBreakPresets(buildBreakPresetMap(presetDay, entries));

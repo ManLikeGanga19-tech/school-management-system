@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { apiFetch } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
@@ -101,7 +102,7 @@ export default function SaaSAcademicCalendarPage() {
 
   const [tenantOptions, setTenantOptions] = useState<TenantOption[]>([]);
   const [tenantsLoading, setTenantsLoading] = useState(true);
-  const [tenantSearch, setTenantSearch] = useState("");
+  const [tenantSearch, setTenantSearch] = usePersistedState("saas.acadcal.search", "");
   const [applyScope, setApplyScope] = useState<ApplyScope>("all");
   const [onlyMissing, setOnlyMissing] = useState(true);
   const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([]);

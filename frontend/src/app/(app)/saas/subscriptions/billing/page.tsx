@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { apiFetch } from "@/lib/api";
 import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
 import { BillingEligibilityPreview } from "@/components/saas/BillingEligibilityPreview";
@@ -251,7 +252,7 @@ export default function SaaSSubscriptionsPage() {
 
   // Filters
   const [filterStatus,  setFilterStatus]  = useState<string>("all");
-  const [filterBillingPlan, setFilterBillingPlan] = useState<string>("all");
+  const [filterBillingPlan, setFilterBillingPlan] = usePersistedState<string>("saas.billing.plan", "all");
   const [filterTenant,  setFilterTenant]  = useState<string>("all");
   const [q, setQ]                         = useState("");
 

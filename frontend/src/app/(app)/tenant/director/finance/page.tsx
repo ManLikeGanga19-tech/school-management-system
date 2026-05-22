@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { useSearchParams } from "next/navigation";
 import { Pie, PieChart, Cell } from "recharts";
 import {
@@ -660,16 +661,22 @@ function TenantFinancePageContent() {
     outstanding_only: false,
   });
 
-  const [paymentFilters, setPaymentFilters] = useState<PaymentFilterState>({
-    q: "",
-    enrollment_id: "",
-    provider: "",
-  });
+  const [paymentFilters, setPaymentFilters] = usePersistedState<PaymentFilterState>(
+    "dir.finance.paymentFilters",
+    {
+      q: "",
+      enrollment_id: "",
+      provider: "",
+    }
+  );
 
-  const [receiptFilters, setReceiptFilters] = useState<ReceiptFilterState>({
-    q: "",
-    enrollment_id: "",
-  });
+  const [receiptFilters, setReceiptFilters] = usePersistedState<ReceiptFilterState>(
+    "dir.finance.receiptFilters",
+    {
+      q: "",
+      enrollment_id: "",
+    }
+  );
   const [viewStructureId, setViewStructureId] = useState("");
 
   const [error, setError] = useState<string | null>(null);

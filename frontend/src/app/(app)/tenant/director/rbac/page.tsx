@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import {
   ShieldCheck,
   ShieldX,
@@ -293,7 +294,7 @@ export default function TenantRbacPage() {
   // Search / filter state
   const [userSearch, setUserSearch]         = useState("");
   const [permSearch, setPermSearch]         = useState("");
-  const [overrideSearch, setOverrideSearch] = useState("");
+  const [overrideSearch, setOverrideSearch] = usePersistedState("dir.rbac.search", "");
 
   // New override dialog
   const [addOpen, setAddOpen]               = useState(false);

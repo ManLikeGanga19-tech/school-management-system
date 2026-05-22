@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedState } from "@/lib/usePersistedState";
 import {
   Users,
   ClipboardCheck,
@@ -177,15 +178,15 @@ function SessionStatusBadge({ status }: { status: SessionStatus }) {
 }
 
 export function AttendancePage({ appTitle, nav, activeHref }: Props) {
-  const [tab, setTab] = useState<Tab>("register");
+  const [tab, setTab] = usePersistedState<Tab>("attendance.tab", "register");
 
   // Reference data
   const [classes, setClasses] = useState<TenantClassOption[]>([]);
   const [terms, setTerms] = useState<TenantTerm[]>([]);
 
   // Shared selector — one class + term drives every tab.
-  const [classId, setClassId] = useState("");
-  const [termId, setTermId] = useState("");
+  const [classId, setClassId] = usePersistedState("attendance.classId", "");
+  const [termId, setTermId] = usePersistedState("attendance.termId", "");
 
   // Register tab
   const [regDate, setRegDate] = useState(() => new Date().toISOString().slice(0, 10));
