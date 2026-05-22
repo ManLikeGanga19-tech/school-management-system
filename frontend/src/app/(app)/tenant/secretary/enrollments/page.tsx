@@ -807,6 +807,9 @@ function TermSelect({
   loadingTerms: boolean;
   placeholder?: string;
 }) {
+  // Preserve a previously-saved term even if it's not in the configured list,
+  // so editing an enrollment always shows what was originally entered.
+  const valueInList = !value || terms.some((t) => t.code === value);
   return (
     <Select
       value={value || "__none__"}
@@ -822,6 +825,9 @@ function TermSelect({
         <SelectItem value="__none__">
           {loadingTerms ? "Loading…" : "Select a term"}
         </SelectItem>
+        {!valueInList && (
+          <SelectItem value={value}>{value} (current)</SelectItem>
+        )}
         {terms.map((term) => (
           <SelectItem key={term.id} value={term.code}>
             {term.name}

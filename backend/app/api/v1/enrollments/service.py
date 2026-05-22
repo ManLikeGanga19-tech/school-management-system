@@ -423,6 +423,17 @@ def create_enrollment(
         _create_student_for_existing_enrollment(
             db, tenant_id=tenant_id, enrollment=row, admission_no=adm_no
         )
+        # Group this child under their guardian in the Parents module — links
+        # the enrollment to the parent record (reused by phone) so a parent with
+        # several children shows them all.
+        try:
+            from app.api.v1.parents.service import auto_link_on_enroll
+            auto_link_on_enroll(
+                db, tenant_id=tenant_id, enrollment_id=row.id,
+                payload=dict(row.payload or {}),
+            )
+        except Exception:
+            pass  # Non-critical — never block enrollment on parent-link failure
 
     # Attach an explicit fee structure if one was provided.
     if fee_structure_id:

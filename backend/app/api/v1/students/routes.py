@@ -266,22 +266,95 @@ def update_guardian_contacts(
     if not link:
         raise HTTPException(status_code=404, detail="Guardian not found for this student")
 
-    updates: list[str] = []
-    params: dict = {"id": str(parent_id)}
+    data = payload.model_dump(exclude_unset=True)
+    new_phone = str(data["phone"]).strip() if data.get("phone") else None
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        if value is not None:
-            updates.append(f"{field} = :{field}")
-            params[field] = value
+    # One parent can have many children. If the edited phone already belongs to
+    # ANOTHER parent record, this is the same guardian — merge: re-link this
+    # student to that existing parent rather than colliding on the (tenant,
+    # phone) unique index. Other edited fields are applied to the kept parent.
+    merge_into = None
+    if new_phone:
+        merge_into = db.execute(
+            sa.text(
+                "SELECT id FROM core.parents "
+                "WHERE tenant_id = :tid AND phone = :phone AND id <> :id LIMIT 1"
+            ),
+            {"tid": str(tenant.id), "phone": new_phone, "id": str(parent_id)},
+        ).scalar_one_or_none()
 
-    if not updates:
-        raise HTTPException(status_code=400, detail="No fields supplied")
-
-    db.execute(
-        sa.text(f"UPDATE core.parents SET {', '.join(updates)} WHERE id = :id"),
-        params,
-    )
-    db.commit()
+    if merge_into is not None:
+        target_id = str(merge_into)
+        # Apply the non-phone edits to the surviving parent.
+        non_phone = {k: v for k, v in data.items() if k != "phone" and v is not None}
+        if non_phone:
+            sets = ", ".join(f"{k} = :{k}" for k in non_phone)
+            db.execute(
+                sa.text(f"UPDATE core.parents SET {sets} WHERE id = :id"),
+                {**non_phone, "id": target_id},
+            )
+        # Re-link this student to the surviving parent.
+        db.execute(
+            sa.text(
+                """
+                INSERT INTO core.parent_students (tenant_id, parent_id, student_id, relationship, is_active)
+                SELECT tenant_id, :target, student_id, relationship, is_active
+                FROM core.parent_students
+                WHERE tenant_id = :tid AND parent_id = :old AND student_id = :sid
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {"tid": str(tenant.id), "target": target_id, "old": str(parent_id), "sid": str(student_id)},
+        )
+        db.execute(
+            sa.text(
+                "DELETE FROM core.parent_students "
+                "WHERE tenant_id = :tid AND parent_id = :old AND student_id = :sid"
+            ),
+            {"tid": str(tenant.id), "old": str(parent_id), "sid": str(student_id)},
+        )
+        # Move this student's enrollment links onto the surviving parent.
+        db.execute(
+            sa.text(
+                """
+                INSERT INTO core.parent_enrollment_links (tenant_id, parent_id, enrollment_id, relationship)
+                SELECT pel.tenant_id, :target, pel.enrollment_id, pel.relationship
+                FROM core.parent_enrollment_links pel
+                JOIN core.enrollments e ON e.id = pel.enrollment_id
+                WHERE pel.tenant_id = :tid AND pel.parent_id = :old AND e.student_id = :sid
+                ON CONFLICT (parent_id, enrollment_id) DO NOTHING
+                """
+            ),
+            {"tid": str(tenant.id), "target": target_id, "old": str(parent_id), "sid": str(student_id)},
+        )
+        db.execute(
+            sa.text(
+                """
+                DELETE FROM core.parent_enrollment_links pel
+                USING core.enrollments e
+                WHERE pel.enrollment_id = e.id
+                  AND pel.tenant_id = :tid AND pel.parent_id = :old AND e.student_id = :sid
+                """
+            ),
+            {"tid": str(tenant.id), "old": str(parent_id), "sid": str(student_id)},
+        )
+        db.commit()
+        effective_parent_id = target_id
+    else:
+        updates: list[str] = []
+        params: dict = {"id": str(parent_id)}
+        for field, value in data.items():
+            if value is not None:
+                updates.append(f"{field} = :{field}")
+                params[field] = value
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields supplied")
+        db.execute(
+            sa.text(f"UPDATE core.parents SET {', '.join(updates)} WHERE id = :id"),
+            params,
+        )
+        db.commit()
+        effective_parent_id = str(parent_id)
 
     row = db.execute(
         sa.text(
@@ -297,9 +370,12 @@ def update_guardian_contacts(
             LIMIT 1
             """
         ),
-        {"parent_id": str(parent_id), "student_id": str(student_id),
+        {"parent_id": effective_parent_id, "student_id": str(student_id),
          "tenant_id": str(tenant.id)},
     ).mappings().first()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Guardian not found after update")
 
     return GuardianOut(
         id=_str(row["id"]) or "",
