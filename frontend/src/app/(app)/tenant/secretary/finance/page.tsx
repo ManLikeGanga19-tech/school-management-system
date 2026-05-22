@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { usePersistedState } from "@/lib/usePersistedState";
 import {
   Bar,
   BarChart,
@@ -792,32 +793,35 @@ function SecretaryFinancePageContent() {
   >([{ invoice_id: "", amount: "" }]);
 
   // Enterprise-level invoice filtering (UI-only, no business logic changes)
-  const [invoiceFilters, setInvoiceFilters] = useState<InvoiceFilterState>({
-    enrollment_id: "",
-    purpose: "",
-    type: "",
-    status: "",
-    q: "",
-    outstanding_only: false,
-  });
+  const [invoiceFilters, setInvoiceFilters] = usePersistedState<InvoiceFilterState>(
+    "sec.finance.invoiceFilters",
+    {
+      enrollment_id: "",
+      purpose: "",
+      type: "",
+      status: "",
+      q: "",
+      outstanding_only: false,
+    }
+  );
 
   // ── Pagination state ────────────────────────────────────────────────────────
   type PageMeta = { total: number; page: number; page_size: number; pages: number };
   const defaultMeta: PageMeta = { total: 0, page: 1, page_size: 20, pages: 1 };
 
-  const [invoicePage, setInvoicePage] = useState(1);
+  const [invoicePage, setInvoicePage] = usePersistedState("sec.finance.invoicePage", 1);
   const [invoiceMeta, setInvoiceMeta] = useState<PageMeta>(defaultMeta);
   const [pagedInvoices, setPagedInvoices] = useState<Invoice[]>([]);
   const [invoicePageLoading, setInvoicePageLoading] = useState(false);
   const [invoicePageError, setInvoicePageError] = useState<string | null>(null);
 
-  const [paymentPage, setPaymentPage] = useState(1);
+  const [paymentPage, setPaymentPage] = usePersistedState("sec.finance.paymentPage", 1);
   const [paymentMeta, setPaymentMeta] = useState<PageMeta>(defaultMeta);
   const [pagedPayments, setPagedPayments] = useState<Payment[]>([]);
   const [paymentPageLoading, setPaymentPageLoading] = useState(false);
   const [paymentPageError, setPaymentPageError] = useState<string | null>(null);
 
-  const [receiptPage, setReceiptPage] = useState(1);
+  const [receiptPage, setReceiptPage] = usePersistedState("sec.finance.receiptPage", 1);
   const [receiptMeta, setReceiptMeta] = useState<PageMeta>(defaultMeta);
   const [pagedReceipts, setPagedReceipts] = useState<Invoice[]>([]);
   const [receiptPageLoading, setReceiptPageLoading] = useState(false);
@@ -984,14 +988,20 @@ function SecretaryFinancePageContent() {
     if (notice) toast.success(notice);
   }, [notice]);
 
-  // Reset to page 1 when invoice filters change
+  // Reset to page 1 when invoice filters change — but not when the saved
+  // filters are restored on mount (which would clobber the saved page).
   const prevInvoiceFilters = useRef(invoiceFilters);
+  const invoiceResetReady = useRef(false);
+  useEffect(() => {
+    const t = setTimeout(() => { invoiceResetReady.current = true; }, 0);
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => {
     if (prevInvoiceFilters.current !== invoiceFilters) {
       prevInvoiceFilters.current = invoiceFilters;
-      setInvoicePage(1);
+      if (invoiceResetReady.current) setInvoicePage(1);
     }
-  }, [invoiceFilters]);
+  }, [invoiceFilters, setInvoicePage]);
 
   // Load paginated tables whenever page or relevant filters change
   useEffect(() => { void loadPagedInvoices(invoicePage, invoiceFilters); },

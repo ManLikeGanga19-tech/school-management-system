@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { AppShell } from "@/components/layout/AppShell";
 import { saasNav } from "@/components/layout/nav-config";
 import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
@@ -77,14 +78,14 @@ export default function SaaSPaymentHistoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [tenants, setTenants] = useState<TenantOption[]>([]);
 
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState<string>("all");
-  const [tenantId, setTenantId] = useState<string>("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [q, setQ] = usePersistedState("saas.payhist.q", "");
+  const [status, setStatus] = usePersistedState<string>("saas.payhist.status", "all");
+  const [tenantId, setTenantId] = usePersistedState<string>("saas.payhist.tenant", "all");
+  const [dateFrom, setDateFrom] = usePersistedState("saas.payhist.from", "");
+  const [dateTo, setDateTo] = usePersistedState("saas.payhist.to", "");
 
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(20);
+  const [page, setPage] = usePersistedState("saas.payhist.page", 1);
+  const [pageSize, setPageSize] = usePersistedState<number>("saas.payhist.pageSize", 20);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(total / Math.max(1, pageSize))),
