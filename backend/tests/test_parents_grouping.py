@@ -74,3 +74,37 @@ def test_second_child_reuses_parent_no_duplicate(db_session):
 
     parents = parents_service.list_parents(db_session, tenant_id=tenant.id)
     assert len([p for p in parents if p["phone"] == phone]) == 1, parents
+
+
+def test_editing_parent_phone_to_existing_merges(db_session):
+    """Editing one parent's phone to another parent's phone merges them:
+    children combine under one active parent, the duplicate is retired."""
+    tenant = create_tenant(db_session, slug=f"pmrg-{uuid4().hex[:6]}")
+    actor, _ = make_actor(db_session, tenant=tenant, permissions=["enrollment.manage"])
+
+    # Two SEPARATE parents (different phones), one child each.
+    enroll_service.create_enrollment(
+        db_session, tenant_id=tenant.id, actor_user_id=actor.id,
+        payload=_existing_payload("Kid A", "G1", "0700000001", guardian="Asha Juma"),
+    )
+    enroll_service.create_enrollment(
+        db_session, tenant_id=tenant.id, actor_user_id=actor.id,
+        payload=_existing_payload("Kid B", "G2", "0700000002", guardian="Asha Juma"),
+    )
+    db_session.commit()
+
+    parents = parents_service.list_parents(db_session, tenant_id=tenant.id)
+    assert len(parents) == 2, parents
+    src = next(p for p in parents if p["phone"] == "0700000001")
+    keep_phone = "0700000002"
+
+    # Edit the first parent's phone to match the second → merge.
+    parents_service.update_parent(
+        db_session, tenant_id=tenant.id, actor_user_id=actor.id,
+        parent_id=UUID(src["id"]), data={"phone": keep_phone},
+    )
+    db_session.commit()
+
+    after = parents_service.list_parents(db_session, tenant_id=tenant.id)
+    assert len(after) == 1, after            # duplicate retired
+    assert after[0]["child_count"] == 2, after[0]  # both children grouped

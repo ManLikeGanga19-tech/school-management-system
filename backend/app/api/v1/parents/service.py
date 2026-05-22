@@ -254,6 +254,60 @@ def create_parent(
     return get_parent_detail(db, tenant_id=tenant_id, parent_id=p.id)
 
 
+def _merge_parents(
+    db: Session, *, tenant_id: UUID, actor_user_id: UUID,
+    source_id: UUID, target_id: UUID, data: Dict,
+) -> Dict:
+    """Merge `source` parent into `target` — move all children to target, then
+    deactivate the source so the duplicate disappears. One parent, all kids."""
+    tid = str(tenant_id)
+    src, tgt = str(source_id), str(target_id)
+
+    # Move enrollment links (the Parents module groups children via these).
+    db.execute(sa.text("""
+        INSERT INTO core.parent_enrollment_links (tenant_id, parent_id, enrollment_id, relationship, is_primary)
+        SELECT tenant_id, :tgt, enrollment_id, relationship, is_primary
+        FROM core.parent_enrollment_links
+        WHERE tenant_id = :tid AND parent_id = :src
+        ON CONFLICT (parent_id, enrollment_id) DO NOTHING
+    """), {"tid": tid, "src": src, "tgt": tgt})
+    db.execute(sa.text(
+        "DELETE FROM core.parent_enrollment_links WHERE tenant_id = :tid AND parent_id = :src"
+    ), {"tid": tid, "src": src})
+
+    # Move SIS parent↔student links too.
+    db.execute(sa.text("""
+        INSERT INTO core.parent_students (tenant_id, parent_id, student_id, relationship, is_active)
+        SELECT tenant_id, :tgt, student_id, relationship, is_active
+        FROM core.parent_students
+        WHERE tenant_id = :tid AND parent_id = :src
+        ON CONFLICT DO NOTHING
+    """), {"tid": tid, "src": src, "tgt": tgt})
+    db.execute(sa.text(
+        "DELETE FROM core.parent_students WHERE tenant_id = :tid AND parent_id = :src"
+    ), {"tid": tid, "src": src})
+
+    # Apply the edited name/contact details (except phone) to the surviving parent.
+    tgt_parent = _get_parent_or_404(db, tenant_id, target_id)
+    for field in ("first_name", "last_name", "email", "phone_alt",
+                  "national_id", "occupation", "address"):
+        val = data.get(field)
+        if val is not None and str(val).strip():
+            setattr(tgt_parent, field, val.strip() if isinstance(val, str) else val)
+
+    # Retire the duplicate (kept for audit; hidden from the active list).
+    src_parent = _get_parent_or_404(db, tenant_id, source_id)
+    src_parent.is_active = False
+    db.flush()
+
+    log_event(
+        db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action="parent.merge", resource="parent", resource_id=target_id,
+        payload={"merged_from": src, "into": tgt}, meta=None,
+    )
+    return get_parent_detail(db, tenant_id=tenant_id, parent_id=target_id)
+
+
 def update_parent(
     db: Session,
     *,
@@ -263,6 +317,25 @@ def update_parent(
     data: Dict,
 ) -> Dict:
     p = _get_parent_or_404(db, tenant_id, parent_id)
+
+    # If the new phone already belongs to another parent, this is the same
+    # guardian — merge into that parent instead of colliding on the unique index.
+    new_phone = data.get("phone")
+    new_phone = str(new_phone).strip() if new_phone is not None else None
+    if new_phone and new_phone != (p.phone or ""):
+        target = db.execute(
+            sa.text(
+                "SELECT id FROM core.parents "
+                "WHERE tenant_id = :tid AND phone = :phone AND id <> :id "
+                "  AND is_active = true LIMIT 1"
+            ),
+            {"tid": str(tenant_id), "phone": new_phone, "id": str(parent_id)},
+        ).scalar_one_or_none()
+        if target is not None:
+            return _merge_parents(
+                db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+                source_id=parent_id, target_id=UUID(str(target)), data=data,
+            )
 
     for field in ("first_name", "last_name", "phone", "email", "phone_alt",
                   "national_id", "occupation", "address"):
