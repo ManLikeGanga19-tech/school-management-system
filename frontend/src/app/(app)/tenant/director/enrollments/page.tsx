@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
 import {
   CheckCircle,
@@ -981,16 +982,16 @@ function TenantEnrollmentsPageContent() {
   const [submitting, setSubmitting]         = useState(false);
 
   // ── Search ──
-  const [workflowSearch, setWorkflowSearch]           = useState("");
-  const [queueSearch, setQueueSearch]                 = useState("");
-  const [studentsSearch, setStudentsSearch]           = useState("");
-  const [studentsClassFilter, setStudentsClassFilter] = useState("__all__");
-  const [studentsTermFilter, setStudentsTermFilter] = useState("__all__");
+  const [workflowSearch, setWorkflowSearch]           = usePersistedState("dir.enroll.workflowSearch", "");
+  const [queueSearch, setQueueSearch]                 = usePersistedState("dir.enroll.queueSearch", "");
+  const [studentsSearch, setStudentsSearch]           = usePersistedState("dir.enroll.studentsSearch", "");
+  const [studentsClassFilter, setStudentsClassFilter] = usePersistedState("dir.enroll.studentsClass", "__all__");
+  const [studentsTermFilter, setStudentsTermFilter] = usePersistedState("dir.enroll.studentsTerm", "__all__");
 
   // ── Server-side pagination state ──
-  const [workflowPage, setWorkflowPage] = useState(1);
-  const [queuePage, setQueuePage] = useState(1);
-  const [studentsPage, setStudentsPage] = useState(1);
+  const [workflowPage, setWorkflowPage] = usePersistedState("dir.enroll.workflowPage", 1);
+  const [queuePage, setQueuePage] = usePersistedState("dir.enroll.queuePage", 1);
+  const [studentsPage, setStudentsPage] = usePersistedState("dir.enroll.studentsPage", 1);
 
   const [workflowPageData, setWorkflowPageData] =
     useState<EnrollmentPageResponse>(EMPTY_ENROLLMENT_PAGE);
@@ -1134,17 +1135,26 @@ function TenantEnrollmentsPageContent() {
     ]);
   }, [loadQueuePage, loadStudentsPage, loadWorkflowPage]);
 
+  // Reset page only on a user search/filter change, not on restore.
+  const enrollResetReady = useRef(false);
   useEffect(() => {
+    const t = setTimeout(() => { enrollResetReady.current = true; }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!enrollResetReady.current) return;
     setWorkflowPage(1);
-  }, [workflowSearch]);
+  }, [workflowSearch, setWorkflowPage]);
 
   useEffect(() => {
+    if (!enrollResetReady.current) return;
     setQueuePage(1);
-  }, [queueSearch]);
+  }, [queueSearch, setQueuePage]);
 
   useEffect(() => {
+    if (!enrollResetReady.current) return;
     setStudentsPage(1);
-  }, [studentsSearch, studentsClassFilter, studentsTermFilter]);
+  }, [studentsSearch, studentsClassFilter, studentsTermFilter, setStudentsPage]);
 
   useEffect(() => {
     void loadWorkflowPage();

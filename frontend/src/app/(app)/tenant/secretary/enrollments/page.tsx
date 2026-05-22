@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -1728,17 +1729,17 @@ function SecretaryEnrollmentsPageContent() {
   const [submitting, setSubmitting] = useState(false);
 
   // ── Search / filter ──
-  const [workflowSearch, setWorkflowSearch] = useState("");
-  const [queueSearch, setQueueSearch] = useState("");
-  const [studentsSearch, setStudentsSearch] = useState("");
+  const [workflowSearch, setWorkflowSearch] = usePersistedState("sec.enroll.workflowSearch", "");
+  const [queueSearch, setQueueSearch] = usePersistedState("sec.enroll.queueSearch", "");
+  const [studentsSearch, setStudentsSearch] = usePersistedState("sec.enroll.studentsSearch", "");
   const [studentsClassFilter, setStudentsClassFilter] =
-    useState("__all__");
-  const [studentsTermFilter, setStudentsTermFilter] = useState("__all__");
+    usePersistedState("sec.enroll.studentsClass", "__all__");
+  const [studentsTermFilter, setStudentsTermFilter] = usePersistedState("sec.enroll.studentsTerm", "__all__");
 
   // ── Server-side pagination state ──
-  const [workflowPage, setWorkflowPage] = useState(1);
-  const [queuePage, setQueuePage] = useState(1);
-  const [studentsPage, setStudentsPage] = useState(1);
+  const [workflowPage, setWorkflowPage] = usePersistedState("sec.enroll.workflowPage", 1);
+  const [queuePage, setQueuePage] = usePersistedState("sec.enroll.queuePage", 1);
+  const [studentsPage, setStudentsPage] = usePersistedState("sec.enroll.studentsPage", 1);
 
   const [workflowPageData, setWorkflowPageData] =
     useState<EnrollmentPageResponse>(EMPTY_ENROLLMENT_PAGE);
@@ -1894,17 +1895,27 @@ function SecretaryEnrollmentsPageContent() {
     await Promise.all([loadWorkflowPage(), loadQueuePage(), loadStudentsPage()]);
   }, [loadQueuePage, loadStudentsPage, loadWorkflowPage]);
 
+  // Reset page only on a user search/filter change, not when restoring saved
+  // state on mount (which would clobber the saved page).
+  const enrollResetReady = useRef(false);
   useEffect(() => {
+    const t = setTimeout(() => { enrollResetReady.current = true; }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!enrollResetReady.current) return;
     setWorkflowPage(1);
-  }, [workflowSearch]);
+  }, [workflowSearch, setWorkflowPage]);
 
   useEffect(() => {
+    if (!enrollResetReady.current) return;
     setQueuePage(1);
-  }, [queueSearch]);
+  }, [queueSearch, setQueuePage]);
 
   useEffect(() => {
+    if (!enrollResetReady.current) return;
     setStudentsPage(1);
-  }, [studentsSearch, studentsClassFilter, studentsTermFilter]);
+  }, [studentsSearch, studentsClassFilter, studentsTermFilter, setStudentsPage]);
 
   useEffect(() => {
     void loadWorkflowPage();
