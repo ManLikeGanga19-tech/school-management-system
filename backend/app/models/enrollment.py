@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, text
+from sqlalchemy import Column, String, DateTime, ForeignKey, Index, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 
@@ -7,7 +7,17 @@ from app.core.database import Base
 
 class Enrollment(Base):
     __tablename__ = "enrollments"
-    __table_args__ = {"schema": "core"}
+    # Mirror the migration: one admission number per tenant (partial — many
+    # NULLs allowed) so the model and the live schema agree.
+    __table_args__ = (
+        Index(
+            "uq_enrollment_tenant_admission_number",
+            "tenant_id", "admission_number",
+            unique=True,
+            postgresql_where=text("admission_number IS NOT NULL"),
+        ),
+        {"schema": "core"},
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
 
@@ -15,6 +25,10 @@ class Enrollment(Base):
 
     # optional linkage if you later create students table
     student_id = Column(UUID(as_uuid=True), nullable=True)
+
+    # Admission number (also surfaced in payload). Added via migration; declared
+    # here so the model matches the live schema.
+    admission_number = Column(String, nullable=True)
 
     status = Column(String, nullable=False, server_default=text("'DRAFT'"))  # DRAFT|SUBMITTED|APPROVED|REJECTED
 

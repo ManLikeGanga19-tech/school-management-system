@@ -1,4 +1,6 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text, text
+from sqlalchemy import (
+    Boolean, Column, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -7,7 +9,17 @@ from app.core.database import Base
 
 class Parent(Base):
     __tablename__ = "parents"
-    __table_args__ = {"schema": "core"}
+    # Mirror the migration: one parent record per phone within a tenant
+    # (partial — multiple NULL phones allowed). Enables reuse/dedup.
+    __table_args__ = (
+        Index(
+            "uix_parents_tenant_phone",
+            "tenant_id", "phone",
+            unique=True,
+            postgresql_where=text("phone IS NOT NULL"),
+        ),
+        {"schema": "core"},
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     tenant_id = Column(UUID(as_uuid=True), nullable=False)
@@ -54,7 +66,12 @@ class ParentEnrollmentLink(Base):
     have many parents/guardians.
     """
     __tablename__ = "parent_enrollment_links"
-    __table_args__ = {"schema": "core"}
+    # Mirror the migration: one link per (parent, enrollment) — backs the
+    # ON CONFLICT (parent_id, enrollment_id) upsert used when grouping children.
+    __table_args__ = (
+        UniqueConstraint("parent_id", "enrollment_id", name="uq_parent_enrollment_links_pair"),
+        {"schema": "core"},
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     tenant_id = Column(UUID(as_uuid=True), nullable=False)
