@@ -3762,11 +3762,13 @@ def replace_fees_invoice(
     student_type: str,
     include_carry_forward: bool = False,
 ) -> Invoice:
-    """Void a wrong school-fees invoice and regenerate it from the right
-    structure, moving any payments onto the new invoice (no data lost).
+    """Fix a wrong school-fees invoice by regenerating it from the right
+    structure, in place (no data lost).
 
-    The old invoice is kept as CANCELLED for audit; its payment allocations are
-    re-pointed at the corrected invoice so money already received is preserved.
+    The same invoice row is reused — its invoice number and any payments stay
+    attached — so money already received is preserved and there is no
+    unique-key clash on (enrollment, term, year). The lines are rebuilt from
+    the corrected structure and the invoice amounts/status are recalculated.
     """
     st = (student_type or "").upper()
     if st not in ("NEW", "RETURNING"):
@@ -3868,6 +3870,18 @@ def delete_invoice_cascade(
     )
     db.flush()
 
+    # Drop scholarship allocations recorded against this invoice. The FK is
+    # ON DELETE SET NULL, so without this the rows would survive (orphaned) and
+    # keep counting toward the scholarship's pool/recipient limit — wrongly
+    # showing the slot as still consumed after the invoice is gone.
+    scholarship_allocs_removed = db.execute(
+        ScholarshipAllocation.__table__.delete().where(
+            ScholarshipAllocation.tenant_id == tenant_id,
+            ScholarshipAllocation.invoice_id == invoice_id,
+        )
+    ).rowcount
+    db.flush()
+
     # Release any carry-forward balances this invoice had absorbed.
     from app.models.student_carry_forward import StudentCarryForward
     db.execute(
@@ -3902,10 +3916,15 @@ def delete_invoice_cascade(
             "invoice_no": invoice_no,
             "deleted_payments": deleted_payments,
             "allocations_removed": len(allocs),
+            "scholarship_allocations_removed": scholarship_allocs_removed,
         },
         meta=None,
     )
-    return {"deleted_payments": deleted_payments, "allocations_removed": len(allocs)}
+    return {
+        "deleted_payments": deleted_payments,
+        "allocations_removed": len(allocs),
+        "scholarship_allocations_removed": scholarship_allocs_removed,
+    }
 
 
 # ── Carry-Forward Balances ─────────────────────────────────────────────────────
