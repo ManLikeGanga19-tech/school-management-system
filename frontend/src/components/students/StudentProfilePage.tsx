@@ -19,7 +19,6 @@ import {
   AlertTriangle,
   Shield,
   CalendarCheck,
-  Wallet,
 } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
@@ -91,27 +90,6 @@ type ExamTotals = {
   record_count: number;
   subject_count: number;
   term_count: number;
-};
-
-type ProfileInvoice = {
-  id: string;
-  invoice_no: string | null;
-  invoice_type: string;
-  status: string;
-  term_code: string;
-  total_amount: string;
-  paid_amount: string;
-  balance_amount: string;
-  created_at: string | null;
-};
-
-type ProfilePayment = {
-  id: string;
-  receipt_no: string | null;
-  provider: string;
-  reference: string | null;
-  amount: string;
-  received_at: string | null;
 };
 
 type AttendanceTerm = {
@@ -342,7 +320,6 @@ type Tab =
   | "guardian"
   | "emergency"
   | "documents"
-  | "finance"
   | "attendance"
   | "discipline";
 
@@ -388,16 +365,7 @@ export function StudentProfilePage({
   const [loading, setLoading] = useState(true);
   const [enrollment, setEnrollment] = useState<EnrollmentInfo | null>(null);
   const [financeTotals, setFinanceTotals] = useState<FinanceTotals | null>(null);
-  const [invoices, setInvoices] = useState<ProfileInvoice[]>([]);
-  const [payments, setPayments] = useState<ProfilePayment[]>([]);
   const [attendance, setAttendance] = useState<AttendanceData | null>(null);
-  const [genTerm, setGenTerm] = useState("1");
-  const [genYear, setGenYear] = useState(String(new Date().getFullYear()));
-  const [genType, setGenType] = useState<"NEW" | "RETURNING">("RETURNING");
-  const [generatingFees, setGeneratingFees] = useState(false);
-  const [replaceTarget, setReplaceTarget] = useState<ProfileInvoice | null>(null);
-  const [replaceType, setReplaceType] = useState<"NEW" | "RETURNING">("RETURNING");
-  const [replacing, setReplacing] = useState(false);
   const [examTotals, setExamTotals] = useState<ExamTotals | null>(null);
 
   const [tab, setTab] = useState<Tab>("overview");
@@ -484,36 +452,6 @@ export function StudentProfilePage({
           payment_count: toNumber(totalsObj.payment_count),
         });
       }
-
-      setInvoices(
-        asArray<unknown>(financeObj?.invoices).map((r) => {
-          const o = asObject(r) ?? {};
-          return {
-            id: str(o.id),
-            invoice_no: strOrNull(o.invoice_no),
-            invoice_type: str(o.invoice_type),
-            status: str(o.status),
-            term_code: str(o.term_code),
-            total_amount: str(o.total_amount) || "0",
-            paid_amount: str(o.paid_amount) || "0",
-            balance_amount: str(o.balance_amount) || "0",
-            created_at: strOrNull(o.created_at),
-          };
-        }),
-      );
-      setPayments(
-        asArray<unknown>(financeObj?.payments).map((r) => {
-          const o = asObject(r) ?? {};
-          return {
-            id: str(o.id),
-            receipt_no: strOrNull(o.receipt_no),
-            provider: str(o.provider),
-            reference: strOrNull(o.reference),
-            amount: str(o.amount) || "0",
-            received_at: strOrNull(o.received_at),
-          };
-        }),
-      );
 
       const attObj = asObject(obj.attendance);
       const attTotals = asObject(attObj?.totals ?? null);
@@ -607,58 +545,6 @@ export function StudentProfilePage({
       setSavingEnroll(false);
     }
   }
-
-  async function replaceInvoiceStructure() {
-    if (!replaceTarget) return;
-    setReplacing(true);
-    try {
-      await api.post(
-        `/finance/invoices/${replaceTarget.id}/replace`,
-        { student_type: replaceType },
-        { tenantRequired: true }
-      );
-      toast.success("Invoice replaced with the correct fee structure.");
-      setReplaceTarget(null);
-      await loadProfile();
-    } catch (err: unknown) {
-      const msg = asObject(err)?.message;
-      toast.error(typeof msg === "string" ? msg : "Failed to replace the invoice.");
-    } finally {
-      setReplacing(false);
-    }
-  }
-
-  async function generateFeesInvoice() {
-    const term = parseInt(genTerm, 10);
-    const year = parseInt(genYear, 10);
-    if (!term || !year) {
-      toast.error("Pick a term and a valid year.");
-      return;
-    }
-    setGeneratingFees(true);
-    try {
-      await api.post(
-        "/finance/invoices/generate/fees/v2",
-        {
-          enrollment_id: enrollmentId,
-          term_number: term,
-          academic_year: year,
-          force_student_type: genType,
-        },
-        { tenantRequired: true }
-      );
-      toast.success(
-        `Term ${term} fees invoice generated (${genType === "RETURNING" ? "no admission fee" : "with admission fee"}).`
-      );
-      await loadProfile();
-    } catch (err: unknown) {
-      const msg = asObject(err)?.message;
-      toast.error(typeof msg === "string" ? msg : "Failed to generate the fees invoice.");
-    } finally {
-      setGeneratingFees(false);
-    }
-  }
-
   // ── Load SIS data when student_id is available ────────────────────────────────
   const studentId = enrollment?.student_id ?? null;
 
@@ -969,7 +855,6 @@ export function StudentProfilePage({
     { id: "guardian", label: "Guardian", icon: <Users className="h-3.5 w-3.5" /> },
     { id: "emergency", label: "Emergency Contacts", icon: <Phone className="h-3.5 w-3.5" /> },
     { id: "documents", label: "Documents", icon: <FileText className="h-3.5 w-3.5" /> },
-    { id: "finance", label: "Finance", icon: <Wallet className="h-3.5 w-3.5" /> },
     { id: "attendance", label: "Attendance", icon: <CalendarCheck className="h-3.5 w-3.5" /> },
     { id: "discipline", label: "Discipline", icon: <Shield className="h-3.5 w-3.5" /> },
   ];
@@ -1049,8 +934,7 @@ export function StudentProfilePage({
                   const disabled =
                     !hasSis &&
                     t.id !== "overview" &&
-                    t.id !== "discipline" &&
-                    t.id !== "finance";
+                    t.id !== "discipline";
                   return (
                     <button
                       key={t.id}
@@ -1490,176 +1374,6 @@ export function StudentProfilePage({
                 </div>
               )}
 
-              {/* ── FINANCE TAB ── */}
-              {tab === "finance" && (
-                <div className="space-y-8 p-6">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {[
-                      { label: "Total Invoiced", value: formatKes(financeTotals?.total_invoiced), className: "text-slate-900" },
-                      { label: "Total Paid", value: formatKes(financeTotals?.total_paid), className: "text-emerald-700" },
-                      { label: "Outstanding Balance", value: formatKes(financeTotals?.total_balance), className: "text-red-700" },
-                    ].map((c) => (
-                      <div key={c.label} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{c.label}</div>
-                        <div className={`mt-1 text-base font-bold ${c.className}`}>{c.value}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Generate a term's fees invoice (returning = no admission fee) */}
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Generate Fees Invoice
-                    </h3>
-                    <p className="mb-3 text-xs text-slate-400">
-                      Builds this term&apos;s fees invoice from the matching structure for the
-                      student&apos;s class. <strong>Returning</strong> bills without the admission
-                      fee; <strong>New</strong> includes it.
-                    </p>
-                    <div className="flex flex-wrap items-end gap-3">
-                      <div className="w-28 space-y-1.5">
-                        <Label className="text-xs">Term</Label>
-                        <Select value={genTerm} onValueChange={setGenTerm}>
-                          <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="1">Term 1</SelectItem>
-                            <SelectItem value="2">Term 2</SelectItem>
-                            <SelectItem value="3">Term 3</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="w-28 space-y-1.5">
-                        <Label className="text-xs">Year</Label>
-                        <Input
-                          type="number"
-                          className="h-9 text-sm"
-                          value={genYear}
-                          onChange={(e) => setGenYear(e.target.value)}
-                        />
-                      </div>
-                      <div className="w-40 space-y-1.5">
-                        <Label className="text-xs">Bill as</Label>
-                        <Select value={genType} onValueChange={(v) => setGenType(v as "NEW" | "RETURNING")}>
-                          <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="RETURNING">Returning (no admission)</SelectItem>
-                            <SelectItem value="NEW">New (with admission)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button
-                        size="sm"
-                        className="h-9"
-                        onClick={() => void generateFeesInvoice()}
-                        disabled={generatingFees}
-                      >
-                        {generatingFees ? "Generating…" : "Generate"}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Invoices ({invoices.length})
-                    </h3>
-                    <div className="overflow-x-auto rounded-xl border border-slate-100">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-slate-50">
-                            <TableHead className="text-xs">Invoice No.</TableHead>
-                            <TableHead className="text-xs">Type</TableHead>
-                            <TableHead className="text-xs">Term</TableHead>
-                            <TableHead className="text-xs">Status</TableHead>
-                            <TableHead className="text-xs text-right">Total</TableHead>
-                            <TableHead className="text-xs text-right">Paid</TableHead>
-                            <TableHead className="text-xs text-right">Balance</TableHead>
-                            <TableHead className="text-xs">Date</TableHead>
-                            <TableHead className="text-xs text-right">Action</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {invoices.length > 0 ? (
-                            invoices.map((inv) => {
-                              const cancelled = inv.status.toUpperCase() === "CANCELLED";
-                              const canFix =
-                                inv.invoice_type.toUpperCase() === "SCHOOL_FEES" && !cancelled;
-                              return (
-                              <TableRow key={inv.id} className={cancelled ? "opacity-50" : undefined}>
-                                <TableCell className="font-mono text-xs">{inv.invoice_no || "—"}</TableCell>
-                                <TableCell className="text-xs">{inv.invoice_type || "—"}</TableCell>
-                                <TableCell className="text-xs">{inv.term_code || "—"}</TableCell>
-                                <TableCell className="text-xs">{inv.status || "—"}</TableCell>
-                                <TableCell className="text-right text-xs">{formatKes(inv.total_amount)}</TableCell>
-                                <TableCell className="text-right text-xs text-emerald-700">{formatKes(inv.paid_amount)}</TableCell>
-                                <TableCell className="text-right text-xs font-semibold text-red-700">{formatKes(inv.balance_amount)}</TableCell>
-                                <TableCell className="text-xs text-slate-500">{formatDate(inv.created_at)}</TableCell>
-                                <TableCell className="text-right">
-                                  {canFix && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 text-xs"
-                                      onClick={() => { setReplaceTarget(inv); setReplaceType("RETURNING"); }}
-                                    >
-                                      Fix structure
-                                    </Button>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                              );
-                            })
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-400">
-                                No invoices for this student yet.
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Payments ({payments.length})
-                    </h3>
-                    <div className="overflow-x-auto rounded-xl border border-slate-100">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-slate-50">
-                            <TableHead className="text-xs">Receipt No.</TableHead>
-                            <TableHead className="text-xs">Date</TableHead>
-                            <TableHead className="text-xs">Method</TableHead>
-                            <TableHead className="text-xs">Reference</TableHead>
-                            <TableHead className="text-xs text-right">Amount</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {payments.length > 0 ? (
-                            payments.map((pay) => (
-                              <TableRow key={pay.id}>
-                                <TableCell className="font-mono text-xs">{pay.receipt_no || "—"}</TableCell>
-                                <TableCell className="text-xs text-slate-500">{formatDate(pay.received_at)}</TableCell>
-                                <TableCell className="text-xs">{pay.provider || "—"}</TableCell>
-                                <TableCell className="text-xs">{pay.reference || "—"}</TableCell>
-                                <TableCell className="text-right text-xs font-semibold text-emerald-700">{formatKes(pay.amount)}</TableCell>
-                              </TableRow>
-                            ))
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={5} className="py-10 text-center text-sm text-slate-400">
-                                No payments recorded for this student yet.
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* ── ATTENDANCE TAB ── */}
               {tab === "attendance" && (
                 <div className="space-y-8 p-6">
@@ -2019,39 +1733,6 @@ export function StudentProfilePage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* ── Replace invoice (fix fee structure) ── */}
-      {replaceTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-            <h2 className="text-sm font-semibold text-slate-900">Fix the fee structure</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Regenerates invoice{" "}
-              <span className="font-mono">{replaceTarget.invoice_no || replaceTarget.id.slice(0, 8)}</span>{" "}
-              from the chosen structure. The invoice number and any payments
-              already made stay on it — only the fee lines are corrected.
-            </p>
-            <div className="mt-4 space-y-1.5">
-              <Label className="text-xs">Bill this student as</Label>
-              <Select value={replaceType} onValueChange={(v) => setReplaceType(v as "NEW" | "RETURNING")}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="RETURNING">Returning (no admission fee)</SelectItem>
-                  <SelectItem value="NEW">New (includes admission fee)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setReplaceTarget(null)} disabled={replacing}>
-                Cancel
-              </Button>
-              <Button size="sm" onClick={() => void replaceInvoiceStructure()} disabled={replacing}>
-                {replacing ? "Replacing…" : "Replace invoice"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Carry-Forward Dialog ── */}
       {studentId && (

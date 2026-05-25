@@ -77,7 +77,6 @@ import { toast } from "@/components/ui/sonner";
 import { api, apiFetchRaw } from "@/lib/api";
 import { logout as authLogout } from "@/lib/auth/auth";
 import { TENANT_BRANDING_UPDATED_EVENT } from "@/lib/tenant-branding";
-import { FloatingSupportWidget } from "@/components/support/FloatingSupportWidget";
 import { SubscriptionBanner } from "@/components/layout/SubscriptionBanner";
 import { ChangelogBanner } from "@/components/layout/ChangelogBanner";
 import { CampusSwitcher } from "@/components/layout/CampusSwitcher";
@@ -423,16 +422,6 @@ export function AppShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const settingsHref = useMemo(() => resolveSettingsHref(pathname || "/"), [pathname]);
-  const supportWidgetEnabled = useMemo(() => {
-    const current = normalizePath(pathname || "/");
-    return current.startsWith("/tenant/director") || current.startsWith("/tenant/secretary");
-  }, [pathname]);
-  const supportWidgetPageHref = useMemo(() => {
-    const current = normalizePath(pathname || "/");
-    if (current.startsWith("/tenant/director")) return "/tenant/director/contact-admin";
-    if (current.startsWith("/tenant/secretary")) return "/tenant/secretary/contact-admin";
-    return "/tenant/director/contact-admin";
-  }, [pathname]);
 
   const playNotificationPop = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -1227,11 +1216,6 @@ export function AppShell({
           {children}
         </div>
       </main>
-
-      <FloatingSupportWidget
-        enabled={supportWidgetEnabled}
-        pageHref={supportWidgetPageHref}
-      />
     </div>
   );
 }

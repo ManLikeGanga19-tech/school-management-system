@@ -3812,6 +3812,102 @@ def replace_fees_invoice(
     return new_inv
 
 
+def delete_invoice_cascade(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    invoice_id: UUID,
+) -> dict:
+    """Hard-delete an invoice and everything tied to it — its lines, the payment
+    allocations against it, and any payment (receipt) that existed solely for
+    it. Director-only cleanup for onboarding mistakes.
+
+    A payment shared with other invoices is not deleted: this invoice's
+    allocation is removed and the other invoices are recalculated, so no other
+    student's record is disturbed.
+    """
+    inv = db.execute(
+        select(Invoice).where(Invoice.id == invoice_id, Invoice.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    if not inv:
+        raise ValueError("Invoice not found")
+
+    invoice_no = inv.invoice_no
+
+    # Allocations against this invoice → the payments that touched it.
+    allocs = db.execute(
+        select(PaymentAllocation).where(PaymentAllocation.invoice_id == invoice_id)
+    ).scalars().all()
+    payment_ids = {a.payment_id for a in allocs}
+
+    # Drop this invoice's allocations first.
+    for a in allocs:
+        db.delete(a)
+    db.flush()
+
+    deleted_payments = 0
+    affected_other_invoices: set[UUID] = set()
+    for pid in payment_ids:
+        remaining = db.execute(
+            select(PaymentAllocation).where(PaymentAllocation.payment_id == pid)
+        ).scalars().all()
+        if not remaining:
+            # Payment existed only for this invoice — delete it and its receipt.
+            pay = db.get(Payment, pid)
+            if pay is not None and pay.tenant_id == tenant_id:
+                db.delete(pay)
+                deleted_payments += 1
+        else:
+            affected_other_invoices.update(r.invoice_id for r in remaining)
+    db.flush()
+
+    # Remove this invoice's lines, then the invoice itself.
+    db.execute(
+        InvoiceLine.__table__.delete().where(InvoiceLine.invoice_id == invoice_id)
+    )
+    db.flush()
+
+    # Release any carry-forward balances this invoice had absorbed.
+    from app.models.student_carry_forward import StudentCarryForward
+    db.execute(
+        StudentCarryForward.__table__.update()
+        .where(
+            StudentCarryForward.tenant_id == tenant_id,
+            StudentCarryForward.invoice_id == invoice_id,
+        )
+        .values(status="PENDING", invoice_id=None)
+    )
+
+    db.delete(inv)
+    db.flush()
+
+    # Recalc invoices that shared a now-partially-unallocated payment.
+    for other_id in affected_other_invoices:
+        if other_id == invoice_id:
+            continue
+        other = db.get(Invoice, other_id)
+        if other is not None and other.status != "CANCELLED":
+            _recalc_invoice_amounts(db, other)
+    db.flush()
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="invoice.delete",
+        resource="invoice",
+        resource_id=invoice_id,
+        payload={
+            "invoice_no": invoice_no,
+            "deleted_payments": deleted_payments,
+            "allocations_removed": len(allocs),
+        },
+        meta=None,
+    )
+    return {"deleted_payments": deleted_payments, "allocations_removed": len(allocs)}
+
+
 # ── Carry-Forward Balances ─────────────────────────────────────────────────────
 
 def _serialize_carry_forward(row: Any) -> dict:

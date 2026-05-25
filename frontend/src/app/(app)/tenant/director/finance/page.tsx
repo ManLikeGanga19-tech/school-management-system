@@ -22,6 +22,7 @@ import {
   Printer,
   Eye,
   Download,
+  Trash2,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -679,6 +680,9 @@ function TenantFinancePageContent() {
   );
   const [viewStructureId, setViewStructureId] = useState("");
 
+  const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
+  const [deletingInvoice, setDeletingInvoice] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1235,6 +1239,29 @@ function TenantFinancePageContent() {
 
   function printInvoice(invoice: Invoice) {
     void printEnterprisePdf(`/finance/documents/invoices/${invoice.id}/pdf`);
+  }
+
+  async function confirmDeleteInvoice() {
+    if (!deleteTarget) return;
+    setDeletingInvoice(true);
+    try {
+      const res = await api.delete<{ deleted_payments?: number }>(
+        `/finance/invoices/${deleteTarget.id}`,
+        undefined,
+        { tenantRequired: true }
+      );
+      const n = res?.deleted_payments ?? 0;
+      toast.success(
+        `Invoice deleted${n > 0 ? ` with ${n} payment/receipt${n === 1 ? "" : "s"}` : ""}.`
+      );
+      setDeleteTarget(null);
+      await load(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to delete the invoice.";
+      toast.error(msg);
+    } finally {
+      setDeletingInvoice(false);
+    }
   }
 
   async function printPaymentReceipt(payment: DecoratedPayment) {
@@ -2018,6 +2045,15 @@ function TenantFinancePageContent() {
                             >
                               PDF
                             </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                              onClick={() => setDeleteTarget(invoice)}
+                              title="Delete this invoice and its payments/receipts"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -2417,6 +2453,39 @@ function TenantFinancePageContent() {
           </div>
         )}
       </div>
+
+      {/* Director-only: delete an invoice + its payments/receipts */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-red-700">
+              <Trash2 className="h-4 w-4" /> Delete invoice
+            </h2>
+            <p className="mt-2 text-xs text-slate-600">
+              This permanently deletes invoice{" "}
+              <span className="font-mono">
+                {deleteTarget.invoice_no || deleteTarget.id.slice(0, 8)}
+              </span>{" "}
+              and <strong>every payment and receipt recorded against it</strong>.
+              This cannot be undone. Payments shared with other invoices are kept
+              and only un-linked from this one.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)} disabled={deletingInvoice}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-red-600 text-white hover:bg-red-700"
+                onClick={() => void confirmDeleteInvoice()}
+                disabled={deletingInvoice}
+              >
+                {deletingInvoice ? "Deleting…" : "Delete permanently"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

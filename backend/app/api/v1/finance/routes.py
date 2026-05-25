@@ -675,6 +675,29 @@ def replace_invoice(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.delete(
+    "/invoices/{invoice_id}",
+    dependencies=[Depends(require_permission("finance.policy.manage"))],
+)
+def delete_invoice(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Director-only: hard-delete an invoice and all payments/receipts tied to
+    it. Gated on finance.policy.manage, which only directors hold."""
+    try:
+        result = service.delete_invoice_cascade(
+            db, tenant_id=tenant.id, actor_user_id=user.id, invoice_id=invoice_id
+        )
+        db.commit()
+        return {"ok": True, **result}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/invoices", response_model=InvoicePageOut, dependencies=[Depends(require_permission("finance.invoices.view"))])
 def list_invoices(
     enrollment_id: UUID | None = Query(default=None),
