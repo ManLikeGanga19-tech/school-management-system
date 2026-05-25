@@ -5,6 +5,7 @@ import { GraduationCap, Plus, Pencil, Trash2, RefreshCw, Users, ChevronDown, Che
 
 import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
+import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { usePermissions } from "@/lib/auth/usePermissions";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
@@ -92,9 +93,17 @@ function perStudentAmount(s: Scholarship): string {
 function AllocationRow({
   scholarship,
   apiBase,
+  readonly,
+  saving,
+  onEdit,
+  onDelete,
 }: {
   scholarship: Scholarship;
   apiBase: string;
+  readonly: boolean;
+  saving: boolean;
+  onEdit: (s: Scholarship) => void;
+  onDelete: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [allocations, setAllocations] = useState<ScholarshipAllocation[]>([]);
@@ -163,10 +172,35 @@ function AllocationRow({
             {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           </button>
         </TableCell>
+        {!readonly && (
+          <TableCell className="text-right">
+            <RowActionsMenu
+              ariaLabel="Scholarship actions"
+              actions={[
+                {
+                  key: "edit",
+                  label: "Edit scholarship",
+                  icon: <Pencil />,
+                  disabled: saving,
+                  onSelect: () => onEdit(scholarship),
+                },
+                {
+                  key: "delete",
+                  label: "Delete scholarship",
+                  icon: <Trash2 />,
+                  destructive: true,
+                  disabled: saving,
+                  separatorBefore: true,
+                  onSelect: () => onDelete(scholarship.id),
+                },
+              ]}
+            />
+          </TableCell>
+        )}
       </TableRow>
       {open && (
         <TableRow>
-          <TableCell colSpan={5} className="bg-slate-50 px-6 pb-4 pt-0">
+          <TableCell colSpan={readonly ? 5 : 6} className="bg-slate-50 px-6 pb-4 pt-0">
             {loading ? (
               <div className="py-4 text-center text-xs text-slate-400">Loading recipients…</div>
             ) : allocations.length === 0 ? (
@@ -421,7 +455,15 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
               </TableHeader>
               <TableBody>
                 {scholarships.map((s) => (
-                  <AllocationRow key={s.id} scholarship={s} apiBase={apiBase} />
+                  <AllocationRow
+                    key={s.id}
+                    scholarship={s}
+                    apiBase={apiBase}
+                    readonly={readonly}
+                    saving={saving}
+                    onEdit={openEdit}
+                    onDelete={setDeletingId}
+                  />
                 ))}
                 {scholarships.length === 0 && (
                   <EmptyRow
@@ -433,50 +475,14 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
             </Table>
           </div>
 
-          {/* Edit buttons overlay — handled inside AllocationRow; add column here for edit/delete */}
           {!readonly && scholarships.length > 0 && (
             <div className="border-t border-slate-100 px-6 py-3">
               <p className="text-xs text-slate-400">
-                Click Recipients to see all students who received each scholarship. Use the edit buttons in the table to modify.
+                Click Recipients to see all students who received each scholarship. Use the actions menu in each row to edit or delete.
               </p>
             </div>
           )}
         </div>
-
-        {/* Edit / Delete quick actions card */}
-        {!readonly && scholarships.length > 0 && (
-          <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <h3 className="text-sm font-semibold text-slate-900">Manage Scholarships</h3>
-            </div>
-            <div className="divide-y divide-slate-50">
-              {scholarships.map((s) => (
-                <div key={s.id} className="flex items-center justify-between px-6 py-3">
-                  <div>
-                    <span className="text-sm font-medium text-slate-800">{s.name}</span>
-                    <span className="ml-2 text-xs text-slate-400">{perStudentAmount(s)}</span>
-                  </div>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => openEdit(s)}
-                      disabled={saving}
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition disabled:opacity-40"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setDeletingId(s.id)}
-                      disabled={saving}
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 transition disabled:opacity-40"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ── Create / Edit dialog ── */}

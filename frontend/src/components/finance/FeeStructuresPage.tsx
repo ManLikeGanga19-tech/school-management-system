@@ -15,6 +15,7 @@ import {
 
 import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
+import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { usePermissions } from "@/lib/auth/usePermissions";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
@@ -538,47 +539,42 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                         <StatusBadge active={s.is_active} />
                       </TableCell>
                       <TableCell className="text-right">
-                        <div
-                          className="flex justify-end gap-1"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => void downloadStructurePdf(s.id)}
-                            disabled={downloadingId === s.id}
-                            title="Download PDF"
-                            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition disabled:opacity-40"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                          </button>
-                          {canManage && (
-                            <>
-                              <button
-                                onClick={() => openEditStructure(s)}
-                                disabled={saving}
-                                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition disabled:opacity-40"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => setDeletingStructureId(s.id)}
-                                disabled={saving}
-                                className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 transition disabled:opacity-40"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </>
-                          )}
-                          <button
-                            onClick={() => setSelectedId(isSelected ? null : s.id)}
-                            className={`rounded-md p-1.5 text-xs font-medium transition ${
-                              isSelected
-                                ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                            }`}
-                          >
-                            <Package className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
+                        <RowActionsMenu
+                          ariaLabel="Fee structure actions"
+                          actions={[
+                            {
+                              key: "items",
+                              label: isSelected ? "Hide line items" : "View line items",
+                              icon: <Package />,
+                              onSelect: () => setSelectedId(isSelected ? null : s.id),
+                            },
+                            {
+                              key: "pdf",
+                              label: "Download PDF",
+                              icon: <Download />,
+                              disabled: downloadingId === s.id,
+                              onSelect: () => void downloadStructurePdf(s.id),
+                            },
+                            {
+                              key: "edit",
+                              label: "Edit structure",
+                              icon: <Pencil />,
+                              hidden: !canManage,
+                              disabled: saving,
+                              onSelect: () => openEditStructure(s),
+                            },
+                            {
+                              key: "delete",
+                              label: "Delete structure",
+                              icon: <Trash2 />,
+                              hidden: !canManage,
+                              destructive: true,
+                              disabled: saving,
+                              separatorBefore: true,
+                              onSelect: () => setDeletingStructureId(s.id),
+                            },
+                          ]}
+                        />
                       </TableCell>
                     </TableRow>
                   );
@@ -688,24 +684,27 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                       </TableCell>
                       {canManage && (
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              onClick={() => openEditItem(item)}
-                              disabled={saving}
-                              title="Edit amounts"
-                              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition disabled:opacity-40"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => setRemovingItemId(item.fee_item_id)}
-                              disabled={saving}
-                              title="Remove item"
-                              className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 transition disabled:opacity-40"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          <RowActionsMenu
+                            ariaLabel="Line item actions"
+                            actions={[
+                              {
+                                key: "edit",
+                                label: "Edit amounts",
+                                icon: <Pencil />,
+                                disabled: saving,
+                                onSelect: () => openEditItem(item),
+                              },
+                              {
+                                key: "remove",
+                                label: "Remove item",
+                                icon: <Trash2 />,
+                                destructive: true,
+                                disabled: saving,
+                                separatorBefore: true,
+                                onSelect: () => setRemovingItemId(item.fee_item_id),
+                              },
+                            ]}
+                          />
                         </TableCell>
                       )}
                     </TableRow>

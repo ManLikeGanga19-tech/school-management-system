@@ -20,12 +20,12 @@ import {
   BadgePercent,
   Banknote,
   Printer,
-  Eye,
   Download,
   Trash2,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import {
   directorFinanceHref,
   directorNav,
@@ -2029,32 +2029,31 @@ function TenantFinancePageContent() {
                           {formatKes(toNumber(invoice.balance_amount))}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="inline-flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => printInvoice(invoice)}
-                            >
-                              <Printer className="mr-1 h-3.5 w-3.5" />
-                              Print
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => downloadInvoicePdf(invoice)}
-                            >
-                              PDF
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                              onClick={() => setDeleteTarget(invoice)}
-                              title="Delete this invoice and its payments/receipts"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
+                          <RowActionsMenu
+                            ariaLabel="Invoice actions"
+                            actions={[
+                              {
+                                key: "print",
+                                label: "Print",
+                                icon: <Printer />,
+                                onSelect: () => printInvoice(invoice),
+                              },
+                              {
+                                key: "pdf",
+                                label: "Download PDF",
+                                icon: <Download />,
+                                onSelect: () => downloadInvoicePdf(invoice),
+                              },
+                              {
+                                key: "delete",
+                                label: "Delete invoice",
+                                icon: <Trash2 />,
+                                destructive: true,
+                                separatorBefore: true,
+                                onSelect: () => setDeleteTarget(invoice),
+                              },
+                            ]}
+                          />
                         </TableCell>
                       </TableRow>
                     );
@@ -2204,23 +2203,23 @@ function TenantFinancePageContent() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void printPaymentReceipt(payment)}
-                          >
-                            <Printer className="mr-1 h-3.5 w-3.5" />
-                            Print
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => downloadPaymentPdf(payment)}
-                          >
-                            PDF
-                          </Button>
-                        </div>
+                        <RowActionsMenu
+                          ariaLabel="Payment actions"
+                          actions={[
+                            {
+                              key: "print",
+                              label: "Print receipt",
+                              icon: <Printer />,
+                              onSelect: () => void printPaymentReceipt(payment),
+                            },
+                            {
+                              key: "pdf",
+                              label: "Download PDF",
+                              icon: <Download />,
+                              onSelect: () => downloadPaymentPdf(payment),
+                            },
+                          ]}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -2342,23 +2341,23 @@ function TenantFinancePageContent() {
                           {formatKes(toNumber(invoice.balance_amount))}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="inline-flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => printInvoice(invoice)}
-                            >
-                              <Printer className="mr-1 h-3.5 w-3.5" />
-                              Print
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => downloadInvoicePdf(invoice)}
-                            >
-                              PDF
-                            </Button>
-                          </div>
+                          <RowActionsMenu
+                            ariaLabel="Receipt actions"
+                            actions={[
+                              {
+                                key: "print",
+                                label: "Print",
+                                icon: <Printer />,
+                                onSelect: () => printInvoice(invoice),
+                              },
+                              {
+                                key: "pdf",
+                                label: "Download PDF",
+                                icon: <Download />,
+                                onSelect: () => downloadInvoicePdf(invoice),
+                              },
+                            ]}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -2418,23 +2417,23 @@ function TenantFinancePageContent() {
                           {formatKes(toNumber(payment.amount))}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="inline-flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void printPaymentReceipt(payment)}
-                            >
-                              <Printer className="mr-1 h-3.5 w-3.5" />
-                              Print
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => downloadPaymentPdf(payment)}
-                            >
-                              PDF
-                            </Button>
-                          </div>
+                          <RowActionsMenu
+                            ariaLabel="Receipt actions"
+                            actions={[
+                              {
+                                key: "print",
+                                label: "Print receipt",
+                                icon: <Printer />,
+                                onSelect: () => void printPaymentReceipt(payment),
+                              },
+                              {
+                                key: "pdf",
+                                label: "Download PDF",
+                                icon: <Download />,
+                                onSelect: () => downloadPaymentPdf(payment),
+                              },
+                            ]}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}

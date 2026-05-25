@@ -5,6 +5,7 @@ import { Layers, Tag, Plus, Pencil, Trash2, RefreshCw, Rocket, CheckCircle2, Cli
 
 import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
+import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { usePermissions } from "@/lib/auth/usePermissions";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
@@ -474,27 +475,27 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                       </TableCell>
                       {!readonly && (
                         <TableCell className="text-right">
-                          <div
-                            className="flex justify-end gap-1"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              onClick={() => openEditCategory(cat)}
-                              disabled={saving}
-                              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition disabled:opacity-40"
-                              title="Edit category"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => setDeletingCatId(cat.id)}
-                              disabled={saving}
-                              className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 transition disabled:opacity-40"
-                              title="Delete category"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          <RowActionsMenu
+                            ariaLabel="Category actions"
+                            actions={[
+                              {
+                                key: "edit",
+                                label: "Edit category",
+                                icon: <Pencil />,
+                                disabled: saving,
+                                onSelect: () => openEditCategory(cat),
+                              },
+                              {
+                                key: "delete",
+                                label: "Delete category",
+                                icon: <Trash2 />,
+                                destructive: true,
+                                disabled: saving,
+                                separatorBefore: true,
+                                onSelect: () => setDeletingCatId(cat.id),
+                              },
+                            ]}
+                          />
                         </TableCell>
                       )}
                     </TableRow>
@@ -588,22 +589,27 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                       </TableCell>
                       {!readonly && (
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              onClick={() => openEditItem(item)}
-                              disabled={saving}
-                              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition disabled:opacity-40"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => setDeletingItemId(item.id)}
-                              disabled={saving}
-                              className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 transition disabled:opacity-40"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          <RowActionsMenu
+                            ariaLabel="Fee item actions"
+                            actions={[
+                              {
+                                key: "edit",
+                                label: "Edit item",
+                                icon: <Pencil />,
+                                disabled: saving,
+                                onSelect: () => openEditItem(item),
+                              },
+                              {
+                                key: "delete",
+                                label: "Delete item",
+                                icon: <Trash2 />,
+                                destructive: true,
+                                disabled: saving,
+                                separatorBefore: true,
+                                onSelect: () => setDeletingItemId(item.id),
+                              },
+                            ]}
+                          />
                         </TableCell>
                       )}
                     </TableRow>
