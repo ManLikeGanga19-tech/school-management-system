@@ -2856,7 +2856,18 @@ def _structure_partial_ok(
 
 
 def get_enrollment_finance_status(db: Session, *, tenant_id: UUID, enrollment_id: UUID) -> dict:
-    # Find interview + fees invoice for the enrollment
+    """Return the enrollment's interview + school-fees status.
+
+    fees.paid_ok is aggregate: it is True only when EVERY non-cancelled
+    SCHOOL_FEES invoice for this enrollment is PAID AND the student has no
+    pending carry-forward arrears. This is what the transfer-out gate needs
+    ("school fees fully cleared" must mean across all terms and prior years,
+    not just the most recent term).
+
+    fees.partial_ok stays scoped to the latest fees invoice — it answers the
+    admission-time question "can we enroll this student with a deposit?",
+    which is always evaluated against the just-generated Term-1 invoice.
+    """
     invs = db.execute(
         select(Invoice)
         .where(
@@ -2867,12 +2878,64 @@ def get_enrollment_finance_status(db: Session, *, tenant_id: UUID, enrollment_id
     ).scalars().all()
 
     interview = next((i for i in invs if i.invoice_type == "INTERVIEW"), None)
-    fees = next((i for i in invs if i.invoice_type == "SCHOOL_FEES"), None)
+
+    # Newest-first list of active fees invoices. CANCELLED is frozen and
+    # excluded from balance calculations (matches _recalc_invoice_amounts).
+    fees_invoices = [
+        i for i in invs if i.invoice_type == "SCHOOL_FEES" and i.status != "CANCELLED"
+    ]
+    fees_latest = fees_invoices[0] if fees_invoices else None
 
     policy = get_or_create_policy(db, tenant_id=tenant_id)
 
-    def paid_ok(inv: Optional[Invoice]) -> bool:
+    # Pending carry-forward (arrears) for the student behind this enrollment.
+    # Carry-forward is per-student, so arrears persist across enrollments and
+    # must be cleared before "fees fully paid" is true.
+    student_id = db.execute(
+        select(Enrollment.student_id).where(
+            Enrollment.id == enrollment_id,
+            Enrollment.tenant_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+
+    pending_cf_total = Decimal("0")
+    if student_id:
+        from app.models.student_carry_forward import StudentCarryForward
+        cf_amounts = db.execute(
+            select(StudentCarryForward.amount).where(
+                StudentCarryForward.tenant_id == tenant_id,
+                StudentCarryForward.student_id == student_id,
+                StudentCarryForward.status == "PENDING",
+            )
+        ).scalars().all()
+        pending_cf_total = sum(
+            (Decimal(str(a or 0)) for a in cf_amounts), Decimal("0")
+        )
+
+    total_outstanding = sum(
+        (Decimal(i.balance_amount or 0) for i in fees_invoices), Decimal("0")
+    )
+    unpaid_terms = [
+        {
+            "invoice_id": str(i.id),
+            "invoice_no": i.invoice_no,
+            "term_number": i.term_number,
+            "academic_year": i.academic_year,
+            "status": i.status,
+            "balance_amount": str(i.balance_amount or 0),
+        }
+        for i in fees_invoices
+        if i.status != "PAID"
+    ]
+
+    def interview_paid_ok(inv: Optional[Invoice]) -> bool:
         return bool(inv and inv.status == "PAID")
+
+    fees_paid_ok = (
+        len(fees_invoices) > 0
+        and all(i.status == "PAID" for i in fees_invoices)
+        and pending_cf_total == 0
+    )
 
     def partial_ok(inv: Optional[Invoice]) -> bool:
         if not inv:
@@ -2905,18 +2968,18 @@ def get_enrollment_finance_status(db: Session, *, tenant_id: UUID, enrollment_id
         return Decimal(inv.paid_amount) > 0
 
     fee_policy_meta: dict[str, Any] | None = None
-    if fees is not None:
+    if fees_latest is not None:
         structure = _resolve_fee_structure_for_enrollment(
             db,
             tenant_id=tenant_id,
             enrollment_id=enrollment_id,
-            fees_invoice=fees,
+            fees_invoice=fees_latest,
         )
         if structure is not None:
             _ok, meta = _structure_partial_ok(
                 db,
                 tenant_id=tenant_id,
-                invoice=fees,
+                invoice=fees_latest,
                 structure=structure,
             )
             fee_policy_meta = meta
@@ -2941,13 +3004,21 @@ def get_enrollment_finance_status(db: Session, *, tenant_id: UUID, enrollment_id
         "interview": {
             "invoice_id": str(interview.id) if interview else None,
             "status": interview.status if interview else None,
-            "paid_ok": paid_ok(interview),
+            "paid_ok": interview_paid_ok(interview),
         },
         "fees": {
-            "invoice_id": str(fees.id) if fees else None,
-            "status": fees.status if fees else None,
-            "paid_ok": paid_ok(fees),
-            "partial_ok": partial_ok(fees),
+            # Latest-term invoice id/status (backward-compatible field names).
+            "invoice_id": str(fees_latest.id) if fees_latest else None,
+            "status": fees_latest.status if fees_latest else None,
+            # Aggregate across all terms + pending carry-forward.
+            "paid_ok": fees_paid_ok,
+            # Admission-time partial gate, scoped to the latest invoice.
+            "partial_ok": partial_ok(fees_latest),
+            # Aggregate observability — useful for UIs and the transfer gate.
+            "invoice_count": len(fees_invoices),
+            "total_outstanding": str(total_outstanding),
+            "unpaid_terms": unpaid_terms,
+            "pending_carry_forward_total": str(pending_cf_total),
         },
     }
 
