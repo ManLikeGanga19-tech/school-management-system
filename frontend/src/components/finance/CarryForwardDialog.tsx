@@ -1,20 +1,18 @@
 "use client";
 
 /**
- * CarryForwardDialog
+ * CarryForwardDialog (a.k.a. "Adjust Balance")
  *
- * A popup card that lets a secretary/director manage a student's
- * outstanding fee balances carried forward from paper records.
+ * A popup card that lets a secretary/director adjust a student's running fee
+ * balance — either DEBIT (the student owes more, e.g. paper arrears) or CREDIT
+ * (a goodwill bursary, or correcting a known over-bill). System-generated
+ * overpayment credits also show up here as read-only entries.
  *
- * Features:
- *  - List all carry-forward entries with status badges
- *  - Add new balance (term label, year, term number, amount, optional note)
- *  - Edit amount / label / note for PENDING entries
- *  - Delete PENDING entries with confirmation
- *  - Shows total pending amount prominently
+ * Open adjustments are rolled into the next generated fees invoice as a single
+ * "Arrears (Brought Forward)" line, signed.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Trash2,
@@ -23,6 +21,8 @@ import {
   X,
   ChevronRight,
   History,
+  ArrowUpRight,
+  ArrowDownRight,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -49,34 +49,49 @@ import { api } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export type CarryForwardCategory =
+  | "MANUAL_DEBIT"
+  | "OVERPAYMENT_CREDIT"
+  | "GOODWILL_CREDIT"
+  | "OVERBILL_CORRECTION";
+
+export type CarryForwardKind = "DEBIT" | "CREDIT";
+
+export type CarryForwardStatus = "OPEN" | "BUNDLED" | "SETTLED";
+
 export type CarryForwardEntry = {
   id: string;
   student_id: string;
   term_label: string;
   academic_year: number | null;
   term_number: number | null;
-  amount: string;
+  amount: string;       // signed: positive = debit, negative = credit
   description: string;
-  status: "PENDING" | "INCLUDED" | "CLEARED";
+  category: CarryForwardCategory;
+  kind: CarryForwardKind;
+  status: CarryForwardStatus;
   invoice_id: string | null;
   created_at: string | null;
 };
 
 type AddForm = {
+  category: "MANUAL_DEBIT" | "GOODWILL_CREDIT" | "OVERBILL_CORRECTION";
   term_label: string;
   academic_year: string;
   term_number: string;
-  amount: string;
+  amount: string;       // unsigned in the form; signed when submitted
   description: string;
 };
 
 type EditForm = {
+  category: "MANUAL_DEBIT" | "GOODWILL_CREDIT" | "OVERBILL_CORRECTION";
   term_label: string;
   amount: string;
   description: string;
 };
 
 const EMPTY_ADD: AddForm = {
+  category: "MANUAL_DEBIT",
   term_label: "",
   academic_year: "",
   term_number: "",
@@ -84,32 +99,70 @@ const EMPTY_ADD: AddForm = {
   description: "",
 };
 
+// Categories the user can pick. OVERPAYMENT_CREDIT is system-only — recorded
+// automatically when a parent overpays a payment, never manually.
+const USER_CATEGORIES: { code: AddForm["category"]; label: string; kind: CarryForwardKind; hint: string }[] = [
+  {
+    code: "MANUAL_DEBIT",
+    label: "Add to balance (debit)",
+    kind: "DEBIT",
+    hint: "Student owes more — e.g. arrears from paper records, missed payment.",
+  },
+  {
+    code: "GOODWILL_CREDIT",
+    label: "Goodwill credit",
+    kind: "CREDIT",
+    hint: "School is granting the student a credit — bursary, scholarship top-up, discretion.",
+  },
+  {
+    code: "OVERBILL_CORRECTION",
+    label: "Correct over-billing (credit)",
+    kind: "CREDIT",
+    hint: "We over-charged. This credit reduces the student's next invoice.",
+  },
+];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtKes(value: string | number): string {
   const n = parseFloat(String(value));
   if (isNaN(n)) return "KES 0.00";
-  return `KES ${n.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "−" : "";
+  return `${sign}KES ${abs.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function statusBadge(status: CarryForwardEntry["status"]) {
-  if (status === "PENDING")
+function statusBadge(status: CarryForwardStatus) {
+  if (status === "OPEN")
     return (
       <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">
-        Pending
+        Open
       </Badge>
     );
-  if (status === "INCLUDED")
+  if (status === "BUNDLED")
     return (
       <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] px-1.5 py-0">
-        In Invoice
+        On invoice
       </Badge>
     );
   return (
     <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">
-      Cleared
+      Settled
     </Badge>
   );
+}
+
+function categoryLabel(category: CarryForwardCategory): string {
+  switch (category) {
+    case "MANUAL_DEBIT":
+      return "Manual debit";
+    case "OVERPAYMENT_CREDIT":
+      return "Overpayment credit (auto)";
+    case "GOODWILL_CREDIT":
+      return "Goodwill credit";
+    case "OVERBILL_CORRECTION":
+      return "Over-bill correction";
+  }
 }
 
 // ─── Main Component ────────────────────────────────────────────────────────────
@@ -133,17 +186,19 @@ export function CarryForwardDialog({
   const [entries, setEntries] = useState<CarryForwardEntry[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Add form
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<AddForm>(EMPTY_ADD);
   const [saving, setSaving] = useState(false);
 
-  // Edit form
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<EditForm>({ term_label: "", amount: "", description: "" });
+  const [editForm, setEditForm] = useState<EditForm>({
+    category: "MANUAL_DEBIT",
+    term_label: "",
+    amount: "",
+    description: "",
+  });
   const [editSaving, setEditSaving] = useState(false);
 
-  // Delete confirm
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -152,14 +207,17 @@ export function CarryForwardDialog({
     if (!studentId) return;
     setLoading(true);
     try {
-      const res = await api.post<{ data?: { items?: unknown[] } }>("/tenants/secretary/finance/setup", {
-        action: "list_carry_forward",
-        payload: { student_id: studentId },
-      });
+      const res = await api.post<{ data?: { items?: unknown[] } }>(
+        "/tenants/secretary/finance/setup",
+        {
+          action: "list_carry_forward",
+          payload: { student_id: studentId },
+        },
+      );
       const items = ((res.data?.items ?? []) as unknown[]) as CarryForwardEntry[];
       setEntries(items);
     } catch {
-      toast.error("Failed to load carry-forward balances");
+      toast.error("Failed to load balance adjustments");
     } finally {
       setLoading(false);
     }
@@ -170,14 +228,25 @@ export function CarryForwardDialog({
   }, [open, studentId, load]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  const pendingTotal = entries
-    .filter((e) => e.status === "PENDING")
-    .reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
-  const pendingCount = entries.filter((e) => e.status === "PENDING").length;
+  const { openDebit, openCredit, openNet, openCount } = useMemo(() => {
+    let debit = 0;
+    let credit = 0;
+    let count = 0;
+    for (const e of entries) {
+      if (e.status !== "OPEN") continue;
+      const v = parseFloat(e.amount || "0");
+      if (v > 0) debit += v;
+      else if (v < 0) credit += v; // already negative
+      count += 1;
+    }
+    return { openDebit: debit, openCredit: credit, openNet: debit + credit, openCount: count };
+  }, [entries]);
+
+  const selectedCategory = USER_CATEGORIES.find((c) => c.code === addForm.category)!;
 
   // ── Add ───────────────────────────────────────────────────────────────────
   function updateAdd(field: keyof AddForm, value: string) {
-    setAddForm((f) => ({ ...f, [field]: value }));
+    setAddForm((f) => ({ ...f, [field]: value as AddForm[keyof AddForm] }));
   }
 
   async function submitAdd() {
@@ -185,32 +254,36 @@ export function CarryForwardDialog({
       toast.error("Term label is required");
       return;
     }
-    const amt = parseFloat(addForm.amount);
-    if (isNaN(amt) || amt <= 0) {
+    const absAmt = parseFloat(addForm.amount);
+    if (isNaN(absAmt) || absAmt <= 0) {
       toast.error("Amount must be greater than zero");
       return;
     }
+    const signedAmt = selectedCategory.kind === "CREDIT" ? -absAmt : absAmt;
     setSaving(true);
     try {
       await api.post("/tenants/secretary/finance/setup", {
         action: "add_carry_forward",
         payload: {
           student_id: studentId,
+          category: addForm.category,
           term_label: addForm.term_label.trim(),
           academic_year: addForm.academic_year ? parseInt(addForm.academic_year) : null,
           term_number: addForm.term_number ? parseInt(addForm.term_number) : null,
-          amount: amt,
+          amount: signedAmt,
           description: addForm.description.trim() || null,
         },
       });
-      toast.success("Balance recorded successfully");
+      toast.success(
+        selectedCategory.kind === "CREDIT" ? "Credit recorded" : "Balance added",
+      );
       setAddForm(EMPTY_ADD);
       setShowAdd(false);
       await load();
       onChanged?.();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(msg ?? "Failed to save balance");
+      toast.error(msg ?? "Failed to save adjustment");
     } finally {
       setSaving(false);
     }
@@ -218,39 +291,48 @@ export function CarryForwardDialog({
 
   // ── Edit ──────────────────────────────────────────────────────────────────
   function openEdit(entry: CarryForwardEntry) {
+    // OVERPAYMENT_CREDIT entries are system-generated; we still allow editing
+    // the term label / note but not flipping the category.
+    const editableCategory: AddForm["category"] =
+      entry.category === "OVERPAYMENT_CREDIT" ? "OVERBILL_CORRECTION" : entry.category;
     setEditingId(entry.id);
     setEditForm({
+      category: editableCategory,
       term_label: entry.term_label,
-      amount: entry.amount,
+      // Amount in the edit form is unsigned; we re-sign at submit.
+      amount: String(Math.abs(parseFloat(entry.amount || "0"))),
       description: entry.description,
     });
   }
 
   async function submitEdit() {
     if (!editingId) return;
-    const amt = parseFloat(editForm.amount);
-    if (isNaN(amt) || amt <= 0) {
+    const absAmt = parseFloat(editForm.amount);
+    if (isNaN(absAmt) || absAmt <= 0) {
       toast.error("Amount must be greater than zero");
       return;
     }
+    const editKind = USER_CATEGORIES.find((c) => c.code === editForm.category)!.kind;
+    const signedAmt = editKind === "CREDIT" ? -absAmt : absAmt;
     setEditSaving(true);
     try {
       await api.post("/tenants/secretary/finance/setup", {
         action: "edit_carry_forward",
         payload: {
           balance_id: editingId,
+          category: editForm.category,
           term_label: editForm.term_label.trim(),
-          amount: amt,
+          amount: signedAmt,
           description: editForm.description.trim() || "",
         },
       });
-      toast.success("Balance updated");
+      toast.success("Adjustment updated");
       setEditingId(null);
       await load();
       onChanged?.();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(msg ?? "Failed to update balance");
+      toast.error(msg ?? "Failed to update adjustment");
     } finally {
       setEditSaving(false);
     }
@@ -265,13 +347,13 @@ export function CarryForwardDialog({
         action: "delete_carry_forward",
         payload: { balance_id: deletingId },
       });
-      toast.success("Balance removed");
+      toast.success("Adjustment removed");
       setDeletingId(null);
       await load();
       onChanged?.();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(msg ?? "Failed to delete balance");
+      toast.error(msg ?? "Failed to delete adjustment");
     } finally {
       setDeleteLoading(false);
     }
@@ -280,30 +362,54 @@ export function CarryForwardDialog({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* ── Main dialog ─────────────────────────────────────────────────── */}
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-4 w-4 text-blue-600" />
-              Carry-Forward Balances
+              Adjust Balance
             </DialogTitle>
             <DialogDescription>
-              Outstanding fee balances for <strong>{studentName}</strong> from previous terms
-              or paper records. PENDING balances will be included when you generate a new invoice.
+              Balance adjustments for <strong>{studentName}</strong>. Open entries
+              are rolled into the next generated fees invoice as a single
+              &ldquo;Arrears (Brought Forward)&rdquo; line. Every change is recorded in
+              the audit log.
             </DialogDescription>
           </DialogHeader>
 
           {/* ── Pending total banner ──────────────────────────────────── */}
-          {pendingCount > 0 && (
-            <div className="flex items-center gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
-              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-amber-800">
-                  {pendingCount} pending {pendingCount === 1 ? "balance" : "balances"}
-                </p>
-                <p className="text-xs text-amber-700">
-                  Total outstanding: <strong>{fmtKes(pendingTotal)}</strong>
+          {openCount > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
+                <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-amber-700">
+                  <ArrowUpRight className="h-3 w-3" /> Debits
+                </div>
+                <p className="text-sm font-bold text-amber-800 mt-0.5">{fmtKes(openDebit)}</p>
+              </div>
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3">
+                <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-emerald-700">
+                  <ArrowDownRight className="h-3 w-3" /> Credits
+                </div>
+                <p className="text-sm font-bold text-emerald-800 mt-0.5">{fmtKes(openCredit)}</p>
+              </div>
+              <div
+                className={`rounded-xl px-4 py-3 border ${
+                  openNet > 0
+                    ? "bg-red-50 border-red-200"
+                    : openNet < 0
+                      ? "bg-emerald-50 border-emerald-200"
+                      : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-slate-600">
+                  <AlertTriangle className="h-3 w-3" /> Net rolled into next invoice
+                </div>
+                <p
+                  className={`text-sm font-bold mt-0.5 ${
+                    openNet > 0 ? "text-red-700" : openNet < 0 ? "text-emerald-700" : "text-slate-700"
+                  }`}
+                >
+                  {fmtKes(openNet)}
                 </p>
               </div>
             </div>
@@ -317,100 +423,152 @@ export function CarryForwardDialog({
             {!loading && entries.length === 0 && (
               <div className="text-center py-8 text-slate-400">
                 <History className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">No carry-forward balances recorded</p>
-                <p className="text-xs mt-1">Add entries for any amounts owed from previous terms</p>
+                <p className="text-sm">No balance adjustments recorded</p>
+                <p className="text-xs mt-1">
+                  Add an entry for any amount owed from prior terms — or record a credit.
+                </p>
               </div>
             )}
-            {!loading && entries.map((entry) => (
-              <div key={entry.id}>
-                {editingId === entry.id ? (
-                  /* ── Inline edit row ─────────────────────────────── */
-                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
-                    <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Editing balance</p>
-                    <div className="grid grid-cols-2 gap-3">
+            {!loading && entries.map((entry) => {
+              const amt = parseFloat(entry.amount || "0");
+              const isCredit = amt < 0;
+              return (
+                <div key={entry.id}>
+                  {editingId === entry.id ? (
+                    /* ── Inline edit row ─────────────────────────────── */
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
+                      <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
+                        Editing adjustment
+                      </p>
                       <div className="space-y-1">
-                        <Label className="text-xs">Term Label</Label>
+                        <Label className="text-xs">Type</Label>
+                        <Select
+                          value={editForm.category}
+                          onValueChange={(v) => setEditForm((f) => ({ ...f, category: v as AddForm["category"] }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {USER_CATEGORIES.map((c) => (
+                              <SelectItem key={c.code} value={c.code}>
+                                {c.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Term Label</Label>
+                          <Input
+                            value={editForm.term_label}
+                            onChange={(e) => setEditForm((f) => ({ ...f, term_label: e.target.value }))}
+                            placeholder="e.g. Term 2 2024"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Amount (KES)</Label>
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={editForm.amount}
+                            onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Note (optional)</Label>
                         <Input
-                          value={editForm.term_label}
-                          onChange={(e) => setEditForm((f) => ({ ...f, term_label: e.target.value }))}
-                          placeholder="e.g. Term 2 2024"
+                          value={editForm.description}
+                          onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                          placeholder="e.g. Arrears from paper records"
                         />
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Amount (KES)</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          step="0.01"
-                          value={editForm.amount}
-                          onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
-                        />
+                      <div className="flex gap-2 justify-end">
+                        <Button size="sm" variant="outline" onClick={() => setEditingId(null)} disabled={editSaving}>
+                          <X className="h-3.5 w-3.5" /> Cancel
+                        </Button>
+                        <Button size="sm" onClick={submitEdit} disabled={editSaving}>
+                          {editSaving ? "Saving…" : "Save Changes"}
+                        </Button>
                       </div>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Note (optional)</Label>
-                      <Input
-                        value={editForm.description}
-                        onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
-                        placeholder="e.g. Arrears from paper records"
-                      />
-                    </div>
-                    <div className="flex gap-2 justify-end">
-                      <Button size="sm" variant="outline" onClick={() => setEditingId(null)} disabled={editSaving}>
-                        <X className="h-3.5 w-3.5" /> Cancel
-                      </Button>
-                      <Button size="sm" onClick={submitEdit} disabled={editSaving}>
-                        {editSaving ? "Saving…" : "Save Changes"}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  /* ── Normal display row ──────────────────────────── */
-                  <div className="flex items-start gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 hover:bg-slate-50 transition-colors">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-slate-800">{entry.term_label}</span>
-                        {statusBadge(entry.status)}
+                  ) : (
+                    /* ── Normal display row ──────────────────────────── */
+                    <div className="flex items-start gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 hover:bg-slate-50 transition-colors">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-slate-800">{entry.term_label}</span>
+                          {statusBadge(entry.status)}
+                          <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                            {categoryLabel(entry.category)}
+                          </span>
+                        </div>
+                        {entry.description && (
+                          <p className="text-xs text-slate-500 mt-0.5 truncate">{entry.description}</p>
+                        )}
                       </div>
-                      {entry.description && (
-                        <p className="text-xs text-slate-500 mt-0.5 truncate">{entry.description}</p>
+                      <div className="text-right shrink-0">
+                        <p className={`text-sm font-bold ${isCredit ? "text-emerald-700" : "text-red-600"}`}>
+                          {fmtKes(entry.amount)}
+                        </p>
+                      </div>
+                      {entry.status === "OPEN" && (
+                        <div className="flex gap-1 shrink-0">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-slate-400 hover:text-blue-600"
+                            onClick={() => openEdit(entry)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-slate-400 hover:text-red-600"
+                            onClick={() => setDeletingId(entry.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       )}
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-bold text-red-600">{fmtKes(entry.amount)}</p>
-                    </div>
-                    {entry.status === "PENDING" && (
-                      <div className="flex gap-1 shrink-0">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-slate-400 hover:text-blue-600"
-                          onClick={() => openEdit(entry)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-slate-400 hover:text-red-600"
-                          onClick={() => setDeletingId(entry.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* ── Add form ──────────────────────────────────────────────── */}
           {showAdd ? (
             <div className="rounded-xl border border-dashed border-blue-300 bg-blue-50/50 p-4 space-y-3">
               <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
-                New carry-forward balance
+                New balance adjustment
               </p>
+              <div className="space-y-1">
+                <Label className="text-xs">
+                  Type <span className="text-red-500">*</span>
+                </Label>
+                <Select
+                  value={addForm.category}
+                  onValueChange={(v) => updateAdd("category", v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {USER_CATEGORIES.map((c) => (
+                      <SelectItem key={c.code} value={c.code}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-slate-500 mt-0.5">{selectedCategory.hint}</p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1 col-span-2 sm:col-span-1">
                   <Label className="text-xs">
@@ -429,7 +587,7 @@ export function CarryForwardDialog({
                   </Label>
                   <Input
                     type="number"
-                    min="1"
+                    min="0.01"
                     step="0.01"
                     value={addForm.amount}
                     onChange={(e) => updateAdd("amount", e.target.value)}
@@ -466,7 +624,7 @@ export function CarryForwardDialog({
                   <Input
                     value={addForm.description}
                     onChange={(e) => updateAdd("description", e.target.value)}
-                    placeholder="e.g. Arrears from paper register — not yet paid"
+                    placeholder="e.g. Arrears from paper register"
                   />
                 </div>
               </div>
@@ -480,7 +638,7 @@ export function CarryForwardDialog({
                   <X className="h-3.5 w-3.5" /> Cancel
                 </Button>
                 <Button size="sm" onClick={submitAdd} disabled={saving}>
-                  {saving ? "Saving…" : "Add Balance"}
+                  {saving ? "Saving…" : selectedCategory.kind === "CREDIT" ? "Record Credit" : "Add Debit"}
                   {!saving && <ChevronRight className="h-3.5 w-3.5" />}
                 </Button>
               </div>
@@ -493,7 +651,7 @@ export function CarryForwardDialog({
               onClick={() => setShowAdd(true)}
             >
               <Plus className="h-3.5 w-3.5" />
-              Add Carry-Forward Balance
+              Adjust Balance (debit or credit)
             </Button>
           )}
 
@@ -511,10 +669,11 @@ export function CarryForwardDialog({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
               <Trash2 className="h-4 w-4" />
-              Remove Balance
+              Remove Adjustment
             </DialogTitle>
             <DialogDescription>
-              This will permanently remove this carry-forward entry. This cannot be undone.
+              This will permanently remove this balance adjustment. The action
+              is recorded in the audit log. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">

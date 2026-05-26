@@ -23,10 +23,12 @@ import {
   TrendingUp,
   UserPlus,
   Users,
+  Wallet,
   WalletCards,
   X,
 } from "lucide-react";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { CarryForwardDialog } from "@/components/finance/CarryForwardDialog";
 import { toast } from "@/components/ui/sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { directorNav } from "@/components/layout/nav-config";
@@ -65,12 +67,14 @@ type ParentListItem = {
 type LinkedChild = {
   link_id: string;
   enrollment_id: string;
+  student_id: string | null;
   student_name: string;
   class_code: string;
   admission_number: string | null;
   relationship: string;
   is_primary: boolean;
   outstanding: string | number;
+  balance_adjustment_net: string | number;
 };
 
 type ParentDetail = {
@@ -1237,6 +1241,7 @@ function ParentDetailView({
   const [showLink, setShowLink] = useState(false);
   const [saving, setSaving] = useState(false);
   const [unlinking, setUnlinking] = useState<string | null>(null);
+  const [adjustingStudent, setAdjustingStudent] = useState<{ id: string; name: string } | null>(null);
 
   const loadDetail = useCallback(async () => {
     setLoading(true);
@@ -1406,31 +1411,56 @@ function ParentDetailView({
                 <EmptyState icon={<Users />} title="No children linked" body="Link a student to connect this guardian to an enrollment." />
               ) : (
                 <div className="space-y-2">
-                  {detail.children.map((child) => (
-                    <div key={child.link_id} className="flex items-start justify-between rounded-xl border border-slate-100 p-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-800">{child.student_name}</p>
-                        <p className="text-xs text-slate-500">
-                          {child.class_code || "—"}
-                          {child.admission_number ? ` · ${child.admission_number}` : ""}
-                        </p>
-                        <p className="text-xs text-slate-400">{child.relationship}{child.is_primary ? " · Primary" : ""}</p>
-                        {toNum(child.outstanding) > 0 && (
-                          <p className="mt-1 text-xs font-semibold text-red-600">
-                            Outstanding: {fmtKes(child.outstanding)}
+                  {detail.children.map((child) => {
+                    const adjNet = toNum(child.balance_adjustment_net);
+                    const adjLabel =
+                      adjNet > 0
+                        ? `Balance adjustment (debit): ${fmtKes(adjNet)}`
+                        : adjNet < 0
+                          ? `Credit on file: ${fmtKes(Math.abs(adjNet))}`
+                          : null;
+                    return (
+                      <div key={child.link_id} className="flex items-start justify-between rounded-xl border border-slate-100 p-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-slate-800">{child.student_name}</p>
+                          <p className="text-xs text-slate-500">
+                            {child.class_code || "—"}
+                            {child.admission_number ? ` · ${child.admission_number}` : ""}
                           </p>
-                        )}
+                          <p className="text-xs text-slate-400">{child.relationship}{child.is_primary ? " · Primary" : ""}</p>
+                          {toNum(child.outstanding) > 0 && (
+                            <p className="mt-1 text-xs font-semibold text-red-600">
+                              Outstanding: {fmtKes(child.outstanding)}
+                            </p>
+                          )}
+                          {adjLabel && (
+                            <p className={`mt-0.5 text-xs font-medium ${adjNet < 0 ? "text-emerald-700" : "text-amber-700"}`}>
+                              {adjLabel}
+                            </p>
+                          )}
+                        </div>
+                        <div className="ml-2 flex flex-col items-end gap-1">
+                          {child.student_id && (
+                            <button
+                              onClick={() => setAdjustingStudent({ id: child.student_id!, name: child.student_name })}
+                              title="Adjust balance (debit or credit)"
+                              className="rounded p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                            >
+                              <Wallet className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => void handleUnlink(child.link_id, child.student_name)}
+                            disabled={unlinking === child.link_id}
+                            title="Unlink"
+                            className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+                          >
+                            {unlinking === child.link_id ? <Spinner sm /> : <Link2Off className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => void handleUnlink(child.link_id, child.student_name)}
-                        disabled={unlinking === child.link_id}
-                        title="Unlink"
-                        className="ml-2 rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
-                      >
-                        {unlinking === child.link_id ? <Spinner sm /> : <Link2Off className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </SectionCard>
@@ -1469,6 +1499,15 @@ function ParentDetailView({
       )}
     </div>
     {confirmDialog}
+    {adjustingStudent && (
+      <CarryForwardDialog
+        open={!!adjustingStudent}
+        onOpenChange={(o) => { if (!o) setAdjustingStudent(null); }}
+        studentId={adjustingStudent.id}
+        studentName={adjustingStudent.name}
+        onChanged={() => void loadDetail()}
+      />
+    )}
     </>
   );
 }

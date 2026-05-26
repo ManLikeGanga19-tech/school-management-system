@@ -1040,34 +1040,46 @@ export function StudentProfilePage({
                         onClick={() => setCfDialogOpen(true)}
                       >
                         <History className="h-3 w-3" />
-                        Manage
+                        Adjust Balance
                       </Button>
                     </div>
-                    {cfPendingCount > 0 ? (
-                      <button
-                        className="w-full text-left rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 hover:bg-amber-100 transition-colors"
-                        onClick={() => setCfDialogOpen(true)}
-                      >
-                        <div className="flex items-center gap-3">
-                          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                          <div>
-                            <p className="text-sm font-semibold text-amber-800">
-                              {cfPendingCount} pending {cfPendingCount === 1 ? "balance" : "balances"}
-                            </p>
-                            <p className="text-xs text-amber-700">
-                              Outstanding: KES {parseFloat(cfPendingTotal).toLocaleString("en-KE", { minimumFractionDigits: 2 })}
-                              {" "}— will be included in next invoice if selected
-                            </p>
+                    {cfPendingCount > 0 ? (() => {
+                      const net = parseFloat(cfPendingTotal);
+                      const isCredit = net < 0;
+                      const isZero = net === 0;
+                      const tone = isCredit
+                        ? { bg: "bg-emerald-50", border: "border-emerald-200", hover: "hover:bg-emerald-100", icon: "text-emerald-600", title: "text-emerald-800", body: "text-emerald-700" }
+                        : isZero
+                          ? { bg: "bg-slate-50", border: "border-slate-200", hover: "hover:bg-slate-100", icon: "text-slate-500", title: "text-slate-800", body: "text-slate-600" }
+                          : { bg: "bg-amber-50", border: "border-amber-200", hover: "hover:bg-amber-100", icon: "text-amber-500", title: "text-amber-800", body: "text-amber-700" };
+                      const label = isCredit ? "credit on file" : "owed by student";
+                      const amountStr = `KES ${Math.abs(net).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`;
+                      return (
+                        <button
+                          className={`w-full text-left rounded-xl border ${tone.border} ${tone.bg} ${tone.hover} px-4 py-3 transition-colors`}
+                          onClick={() => setCfDialogOpen(true)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <AlertTriangle className={`h-4 w-4 ${tone.icon} shrink-0`} />
+                            <div>
+                              <p className={`text-sm font-semibold ${tone.title}`}>
+                                {cfPendingCount} open {cfPendingCount === 1 ? "adjustment" : "adjustments"}
+                              </p>
+                              <p className={`text-xs ${tone.body}`}>
+                                Net {label}: <strong>{isCredit ? "−" : ""}{amountStr}</strong>
+                                {" "}— rolled into the next invoice
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    ) : (
+                        </button>
+                      );
+                    })() : (
                       <button
                         className="w-full text-left rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 hover:bg-slate-100 transition-colors"
                         onClick={() => setCfDialogOpen(true)}
                       >
-                        <p className="text-sm text-slate-400">No pending carry-forward balances</p>
-                        <p className="text-xs text-slate-400 mt-0.5">Click to record outstanding balances from previous terms</p>
+                        <p className="text-sm text-slate-400">No open balance adjustments</p>
+                        <p className="text-xs text-slate-400 mt-0.5">Click to record an arrears debit or issue a credit</p>
                       </button>
                     )}
                   </div>

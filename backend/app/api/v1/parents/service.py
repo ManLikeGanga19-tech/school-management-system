@@ -162,7 +162,7 @@ def get_parent_detail(db: Session, *, tenant_id: UUID, parent_id: UUID) -> Dict:
     links = db.execute(
         sa.text("""
             SELECT pel.id AS link_id, pel.enrollment_id, pel.relationship, pel.is_primary,
-                   e.payload
+                   e.payload, e.student_id
             FROM core.parent_enrollment_links pel
             JOIN core.enrollments e ON e.id = pel.enrollment_id
             WHERE pel.parent_id = :pid AND pel.tenant_id = :tid
@@ -177,15 +177,33 @@ def get_parent_detail(db: Session, *, tenant_id: UUID, parent_id: UUID) -> Dict:
         payload = dict(lnk["payload"] or {})
         outstanding = _outstanding_for_enrollment(db, tenant_id, UUID(str(lnk["enrollment_id"])))
         total_outstanding += outstanding
+        # Net open balance adjustment for this child (signed; positive = owed
+        # more, negative = credit on file). Powers the per-child Adjust Balance
+        # widget on the parent profile.
+        student_uuid = lnk["student_id"]
+        balance_net = Decimal("0")
+        if student_uuid is not None:
+            cf_rows = db.execute(
+                sa.text("""
+                    SELECT COALESCE(SUM(amount), 0) AS net
+                    FROM core.student_carry_forward_balances
+                    WHERE tenant_id = :tid AND student_id = :sid AND status = 'OPEN'
+                """),
+                {"tid": str(tenant_id), "sid": str(student_uuid)},
+            ).mappings().first()
+            if cf_rows:
+                balance_net = Decimal(str(cf_rows["net"] or 0))
         children.append({
             "link_id": str(lnk["link_id"]),
             "enrollment_id": str(lnk["enrollment_id"]),
+            "student_id": str(student_uuid) if student_uuid is not None else None,
             "student_name": _student_name(payload),
             "class_code": payload.get("class_code") or payload.get("admission_class") or "",
             "admission_number": payload.get("admission_number"),
             "relationship": lnk["relationship"],
             "is_primary": bool(lnk["is_primary"]),
             "outstanding": outstanding,
+            "balance_adjustment_net": str(balance_net),
         })
 
     name = f"{p.first_name or ''} {p.last_name or ''}".strip()

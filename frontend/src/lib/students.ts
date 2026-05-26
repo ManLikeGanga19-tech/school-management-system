@@ -3,6 +3,7 @@ import { asArray } from "@/lib/utils/asArray";
 
 export type EnrollmentRow = {
   id: string;
+  student_id: string | null;
   status: string;
   payload: Record<string, unknown>;
   admission_number?: string | null;
@@ -46,6 +47,7 @@ export type FinanceSnapshot = {
 
 export type StudentFeeBalanceRow = {
   enrollment_id: string;
+  student_id: string | null;
   student_name: string;
   admission_number: string;
   class_code: string;
@@ -160,6 +162,7 @@ export function normalizeEnrollmentRows(input: unknown): EnrollmentRow[] {
 
     rows.push({
       id,
+      student_id: asString(obj.student_id) || null,
       status: asString(obj.status).toUpperCase() || "UNKNOWN",
       payload,
       admission_number: asString(obj.admission_number) || null,
@@ -422,6 +425,7 @@ export function buildStudentFeeBalanceRows(
 
       return {
         enrollment_id: row.id,
+        student_id: row.student_id,
         student_name: studentName(payload),
         admission_number: admissionNumber(row),
         class_code: classCode,

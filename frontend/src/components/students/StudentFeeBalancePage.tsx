@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePersistedState } from "@/lib/usePersistedState";
-import { Eye, RefreshCw, Search } from "lucide-react";
+import { Eye, RefreshCw, Search, Wallet } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
+import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
+import { CarryForwardDialog } from "@/components/finance/CarryForwardDialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -73,6 +75,7 @@ export function StudentFeeBalancePage({
   const [statusFilter, setStatusFilter] = usePersistedState("students.feebal.status", "__all__");
   const [balanceFilter, setBalanceFilter] = usePersistedState("students.feebal.balance", "__all__");
   const [page, setPage] = usePersistedState("students.feebal.page", 1);
+  const [adjustingStudent, setAdjustingStudent] = useState<{ id: string; name: string } | null>(null);
 
   const [viewRow, setViewRow] = useState<EnrollmentRow | null>(null);
   const [viewOpen, setViewOpen] = useState(false);
@@ -373,23 +376,38 @@ export function StudentFeeBalancePage({
                         {row.invoice_count}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 gap-1 text-xs"
-                          onClick={() => {
-                            const enrollment = enrollmentById[row.enrollment_id];
-                            if (!enrollment) {
-                              toast.error("Student detail record not found.");
-                              return;
-                            }
-                            setViewRow(enrollment);
-                            setViewOpen(true);
-                          }}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          View
-                        </Button>
+                        <RowActionsMenu
+                          ariaLabel="Student fee balance actions"
+                          actions={[
+                            {
+                              key: "view",
+                              label: "View profile",
+                              icon: <Eye />,
+                              onSelect: () => {
+                                const enrollment = enrollmentById[row.enrollment_id];
+                                if (!enrollment) {
+                                  toast.error("Student detail record not found.");
+                                  return;
+                                }
+                                setViewRow(enrollment);
+                                setViewOpen(true);
+                              },
+                            },
+                            {
+                              key: "adjust",
+                              label: "Adjust balance",
+                              icon: <Wallet />,
+                              hidden: !row.student_id,
+                              onSelect: () => {
+                                if (!row.student_id) return;
+                                setAdjustingStudent({
+                                  id: row.student_id,
+                                  name: row.student_name || "Student",
+                                });
+                              },
+                            },
+                          ]}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -433,6 +451,16 @@ export function StudentFeeBalancePage({
           )}
         </div>
       </div>
+
+      {adjustingStudent && (
+        <CarryForwardDialog
+          open={!!adjustingStudent}
+          onOpenChange={(o) => { if (!o) setAdjustingStudent(null); }}
+          studentId={adjustingStudent.id}
+          studentName={adjustingStudent.name}
+          onChanged={() => void load()}
+        />
+      )}
     </AppShell>
   );
 }
