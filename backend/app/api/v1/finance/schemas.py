@@ -205,6 +205,10 @@ class InvoiceOut(ORMOutModel):
     total_amount: Decimal
     paid_amount: Decimal
     balance_amount: Decimal
+    # Stashed by _recalc_invoice_amounts whenever the invoice has bundled
+    # carry-forward arrears. Lets the UI split "Previous balance" vs current term
+    # without needing line-level payment tracking. Absent if no arrears bundled.
+    meta: Optional[Dict[str, Any]] = None
 
 
 # -------------------------

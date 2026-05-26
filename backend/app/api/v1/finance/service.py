@@ -1568,6 +1568,60 @@ def _recalc_invoice_amounts(db: Session, invoice: Invoice) -> None:
     else:
         invoice.status = "ISSUED"
 
+    # Arrears (brought-forward balance) breakdown — FIFO accounting: any payment
+    # is treated as clearing the arrears portion before the current-term
+    # portion. No schema change needed; the split is derived and stashed on
+    # invoice.meta so the UI and PDF can render "Previous balance" vs "Current
+    # term" without scanning the lines themselves.
+    from app.models.student_carry_forward import StudentCarryForward
+    bundled = db.execute(
+        select(StudentCarryForward).where(
+            StudentCarryForward.invoice_id == invoice.id,
+            StudentCarryForward.status.in_(("BUNDLED", "SETTLED")),
+        )
+    ).scalars().all()
+
+    if bundled:
+        arrears_total = sum(
+            (Decimal(str(cf.amount)) for cf in bundled), Decimal("0")
+        )
+        paid_d = Decimal(paid or 0)
+        if arrears_total > 0:
+            arrears_paid = min(paid_d, arrears_total)
+            arrears_balance = arrears_total - arrears_paid
+        else:
+            # Net credit (or zero): the arrears line already reduces the
+            # invoice total, so there is nothing left to "pay down" on it.
+            arrears_paid = arrears_total
+            arrears_balance = Decimal("0")
+        current_term_total = Decimal(total or 0) - arrears_total
+        current_term_paid = paid_d - arrears_paid
+        current_term_balance = current_term_total - current_term_paid
+
+        # Settle bundled CF rows once the arrears portion is fully covered.
+        # For a net-credit arrears (negative total), the credit has already been
+        # absorbed by the invoice's reduced total at generation time → settle
+        # immediately so the credit is not re-used on the next invoice.
+        if arrears_total <= 0 or paid_d >= arrears_total:
+            for cf in bundled:
+                if cf.status != "SETTLED":
+                    cf.status = "SETTLED"
+
+        invoice.meta = {
+            **(invoice.meta or {}),
+            "arrears_total": str(arrears_total),
+            "arrears_paid": str(arrears_paid),
+            "arrears_balance": str(arrears_balance),
+            "current_term_total": str(current_term_total),
+            "current_term_paid": str(current_term_paid),
+            "current_term_balance": str(current_term_balance),
+        }
+    elif invoice.meta and "arrears_total" in (invoice.meta or {}):
+        # Arrears were detached (e.g. invoice regenerated without CF). Clear
+        # the stale breakdown so the UI doesn't display ghost numbers.
+        cleaned = {k: v for k, v in (invoice.meta or {}).items() if not k.startswith(("arrears_", "current_term_"))}
+        invoice.meta = cleaned or None
+
 
 def create_invoice(
     db: Session,
@@ -1861,8 +1915,14 @@ def create_payment(
         normalized_allocations.append((UUID(str(a["invoice_id"])), alloc_amount))
 
     alloc_sum = sum([alloc for _, alloc in normalized_allocations], Decimal("0"))
-    if alloc_sum.quantize(Decimal("0.01")) != Decimal(amount).quantize(Decimal("0.01")):
-        raise ValueError("Allocations sum must equal payment amount")
+    payment_amount = Decimal(amount).quantize(Decimal("0.01"))
+    alloc_total = alloc_sum.quantize(Decimal("0.01"))
+    if alloc_total > payment_amount:
+        raise ValueError("Allocations sum cannot exceed payment amount")
+    # Surplus (allocations sum to less than the payment amount) is allowed —
+    # it becomes a CREDIT balance for the student, rolled into their next
+    # invoice. The receipt narrates the split.
+    surplus = payment_amount - alloc_total
 
     pay = Payment(tenant_id=tenant_id, provider=provider_code, reference=reference, amount=amount, created_by=actor_user_id)
     db.add(pay)
@@ -1897,6 +1957,36 @@ def create_payment(
         _recalc_invoice_amounts(db, inv)
     db.flush()
 
+    # Surplus → auto-credit on the student behind the first allocated invoice.
+    # The credit will be netted into the Arrears line of the next generated
+    # invoice (rolled-up display, signed amount).
+    credit_balance_id = None
+    if surplus > 0 and invoices:
+        first_inv = invoices[0]
+        enrollment = db.execute(
+            select(Enrollment.id, Enrollment.student_id).where(
+                Enrollment.id == first_inv.enrollment_id,
+                Enrollment.tenant_id == tenant_id,
+            )
+        ).first()
+        if enrollment and enrollment.student_id:
+            credit_balance = add_carry_forward(
+                db,
+                tenant_id=tenant_id,
+                student_id=enrollment.student_id,
+                actor_user_id=actor_user_id,
+                term_label=f"Overpayment on receipt {pay.receipt_no or str(pay.id)[:8]}",
+                academic_year=getattr(first_inv, "academic_year", None),
+                term_number=getattr(first_inv, "term_number", None),
+                amount=-surplus,
+                description=(
+                    f"Auto-credit for KES {surplus} surplus on payment "
+                    f"{pay.receipt_no or pay.id} (provider: {provider_code})."
+                ),
+                category="OVERPAYMENT_CREDIT",
+            )
+            credit_balance_id = credit_balance["id"]
+
     log_event(
         db,
         tenant_id=tenant_id,
@@ -1904,7 +1994,13 @@ def create_payment(
         action="payment.create",
         resource="payment",
         resource_id=pay.id,
-        payload={"provider": pay.provider, "amount": str(pay.amount)},
+        payload={
+            "provider": pay.provider,
+            "amount": str(pay.amount),
+            "allocated_total": str(alloc_total),
+            "surplus_credit": str(surplus),
+            "credit_balance_id": credit_balance_id,
+        },
         meta=None,
     )
     return pay
@@ -2047,6 +2143,24 @@ def build_invoice_document(
         sort_keys=True,
     )
 
+    # Carry-forward arrears breakdown (stashed on inv.meta by
+    # _recalc_invoice_amounts when CF rows are bundled). Surfacing it on the
+    # PDF lets the receipt say "Includes previous balance: KES X" without
+    # touching line-level payment tracking.
+    inv_meta = getattr(inv, "meta", None) or {}
+    arrears_summary = (
+        {
+            "arrears_total": inv_meta.get("arrears_total"),
+            "arrears_paid": inv_meta.get("arrears_paid"),
+            "arrears_balance": inv_meta.get("arrears_balance"),
+            "current_term_total": inv_meta.get("current_term_total"),
+            "current_term_paid": inv_meta.get("current_term_paid"),
+            "current_term_balance": inv_meta.get("current_term_balance"),
+        }
+        if "arrears_total" in inv_meta
+        else None
+    )
+
     return {
         "document_type": "INVOICE",
         "document_id": str(inv.id),
@@ -2066,6 +2180,7 @@ def build_invoice_document(
         "total_amount": str(getattr(inv, "total_amount", 0) or 0),
         "paid_amount": str(getattr(inv, "paid_amount", 0) or 0),
         "balance_amount": str(getattr(inv, "balance_amount", 0) or 0),
+        "arrears_summary": arrears_summary,
         "created_at": (
             getattr(inv, "created_at").isoformat()
             if getattr(inv, "created_at", None) is not None
@@ -2176,6 +2291,17 @@ def build_payment_receipt_document(
             "lines": invoice_lines_map.get(str(row.invoice_id), []),
         })
 
+    # Surplus credit: amount paid minus the sum of allocations. The payment
+    # service auto-creates an OVERPAYMENT_CREDIT carry-forward for this surplus;
+    # the receipt notes it so the parent sees the split: "Allocated X to
+    # invoices, Y credited to next term."
+    alloc_total = sum(
+        (Decimal(str(row.amount or 0)) for row in alloc_rows), Decimal("0")
+    )
+    surplus_credit = Decimal(str(getattr(payment, "amount", 0) or 0)) - alloc_total
+    if surplus_credit < 0:
+        surplus_credit = Decimal("0")
+
     profile = get_tenant_print_profile(db, tenant_id=tenant_id)
     checksum = _document_checksum(
         tenant_id=tenant_id,
@@ -2215,6 +2341,8 @@ def build_payment_receipt_document(
             else None
         ),
         "allocations": allocations,
+        "allocated_total": str(alloc_total),
+        "surplus_credit": str(surplus_credit),
         "checksum": checksum,
         "qr_payload": qr_payload,
         "verify_code": str(getattr(payment, "verify_code", "") or ""),
@@ -2337,10 +2465,20 @@ def _document_lines(payload: dict[str, Any]) -> list[str]:
                 f"Total: {payload.get('total_amount')}",
                 f"Paid: {payload.get('paid_amount')}",
                 f"Balance: {payload.get('balance_amount')}",
-                "",
-                "Lines:",
             ]
         )
+        arrears = payload.get("arrears_summary")
+        if isinstance(arrears, dict) and arrears.get("arrears_total"):
+            try:
+                arr_total = Decimal(str(arrears.get("arrears_total") or 0))
+            except Exception:
+                arr_total = Decimal("0")
+            if arr_total != 0:
+                tag = "Includes previous balance" if arr_total > 0 else "Includes credit balance"
+                lines.append(f"{tag}: {arrears.get('arrears_total')}")
+                lines.append(f"Current term: {arrears.get('current_term_total')}")
+        lines.append("")
+        lines.append("Lines:")
         for idx, row in enumerate(payload.get("lines") or [], start=1):
             if not isinstance(row, dict):
                 continue
@@ -2351,10 +2489,17 @@ def _document_lines(payload: dict[str, Any]) -> list[str]:
                 f"Provider: {payload.get('provider') or ''}",
                 f"Reference: {payload.get('reference') or '—'}",
                 f"Amount: {payload.get('amount')}",
-                "",
-                "Allocations:",
             ]
         )
+        try:
+            surplus = Decimal(str(payload.get("surplus_credit") or 0))
+        except Exception:
+            surplus = Decimal("0")
+        if surplus > 0:
+            lines.append(f"Allocated to invoices: {payload.get('allocated_total')}")
+            lines.append(f"Credit forward (next term): {surplus}")
+        lines.append("")
+        lines.append("Allocations:")
         for idx, row in enumerate(payload.get("allocations") or [], start=1):
             if not isinstance(row, dict):
                 continue
@@ -2905,7 +3050,7 @@ def get_enrollment_finance_status(db: Session, *, tenant_id: UUID, enrollment_id
             select(StudentCarryForward.amount).where(
                 StudentCarryForward.tenant_id == tenant_id,
                 StudentCarryForward.student_id == student_id,
-                StudentCarryForward.status == "PENDING",
+                StudentCarryForward.status == "OPEN",
             )
         ).scalars().all()
         pending_cf_total = sum(
@@ -3440,7 +3585,11 @@ def generate_school_fees_invoice_v2(
     scholarship_id: Optional[UUID] = None,
     scholarship_amount: Optional[Decimal] = None,
     scholarship_reason: Optional[str] = None,
-    include_carry_forward: bool = False,
+    # Always-on by default: any pending balance adjustment for the student is
+    # rolled into a single "Arrears (Brought Forward)" line on the new invoice
+    # so the parent sees one correct total. Set False only in tests or for an
+    # explicitly arrears-free invoice.
+    include_carry_forward: bool = True,
     force_student_type: Optional[str] = None,
     existing_invoice: Optional[Invoice] = None,
 ) -> Invoice:
@@ -3657,16 +3806,21 @@ def generate_school_fees_invoice_v2(
         old_lines = db.execute(
             select(InvoiceLine).where(InvoiceLine.invoice_id == inv.id)
         ).scalars().all()
+        from app.models.student_carry_forward import StudentCarryForward
+        # Release any carry-forward rows this invoice had absorbed, regardless of
+        # which line they were attached to (the legacy code only handled
+        # per-line CF rows; with the rolled-up "Arrears" line we look them up
+        # by invoice_id directly).
+        db.execute(
+            StudentCarryForward.__table__.update()
+            .where(
+                StudentCarryForward.tenant_id == tenant_id,
+                StudentCarryForward.invoice_id == inv.id,
+                StudentCarryForward.status == "BUNDLED",
+            )
+            .values(status="OPEN", invoice_id=None)
+        )
         for old_ln in old_lines:
-            meta = old_ln.meta or {}
-            # Release any carry-forward balances this invoice had absorbed so
-            # they aren't lost when the line is removed.
-            if meta.get("line_type") == "CARRY_FORWARD" and meta.get("carry_forward_id"):
-                from app.models.student_carry_forward import StudentCarryForward
-                cf = db.get(StudentCarryForward, UUID(str(meta["carry_forward_id"])))
-                if cf is not None and cf.status == "INCLUDED":
-                    cf.status = "PENDING"
-                    cf.invoice_id = None
             db.delete(old_ln)
         inv.status = "DRAFT"
         inv.student_type_snapshot = student_type
@@ -3699,6 +3853,54 @@ def generate_school_fees_invoice_v2(
         )
         db.flush()
 
+    # Roll any open balance adjustments into ONE "Arrears (Brought Forward)"
+    # line, inserted first so it shows at the top of the invoice and PDF. The
+    # individual carry-forward rows are linked via invoice_id (their status
+    # flips OPEN → BUNDLED) and listed in the line's meta so the audit log
+    # and a future drill-down can still show the breakdown.
+    if include_carry_forward and student_id:
+        from app.models.student_carry_forward import StudentCarryForward
+        cf_rows = db.execute(
+            select(StudentCarryForward).where(
+                StudentCarryForward.tenant_id == tenant_id,
+                StudentCarryForward.student_id == student_id,
+                StudentCarryForward.status == "OPEN",
+            )
+        ).scalars().all()
+        if cf_rows:
+            arrears_total = sum(
+                (Decimal(str(cf.amount)) for cf in cf_rows), Decimal("0")
+            )
+            if arrears_total != 0:
+                description = (
+                    "Arrears (Brought Forward)"
+                    if arrears_total > 0
+                    else "Credit Balance (Brought Forward)"
+                )
+                breakdown = [
+                    {
+                        "id": str(cf.id),
+                        "term_label": cf.term_label,
+                        "amount": str(cf.amount),
+                        "category": cf.category,
+                    }
+                    for cf in cf_rows
+                ]
+                db.add(InvoiceLine(
+                    invoice_id=inv.id,
+                    description=description,
+                    amount=arrears_total,
+                    meta={
+                        "line_type": "CARRY_FORWARD_ROLLUP",
+                        "carry_forward_ids": [str(cf.id) for cf in cf_rows],
+                        "breakdown": breakdown,
+                    },
+                ))
+            for cf in cf_rows:
+                cf.status = "BUNDLED"
+                cf.invoice_id = inv.id
+            db.flush()
+
     for ln in lines:
         db.add(InvoiceLine(
             invoice_id=inv.id,
@@ -3715,28 +3917,6 @@ def generate_school_fees_invoice_v2(
             amount=-interview_credit,
             meta={"line_type": "INTERVIEW_CREDIT", "interview_invoice_id": str(interview_inv.id)},
         ))
-
-    # Attach pending carry-forward balances as invoice lines
-    if include_carry_forward and student_id:
-        from app.models.student_carry_forward import StudentCarryForward
-        cf_rows = db.execute(
-            select(StudentCarryForward).where(
-                StudentCarryForward.tenant_id == tenant_id,
-                StudentCarryForward.student_id == student_id,
-                StudentCarryForward.status == "PENDING",
-            )
-        ).scalars().all()
-        for cf in cf_rows:
-            label = cf.term_label or "Previous Balance"
-            db.add(InvoiceLine(
-                invoice_id=inv.id,
-                description=f"Arrears: {label}",
-                amount=Decimal(str(cf.amount)),
-                meta={"line_type": "CARRY_FORWARD", "carry_forward_id": str(cf.id)},
-            ))
-            cf.status = "INCLUDED"
-            cf.invoice_id = inv.id
-        db.flush()
 
     db.flush()
     _recalc_invoice_amounts(db, inv)
@@ -3961,7 +4141,7 @@ def delete_invoice_cascade(
             StudentCarryForward.tenant_id == tenant_id,
             StudentCarryForward.invoice_id == invoice_id,
         )
-        .values(status="PENDING", invoice_id=None)
+        .values(status="OPEN", invoice_id=None)
     )
 
     db.delete(inv)
@@ -3998,9 +4178,21 @@ def delete_invoice_cascade(
     }
 
 
-# ── Carry-Forward Balances ─────────────────────────────────────────────────────
+# ── Carry-Forward / Balance Adjustments ───────────────────────────────────────
+
+# Category → kind. DEBIT increases the student's next invoice; CREDIT reduces
+# it. The kind is enforced against the sign of `amount` so the UI cannot record
+# a 'GOODWILL_CREDIT' as a positive number (which would charge the student).
+_CATEGORY_KINDS: dict[str, str] = {
+    "MANUAL_DEBIT": "DEBIT",
+    "OVERPAYMENT_CREDIT": "CREDIT",
+    "GOODWILL_CREDIT": "CREDIT",
+    "OVERBILL_CORRECTION": "CREDIT",
+}
+
 
 def _serialize_carry_forward(row: Any) -> dict:
+    category = str(row.category or "MANUAL_DEBIT")
     return {
         "id": str(row.id),
         "student_id": str(row.student_id),
@@ -4009,7 +4201,9 @@ def _serialize_carry_forward(row: Any) -> dict:
         "term_number": row.term_number,
         "amount": str(row.amount or "0"),
         "description": str(row.description or ""),
-        "status": str(row.status or "PENDING"),
+        "category": category,
+        "kind": _CATEGORY_KINDS.get(category, "DEBIT"),
+        "status": str(row.status or "OPEN"),
         "invoice_id": str(row.invoice_id) if row.invoice_id else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
@@ -4043,20 +4237,33 @@ def get_carry_forward_summary(
     tenant_id: UUID,
     student_id: UUID,
 ) -> dict:
-    """Return total PENDING carry-forward amount and count for a student."""
+    """Return OPEN balance adjustments for a student, signed: positive amounts
+    are debits the student owes, negative are credits owed to the student.
+    `pending_total` is the NET (debits − credits) that will be rolled into the
+    next generated invoice."""
     from app.models.student_carry_forward import StudentCarryForward
     rows = db.execute(
         select(StudentCarryForward)
         .where(
             StudentCarryForward.tenant_id == tenant_id,
             StudentCarryForward.student_id == student_id,
-            StudentCarryForward.status == "PENDING",
+            StudentCarryForward.status == "OPEN",
         )
     ).scalars().all()
-    total = sum(Decimal(str(r.amount or 0)) for r in rows)
+    debit_total = sum(
+        (Decimal(str(r.amount)) for r in rows if Decimal(str(r.amount)) > 0),
+        Decimal("0"),
+    )
+    credit_total = sum(
+        (Decimal(str(r.amount)) for r in rows if Decimal(str(r.amount)) < 0),
+        Decimal("0"),
+    )
+    net_total = debit_total + credit_total  # credit_total is already negative
     return {
         "pending_count": len(rows),
-        "pending_total": str(total),
+        "pending_total": str(net_total),
+        "debit_total": str(debit_total),
+        "credit_total": str(credit_total),
         "items": [_serialize_carry_forward(r) for r in rows],
     }
 
@@ -4072,6 +4279,7 @@ def add_carry_forward(
     term_number: Optional[int],
     amount: Decimal,
     description: Optional[str],
+    category: str = "MANUAL_DEBIT",
 ) -> dict:
     from app.models.student_carry_forward import StudentCarryForward
     from app.models.student import Student
@@ -4081,8 +4289,17 @@ def add_carry_forward(
     ).scalar_one_or_none()
     if not student:
         raise ValueError("Student not found")
-    if amount <= 0:
-        raise ValueError("Amount must be greater than zero")
+    if Decimal(amount or 0) == 0:
+        raise ValueError("Amount must be non-zero (positive for debit, negative for credit)")
+    if category not in _CATEGORY_KINDS:
+        raise ValueError(f"Invalid category. Must be one of: {', '.join(_CATEGORY_KINDS)}")
+    # Sign must match category — guards against UI mistakes (e.g. recording a
+    # 'GOODWILL_CREDIT' with a positive amount, which would actually charge the
+    # student more, not credit them).
+    if _CATEGORY_KINDS[category] == "DEBIT" and amount < 0:
+        raise ValueError(f"Category {category} requires a positive (debit) amount")
+    if _CATEGORY_KINDS[category] == "CREDIT" and amount > 0:
+        raise ValueError(f"Category {category} requires a negative (credit) amount")
 
     row = StudentCarryForward(
         tenant_id=tenant_id,
@@ -4092,11 +4309,32 @@ def add_carry_forward(
         term_number=term_number,
         amount=amount,
         description=description.strip() if description else None,
-        status="PENDING",
+        category=category,
+        status="OPEN",
         recorded_by=actor_user_id,
     )
     db.add(row)
     db.flush()
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="finance.balance.create",
+        resource="student_carry_forward",
+        resource_id=row.id,
+        payload={
+            "student_id": str(student_id),
+            "kind": _CATEGORY_KINDS[category],
+            "category": category,
+            "amount": str(amount),
+            "term_label": row.term_label,
+            "academic_year": academic_year,
+            "term_number": term_number,
+            "description": row.description,
+        },
+        meta=None,
+    )
     return _serialize_carry_forward(row)
 
 
@@ -4104,10 +4342,12 @@ def edit_carry_forward(
     db: Session,
     *,
     tenant_id: UUID,
+    actor_user_id: Optional[UUID],
     balance_id: UUID,
     amount: Optional[Decimal],
     term_label: Optional[str],
     description: Optional[str],
+    category: Optional[str] = None,
 ) -> dict:
     from app.models.student_carry_forward import StudentCarryForward
     row = db.execute(
@@ -4118,17 +4358,58 @@ def edit_carry_forward(
     ).scalar_one_or_none()
     if not row:
         raise ValueError("Balance record not found")
-    if row.status != "PENDING":
-        raise ValueError("Only PENDING balances can be edited")
+    if row.status != "OPEN":
+        raise ValueError("Only OPEN balances can be edited (already bundled into an invoice)")
+
+    before = {
+        "amount": str(row.amount),
+        "term_label": row.term_label,
+        "description": row.description,
+        "category": row.category,
+    }
+
+    new_category = category if category is not None else row.category
+    new_amount = amount if amount is not None else Decimal(str(row.amount))
+
+    if Decimal(new_amount or 0) == 0:
+        raise ValueError("Amount must be non-zero (positive for debit, negative for credit)")
+    if new_category not in _CATEGORY_KINDS:
+        raise ValueError(f"Invalid category. Must be one of: {', '.join(_CATEGORY_KINDS)}")
+    if _CATEGORY_KINDS[new_category] == "DEBIT" and new_amount < 0:
+        raise ValueError(f"Category {new_category} requires a positive (debit) amount")
+    if _CATEGORY_KINDS[new_category] == "CREDIT" and new_amount > 0:
+        raise ValueError(f"Category {new_category} requires a negative (credit) amount")
+
     if amount is not None:
-        if amount <= 0:
-            raise ValueError("Amount must be greater than zero")
         row.amount = amount
     if term_label is not None:
         row.term_label = term_label.strip()
     if description is not None:
         row.description = description.strip() if description.strip() else None
+    if category is not None:
+        row.category = category
     db.flush()
+
+    after = {
+        "amount": str(row.amount),
+        "term_label": row.term_label,
+        "description": row.description,
+        "category": row.category,
+    }
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="finance.balance.update",
+        resource="student_carry_forward",
+        resource_id=row.id,
+        payload={
+            "student_id": str(row.student_id),
+            "before": before,
+            "after": after,
+        },
+        meta=None,
+    )
     return _serialize_carry_forward(row)
 
 
@@ -4136,6 +4417,7 @@ def delete_carry_forward(
     db: Session,
     *,
     tenant_id: UUID,
+    actor_user_id: Optional[UUID],
     balance_id: UUID,
 ) -> None:
     from app.models.student_carry_forward import StudentCarryForward
@@ -4147,7 +4429,27 @@ def delete_carry_forward(
     ).scalar_one_or_none()
     if not row:
         raise ValueError("Balance record not found")
-    if row.status != "PENDING":
-        raise ValueError("Only PENDING balances can be deleted")
+    if row.status != "OPEN":
+        raise ValueError("Only OPEN balances can be deleted (already bundled into an invoice)")
+
+    snapshot = {
+        "student_id": str(row.student_id),
+        "amount": str(row.amount),
+        "category": row.category,
+        "term_label": row.term_label,
+        "academic_year": row.academic_year,
+        "term_number": row.term_number,
+        "description": row.description,
+    }
     db.delete(row)
     db.flush()
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="finance.balance.delete",
+        resource="student_carry_forward",
+        resource_id=balance_id,
+        payload=snapshot,
+        meta=None,
+    )

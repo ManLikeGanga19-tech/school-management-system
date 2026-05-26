@@ -13211,6 +13211,7 @@ def secretary_finance_action(
                 cf_term_number = None
             description_raw = payload.get("description")
             description = str(description_raw).strip() if description_raw not in (None, "") else None
+            category = str(payload.get("category") or "MANUAL_DEBIT").strip()
             data = finance_service.add_carry_forward(
                 db,
                 tenant_id=tenant.id,
@@ -13221,6 +13222,7 @@ def secretary_finance_action(
                 term_number=cf_term_number,
                 amount=amount,
                 description=description,
+                category=category,
             )
             db.commit()
 
@@ -13232,19 +13234,28 @@ def secretary_finance_action(
             edit_term_label = str(term_label_raw).strip() if term_label_raw not in (None, "") else None
             description_raw = payload.get("description")
             edit_description = str(description_raw) if description_raw is not None else None
+            category_raw = payload.get("category")
+            edit_category = str(category_raw).strip() if category_raw not in (None, "") else None
             data = finance_service.edit_carry_forward(
                 db,
                 tenant_id=tenant.id,
+                actor_user_id=user.id,
                 balance_id=balance_id,
                 amount=edit_amount,
                 term_label=edit_term_label,
                 description=edit_description,
+                category=edit_category,
             )
             db.commit()
 
         elif action == "delete_carry_forward":
             balance_id = _parse_uuid(payload.get("balance_id"), field="payload.balance_id")
-            finance_service.delete_carry_forward(db, tenant_id=tenant.id, balance_id=balance_id)
+            finance_service.delete_carry_forward(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                balance_id=balance_id,
+            )
             db.commit()
             data = {"ok": True}
 
