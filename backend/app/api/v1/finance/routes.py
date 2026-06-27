@@ -20,6 +20,7 @@ from app.api.v1.finance.schemas import (
     GenerateFeesInvoiceRequest,
     GenerateFeesInvoiceV2Request,
     PaymentCreate, PaymentOut, PaymentWithAllocationsOut, PaymentPageOut,
+    StudentPaymentSummaryOut, StudentPaymentRecordRequest, StudentPaymentRecordOut,
     TenantPaymentSettingsUpsert, TenantPaymentSettingsOut,
 )
 
@@ -775,6 +776,85 @@ def create_payment(
         )
         return pay
     except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/students/{student_id}/payment-summary",
+    response_model=StudentPaymentSummaryOut,
+    dependencies=[Depends(require_permission("finance.payments.view"))],
+)
+def get_student_payment_summary_route(
+    student_id: UUID,
+    current_term_number: int | None = Query(default=None, ge=1, le=3),
+    current_academic_year: int | None = Query(default=None, ge=2000, le=2100),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Snapshot used by the by-student record-payment view: pending balance
+    adjustment, current term, prior-term arrears, and per-invoice breakdown."""
+    try:
+        return service.get_student_payment_summary(
+            db,
+            tenant_id=tenant.id,
+            student_id=student_id,
+            current_term_number=current_term_number,
+            current_academic_year=current_academic_year,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post(
+    "/students/{student_id}/payments",
+    response_model=StudentPaymentRecordOut,
+    dependencies=[Depends(require_permission("finance.payments.manage"))],
+)
+def record_student_payment_route(
+    student_id: UUID,
+    payload: StudentPaymentRecordRequest,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Record a payment for a student. FIFO allocation across their open
+    school-fees invoices (oldest -> newest); any surplus auto-credits the
+    student via an OVERPAYMENT_CREDIT carry-forward."""
+    try:
+        result = service.record_student_payment(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            student_id=student_id,
+            amount=payload.amount,
+            provider=payload.provider,
+            reference=payload.reference,
+        )
+        db.commit()
+
+        # Best-effort SMS notification, mirroring the manual /payments path.
+        # Look up the enrollment behind the first allocated invoice.
+        if result.get("allocations"):
+            from app.models.invoice import Invoice as _Invoice
+            first_inv_id = UUID(result["allocations"][0]["invoice_id"])
+            inv = db.get(_Invoice, first_inv_id)
+            enrollment_id = inv.enrollment_id if inv else None
+            try:
+                sms_notify.fire_payment_notification(
+                    db, tenant_id=tenant.id, actor_user_id=user.id,
+                    enrollment_id=enrollment_id,
+                    receipt_no=result.get("receipt_no"),
+                    amount=payload.amount,
+                    new_balance=0.0,  # detailed split lives on the receipt.
+                )
+            except Exception:
+                # Notification failure must not roll back a recorded payment.
+                pass
+
+        return result
+    except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 

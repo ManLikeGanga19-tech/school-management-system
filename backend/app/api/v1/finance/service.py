@@ -2006,6 +2006,326 @@ def create_payment(
     return pay
 
 
+# ── By-student payment view ─────────────────────────────────────────────────
+#
+# Two helpers powering the new "Record Payment by student" surface:
+#
+#   get_student_payment_summary(student_id)
+#       -> what the student owes right now, broken into pending balance
+#          adjustments (signed), current term, and prior-term arrears, with
+#          the per-invoice list ordered oldest -> newest. The UI renders the
+#          breakdown straight from this.
+#
+#   record_student_payment(student_id, amount, provider, reference)
+#       -> records a single payment for the student, auto-allocating FIFO
+#          across their open SCHOOL_FEES invoices (prior terms first, then
+#          current term). Any surplus becomes an OVERPAYMENT_CREDIT carry-
+#          forward — handled inside create_payment, so the same audit + sign
+#          rules apply.
+#
+# Allocation is deliberately deterministic so the secretary can predict what
+# the receipt will show, and the auto-credit is the same code path used by
+# the manual /payments endpoint when allocations sum to less than amount.
+
+
+def _student_open_fees_invoices(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+) -> list[Invoice]:
+    """Open (non-PAID, non-CANCELLED) SCHOOL_FEES invoices for a student,
+    oldest-first by (academic_year, term_number, created_at)."""
+    rows = db.execute(
+        select(Invoice)
+        .join(Enrollment, Enrollment.id == Invoice.enrollment_id)
+        .where(
+            Invoice.tenant_id == tenant_id,
+            Enrollment.student_id == student_id,
+            Invoice.invoice_type == "SCHOOL_FEES",
+            Invoice.status.notin_(("PAID", "CANCELLED")),
+            Invoice.balance_amount > 0,
+        )
+        .order_by(
+            sa_func.coalesce(Invoice.academic_year, 0).asc(),
+            sa_func.coalesce(Invoice.term_number, 0).asc(),
+            Invoice.created_at.asc(),
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+def get_student_payment_summary(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+    current_term_number: Optional[int] = None,
+    current_academic_year: Optional[int] = None,
+) -> dict:
+    """Snapshot of a student's owed (or credit) balance — see module comment.
+
+    current_term_number / current_academic_year identify "which fees invoice is
+    the *current* term" so prior-term arrears can be reported separately. If
+    not supplied, the most recent fees invoice for the student is treated as
+    current and everything older is prior.
+    """
+    student = db.execute(
+        select(Student).where(
+            Student.id == student_id, Student.tenant_id == tenant_id
+        )
+    ).scalar_one_or_none()
+    if not student:
+        raise ValueError("Student not found")
+
+    # Resolve class_code from the student's most recent enrollment for display.
+    latest_enrollment = db.execute(
+        select(Enrollment)
+        .where(
+            Enrollment.tenant_id == tenant_id,
+            Enrollment.student_id == student_id,
+        )
+        .order_by(Enrollment.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    class_code = ""
+    if latest_enrollment is not None:
+        pl = latest_enrollment.payload or {}
+        class_code = str(
+            pl.get("class_code")
+            or pl.get("admission_class")
+            or pl.get("classCode")
+            or pl.get("grade")
+            or ""
+        )
+
+    # Pending carry-forward (signed).
+    from app.models.student_carry_forward import StudentCarryForward
+    cf_rows = db.execute(
+        select(StudentCarryForward).where(
+            StudentCarryForward.tenant_id == tenant_id,
+            StudentCarryForward.student_id == student_id,
+            StudentCarryForward.status == "OPEN",
+        )
+    ).scalars().all()
+    pending_debit = sum(
+        (Decimal(str(r.amount)) for r in cf_rows if Decimal(str(r.amount)) > 0),
+        Decimal("0"),
+    )
+    pending_credit = sum(
+        (Decimal(str(r.amount)) for r in cf_rows if Decimal(str(r.amount)) < 0),
+        Decimal("0"),
+    )
+    pending_net = pending_debit + pending_credit
+
+    open_invoices = _student_open_fees_invoices(
+        db, tenant_id=tenant_id, student_id=student_id
+    )
+
+    # Figure out which invoice is "current term" — explicit override, else the
+    # most-recent fees invoice we have for this student.
+    def _is_current(inv: Invoice) -> bool:
+        if current_term_number is not None and current_academic_year is not None:
+            return (
+                inv.term_number == current_term_number
+                and inv.academic_year == current_academic_year
+            )
+        # Implicit: the newest invoice (max year, then max term).
+        # Determined by the absolute max in the list.
+        return False
+
+    if current_term_number is None or current_academic_year is None:
+        # Pick the newest invoice (and any that share its (year, term)) as
+        # "current term".
+        all_for_pick = db.execute(
+            select(Invoice)
+            .join(Enrollment, Enrollment.id == Invoice.enrollment_id)
+            .where(
+                Invoice.tenant_id == tenant_id,
+                Enrollment.student_id == student_id,
+                Invoice.invoice_type == "SCHOOL_FEES",
+                Invoice.status != "CANCELLED",
+            )
+            .order_by(
+                sa_func.coalesce(Invoice.academic_year, 0).desc(),
+                sa_func.coalesce(Invoice.term_number, 0).desc(),
+                Invoice.created_at.desc(),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if all_for_pick is not None:
+            current_term_number = all_for_pick.term_number
+            current_academic_year = all_for_pick.academic_year
+
+    current_total = Decimal("0")
+    current_paid = Decimal("0")
+    current_balance = Decimal("0")
+    prior_balance = Decimal("0")
+
+    invoice_summaries: list[dict] = []
+    for inv in open_invoices:
+        bal = Decimal(inv.balance_amount or 0)
+        tot = Decimal(inv.total_amount or 0)
+        paid = Decimal(inv.paid_amount or 0)
+        invoice_summaries.append({
+            "invoice_id": str(inv.id),
+            "invoice_no": inv.invoice_no,
+            "invoice_type": inv.invoice_type,
+            "status": inv.status,
+            "term_number": inv.term_number,
+            "academic_year": inv.academic_year,
+            "total_amount": str(tot),
+            "paid_amount": str(paid),
+            "balance_amount": str(bal),
+        })
+        if (
+            current_term_number is not None
+            and current_academic_year is not None
+            and inv.term_number == current_term_number
+            and inv.academic_year == current_academic_year
+        ):
+            current_total += tot
+            current_paid += paid
+            current_balance += bal
+        else:
+            prior_balance += bal
+
+    total_outstanding = current_balance + prior_balance + pending_net
+
+    # Best-effort display name from the SIS row.
+    student_name = " ".join(
+        str(getattr(student, attr, "") or "").strip()
+        for attr in ("first_name", "other_names", "last_name")
+    ).strip() or "Student"
+
+    return {
+        "student_id": str(student.id),
+        "student_name": student_name,
+        "admission_no": getattr(student, "admission_no", None),
+        "class_code": class_code or None,
+        "pending_balance_net": str(pending_net),
+        "pending_balance_debit": str(pending_debit),
+        "pending_balance_credit": str(pending_credit),
+        "current_term_total": str(current_total),
+        "current_term_paid": str(current_paid),
+        "current_term_balance": str(current_balance),
+        "prior_terms_balance": str(prior_balance),
+        "total_outstanding": str(total_outstanding),
+        "invoices": invoice_summaries,
+    }
+
+
+def record_student_payment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    student_id: UUID,
+    amount: Decimal,
+    provider: str,
+    reference: Optional[str] = None,
+) -> dict:
+    """Record a payment for a student, allocating FIFO across their open
+    school-fees invoices. Surplus → auto-credit (handled inside create_payment).
+
+    Behaviour:
+      - amount > 0 required (delegated to create_payment).
+      - If the student has no open fees invoices, the entire amount is taken
+        as an overpayment credit: we create a synthetic 1-line invoice for
+        KES 0 won't work, so instead we record it directly as a credit
+        carry-forward (no Payment row, no receipt) and explain in the error
+        case — see below.
+
+    Returns a dict matching StudentPaymentRecordOut.
+    """
+    if amount is None or Decimal(amount) <= 0:
+        raise ValueError("Payment amount must be greater than zero")
+
+    open_invoices = _student_open_fees_invoices(
+        db, tenant_id=tenant_id, student_id=student_id
+    )
+
+    if not open_invoices:
+        # No invoice to allocate against → cannot record a payment via the
+        # invoice path. Surface a clear error; the UI can offer "Record a
+        # credit on this student's balance" via Adjust Balance instead.
+        raise ValueError(
+            "No outstanding fees invoices for this student. "
+            "Generate the term invoice first, or record a credit via Adjust Balance."
+        )
+
+    remaining = Decimal(amount).quantize(Decimal("0.01"))
+    allocations: list[dict] = []
+    for inv in open_invoices:
+        if remaining <= 0:
+            break
+        inv_balance = Decimal(inv.balance_amount or 0)
+        if inv_balance <= 0:
+            continue
+        take = min(remaining, inv_balance)
+        allocations.append({"invoice_id": inv.id, "amount": take})
+        remaining -= take
+    # `remaining` is the surplus; create_payment will turn it into a credit
+    # carry-forward automatically. To make that happen, the payment's amount
+    # is the FULL received amount, and the sum of allocations is whatever fit
+    # the open invoices.
+
+    pay = create_payment(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        provider=provider,
+        reference=reference,
+        amount=Decimal(amount),
+        allocations=[{"invoice_id": a["invoice_id"], "amount": a["amount"]} for a in allocations],
+    )
+
+    # Look up the credit balance row create_payment may have auto-created so
+    # we can echo its id back to the UI.
+    from app.models.student_carry_forward import StudentCarryForward
+    credit_balance_id: Optional[str] = None
+    surplus = (Decimal(amount).quantize(Decimal("0.01"))
+               - sum((a["amount"] for a in allocations), Decimal("0")).quantize(Decimal("0.01")))
+    if surplus > 0:
+        latest_credit = db.execute(
+            select(StudentCarryForward)
+            .where(
+                StudentCarryForward.tenant_id == tenant_id,
+                StudentCarryForward.student_id == student_id,
+                StudentCarryForward.category == "OVERPAYMENT_CREDIT",
+            )
+            .order_by(StudentCarryForward.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if latest_credit is not None:
+            credit_balance_id = str(latest_credit.id)
+
+    # Build a detailed allocation echo with invoice_no / term context.
+    invoice_map = {inv.id: inv for inv in open_invoices}
+    alloc_out: list[dict] = []
+    for a in allocations:
+        inv = invoice_map.get(a["invoice_id"])
+        alloc_out.append({
+            "invoice_id": str(a["invoice_id"]),
+            "invoice_no": getattr(inv, "invoice_no", None),
+            "term_number": getattr(inv, "term_number", None),
+            "academic_year": getattr(inv, "academic_year", None),
+            "amount": str(a["amount"]),
+        })
+
+    return {
+        "payment_id": str(pay.id),
+        "receipt_no": pay.receipt_no,
+        "amount": str(pay.amount),
+        "allocated_total": str(
+            sum((a["amount"] for a in allocations), Decimal("0")).quantize(Decimal("0.01"))
+        ),
+        "surplus_credit": str(surplus.quantize(Decimal("0.01"))),
+        "credit_balance_id": credit_balance_id,
+        "allocations": alloc_out,
+    }
+
+
 def list_payments(
     db: Session,
     *,

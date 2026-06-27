@@ -289,6 +289,69 @@ class PaymentWithAllocationsOut(PaymentOut):
 
 
 # -------------------------
+# Record Payment by Student (smart auto-allocation)
+# -------------------------
+class StudentPaymentSummaryInvoiceOut(BaseModel):
+    invoice_id: UUID
+    invoice_no: Optional[str] = None
+    invoice_type: str
+    status: str
+    term_number: Optional[int] = None
+    academic_year: Optional[int] = None
+    total_amount: Decimal
+    paid_amount: Decimal
+    balance_amount: Decimal
+
+
+class StudentPaymentSummaryOut(BaseModel):
+    """Snapshot of what the student owes (or is credited) right now, used by
+    the by-student record-payment view to render the breakdown."""
+    student_id: UUID
+    student_name: str
+    admission_no: Optional[str] = None
+    class_code: Optional[str] = None
+    pending_balance_net: Decimal     # open carry-forward net (signed)
+    pending_balance_debit: Decimal   # sum of open debits (positive)
+    pending_balance_credit: Decimal  # sum of open credits (negative)
+    current_term_total: Decimal      # sum of CURRENT-term invoice totals
+    current_term_paid: Decimal
+    current_term_balance: Decimal
+    prior_terms_balance: Decimal     # sum of outstanding from OLDER terms
+    total_outstanding: Decimal       # net the parent should pay now
+    invoices: List[StudentPaymentSummaryInvoiceOut] = Field(default_factory=list)
+
+
+class StudentPaymentRecordRequest(BaseModel):
+    """Body for POST /finance/students/{student_id}/payments.
+
+    Allocation is automatic: oldest unpaid school-fees invoice first, then
+    current term; surplus becomes an OVERPAYMENT_CREDIT carry-forward on the
+    student. provider/reference behave the same as on the manual endpoint.
+    """
+    amount: Decimal
+    provider: str
+    reference: Optional[str] = None
+
+
+class StudentPaymentRecordAllocationOut(BaseModel):
+    invoice_id: UUID
+    invoice_no: Optional[str] = None
+    term_number: Optional[int] = None
+    academic_year: Optional[int] = None
+    amount: Decimal
+
+
+class StudentPaymentRecordOut(BaseModel):
+    payment_id: UUID
+    receipt_no: Optional[str] = None
+    amount: Decimal
+    allocated_total: Decimal
+    surplus_credit: Decimal
+    credit_balance_id: Optional[UUID] = None
+    allocations: List[StudentPaymentRecordAllocationOut] = Field(default_factory=list)
+
+
+# -------------------------
 # Paginated list responses
 # -------------------------
 class PageMeta(BaseModel):
