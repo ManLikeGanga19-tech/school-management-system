@@ -181,11 +181,6 @@ type StructureRowDraft = {
   amount: string;
 };
 
-type PaymentAllocationDraft = {
-  invoice_id: string;
-  amount: string;
-};
-
 type KeyValueRecord = Record<string, unknown>;
 
 type InvoiceFilterState = {
@@ -785,16 +780,6 @@ function SecretaryFinancePageContent() {
     description: "Interview fee",
     amount: "",
   });
-  const [paymentForm, setPaymentForm] = useState({
-    provider: "MPESA",
-    reference: "",
-    amount: "",
-  });
-  const [paymentEnrollmentId, setPaymentEnrollmentId] = useState("");
-  const [paymentAllocations, setPaymentAllocations] = useState<
-    PaymentAllocationDraft[]
-  >([{ invoice_id: "", amount: "" }]);
-
   // Enterprise-level invoice filtering (UI-only, no business logic changes)
   const [invoiceFilters, setInvoiceFilters] = usePersistedState<InvoiceFilterState>(
     "sec.finance.invoiceFilters",
@@ -1033,7 +1018,6 @@ function SecretaryFinancePageContent() {
     if (enrollment_id) {
       setInterviewInvoiceForm((p) => ({ ...p, enrollment_id }));
       setFeesInvoiceForm((p) => ({ ...p, enrollment_id }));
-      setPaymentEnrollmentId(enrollment_id);
     }
 
     // Nudge the user with a contextual notice
@@ -1170,22 +1154,6 @@ function SecretaryFinancePageContent() {
   const outstandingInvoices = useMemo(
     () => data.invoices.filter((inv) => toNumber(inv.balance_amount) > 0),
     [data.invoices]
-  );
-
-  const paymentCandidateInvoices = useMemo(
-    () =>
-      outstandingInvoices.filter((inv) =>
-        paymentEnrollmentId ? inv.enrollment_id === paymentEnrollmentId : true
-      ),
-    [outstandingInvoices, paymentEnrollmentId]
-  );
-
-  const paymentAllocationTotal = useMemo(
-    () =>
-      round2(
-        paymentAllocations.reduce((acc, row) => acc + toNumber(row.amount), 0)
-      ),
-    [paymentAllocations]
   );
 
   const activeFinanceHref = secretaryFinanceHref(section);
@@ -1749,76 +1717,6 @@ function SecretaryFinancePageContent() {
     );
   }
 
-  function autoDistributePayment() {
-    const total = toNumber(paymentForm.amount);
-    if (total <= 0) {
-      setError("Enter payment amount first.");
-      return;
-    }
-    if (paymentCandidateInvoices.length === 0) {
-      setError("No outstanding invoices available.");
-      return;
-    }
-    let remaining = total;
-    const rows: PaymentAllocationDraft[] = [];
-    for (const invoice of paymentCandidateInvoices) {
-      if (remaining <= 0) break;
-      const balance = toNumber(invoice.balance_amount);
-      if (balance <= 0) continue;
-      const alloc = Math.min(balance, remaining);
-      rows.push({ invoice_id: invoice.id, amount: alloc.toFixed(2) });
-      remaining = round2(remaining - alloc);
-    }
-    setPaymentAllocations(rows.length > 0 ? rows : [{ invoice_id: "", amount: "" }]);
-  }
-
-  async function recordPayment() {
-    const amount = toNumber(paymentForm.amount);
-    if (amount <= 0) {
-      setError("Payment amount must be greater than 0.");
-      return;
-    }
-    const allocations = paymentAllocations
-      .map((row) => ({
-        invoice_id: row.invoice_id.trim(),
-        amount: row.amount.trim(),
-      }))
-      .filter((row) => row.invoice_id && row.amount);
-    if (allocations.length === 0) {
-      setError("Add at least one invoice allocation.");
-      return;
-    }
-    const hasDuplicate = allocations.some(
-      (row, idx) =>
-        allocations.findIndex((x) => x.invoice_id === row.invoice_id) !== idx
-    );
-    if (hasDuplicate) {
-      setError("Duplicate invoice allocations are not allowed.");
-      return;
-    }
-    const allocationSum = round2(
-      allocations.reduce((acc, row) => acc + toNumber(row.amount), 0)
-    );
-    if (allocationSum !== round2(amount)) {
-      setError("Allocation total must equal payment amount.");
-      return;
-    }
-    await postAction(
-      "record_payment",
-      {
-        provider: paymentForm.provider,
-        reference: paymentForm.reference.trim() || null,
-        amount: paymentForm.amount.trim(),
-        allocations,
-      },
-      "Payment recorded.",
-      () => {
-        setPaymentForm({ provider: "MPESA", reference: "", amount: "" });
-        setPaymentAllocations([{ invoice_id: "", amount: "" }]);
-      }
-    );
-  }
-
   if (loading) {
     return (
       <AppShell title="Secretary" nav={secretaryNav} activeHref={activeFinanceHref}>
@@ -2343,209 +2241,6 @@ function SecretaryFinancePageContent() {
         {/* ── PAYMENTS SECTION ── */}
         {showPayments && (
           <div className="space-y-5">
-            <SectionCard
-              title="Record a Payment"
-              description="Capture a payment and allocate it against outstanding invoices."
-            >
-              <div className="grid gap-6 lg:grid-cols-2">
-                {/* Payment details */}
-                <div className="space-y-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Payment Details
-                  </p>
-                  <FormField label="Filter by Student (optional)">
-                    <EnrollmentCombobox
-                      options={enrollmentOptions}
-                      value={paymentEnrollmentId}
-                      onChange={setPaymentEnrollmentId}
-                      placeholder="All students"
-                      allLabel="All students"
-                    />
-                  </FormField>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    <FormField label="Payment Method" required>
-                      <Select
-                        value={paymentForm.provider}
-                        onValueChange={(value) =>
-                          setPaymentForm((p) => ({ ...p, provider: value }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="CASH">💵 Cash</SelectItem>
-                          <SelectItem value="MPESA">M-Pesa</SelectItem>
-                          <SelectItem value="BANK">Bank Transfer</SelectItem>
-                          <SelectItem value="CHEQUE">Cheque</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormField>
-                    <FormField label="Reference / Transaction ID">
-                      <Input
-                        placeholder="e.g. QJKL2X3"
-                        value={paymentForm.reference}
-                        onChange={(e) =>
-                          setPaymentForm((p) => ({
-                            ...p,
-                            reference: e.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Total Amount (KES)" required>
-                      <Input
-                        type="number"
-                        min={0}
-                        placeholder="0.00"
-                        value={paymentForm.amount}
-                        onChange={(e) =>
-                          setPaymentForm((p) => ({ ...p, amount: e.target.value }))
-                        }
-                      />
-                    </FormField>
-                  </div>
-                </div>
-
-                {/* Allocations */}
-                <div className="space-y-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Allocate to Invoices
-                    </p>
-                    <button
-                      onClick={autoDistributePayment}
-                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 transition"
-                    >
-                      Auto Distribute
-                    </button>
-                  </div>
-
-                  <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-slate-50">
-                          <TableHead className="text-xs">Invoice</TableHead>
-                          <TableHead className="text-xs">Allocate (KES)</TableHead>
-                          <TableHead className="text-xs"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {paymentAllocations.map((row, index) => (
-                          <TableRow key={index}>
-                            <TableCell>
-                              <Select
-                                value={row.invoice_id || "__none__"}
-                                onValueChange={(value) =>
-                                  setPaymentAllocations((prev) =>
-                                    prev.map((entry, idx) =>
-                                      idx === index
-                                        ? {
-                                            ...entry,
-                                            invoice_id: value === "__none__" ? "" : value,
-                                          }
-                                        : entry
-                                    )
-                                  )
-                                }
-                              >
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue placeholder="Select invoice" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__none__">Select invoice…</SelectItem>
-                                  {paymentCandidateInvoices.map((inv) => (
-                                  <SelectItem key={inv.id} value={inv.id}>
-                                      {(enrollmentNameById.get(String(inv.enrollment_id || "")) || "Unknown student")}
-                                      {" · "}
-                                      {normalizeInvoiceType(inv.invoice_type)}
-                                      {" · balance "}
-                                      {formatAmount(inv.balance_amount)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            </TableCell>
-                            <TableCell>
-                              <Input
-                                type="number"
-                                min={0}
-                                placeholder="0.00"
-                                value={row.amount}
-                                onChange={(e) =>
-                                  setPaymentAllocations((prev) =>
-                                    prev.map((entry, idx) =>
-                                      idx === index ? { ...entry, amount: e.target.value } : entry
-                                    )
-                                  )
-                                }
-                                className="h-8 text-sm"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <button
-                                onClick={() =>
-                                  setPaymentAllocations((prev) =>
-                                    prev.filter((_, idx) => idx !== index)
-                                  )
-                                }
-                                className="text-xs text-red-400 hover:text-red-600"
-                              >
-                                ✕
-                              </button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-
-                  {/* Totals check */}
-                  <div className="flex flex-col gap-1 rounded-xl border px-4 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-slate-500">Allocation total</span>
-                    <span
-                      className={`font-semibold ${
-                        paymentAllocationTotal === toNumber(paymentForm.amount) &&
-                        toNumber(paymentForm.amount) > 0
-                          ? "text-emerald-700"
-                          : "text-red-600"
-                      }`}
-                    >
-                      {formatKes(paymentAllocationTotal)}
-                      {toNumber(paymentForm.amount) > 0 &&
-                        paymentAllocationTotal !== toNumber(paymentForm.amount) && (
-                          <span className="ml-2 text-xs font-normal text-red-500">
-                            (must equal {formatKes(toNumber(paymentForm.amount))})
-                          </span>
-                        )}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <button
-                      onClick={() =>
-                        setPaymentAllocations((prev) => [
-                          ...prev,
-                          { invoice_id: "", amount: "" },
-                        ])
-                      }
-                      className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition"
-                    >
-                      + Add Row
-                    </button>
-                    <ActionButton
-                      onClick={recordPayment}
-                      loading={pendingAction === "record_payment"}
-                      loadingText="Recording…"
-                      className="flex-1"
-                    >
-                      Record Payment
-                    </ActionButton>
-                  </div>
-                </div>
-              </div>
-            </SectionCard>
-
             {/* Payments Table */}
             <SectionCard title="Payment Records">
               <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
