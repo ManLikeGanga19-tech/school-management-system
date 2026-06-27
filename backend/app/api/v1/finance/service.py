@@ -1892,8 +1892,20 @@ def create_payment(
     provider: str,
     reference: Optional[str],
     amount: Decimal,
-    allocations: list[dict]
+    allocations: list[dict],
+    credit_to_student_id: Optional[UUID] = None,
 ) -> Payment:
+    """Record a payment and allocate it across invoices.
+
+    credit_to_student_id controls who an overpayment surplus is credited to:
+      - omitted + single-student allocation -> that student (no ambiguity)
+      - omitted + multi-student allocation + surplus > 0 -> hard error (the
+        caller MUST pick a child explicitly; we never silently credit the
+        'first' invoice's student when siblings are involved)
+      - supplied -> credit goes to that student, BUT the student must be one
+        of the students whose invoices are part of this payment (or the
+        surplus would land on someone unrelated to the transaction)
+    """
     provider_code = provider.upper().strip()
     if provider_code not in ("CASH", "MPESA", "BANK", "CHEQUE"):
         raise ValueError("Invalid payment provider")
@@ -1924,6 +1936,43 @@ def create_payment(
     # invoice. The receipt narrates the split.
     surplus = payment_amount - alloc_total
 
+    # Resolve the set of students whose invoices the allocation touches. This
+    # both anchors the multi-student surplus rule and lets us validate any
+    # caller-supplied credit_to_student_id is part of the payment.
+    invoices = db.execute(
+        select(Invoice).where(
+            Invoice.tenant_id == tenant_id,
+            Invoice.id.in_(invoice_ids),
+        )
+    ).scalars().all()
+    if len(invoices) != len(set(invoice_ids)):
+        raise ValueError("One or more invoices not found in this tenant")
+
+    enrollment_ids = {inv.enrollment_id for inv in invoices if inv.enrollment_id}
+    student_id_rows = db.execute(
+        select(Enrollment.student_id).where(
+            Enrollment.tenant_id == tenant_id,
+            Enrollment.id.in_(enrollment_ids),
+        )
+    ).all() if enrollment_ids else []
+    students_in_payment: set[UUID] = {
+        r[0] for r in student_id_rows if r[0] is not None
+    }
+
+    if surplus > 0:
+        if credit_to_student_id is None:
+            if len(students_in_payment) > 1:
+                raise ValueError(
+                    "credit_to_student_id required when payment surplus spans "
+                    "multiple students"
+                )
+        else:
+            credit_uuid = UUID(str(credit_to_student_id))
+            if students_in_payment and credit_uuid not in students_in_payment:
+                raise ValueError(
+                    "credit_to_student_id is not part of this payment"
+                )
+
     pay = Payment(tenant_id=tenant_id, provider=provider_code, reference=reference, amount=amount, created_by=actor_user_id)
     db.add(pay)
     db.flush()
@@ -1935,11 +1984,6 @@ def create_payment(
             created_at=getattr(pay, "received_at", None),
         )
         db.flush()
-
-    # validate invoices belong to tenant
-    invoices = db.execute(select(Invoice).where(Invoice.tenant_id == tenant_id, Invoice.id.in_(invoice_ids))).scalars().all()
-    if len(invoices) != len(set(invoice_ids)):
-        raise ValueError("One or more invoices not found in this tenant")
 
     invoice_map = {inv.id: inv for inv in invoices}
     for invoice_id, alloc_amount in normalized_allocations:
@@ -1957,27 +2001,33 @@ def create_payment(
         _recalc_invoice_amounts(db, inv)
     db.flush()
 
-    # Surplus → auto-credit on the student behind the first allocated invoice.
-    # The credit will be netted into the Arrears line of the next generated
-    # invoice (rolled-up display, signed amount).
+    # Surplus → auto-credit. credit_to_student_id wins; otherwise (single-student
+    # case only, multi-student case is already rejected above) credit goes to
+    # the unique student behind the allocation.
     credit_balance_id = None
-    if surplus > 0 and invoices:
-        first_inv = invoices[0]
-        enrollment = db.execute(
-            select(Enrollment.id, Enrollment.student_id).where(
-                Enrollment.id == first_inv.enrollment_id,
-                Enrollment.tenant_id == tenant_id,
+    credit_student_id: Optional[UUID] = None
+    if surplus > 0:
+        if credit_to_student_id is not None:
+            credit_student_id = UUID(str(credit_to_student_id))
+        elif len(students_in_payment) == 1:
+            credit_student_id = next(iter(students_in_payment))
+
+        if credit_student_id is not None:
+            # Use the oldest invoice in the allocation to label the credit
+            # (deterministic — sorted by created_at) so receipts read sensibly.
+            anchor_inv = min(
+                (inv for inv in invoices if inv.enrollment_id is not None),
+                key=lambda i: (i.created_at or 0),
+                default=invoices[0],
             )
-        ).first()
-        if enrollment and enrollment.student_id:
             credit_balance = add_carry_forward(
                 db,
                 tenant_id=tenant_id,
-                student_id=enrollment.student_id,
+                student_id=credit_student_id,
                 actor_user_id=actor_user_id,
                 term_label=f"Overpayment on receipt {pay.receipt_no or str(pay.id)[:8]}",
-                academic_year=getattr(first_inv, "academic_year", None),
-                term_number=getattr(first_inv, "term_number", None),
+                academic_year=getattr(anchor_inv, "academic_year", None),
+                term_number=getattr(anchor_inv, "term_number", None),
                 amount=-surplus,
                 description=(
                     f"Auto-credit for KES {surplus} surplus on payment "
@@ -2000,6 +2050,10 @@ def create_payment(
             "allocated_total": str(alloc_total),
             "surplus_credit": str(surplus),
             "credit_balance_id": credit_balance_id,
+            "credit_to_student_id": (
+                str(credit_student_id) if credit_student_id is not None else None
+            ),
+            "student_count": len(students_in_payment),
         },
         meta=None,
     )

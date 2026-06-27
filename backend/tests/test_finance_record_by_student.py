@@ -480,3 +480,277 @@ class TestRecordPaymentByStudent:
         # The summary helpers raise "No outstanding fees invoices" because
         # tenant_b can't see tenant_a's invoices → 400 with that detail.
         assert resp.status_code == 400
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# create_payment service: credit_to_student_id behaviour
+#
+# These tests drive the service directly because the per-student endpoint is
+# scoped to a single student (so the multi-student guard cannot be exercised
+# through it). The forthcoming family endpoint will route through the same
+# create_payment, so locking this behaviour here protects both paths.
+# ────────────────────────────────────────────────────────────────────────────
+
+class TestCreatePaymentCreditTarget:
+    def _seed_two_students_with_invoices(self, db: Session, *, tenant_id) -> tuple[str, str, str, str]:
+        """Two students with one open invoice each. Returns
+        (sid_a, sid_b, iid_a, iid_b)."""
+        sid_a, eid_a = _seed_student_and_enrollment(db, tenant_id=tenant_id)
+        sid_b, eid_b = _seed_student_and_enrollment(db, tenant_id=tenant_id)
+        iid_a = _seed_invoice(db, tenant_id=tenant_id, enrollment_id=eid_a,
+                              term_number=1, academic_year=2026, total=Decimal("5000"))
+        iid_b = _seed_invoice(db, tenant_id=tenant_id, enrollment_id=eid_b,
+                              term_number=1, academic_year=2026, total=Decimal("3000"))
+        return sid_a, sid_b, iid_a, iid_b
+
+    def test_single_student_surplus_credits_that_student_by_default(
+        self, db_session: Session
+    ):
+        """Backwards-compat: a single-student record with surplus and no
+        credit_to_student_id still lands the credit on that student."""
+        from app.api.v1.finance.service import create_payment
+        from uuid import UUID as _UUID
+        tenant = create_tenant(db_session, slug=f"cp1-{uuid4().hex[:6]}")
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        iid = _seed_invoice(db_session, tenant_id=tenant.id, enrollment_id=eid,
+                            term_number=1, academic_year=2026, total=Decimal("2000"))
+
+        pay = create_payment(
+            db_session,
+            tenant_id=tenant.id,
+            actor_user_id=None,
+            provider="CASH",
+            reference=None,
+            amount=Decimal("2500"),
+            allocations=[{"invoice_id": _UUID(iid), "amount": Decimal("2000")}],
+        )
+        db_session.commit()
+        assert pay.id is not None
+
+        cf = db_session.execute(
+            select(StudentCarryForward).where(
+                StudentCarryForward.tenant_id == tenant.id,
+                StudentCarryForward.student_id == sid,
+                StudentCarryForward.category == "OVERPAYMENT_CREDIT",
+            )
+        ).scalar_one()
+        assert Decimal(str(cf.amount)) == Decimal("-500")
+
+    def test_multi_student_surplus_without_credit_target_rejected(
+        self, db_session: Session
+    ):
+        """Allocations span two students AND there is surplus AND no
+        credit_to_student_id → raise. No Payment row may be created."""
+        from app.api.v1.finance.service import create_payment
+        from uuid import UUID as _UUID
+        tenant = create_tenant(db_session, slug=f"cp2-{uuid4().hex[:6]}")
+        sid_a, sid_b, iid_a, iid_b = self._seed_two_students_with_invoices(
+            db_session, tenant_id=tenant.id
+        )
+        payments_before = db_session.execute(
+            text("SELECT COUNT(*) FROM core.payments WHERE tenant_id = :tid"),
+            {"tid": str(tenant.id)},
+        ).scalar_one()
+
+        with pytest.raises(ValueError, match="credit_to_student_id required"):
+            create_payment(
+                db_session,
+                tenant_id=tenant.id,
+                actor_user_id=None,
+                provider="MPESA",
+                reference="MX1",
+                amount=Decimal("10000"),  # surplus of 2000
+                allocations=[
+                    {"invoice_id": _UUID(iid_a), "amount": Decimal("5000")},
+                    {"invoice_id": _UUID(iid_b), "amount": Decimal("3000")},
+                ],
+            )
+        db_session.rollback()
+
+        payments_after = db_session.execute(
+            text("SELECT COUNT(*) FROM core.payments WHERE tenant_id = :tid"),
+            {"tid": str(tenant.id)},
+        ).scalar_one()
+        assert payments_after == payments_before
+
+    def test_multi_student_no_surplus_does_not_require_credit_target(
+        self, db_session: Session
+    ):
+        """When the allocations sum exactly to the payment amount, no surplus
+        means no credit decision is needed — multi-student is fine."""
+        from app.api.v1.finance.service import create_payment
+        from uuid import UUID as _UUID
+        tenant = create_tenant(db_session, slug=f"cp3-{uuid4().hex[:6]}")
+        sid_a, sid_b, iid_a, iid_b = self._seed_two_students_with_invoices(
+            db_session, tenant_id=tenant.id
+        )
+
+        pay = create_payment(
+            db_session,
+            tenant_id=tenant.id,
+            actor_user_id=None,
+            provider="CASH",
+            reference=None,
+            amount=Decimal("8000"),
+            allocations=[
+                {"invoice_id": _UUID(iid_a), "amount": Decimal("5000")},
+                {"invoice_id": _UUID(iid_b), "amount": Decimal("3000")},
+            ],
+        )
+        db_session.commit()
+        assert pay.id is not None
+
+        cf_count = db_session.execute(
+            select(StudentCarryForward).where(
+                StudentCarryForward.tenant_id == tenant.id,
+                StudentCarryForward.category == "OVERPAYMENT_CREDIT",
+            )
+        ).all()
+        assert len(cf_count) == 0
+
+    def test_multi_student_surplus_honors_chosen_credit_target(
+        self, db_session: Session
+    ):
+        """credit_to_student_id = sid_b → exactly one credit lands on B, none
+        on A."""
+        from app.api.v1.finance.service import create_payment
+        from uuid import UUID as _UUID
+        tenant = create_tenant(db_session, slug=f"cp4-{uuid4().hex[:6]}")
+        sid_a, sid_b, iid_a, iid_b = self._seed_two_students_with_invoices(
+            db_session, tenant_id=tenant.id
+        )
+
+        pay = create_payment(
+            db_session,
+            tenant_id=tenant.id,
+            actor_user_id=None,
+            provider="BANK",
+            reference="BK1",
+            amount=Decimal("10000"),
+            allocations=[
+                {"invoice_id": _UUID(iid_a), "amount": Decimal("5000")},
+                {"invoice_id": _UUID(iid_b), "amount": Decimal("3000")},
+            ],
+            credit_to_student_id=_UUID(sid_b),
+        )
+        db_session.commit()
+
+        creds = db_session.execute(
+            select(StudentCarryForward).where(
+                StudentCarryForward.tenant_id == tenant.id,
+                StudentCarryForward.category == "OVERPAYMENT_CREDIT",
+            )
+        ).scalars().all()
+        assert len(creds) == 1
+        assert str(creds[0].student_id) == sid_b
+        assert Decimal(str(creds[0].amount)) == Decimal("-2000")
+
+        # Audit payload must capture the credit_to_student_id and student_count.
+        from app.models.audit_log import AuditLog
+        audit = db_session.execute(
+            select(AuditLog)
+            .where(
+                AuditLog.tenant_id == tenant.id,
+                AuditLog.action == "payment.create",
+                AuditLog.resource_id == pay.id,
+            )
+        ).scalar_one()
+        assert audit.payload.get("credit_to_student_id") == sid_b
+        assert audit.payload.get("student_count") == 2
+
+    def test_credit_target_outside_payment_rejected(
+        self, db_session: Session
+    ):
+        """credit_to_student_id must be a student whose invoices are in the
+        allocation. A stranger student gets a 'not part of this payment'
+        error — guards against typos crediting the wrong family entirely."""
+        from app.api.v1.finance.service import create_payment
+        from uuid import UUID as _UUID
+        tenant = create_tenant(db_session, slug=f"cp5-{uuid4().hex[:6]}")
+        sid_a, sid_b, iid_a, iid_b = self._seed_two_students_with_invoices(
+            db_session, tenant_id=tenant.id
+        )
+        # An unrelated student in the same tenant.
+        sid_outsider, _eid_o = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+
+        with pytest.raises(ValueError, match="not part of this payment"):
+            create_payment(
+                db_session,
+                tenant_id=tenant.id,
+                actor_user_id=None,
+                provider="MPESA",
+                reference="MX2",
+                amount=Decimal("10000"),
+                allocations=[
+                    {"invoice_id": _UUID(iid_a), "amount": Decimal("5000")},
+                    {"invoice_id": _UUID(iid_b), "amount": Decimal("3000")},
+                ],
+                credit_to_student_id=_UUID(sid_outsider),
+            )
+        db_session.rollback()
+
+    def test_no_surplus_ignores_credit_target(self, db_session: Session):
+        """If allocations exactly equal amount, credit_to_student_id is a
+        no-op — we don't create a phantom zero-credit CF row."""
+        from app.api.v1.finance.service import create_payment
+        from uuid import UUID as _UUID
+        tenant = create_tenant(db_session, slug=f"cp6-{uuid4().hex[:6]}")
+        sid_a, sid_b, iid_a, iid_b = self._seed_two_students_with_invoices(
+            db_session, tenant_id=tenant.id
+        )
+        create_payment(
+            db_session,
+            tenant_id=tenant.id,
+            actor_user_id=None,
+            provider="CASH",
+            reference=None,
+            amount=Decimal("8000"),
+            allocations=[
+                {"invoice_id": _UUID(iid_a), "amount": Decimal("5000")},
+                {"invoice_id": _UUID(iid_b), "amount": Decimal("3000")},
+            ],
+            credit_to_student_id=_UUID(sid_a),
+        )
+        db_session.commit()
+        creds = db_session.execute(
+            select(StudentCarryForward).where(
+                StudentCarryForward.tenant_id == tenant.id,
+                StudentCarryForward.category == "OVERPAYMENT_CREDIT",
+            )
+        ).all()
+        assert len(creds) == 0
+
+    def test_audit_records_credit_target_null_when_no_surplus(
+        self, db_session: Session
+    ):
+        """credit_to_student_id audit field is null when there was no
+        surplus (regardless of whether the caller supplied a target)."""
+        from app.api.v1.finance.service import create_payment
+        from app.models.audit_log import AuditLog
+        from uuid import UUID as _UUID
+        tenant = create_tenant(db_session, slug=f"cp7-{uuid4().hex[:6]}")
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        iid = _seed_invoice(db_session, tenant_id=tenant.id, enrollment_id=eid,
+                            term_number=1, academic_year=2026, total=Decimal("3000"))
+
+        pay = create_payment(
+            db_session,
+            tenant_id=tenant.id,
+            actor_user_id=None,
+            provider="CASH",
+            reference=None,
+            amount=Decimal("3000"),
+            allocations=[{"invoice_id": _UUID(iid), "amount": Decimal("3000")}],
+        )
+        db_session.commit()
+
+        audit = db_session.execute(
+            select(AuditLog)
+            .where(
+                AuditLog.tenant_id == tenant.id,
+                AuditLog.action == "payment.create",
+                AuditLog.resource_id == pay.id,
+            )
+        ).scalar_one()
+        assert audit.payload.get("credit_to_student_id") is None
+        assert audit.payload.get("student_count") == 1
