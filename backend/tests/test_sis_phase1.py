@@ -226,6 +226,346 @@ class TestUpdateBiodata:
         assert resp.status_code == 403
 
 
+# ── Admission-number rename propagation ─────────────────────────────────────
+#
+# Renaming admission_no on the SIS student must sync to every enrollment row
+# for that student (column + JSONB payload), or the student profile header,
+# parents module, and finance views silently render the stale old number.
+
+def _seed_enrollment(
+    db: Session,
+    *,
+    tenant_id,
+    student_id: str,
+    admission_number: str,
+    extra_payload: dict | None = None,
+) -> str:
+    """Insert an enrollment linked to a student. Returns enrollment UUID."""
+    from sqlalchemy import text
+    import json as _json
+    eid = str(uuid4())
+    payload = {"admission_number": admission_number, **(extra_payload or {})}
+    db.execute(
+        text(
+            "INSERT INTO core.enrollments "
+            "(id, tenant_id, student_id, admission_number, status, payload) "
+            "VALUES (:id, :tid, :sid, :adm, 'ENROLLED', CAST(:payload AS jsonb))"
+        ),
+        {
+            "id": eid,
+            "tid": str(tenant_id),
+            "sid": student_id,
+            "adm": admission_number,
+            "payload": _json.dumps(payload),
+        },
+    )
+    db.commit()
+    return eid
+
+
+class TestAdmissionNumberRename:
+    def test_rename_propagates_to_single_enrollment(self, client: TestClient, db_session: Session):
+        """Renaming admission_no updates both the column AND the payload on the
+        student's enrollment row."""
+        from sqlalchemy import text
+        tenant = create_tenant(db_session)
+        sid = _seed_student(db_session, tenant_id=tenant.id, admission_no="ADM-001")
+        eid = _seed_enrollment(
+            db_session, tenant_id=tenant.id, student_id=sid, admission_number="ADM-001"
+        )
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIODATA_MANAGE)
+
+        resp = client.patch(
+            f"{BASE}/{sid}/biodata",
+            json={"admission_no": "ADM-002"},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["admission_no"] == "ADM-002"
+
+        row = db_session.execute(
+            text(
+                "SELECT admission_number, payload->>'admission_number' AS pay_adm "
+                "FROM core.enrollments WHERE id = :id"
+            ),
+            {"id": eid},
+        ).mappings().first()
+        assert row["admission_number"] == "ADM-002"
+        assert row["pay_adm"] == "ADM-002"
+
+    def test_rename_propagates_to_matching_enrollments_only(
+        self, client: TestClient, db_session: Session
+    ):
+        """A student with multiple enrollments (e.g. re-admission) has each
+        admission_number kept distinct by the partial unique index. Renaming
+        the SIS admission_no propagates to enrollments carrying the OLD value
+        (or NULL), and leaves re-admission rows with a different number
+        untouched — their numbers are historical and stay distinct."""
+        from sqlalchemy import text
+        tenant = create_tenant(db_session)
+        sid = _seed_student(db_session, tenant_id=tenant.id, admission_no="ADM-001")
+        # Enrollment matching the current SIS number — must be renamed.
+        eid_current = _seed_enrollment(
+            db_session, tenant_id=tenant.id, student_id=sid, admission_number="ADM-001",
+            extra_payload={"academic_year": 2026},
+        )
+        # Old re-admission enrollment with its own distinct number — must NOT
+        # be touched (historical).
+        eid_old = _seed_enrollment(
+            db_session, tenant_id=tenant.id, student_id=sid, admission_number="ADM-OLD-2024",
+            extra_payload={"academic_year": 2024},
+        )
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIODATA_MANAGE)
+
+        resp = client.patch(
+            f"{BASE}/{sid}/biodata",
+            json={"admission_no": "ADM-NEW"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+
+        rows = db_session.execute(
+            text(
+                "SELECT id, admission_number, payload->>'admission_number' AS pay_adm "
+                "FROM core.enrollments WHERE id = ANY(:ids)"
+            ),
+            {"ids": [eid_current, eid_old]},
+        ).mappings().all()
+        by_id = {str(r["id"]): r for r in rows}
+        assert by_id[eid_current]["admission_number"] == "ADM-NEW"
+        assert by_id[eid_current]["pay_adm"] == "ADM-NEW"
+        # Historical re-admission row is untouched.
+        assert by_id[eid_old]["admission_number"] == "ADM-OLD-2024"
+        assert by_id[eid_old]["pay_adm"] == "ADM-OLD-2024"
+
+    def test_rename_fills_in_enrollment_with_missing_admission(
+        self, client: TestClient, db_session: Session
+    ):
+        """An enrollment that was missing admission_number (NULL) gets filled
+        in on rename — covers historical rows from before the column existed."""
+        from sqlalchemy import text
+        tenant = create_tenant(db_session)
+        sid = _seed_student(db_session, tenant_id=tenant.id, admission_no="ADM-001")
+        # Seed an enrollment with admission_number = NULL.
+        eid = _seed_enrollment(
+            db_session, tenant_id=tenant.id, student_id=sid, admission_number="ADM-001"
+        )
+        db_session.execute(
+            text("UPDATE core.enrollments SET admission_number = NULL WHERE id = :id"),
+            {"id": eid},
+        )
+        db_session.commit()
+
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIODATA_MANAGE)
+        resp = client.patch(
+            f"{BASE}/{sid}/biodata",
+            json={"admission_no": "ADM-NEW"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+
+        row = db_session.execute(
+            text(
+                "SELECT admission_number, payload->>'admission_number' AS pay_adm "
+                "FROM core.enrollments WHERE id = :id"
+            ),
+            {"id": eid},
+        ).mappings().first()
+        assert row["admission_number"] == "ADM-NEW"
+        assert row["pay_adm"] == "ADM-NEW"
+
+    def test_rename_to_other_student_admission_returns_409(
+        self, client: TestClient, db_session: Session
+    ):
+        """Trying to set admission_no to a value another SIS student already
+        owns must 409 — and leave both rows untouched."""
+        from sqlalchemy import text
+        tenant = create_tenant(db_session)
+        sid_a = _seed_student(db_session, tenant_id=tenant.id, admission_no="ADM-001")
+        sid_b = _seed_student(db_session, tenant_id=tenant.id, admission_no="ADM-002")
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIODATA_MANAGE)
+
+        resp = client.patch(
+            f"{BASE}/{sid_a}/biodata",
+            json={"admission_no": "ADM-002"},
+            headers=headers,
+        )
+        assert resp.status_code == 409
+        assert "ADM-002" in resp.json()["detail"]
+
+        # Neither student's admission_no should have changed.
+        rows = db_session.execute(
+            text("SELECT id, admission_no FROM core.students WHERE id = ANY(:ids)"),
+            {"ids": [sid_a, sid_b]},
+        ).mappings().all()
+        by_id = {str(r["id"]): r["admission_no"] for r in rows}
+        assert by_id[sid_a] == "ADM-001"
+        assert by_id[sid_b] == "ADM-002"
+
+    def test_rename_to_other_enrollment_admission_returns_409(
+        self, client: TestClient, db_session: Session
+    ):
+        """A second student whose enrollment has admission_number=X must block a
+        rename TO X even if no other SIS row uses it — keeps the partial unique
+        index from throwing a raw DB error."""
+        from sqlalchemy import text
+        tenant = create_tenant(db_session)
+        sid_a = _seed_student(db_session, tenant_id=tenant.id, admission_no="ADM-100")
+        sid_b = _seed_student(db_session, tenant_id=tenant.id, admission_no="ADM-200")
+        # Other student has an enrollment using "ADM-999" (not on their SIS row).
+        _seed_enrollment(
+            db_session, tenant_id=tenant.id, student_id=sid_b, admission_number="ADM-999"
+        )
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIODATA_MANAGE)
+
+        resp = client.patch(
+            f"{BASE}/{sid_a}/biodata",
+            json={"admission_no": "ADM-999"},
+            headers=headers,
+        )
+        assert resp.status_code == 409
+        assert "ADM-999" in resp.json()["detail"]
+
+        # Student A unchanged.
+        row_a = db_session.execute(
+            text("SELECT admission_no FROM core.students WHERE id = :id"),
+            {"id": sid_a},
+        ).mappings().first()
+        assert row_a["admission_no"] == "ADM-100"
+
+    def test_rename_emits_audit_event(self, client: TestClient, db_session: Session):
+        """An admission_no rename emits a student.admission_no.update audit
+        event capturing before/after and the enrollment ids touched."""
+        from sqlalchemy import select, text
+        from app.models.audit_log import AuditLog
+        tenant = create_tenant(db_session)
+        sid = _seed_student(db_session, tenant_id=tenant.id, admission_no="ADM-001")
+        eid = _seed_enrollment(
+            db_session, tenant_id=tenant.id, student_id=sid, admission_number="ADM-001"
+        )
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIODATA_MANAGE)
+
+        resp = client.patch(
+            f"{BASE}/{sid}/biodata",
+            json={"admission_no": "ADM-RENAMED"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+
+        audit_row = db_session.execute(
+            select(AuditLog)
+            .where(
+                AuditLog.tenant_id == tenant.id,
+                AuditLog.action == "student.admission_no.update",
+            )
+            .order_by(AuditLog.created_at.desc())
+        ).scalars().first()
+        assert audit_row is not None
+        payload = audit_row.payload or {}
+        assert payload.get("before") == "ADM-001"
+        assert payload.get("after") == "ADM-RENAMED"
+        assert payload.get("enrollment_count") == 1
+        assert eid in (payload.get("enrollment_ids") or [])
+
+    def test_rename_to_same_value_is_noop(self, client: TestClient, db_session: Session):
+        """Setting admission_no to its existing value is not treated as a
+        rename — no audit event, no needless enrollment write."""
+        from sqlalchemy import select
+        from app.models.audit_log import AuditLog
+        tenant = create_tenant(db_session)
+        sid = _seed_student(db_session, tenant_id=tenant.id, admission_no="ADM-001")
+        _seed_enrollment(
+            db_session, tenant_id=tenant.id, student_id=sid, admission_number="ADM-001"
+        )
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIODATA_MANAGE)
+
+        resp = client.patch(
+            f"{BASE}/{sid}/biodata",
+            json={"admission_no": "ADM-001"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+
+        audit_count = db_session.execute(
+            select(AuditLog).where(
+                AuditLog.tenant_id == tenant.id,
+                AuditLog.action == "student.admission_no.update",
+            )
+        ).all()
+        assert len(audit_count) == 0
+
+    def test_non_admission_update_does_not_emit_rename_audit(
+        self, client: TestClient, db_session: Session
+    ):
+        """Updating other biodata fields must not trigger the rename audit
+        event or touch enrollment rows."""
+        from sqlalchemy import select, text
+        from app.models.audit_log import AuditLog
+        tenant = create_tenant(db_session)
+        sid = _seed_student(db_session, tenant_id=tenant.id, admission_no="ADM-001")
+        eid = _seed_enrollment(
+            db_session, tenant_id=tenant.id, student_id=sid, admission_number="ADM-001"
+        )
+        # Capture the enrollment's updated_at BEFORE the biodata patch.
+        before_ts = db_session.execute(
+            text("SELECT updated_at FROM core.enrollments WHERE id = :id"),
+            {"id": eid},
+        ).scalar_one()
+
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIODATA_MANAGE)
+        resp = client.patch(
+            f"{BASE}/{sid}/biodata",
+            json={"phone": "0712345678"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+
+        # No rename audit event.
+        rename_events = db_session.execute(
+            select(AuditLog).where(
+                AuditLog.tenant_id == tenant.id,
+                AuditLog.action == "student.admission_no.update",
+            )
+        ).all()
+        assert len(rename_events) == 0
+
+        # Enrollment row was NOT touched.
+        after_ts = db_session.execute(
+            text("SELECT updated_at FROM core.enrollments WHERE id = :id"),
+            {"id": eid},
+        ).scalar_one()
+        assert after_ts == before_ts
+
+    def test_rename_is_tenant_scoped(self, client: TestClient, db_session: Session):
+        """A rename in tenant A must not affect tenant B's enrollments even if
+        they share the same admission_no."""
+        from sqlalchemy import text
+        tenant_a = create_tenant(db_session, slug="adm-rename-a")
+        tenant_b = create_tenant(db_session, slug="adm-rename-b")
+        sid_a = _seed_student(db_session, tenant_id=tenant_a.id, admission_no="ADM-SAME")
+        sid_b = _seed_student(db_session, tenant_id=tenant_b.id, admission_no="ADM-SAME")
+        eid_b = _seed_enrollment(
+            db_session, tenant_id=tenant_b.id, student_id=sid_b, admission_number="ADM-SAME"
+        )
+        _, headers_a = make_actor(db_session, tenant=tenant_a, permissions=BIODATA_MANAGE)
+
+        resp = client.patch(
+            f"{BASE}/{sid_a}/biodata",
+            json={"admission_no": "ADM-A-RENAMED"},
+            headers=headers_a,
+        )
+        assert resp.status_code == 200
+
+        # Tenant B's enrollment is unchanged.
+        row_b = db_session.execute(
+            text(
+                "SELECT admission_number FROM core.enrollments WHERE id = :id"
+            ),
+            {"id": eid_b},
+        ).mappings().first()
+        assert row_b["admission_number"] == "ADM-SAME"
+
+
 # ── GET /{id}/guardian ──────────────────────────────────────────────────────
 
 class TestListGuardians:

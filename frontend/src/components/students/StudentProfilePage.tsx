@@ -663,8 +663,13 @@ export function StudentProfilePage({
       if (obj) setSisStudent(normalizeSisStudent(obj));
       setEditingBio(false);
       toast.success("Bio data updated.");
-    } catch {
-      toast.error("Failed to update bio data.");
+      // Renaming admission_no on the SIS student now propagates to the
+      // enrollment(s); reload the profile so the header and other
+      // enrollment-keyed fields pick up the new number immediately.
+      await loadProfile();
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(detail || "Failed to update bio data.");
     } finally {
       setSavingBio(false);
     }

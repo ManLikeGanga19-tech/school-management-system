@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from app.core.audit import log_event
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_tenant, require_permission
 
@@ -139,26 +140,53 @@ def update_student_biodata(
     payload: StudentBiodataUpdate,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
-    _user=Depends(get_current_user),
+    user=Depends(get_current_user),
 ):
-    _require_student(db, student_id=student_id, tenant_id=tenant.id)
+    existing = _require_student(db, student_id=student_id, tenant_id=tenant.id)
 
     data = payload.model_dump(exclude_unset=True)
 
-    # Admission number must stay unique within the tenant.
-    new_adm = data.get("admission_no")
-    if new_adm:
-        clash = db.execute(
+    # If admission_no is changing, it must stay unique within the tenant —
+    # across both core.students AND core.enrollments (the column we propagate
+    # to). Same 409 either way so the UI shows one clear error.
+    new_adm_raw = data.get("admission_no")
+    new_adm = str(new_adm_raw).strip() if new_adm_raw else None
+    old_adm = str(existing.get("admission_no") or "").strip() or None
+    rename_admission = bool(new_adm) and new_adm != old_adm
+
+    if rename_admission:
+        clash_student = db.execute(
             sa.text(
                 "SELECT 1 FROM core.students "
                 "WHERE tenant_id = :tid AND admission_no = :adm AND id <> :id LIMIT 1"
             ),
-            {"tid": str(tenant.id), "adm": str(new_adm).strip(), "id": str(student_id)},
+            {"tid": str(tenant.id), "adm": new_adm, "id": str(student_id)},
         ).first()
-        if clash:
+        if clash_student:
             raise HTTPException(
                 status_code=409,
                 detail=f"Admission number '{new_adm}' is already used by another student.",
+            )
+        # Also block if any other student's enrollment is already using it.
+        # Enrollment.admission_number has a partial unique index; the explicit
+        # query gives us a friendlier error than the raw DB violation.
+        clash_enrollment = db.execute(
+            sa.text(
+                "SELECT 1 FROM core.enrollments e "
+                "WHERE e.tenant_id = :tid "
+                "  AND e.admission_number = :adm "
+                "  AND (e.student_id IS NULL OR e.student_id <> :sid) "
+                "LIMIT 1"
+            ),
+            {"tid": str(tenant.id), "adm": new_adm, "sid": str(student_id)},
+        ).first()
+        if clash_enrollment:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Admission number '{new_adm}' is already used on another "
+                    "student's enrollment record."
+                ),
             )
 
     updates: list[str] = []
@@ -182,6 +210,59 @@ def update_student_biodata(
         ),
         params,
     )
+
+    affected_enrollment_ids: list[str] = []
+    if rename_admission:
+        # Propagate the new admission number to EVERY enrollment for this
+        # student so the student profile header, parents module, and finance
+        # views all stay in sync. The enrollment carries the number in two
+        # places — the dedicated column and the JSONB payload — both updated
+        # in one round-trip.
+        # Update every enrollment of this student that is currently carrying
+        # the OLD admission number (or none at all). We deliberately skip
+        # enrollments with a different existing admission number — those are
+        # re-admission records whose number must remain distinct, both for
+        # audit and to avoid the partial unique index
+        # uq_enrollment_tenant_admission_number throwing a violation.
+        enrollment_rows = db.execute(
+            sa.text(
+                "UPDATE core.enrollments "
+                "SET admission_number = :adm_col, "
+                "    payload = COALESCE(payload, CAST('{}' AS jsonb)) "
+                "              || jsonb_build_object('admission_number', CAST(:adm_text AS text)), "
+                "    updated_at = :updated_at "
+                "WHERE tenant_id = :tenant_id "
+                "  AND student_id = :student_id "
+                "  AND (admission_number IS NULL OR admission_number = :old_adm) "
+                "RETURNING id"
+            ),
+            {
+                "adm_col": new_adm,
+                "adm_text": new_adm,
+                "old_adm": old_adm or "",
+                "updated_at": params["updated_at"],
+                "tenant_id": str(tenant.id),
+                "student_id": str(student_id),
+            },
+        ).all()
+        affected_enrollment_ids = [str(r[0]) for r in enrollment_rows]
+
+        log_event(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            action="student.admission_no.update",
+            resource="student",
+            resource_id=student_id,
+            payload={
+                "before": old_adm,
+                "after": new_adm,
+                "enrollment_ids": affected_enrollment_ids,
+                "enrollment_count": len(affected_enrollment_ids),
+            },
+            meta=None,
+        )
+
     db.commit()
 
     return _student_out(_require_student(db, student_id=student_id, tenant_id=tenant.id))
