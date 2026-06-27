@@ -135,6 +135,7 @@ type Enrollment = {
 
 type Payment = {
   id: string;
+  receipt_no?: string | null;
   provider: string;
   reference: string | null;
   amount: string | number;
@@ -2253,6 +2254,7 @@ function SecretaryFinancePageContent() {
                       <TableHead className="text-xs">Reference</TableHead>
                       <TableHead className="text-xs text-right">Amount</TableHead>
                       <TableHead className="text-xs">Invoices</TableHead>
+                      <TableHead className="text-xs text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2279,17 +2281,56 @@ function SecretaryFinancePageContent() {
                           {Array.isArray(payment.allocations) ? payment.allocations.length : 0}{" "}
                           invoice{payment.allocations?.length !== 1 ? "s" : ""}
                         </TableCell>
+                        <TableCell className="text-right">
+                          <RowActionsMenu
+                            ariaLabel="Payment actions"
+                            actions={[
+                              {
+                                key: "print-receipt",
+                                label: "Print receipt",
+                                icon: <Printer />,
+                                onSelect: () => void openDocInTab(
+                                  `/finance/documents/payments/${payment.id}/print`
+                                ),
+                              },
+                              {
+                                key: "print-receipt-invoice",
+                                label: "Print receipt + invoice",
+                                icon: <Printer />,
+                                onSelect: () => void printReceiptWithInvoice(payment),
+                              },
+                              {
+                                key: "download-pdf",
+                                label: "Download receipt PDF",
+                                icon: <FileDown />,
+                                separatorBefore: true,
+                                onSelect: () => {
+                                  const name =
+                                    payment.receipt_no ||
+                                    String(payment.id).slice(0, 8).toUpperCase();
+                                  void api.downloadFile(
+                                    `/finance/documents/payments/${payment.id}/pdf`,
+                                    `${name}.pdf`,
+                                    { tenantRequired: true }
+                                  ).catch(() =>
+                                    toast.error("Failed to download receipt PDF.")
+                                  );
+                                },
+                              },
+                            ]}
+                          />
+                        </TableCell>
                       </TableRow>
                     ))}
                     {pagedPayments.length === 0 && !paymentPageLoading && (
                       paymentPageError ? (
                         <ErrorRow
-                          colSpan={6}
+                          colSpan={7}
                           message={paymentPageError}
                           onRetry={() => void loadPagedPayments(paymentPage)}
                         />
                       ) : (
-                        <EmptyRow colSpan={6} message="No payments recorded yet." />
+                        <EmptyRow colSpan={7} message="No payments recorded yet." />
                       )
                     )}
                   </TableBody>
