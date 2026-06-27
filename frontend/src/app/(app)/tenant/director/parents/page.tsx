@@ -784,24 +784,29 @@ function FinanceTab({
       {/* Finance deep-link */}
       {outstandingInvoices.length > 0 && (
         <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-          <p className="text-sm font-medium text-blue-800">View in Finance module</p>
+          <p className="text-sm font-medium text-blue-800">Record payment in Finance</p>
           <p className="mt-0.5 text-xs text-blue-600">
-            You can also record payments and manage invoices in the Finance section.
+            Payments are recorded in the Finance module. Open the by-student
+            view for any of this guardian&apos;s children below.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {detail.children.map((child) =>
-              toNum(child.outstanding) > 0 ? (
-                <a
-                  key={child.enrollment_id}
-                  href={`/tenant/director/finance?section=payments&enrollment_id=${child.enrollment_id}`}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
-                >
-                  Pay for {child.student_name}
-                </a>
-              ) : null
-            )}
+            {Array.from(
+              new Map(
+                detail.children
+                  .filter((c) => c.student_id && toNum(c.outstanding) > 0)
+                  .map((c) => [c.student_id, c])
+              ).values()
+            ).map((child) => (
+              <a
+                key={child.link_id}
+                href={`/tenant/director/finance?section=record-payment&student_id=${encodeURIComponent(child.student_id!)}`}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
+              >
+                Pay for {child.student_name}
+              </a>
+            ))}
             <a
-              href="/tenant/director/finance?section=payments"
+              href="/tenant/director/finance?section=record-payment"
               className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 transition"
             >
               Open Finance →

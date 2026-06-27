@@ -5,7 +5,7 @@ import { usePersistedState } from "@/lib/usePersistedState";
 import { toast } from "@/components/ui/sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { secretaryNav } from "@/components/layout/nav-config";
-import { api, apiFetchRaw } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -103,20 +103,6 @@ type Invoice = {
   total_amount: string | number;
   paid_amount: string | number;
   balance_amount: string | number;
-};
-
-type DistributionLine = {
-  invoice_id: string;
-  enrollment_id: string;
-  student_name: string;
-  invoice_type: string;
-  amount: string | number;
-};
-
-type PaymentPreview = {
-  total: string | number;
-  lines: DistributionLine[];
-  unallocated: string | number;
 };
 
 type Enrollment = { id: string; payload: Record<string, unknown> };
@@ -380,320 +366,6 @@ function LinkEnrollmentModal({
     </div>
   );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Inline payment modal
-// ─────────────────────────────────────────────────────────────────────────────
-
-function RecordPaymentModal({
-  parentId,
-  invoices,
-  onSaved,
-  onClose,
-}: {
-  parentId: string;
-  invoices: Invoice[];
-  onSaved: () => void;
-  onClose: () => void;
-}) {
-  const [mode, setMode] = useState<"auto" | "manual">("auto");
-  // Shared fields
-  const [provider, setProvider] = useState("MPESA");
-  const [reference, setReference] = useState("");
-  // Auto mode
-  const [amount, setAmount] = useState("");
-  const [preview, setPreview] = useState<PaymentPreview | null>(null);
-  const [previewing, setPreviewing] = useState(false);
-  // Manual mode
-  const [receivedAmount, setReceivedAmount] = useState("");
-  const [manualAmounts, setManualAmounts] = useState<Record<string, string>>({});
-  const [recording, setRecording] = useState(false);
-  const [lastPayment, setLastPayment] = useState<{ payment_id: string; receipt_no: string } | null>(null);
-
-  const toNum = (v: string | number | undefined | null) => Number(v || 0);
-  const fmtKes = (v: string | number) =>
-    `KES ${Number(v).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-  const unpaid = invoices.filter((i) => toNum(i.balance_amount) > 0);
-  const totalBalance = unpaid.reduce((s, i) => s + toNum(i.balance_amount), 0);
-
-  // Manual mode derived values
-  const received = parseFloat(receivedAmount) || 0;
-  const manualTotal = Object.values(manualAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0);
-  const remaining = received - manualTotal;
-  const manualOverflow = manualTotal > received && received > 0;
-
-  async function handlePreview() {
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) { toast.error("Enter a valid amount"); return; }
-    setPreviewing(true);
-    try {
-      const res = await api.post<PaymentPreview>(
-        `/parents/${parentId}/payments/preview?amount=${amt}&strategy=oldest_first`,
-        undefined,
-        { tenantRequired: true }
-      );
-      setPreview(res);
-    } catch (e: unknown) {
-      toast.error((e as { message?: string })?.message || "Preview failed");
-    } finally { setPreviewing(false); }
-  }
-
-  async function handleRecord() {
-    setRecording(true);
-    try {
-      let allocations: { invoice_id: string; amount: number }[];
-      let totalAmt: number;
-
-      if (mode === "auto") {
-        if (!preview) { toast.error("Run preview first"); setRecording(false); return; }
-        allocations = preview.lines.map((l) => ({ invoice_id: l.invoice_id, amount: toNum(l.amount) }));
-        totalAmt = toNum(preview.total);
-      } else {
-        if (received <= 0) { toast.error("Enter the amount received from the parent"); setRecording(false); return; }
-        if (manualOverflow) { toast.error("Allocated amount exceeds what was received"); setRecording(false); return; }
-        allocations = unpaid
-          .map((inv) => ({ invoice_id: inv.invoice_id, amount: parseFloat(manualAmounts[inv.invoice_id] || "0") || 0 }))
-          .filter((a) => a.amount > 0);
-        if (allocations.length === 0) { toast.error("Allocate at least one invoice amount"); setRecording(false); return; }
-        // Per-invoice: cannot exceed balance
-        const overInv = unpaid.find((inv) => {
-          const alloc = parseFloat(manualAmounts[inv.invoice_id] || "0") || 0;
-          return alloc > toNum(inv.balance_amount) + 0.01;
-        });
-        if (overInv) { toast.error(`Amount for ${overInv.student_name} exceeds the invoice balance`); setRecording(false); return; }
-        totalAmt = manualTotal;
-      }
-
-      const result = await api.post<{ payment_id: string; receipt_no: string }>(
-        `/parents/${parentId}/payments`,
-        { provider, reference: reference.trim() || null, amount: totalAmt, allocations },
-        { tenantRequired: true }
-      );
-      toast.success("Payment recorded successfully");
-      onSaved();
-      setLastPayment(result);
-    } catch (e: unknown) {
-      toast.error((e as { message?: string })?.message || "Failed to record payment");
-    } finally { setRecording(false); }
-  }
-
-  const canSubmit = mode === "auto" ? !!preview : (manualTotal > 0 && received > 0 && !manualOverflow);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 shrink-0">
-          <div>
-            <h2 className="text-base font-semibold text-slate-800">Record Payment</h2>
-            <p className="text-xs text-slate-400">Total outstanding: {fmtKes(totalBalance)}</p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
-        </div>
-
-        {/* Mode toggle */}
-        <div className="flex gap-1 mx-5 mt-4 rounded-lg border border-slate-200 bg-slate-50 p-1 shrink-0">
-          {(["auto", "manual"] as const).map((m) => (
-            <button key={m}
-              onClick={() => { setMode(m); setPreview(null); }}
-              className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition-all ${mode === m ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
-            >
-              {m === "auto" ? "Auto-distribute" : "Manual allocation"}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          <div className="space-y-4 p-5">
-
-            {/* Amount received — top of both modes */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
-                  {mode === "auto" ? "Amount (KES) *" : "Amount Received (KES) *"}
-                </label>
-                {mode === "auto" ? (
-                  <Input type="number" min="1" step="0.01" value={amount}
-                    onChange={(e) => { setAmount(e.target.value); setPreview(null); }}
-                    placeholder="0.00" className="h-9 text-sm" />
-                ) : (
-                  <Input type="number" min="1" step="0.01" value={receivedAmount}
-                    onChange={(e) => setReceivedAmount(e.target.value)}
-                    placeholder="0.00" className="h-9 text-sm" />
-                )}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Payment Method *</label>
-                <Select value={provider} onValueChange={setProvider}>
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["CASH", "MPESA", "BANK", "CHEQUE"].map((p) => (
-                      <SelectItem key={p} value={p}>{p}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-2">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Reference / Transaction code (optional)</label>
-                <Input value={reference} onChange={(e) => setReference(e.target.value)}
-                  placeholder="e.g. QDK7YH3P2R" className="h-9 text-sm" />
-              </div>
-            </div>
-
-            {/* Auto mode: preview */}
-            {mode === "auto" && (
-              <>
-                <button onClick={() => void handlePreview()} disabled={previewing || !amount}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
-                  {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart2 className="h-4 w-4" />}
-                  {previewing ? "Calculating…" : "Preview Distribution"}
-                </button>
-                {preview && (
-                  <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-4">
-                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Will be allocated to</p>
-                    {preview.lines.map((line, i) => (
-                      <div key={i} className="flex items-center justify-between text-sm">
-                        <span className="text-slate-700">{line.student_name} — {line.invoice_type.replace(/_/g, " ")}</span>
-                        <span className="font-semibold text-slate-800">{fmtKes(line.amount)}</span>
-                      </div>
-                    ))}
-                    {toNum(preview.unallocated) > 0 && (
-                      <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm">
-                        <span className="text-amber-600">Unallocated (credit)</span>
-                        <span className="font-semibold text-amber-600">{fmtKes(preview.unallocated)}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm font-bold">
-                      <span>Total</span><span>{fmtKes(preview.total)}</span>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Manual mode: per-invoice allocation */}
-            {mode === "manual" && (
-              <div className="rounded-xl border border-slate-200 overflow-hidden">
-                <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200">
-                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Allocate to each invoice</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Enter how much of the received amount goes to each outstanding invoice.</p>
-                </div>
-                {unpaid.length === 0 ? (
-                  <p className="px-4 py-6 text-xs text-slate-400 text-center">No outstanding invoices for this parent.</p>
-                ) : (
-                  <div className="divide-y divide-slate-100">
-                    {unpaid.map((inv) => {
-                      const alloc = parseFloat(manualAmounts[inv.invoice_id] || "0") || 0;
-                      const balance = toNum(inv.balance_amount);
-                      const overBalance = alloc > balance + 0.01;
-                      return (
-                        <div key={inv.invoice_id} className="flex items-center gap-3 px-4 py-3">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-800 truncate">{inv.student_name}</p>
-                            <p className="text-xs text-slate-400">
-                              {normalizeType(inv.invoice_type)} · Balance: <span className="font-medium text-slate-600">{fmtKes(inv.balance_amount)}</span>
-                            </p>
-                            {overBalance && <p className="text-[11px] text-red-500 mt-0.5">Exceeds invoice balance</p>}
-                          </div>
-                          <div className="shrink-0">
-                            <Input type="number" min="0" step="0.01" max={balance}
-                              value={manualAmounts[inv.invoice_id] ?? ""}
-                              onChange={(e) => setManualAmounts((prev) => ({ ...prev, [inv.invoice_id]: e.target.value }))}
-                              className={`h-9 w-32 text-sm text-right ${overBalance ? "border-red-300 focus-visible:ring-red-300" : ""}`}
-                              placeholder="0.00" />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {/* Running tally */}
-                <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 space-y-1">
-                  <div className="flex justify-between text-xs text-slate-500">
-                    <span>Amount received</span>
-                    <span className="font-semibold text-slate-700">{received > 0 ? fmtKes(received) : "—"}</span>
-                  </div>
-                  <div className="flex justify-between text-xs text-slate-500">
-                    <span>Allocated</span>
-                    <span className={`font-semibold ${manualOverflow ? "text-red-600" : "text-slate-700"}`}>{fmtKes(manualTotal)}</span>
-                  </div>
-                  {received > 0 && (
-                    <div className="flex justify-between text-xs border-t border-slate-200 pt-1">
-                      <span className={remaining >= 0 ? "text-slate-500" : "text-red-600"}>
-                        {remaining >= 0 ? "Unallocated" : "Over-allocated by"}
-                      </span>
-                      <span className={`font-bold ${remaining < 0 ? "text-red-600" : remaining > 0 ? "text-amber-600" : "text-emerald-600"}`}>
-                        {fmtKes(Math.abs(remaining))}
-                      </span>
-                    </div>
-                  )}
-                  {manualOverflow && (
-                    <p className="text-[11px] text-red-500">Total allocated exceeds amount received. Reduce invoice amounts.</p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        {lastPayment ? (
-          <div className="border-t border-emerald-100 bg-emerald-50 px-5 py-4 shrink-0 space-y-3">
-            <p className="text-sm font-semibold text-emerald-800">
-              Payment recorded · Receipt {lastPayment.receipt_no}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => {
-                  // /print follows the tenant's paper_size setting (thermal HTML or A4 PDF);
-                  // blob() preserves whichever content type the backend returned.
-                  void apiFetchRaw(`/finance/documents/payments/${lastPayment.payment_id}/print`, { method: "GET", tenantRequired: true })
-                    .then((res) => res.blob())
-                    .then((blob) => {
-                      const tab = window.open(URL.createObjectURL(blob), "_blank");
-                      if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");
-                    })
-                    .catch(() => toast.error("Failed to open the receipt."));
-                }}
-                className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-              >
-                <Printer className="h-3.5 w-3.5" /> Print Receipt
-              </button>
-              <button
-                onClick={() => {
-                  void api.downloadFile(
-                    `/finance/documents/payments/${lastPayment.payment_id}/pdf`,
-                    `receipt_${lastPayment.receipt_no}.pdf`,
-                    { tenantRequired: true }
-                  ).catch(() => toast.error("Failed to download receipt."));
-                }}
-                className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-              >
-                <FileDown className="h-3.5 w-3.5" /> Download PDF
-              </button>
-              <button
-                onClick={onClose}
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex justify-end gap-3 border-t border-slate-100 px-5 py-4 shrink-0">
-            <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
-            <button onClick={() => void handleRecord()} disabled={recording || !canSubmit}
-              className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
-              {recording && <Loader2 className="h-4 w-4 animate-spin" />} Record Payment
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Portal token section
 // ─────────────────────────────────────────────────────────────────────────────
@@ -981,7 +653,6 @@ function ParentDetailView({
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
   const [showLink, setShowLink] = useState(false);
-  const [showPayment, setShowPayment] = useState(false);
   const [saving, setSaving] = useState(false);
   const [unlinking, setUnlinking] = useState<string | null>(null);
   const [sendingReminder, setSendingReminder] = useState(false);
@@ -1093,14 +764,6 @@ function ParentDetailView({
           onLink={handleLink}
           onClose={() => setShowLink(false)}
           saving={saving}
-        />
-      )}
-      {showPayment && (
-        <RecordPaymentModal
-          parentId={parentId}
-          invoices={invoices}
-          onSaved={loadDetail}
-          onClose={() => setShowPayment(false)}
         />
       )}
 
@@ -1293,13 +956,35 @@ function ParentDetailView({
                   </Table>
                 </div>
 
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => setShowPayment(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition"
-                  >
-                    <BarChart2 className="h-4 w-4" /> Record Payment
-                  </button>
+                {/* Payments are recorded in the Finance module only. We
+                    deep-link per child so the secretary lands on the right
+                    student in the by-student Record Payment view. */}
+                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                  <p className="text-xs font-semibold text-blue-800">
+                    Record payment in Finance
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-blue-700">
+                    Open the Finance module's Record Payment view with this
+                    student pre-selected.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {Array.from(
+                      new Map(
+                        detail.children
+                          .filter((c) => c.student_id)
+                          .map((c) => [c.student_id, c])
+                      ).values()
+                    ).map((child) => (
+                      <a
+                        key={child.link_id}
+                        href={`/tenant/secretary/finance?section=record-payment&student_id=${encodeURIComponent(child.student_id!)}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
+                      >
+                        <BarChart2 className="h-3.5 w-3.5" />
+                        Pay for {child.student_name}
+                      </a>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
