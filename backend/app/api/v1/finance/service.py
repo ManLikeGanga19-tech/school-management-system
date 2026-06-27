@@ -4370,7 +4370,10 @@ def upsert_payment_settings(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _detect_student_type(admission_year: int, academic_year: int) -> str:
-    """NEW if first year, RETURNING otherwise."""
+    """NEW if first year, RETURNING otherwise. Legacy helper kept for any
+    code path that still depends on simple year math (e.g. fee-structure
+    eligibility); the authoritative caller is now _resolve_student_type
+    below, which layers explicit source + prior-invoice signals on top."""
     return "NEW" if admission_year >= academic_year else "RETURNING"
 
 
@@ -4389,6 +4392,107 @@ def _enrollment_is_existing_student(db: Session, *, tenant_id: UUID, enrollment_
     payload = row or {}
     source = str(payload.get("enrollment_source") or "").upper()
     return source == "EXISTING_STUDENT"
+
+
+# Possible values of the `resolved_by` tag returned by _resolve_student_type.
+# Stashed on invoice.meta and on the audit payload so a director can see
+# (and dispute, if needed) why a given invoice was classified the way it was.
+STUDENT_TYPE_RESOLVED_FORCE_OVERRIDE = "force_override"
+STUDENT_TYPE_RESOLVED_SOURCE_OVERRIDE = "source_override"
+STUDENT_TYPE_RESOLVED_PRIOR_INVOICE = "prior_invoice"
+STUDENT_TYPE_RESOLVED_YEAR_MATH = "year_math"
+STUDENT_TYPE_RESOLVED_FIRST_INTAKE = "first_intake"
+
+
+def _student_has_prior_fees_invoice(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: Optional[UUID],
+    exclude_enrollment_id: Optional[UUID] = None,
+) -> bool:
+    """True if this student already has a non-CANCELLED SCHOOL_FEES invoice in
+    the system. We deliberately exclude CANCELLED — a voided invoice should
+    NOT keep a student classified as RETURNING (matches the
+    _recalc_invoice_amounts policy that treats CANCELLED as out-of-scope).
+
+    exclude_enrollment_id is honoured if supplied, so the resolver doesn't
+    count the *current* enrollment's existing invoice (e.g. on a replace flow)
+    against itself.
+    """
+    if student_id is None:
+        return False
+    q = (
+        select(sa_func.count(Invoice.id))
+        .select_from(Invoice)
+        .join(Enrollment, Enrollment.id == Invoice.enrollment_id)
+        .where(
+            Invoice.tenant_id == tenant_id,
+            Enrollment.student_id == student_id,
+            Invoice.invoice_type == "SCHOOL_FEES",
+            Invoice.status != "CANCELLED",
+        )
+    )
+    if exclude_enrollment_id is not None:
+        q = q.where(Invoice.enrollment_id != exclude_enrollment_id)
+    count = db.execute(q).scalar() or 0
+    return count > 0
+
+
+def _resolve_student_type(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    enrollment_id: UUID,
+    student_id: Optional[UUID],
+    admission_year: int,
+    academic_year: int,
+    force_student_type: Optional[str] = None,
+    exclude_enrollment_id_for_prior_invoice: Optional[UUID] = None,
+) -> tuple[str, str]:
+    """Decide whether this invoice is for a NEW or RETURNING student.
+
+    Returns (student_type, resolved_by). resolved_by is one of the constants
+    above and is persisted on the invoice's meta + the audit log so the
+    decision is fully traceable.
+
+    The rule layers four signals, most-deterministic first:
+
+        Step 0  force_student_type            -> FORCE_OVERRIDE     (caller's call)
+        Step 1  enrollment_source = EXISTING  -> SOURCE_OVERRIDE    (RETURNING)
+        Step 2  prior non-CANCELLED fees inv  -> PRIOR_INVOICE      (RETURNING)
+        Step 3  admission_year < academic_yr  -> YEAR_MATH          (RETURNING)
+        Step 4  otherwise                     -> FIRST_INTAKE       (NEW)
+
+    Step 2 is the powerful new one: 'the system has billed this student
+    school fees before' is the most reliable RETURNING signal there is, and
+    it catches the Term 2 / Term 3 cases that year-math alone got wrong.
+    """
+    # Step 0 — explicit caller override (admin/replace flow).
+    if force_student_type and force_student_type.upper() in ("NEW", "RETURNING"):
+        return force_student_type.upper(), STUDENT_TYPE_RESOLVED_FORCE_OVERRIDE
+
+    # Step 1 — existing-student onboard always RETURNING.
+    if _enrollment_is_existing_student(
+        db, tenant_id=tenant_id, enrollment_id=enrollment_id
+    ):
+        return "RETURNING", STUDENT_TYPE_RESOLVED_SOURCE_OVERRIDE
+
+    # Step 2 — any prior (non-cancelled) SCHOOL_FEES invoice for this student.
+    if _student_has_prior_fees_invoice(
+        db,
+        tenant_id=tenant_id,
+        student_id=student_id,
+        exclude_enrollment_id=exclude_enrollment_id_for_prior_invoice,
+    ):
+        return "RETURNING", STUDENT_TYPE_RESOLVED_PRIOR_INVOICE
+
+    # Step 3 — year math (admission predates the academic year being invoiced).
+    if admission_year < academic_year:
+        return "RETURNING", STUDENT_TYPE_RESOLVED_YEAR_MATH
+
+    # Step 4 — first-time intake.
+    return "NEW", STUDENT_TYPE_RESOLVED_FIRST_INTAKE
 
 
 def _get_term_amount(item: Any, term_number: int) -> Decimal:
@@ -4552,15 +4656,26 @@ def generate_school_fees_invoice_v2(
     ).scalar_one_or_none() if student_id else None
 
     admission_year = getattr(student, "admission_year", academic_year) if student else academic_year
-    if force_student_type and force_student_type.upper() in ("NEW", "RETURNING"):
-        student_type = force_student_type.upper()
-    else:
-        student_type = _detect_student_type(admission_year, academic_year)
-        # Students brought over from the existing registry already paid their
-        # admission before the system — they must never be billed the NEW
-        # structure (which carries the admission fee). Treat them as RETURNING.
-        if _enrollment_is_existing_student(db, tenant_id=tenant_id, enrollment_id=enrollment_id):
-            student_type = "RETURNING"
+
+    # Authoritative 4-step resolver (see _resolve_student_type docstring).
+    # On a replace/regenerate flow we DO want to exclude this very enrollment's
+    # existing invoice from the "prior invoice" check, otherwise replacing the
+    # FIRST invoice of a brand-new student would flip them to RETURNING on
+    # their own re-issue. New generations (existing_invoice is None) keep the
+    # plain rule.
+    exclude_self_enrollment = (
+        enrollment_id if existing_invoice is not None else None
+    )
+    student_type, student_type_resolved_by = _resolve_student_type(
+        db,
+        tenant_id=tenant_id,
+        enrollment_id=enrollment_id,
+        student_id=student_id,
+        admission_year=admission_year,
+        academic_year=academic_year,
+        force_student_type=force_student_type,
+        exclude_enrollment_id_for_prior_invoice=exclude_self_enrollment,
+    )
 
     # Find fee structure
     norm_class = _norm_upper(str(class_code))
@@ -4779,12 +4894,15 @@ def generate_school_fees_invoice_v2(
     _recalc_invoice_amounts(db, inv)
     db.flush()
 
-    # Store fee structure context in meta
+    # Store fee structure context in meta + the resolver decision so a
+    # director can see (and dispute, if needed) why this invoice was billed
+    # as NEW vs RETURNING.
     inv.meta = {
         **(inv.meta or {}),
         "fee_structure_id": str(structure.id),
         "class_code": structure.class_code,
         "student_type": student_type,
+        "student_type_resolved_by": student_type_resolved_by,
         "academic_year": academic_year,
         "term_number": term_number,
     }
@@ -4855,6 +4973,7 @@ def generate_school_fees_invoice_v2(
             "term_number": term_number,
             "academic_year": academic_year,
             "student_type": student_type,
+            "student_type_resolved_by": student_type_resolved_by,
         },
         meta=None,
     )

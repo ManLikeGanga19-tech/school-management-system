@@ -2113,6 +2113,10 @@ function SecretaryEnrollmentsPageContent() {
       notes: draft.notes.trim() || null,
       documents: draft.documents,
       currency: "KES",
+      // Tag the onboarding path so finance can distinguish wizard intakes
+      // from existing-student onboards (they're billed differently — the
+      // student-type resolver uses this signal).
+      enrollment_source: "NEW_STUDENT_INTAKE",
     };
     if (selectedFeeStructureId) payload._fee_structure_id = selectedFeeStructureId;
 
