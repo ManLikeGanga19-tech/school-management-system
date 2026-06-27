@@ -956,18 +956,28 @@ function ParentDetailView({
                   </Table>
                 </div>
 
-                {/* Payments are recorded in the Finance module only. We
-                    deep-link per child so the secretary lands on the right
-                    student in the by-student Record Payment view. */}
+                {/* Payments are recorded in the Finance module only. The
+                    family link opens the by-parent Record Payment view (one
+                    receipt covers all children); the per-child links open
+                    the same view scoped to a single student. */}
                 <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
                   <p className="text-xs font-semibold text-blue-800">
                     Record payment in Finance
                   </p>
                   <p className="mt-0.5 text-[11px] text-blue-700">
-                    Open the Finance module's Record Payment view with this
-                    student pre-selected.
+                    One payment for the whole family, or open a per-child view
+                    for a single student.
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
+                    {detail.children.some((c) => c.student_id) && (
+                      <a
+                        href={`/tenant/secretary/finance?section=record-payment&parent_id=${encodeURIComponent(parentId)}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        Pay for whole family
+                      </a>
+                    )}
                     {Array.from(
                       new Map(
                         detail.children
@@ -978,7 +988,7 @@ function ParentDetailView({
                       <a
                         key={child.link_id}
                         href={`/tenant/secretary/finance?section=record-payment&student_id=${encodeURIComponent(child.student_id!)}`}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 transition"
                       >
                         <BarChart2 className="h-3.5 w-3.5" />
                         Pay for {child.student_name}
