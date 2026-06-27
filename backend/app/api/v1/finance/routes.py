@@ -667,7 +667,7 @@ def replace_invoice(
             actor_user_id=user.id,
             invoice_id=invoice_id,
             student_type=str(payload.get("student_type") or ""),
-            include_carry_forward=bool(payload.get("include_carry_forward", False)),
+            include_carry_forward=bool(payload.get("include_carry_forward", True)),
         )
         db.commit()
         db.refresh(inv)

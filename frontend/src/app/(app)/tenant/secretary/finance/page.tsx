@@ -774,7 +774,6 @@ function SecretaryFinancePageContent() {
     scholarship_id: "",
     scholarship_amount: "",
     scholarship_reason: "",
-    include_carry_forward: false,
   });
   const [interviewInvoiceForm, setInterviewInvoiceForm] = useState({
     enrollment_id: "",
@@ -1681,7 +1680,6 @@ function SecretaryFinancePageContent() {
         scholarship_reason: scholarshipSelected
           ? feesInvoiceForm.scholarship_reason.trim()
           : null,
-        include_carry_forward: feesInvoiceForm.include_carry_forward,
       },
       "School fees invoice generated."
     );
@@ -1908,21 +1906,13 @@ function SecretaryFinancePageContent() {
                       )}
                     </p>
                   )}
-                  <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={feesInvoiceForm.include_carry_forward}
-                        onChange={(e) =>
-                          setFeesInvoiceForm((p) => ({
-                            ...p,
-                            include_carry_forward: e.target.checked,
-                          }))
-                        }
-                      />
-                      Include outstanding arrears from previous terms
-                    </label>
-                  </div>
+                  <p className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                    Any open balance adjustments (arrears or credits) for this
+                    student are automatically rolled into a single
+                    &ldquo;Arrears (Brought Forward)&rdquo; line on the new
+                    invoice. To skip that, clear the adjustments first under
+                    the student&apos;s Adjust Balance.
+                  </p>
                   <ActionButton
                     onClick={generateFeesInvoice}
                     loading={pendingAction === "generate_fees_invoice_v2"}

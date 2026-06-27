@@ -12834,7 +12834,10 @@ def secretary_finance_action(
                     else None
                 )
 
-            include_cf = bool(payload.get("include_carry_forward", False))
+            # Default True: arrears auto-attach as a single 'Arrears (Brought
+            # Forward)' line on every new invoice. The UI no longer exposes a
+            # checkbox; this is the authoritative policy.
+            include_cf = bool(payload.get("include_carry_forward", True))
             row = finance_service.generate_school_fees_invoice_v2(
                 db,
                 tenant_id=tenant.id,

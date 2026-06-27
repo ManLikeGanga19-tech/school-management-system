@@ -4868,7 +4868,10 @@ def replace_fees_invoice(
     actor_user_id: Optional[UUID],
     invoice_id: UUID,
     student_type: str,
-    include_carry_forward: bool = False,
+    # Default True to match generate_school_fees_invoice_v2 — the open
+    # balance adjustments for the student auto-attach as a single 'Arrears'
+    # line whenever the invoice is regenerated.
+    include_carry_forward: bool = True,
 ) -> Invoice:
     """Fix a wrong school-fees invoice by regenerating it from the right
     structure, in place (no data lost).

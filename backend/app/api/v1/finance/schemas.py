@@ -230,7 +230,11 @@ class GenerateFeesInvoiceV2Request(BaseModel):
     scholarship_id: Optional[UUID] = None
     scholarship_amount: Optional[Decimal] = None
     scholarship_reason: Optional[str] = None
-    include_carry_forward: bool = False
+    # Default True: open balance adjustments (arrears or credits) for the
+    # student are always rolled into the new invoice as a single 'Arrears
+    # (Brought Forward)' line. Match the service-level default; the UI no
+    # longer exposes a checkbox.
+    include_carry_forward: bool = True
     force_student_type: Optional[Literal["NEW", "RETURNING"]] = None
 
 
