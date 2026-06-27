@@ -11,6 +11,10 @@ import {
   dashboardBadgeClasses,
 } from "@/components/dashboard/dashboard-primitives";
 import {
+  TodayAtSchool,
+  type TodayAtSchoolData,
+} from "@/components/dashboard/TodayAtSchool";
+import {
   Table,
   TableBody,
   TableCell,
@@ -67,6 +71,7 @@ type DashboardResponse = {
   users: { id: string; is_active: boolean; email: string; full_name?: string | null }[];
   audit: { id: string; action: string; resource: string; created_at: string }[];
   health: Record<string, boolean>;
+  today_at_school?: TodayAtSchoolData | null;
 };
 
 // ─── Chart config ─────────────────────────────────────────────────────────────
@@ -319,6 +324,9 @@ export default function SecretaryDashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* ── Today at School ── */}
+        <TodayAtSchool data={data?.today_at_school ?? null} />
 
         {/* ── Error ── */}
         {error && (

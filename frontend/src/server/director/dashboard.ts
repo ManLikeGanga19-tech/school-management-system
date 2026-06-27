@@ -76,12 +76,15 @@ export type RecentPayment = {
   student_name: string | null;
 };
 
+import type { TodayAtSchoolData } from "@/components/dashboard/TodayAtSchool";
+
 export type DirectorKPIs = {
   finance: FinanceKPIs;
   term_finance: TermFinanceKPIs;
   enrollments: EnrollmentKPIs;
   school: SchoolMeta;
   active_term: ActiveTerm;
+  today_at_school: TodayAtSchoolData | null;
   recent_payments: RecentPayment[];
 };
 

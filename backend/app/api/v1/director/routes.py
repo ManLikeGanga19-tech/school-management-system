@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.api.v1.tenants.dashboard_today import get_today_at_school
 from app.core.dependencies import get_current_user, get_db, get_tenant, require_permission
 
 router = APIRouter()
@@ -165,6 +166,11 @@ def get_director_kpis(
             "name": term["name"],
             "code": term["code"],
         } if term else None,
+        # Today's term context + every event (school-calendar + general)
+        # overlapping today, used by the dashboard 'Today at School' card.
+        # Uses by-date current-term selection (not 'latest is_active'), so
+        # year-end overlap is handled correctly.
+        "today_at_school": get_today_at_school(db, tenant_id=tenant.id),
         "recent_payments": [
             {
                 "payment_id":  str(r["payment_id"]),

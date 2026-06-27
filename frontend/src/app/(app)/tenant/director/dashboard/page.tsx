@@ -17,7 +17,6 @@ import {
   BookOpenText,
   BriefcaseBusiness,
   Banknote,
-  CalendarCheck,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -26,6 +25,7 @@ import {
   DashboardSectionLabel,
   DashboardStatCard,
 } from "@/components/dashboard/dashboard-primitives";
+import { TodayAtSchool } from "@/components/dashboard/TodayAtSchool";
 import { directorNav } from "@/components/layout/nav-config";
 import { TenantNotificationsOverview } from "@/components/notifications/TenantNotificationsOverview";
 import { getDirectorDashboardData } from "@/server/director/dashboard";
@@ -65,6 +65,7 @@ export default async function DirectorDashboardPage() {
   const enrollments   = kpis?.enrollments;
   const school        = kpis?.school;
   const activeTerm    = kpis?.active_term ?? null;
+  const todayAtSchool = kpis?.today_at_school ?? null;
   const recentPayments = kpis?.recent_payments ?? [];
 
   const totalBilled      = finance?.total_billed      ?? 0;
@@ -111,11 +112,6 @@ export default async function DirectorDashboardPage() {
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-white/75">
                   <Building2 className="h-3 w-3" /> {tenantSlug}
                 </span>
-                {activeTerm && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-white/75">
-                    <CalendarCheck className="h-3 w-3" /> {activeTerm.name}
-                  </span>
-                )}
               </div>
               <h1 className="text-2xl font-bold">{tenantName}</h1>
               <p className="mt-0.5 text-sm text-white/80">
@@ -133,6 +129,9 @@ export default async function DirectorDashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* ── Today at School ── */}
+        <TodayAtSchool data={todayAtSchool} />
 
         {/* ── KPI error ── */}
         {hasKpiError && (

@@ -694,6 +694,7 @@ class SecretaryDashboardOut(BaseModel):
     users: list[SecretaryUserOut]
     audit: list[SecretaryAuditOut]
     health: dict
+    today_at_school: dict | None = None
 
 
 class PrincipalDashboardOut(BaseModel):
@@ -14727,6 +14728,13 @@ def secretary_dashboard(
 
     health = {"api": True}
 
+    try:
+        from app.api.v1.tenants.dashboard_today import get_today_at_school
+        today_at_school = get_today_at_school(db, tenant_id=tenant.id)
+    except Exception:
+        # Today block is supplementary — never let it break the dashboard.
+        today_at_school = None
+
     return SecretaryDashboardOut(
         me=me,
         summary=summary,
@@ -14735,4 +14743,5 @@ def secretary_dashboard(
         users=users,
         audit=audit,
         health=health,
+        today_at_school=today_at_school,
     )
