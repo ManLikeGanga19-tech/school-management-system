@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStudent";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import {
   directorFinanceHref,
@@ -296,7 +297,8 @@ function normalizeSection(value: string | null): FinanceSection {
     value === "overview" ||
     value === "invoices" ||
     value === "payments" ||
-    value === "receipts"
+    value === "receipts" ||
+    value === "record-payment"
   ) {
     return value;
   }
@@ -1818,6 +1820,7 @@ function TenantFinancePageContent() {
           </>
         )}
 
+        {section === "record-payment" && <RecordPaymentByStudent />}
 
         {section === "invoices" && (
           <SectionCard

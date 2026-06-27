@@ -48,6 +48,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/sonner";
+import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStudent";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { EnrollmentCombobox, type EnrollmentOption } from "@/components/ui/enrollment-combobox";
 import { api, apiFetchRaw } from "@/lib/api";
@@ -695,7 +696,8 @@ function SecretaryFinancePageContent() {
     const valid =
       sectionParam === "invoices" ||
       sectionParam === "payments" ||
-      sectionParam === "receipts"
+      sectionParam === "receipts" ||
+      sectionParam === "record-payment"
         ? (sectionParam as FinanceSection)
         : null;
 
@@ -1190,6 +1192,7 @@ function SecretaryFinancePageContent() {
   const showInvoices = section === "invoices";
   const showPayments = section === "payments";
   const showReceipts = section === "receipts";
+  const showRecordPayment = section === "record-payment";
   const totalCollections = data.payments.reduce(
     (acc, payment) => acc + toNumber(payment.amount),
     0
@@ -1859,6 +1862,9 @@ function SecretaryFinancePageContent() {
         {notice && (
           <AlertBanner type="success" message={notice} onDismiss={() => setNotice(null)} />
         )}
+
+        {/* ── RECORD PAYMENT (by student) ── */}
+        {showRecordPayment && <RecordPaymentByStudent />}
 
         {/* ── INVOICES SECTION ── */}
         {showInvoices && (

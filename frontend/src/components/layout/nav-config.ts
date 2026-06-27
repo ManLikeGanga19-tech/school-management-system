@@ -5,6 +5,7 @@ export type FinanceSection =
   | "fee-structures"
   | "invoices"
   | "payments"
+  | "record-payment"
   | "receipts"
   | "scan-receipt";
 export type EnrollmentSection = "intake" | "students";
@@ -234,6 +235,7 @@ export const directorNav: AppNavItem[] = [
       { href: "/tenant/director/finance/policy", label: "Finance Policy", icon: "SlidersHorizontal" },
       { href: "/tenant/director/finance/payment-settings", label: "Payment Settings", icon: "CreditCard" },
       { href: directorFinanceHref("invoices"), label: "Invoices", icon: "FileText" },
+      { href: directorFinanceHref("record-payment"), label: "Record Payment", icon: "HandCoins" },
       { href: directorFinanceHref("payments"), label: "Payments", icon: "HandCoins" },
       { href: directorFinanceHref("receipts"), label: "Receipts", icon: "Receipt" },
       { href: directorFinanceHref("scan-receipt"), label: "Scan Receipt", icon: "ScanLine" },
@@ -387,6 +389,7 @@ export const secretaryNav: AppNavItem[] = [
       { href: "/tenant/secretary/finance/scholarships", label: "Scholarships", icon: "GraduationCap" },
       { href: "/tenant/secretary/finance/payment-settings", label: "Payment Settings", icon: "CreditCard" },
       { href: secretaryFinanceHref("invoices"), label: "Invoices", icon: "FileText" },
+      { href: secretaryFinanceHref("record-payment"), label: "Record Payment", icon: "HandCoins" },
       { href: secretaryFinanceHref("payments"), label: "Payments", icon: "HandCoins" },
       { href: secretaryFinanceHref("receipts"), label: "Receipts", icon: "Receipt" },
       { href: secretaryFinanceHref("scan-receipt"), label: "Scan Receipt", icon: "ScanLine" },
