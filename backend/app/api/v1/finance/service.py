@@ -11,7 +11,7 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import select, func as sa_func, text as sa_text
 
 from app.core.audit import log_event
 
@@ -2380,6 +2380,390 @@ def record_student_payment(
     }
 
 
+# ── By-family (parent) payment view ─────────────────────────────────────────
+#
+# Three helpers powering the family-aware "Record Payment" surface:
+#
+#   _parent_children(parent_id)
+#       -> the set of student_ids linked to a parent through enrollments in
+#          this tenant. Used to constrain allocations and credit targets.
+#
+#   get_parent_payment_summary(parent_id)
+#       -> per-child StudentPaymentSummaryOut blocks + family_total_outstanding.
+#
+#   record_parent_payment(parent_id, amount, provider, mode, ...)
+#       -> ONE Payment row whose allocations span the family's invoices.
+#          mode=auto: FIFO across the union of the family's open SCHOOL_FEES
+#          invoices, oldest term first across all children.
+#          mode=manual: each (student_id, amount) is FIFO-allocated inside
+#          that student's invoices, validated against the student's own
+#          outstanding (no silent overflow to siblings).
+#          Surplus is auto-credited to credit_to_student_id via create_payment
+#          (which enforces the multi-student credit_to rules).
+
+
+def _parent_children(
+    db: Session, *, tenant_id: UUID, parent_id: UUID
+) -> list[UUID]:
+    """Distinct student_ids linked to a parent through this tenant's
+    enrollments. Includes TRANSFERRED enrollments (final-bill use case)."""
+    rows = db.execute(
+        sa_text(
+            """
+            SELECT DISTINCT e.student_id
+            FROM core.parent_enrollment_links pel
+            JOIN core.enrollments e ON e.id = pel.enrollment_id
+            WHERE pel.tenant_id = :tid AND pel.parent_id = :pid
+              AND e.student_id IS NOT NULL
+            """
+        ),
+        {"tid": str(tenant_id), "pid": str(parent_id)},
+    ).all()
+    return [UUID(str(r[0])) for r in rows if r[0] is not None]
+
+
+def get_parent_payment_summary(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    parent_id: UUID,
+) -> dict:
+    """Per-child StudentPaymentSummaryOut + family rollup. Children are
+    included if they have outstanding invoices OR an open carry-forward, so
+    transferred/leaving children with a final bill stay visible."""
+    parent = db.execute(
+        select(Parent).where(
+            Parent.id == parent_id,
+            Parent.tenant_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if parent is None:
+        raise ValueError("Parent not found")
+
+    student_ids = _parent_children(db, tenant_id=tenant_id, parent_id=parent_id)
+
+    children: list[dict] = []
+    family_total = Decimal("0")
+    for sid in student_ids:
+        try:
+            summary = get_student_payment_summary(
+                db, tenant_id=tenant_id, student_id=sid
+            )
+        except ValueError:
+            # Student row missing — skip; we'll let the parent module surface
+            # the broken link separately.
+            continue
+        family_total += Decimal(str(summary.get("total_outstanding") or 0))
+        children.append(summary)
+
+    children.sort(key=lambda c: (c.get("student_name") or "").lower())
+
+    name = " ".join(
+        s for s in (getattr(parent, "first_name", "") or "", getattr(parent, "last_name", "") or "")
+        if s
+    ).strip() or "Guardian"
+
+    return {
+        "parent_id": str(parent.id),
+        "parent_name": name,
+        "children": children,
+        "family_total_outstanding": str(family_total),
+    }
+
+
+def _student_name_for(db: Session, *, tenant_id: UUID, student_id: UUID) -> str:
+    student = db.execute(
+        select(Student).where(
+            Student.id == student_id, Student.tenant_id == tenant_id
+        )
+    ).scalar_one_or_none()
+    if student is None:
+        return "Student"
+    return " ".join(
+        str(getattr(student, attr, "") or "").strip()
+        for attr in ("first_name", "other_names", "last_name")
+    ).strip() or "Student"
+
+
+def record_parent_payment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    parent_id: UUID,
+    amount: Decimal,
+    provider: str,
+    reference: Optional[str] = None,
+    mode: str = "auto",
+    per_student_allocations: Optional[list[dict]] = None,
+    credit_to_student_id: Optional[UUID] = None,
+) -> dict:
+    """Record one Payment row covering one or more of a parent's children.
+
+    See module-level comment for the allocation rules. Returns a dict matching
+    ParentPaymentRecordOut, with a per-student breakdown for the receipt panel.
+    """
+    if amount is None or Decimal(amount) <= 0:
+        raise ValueError("Payment amount must be greater than zero")
+    mode_norm = (mode or "auto").lower()
+    if mode_norm not in ("auto", "manual"):
+        raise ValueError("mode must be 'auto' or 'manual'")
+
+    family_ids = _parent_children(db, tenant_id=tenant_id, parent_id=parent_id)
+    if not family_ids:
+        raise ValueError("Parent has no linked children in this tenant")
+
+    # Credit target (if supplied) must be a child of this parent. We re-check
+    # 'part of this payment' inside create_payment, but checking against the
+    # family here gives a friendlier error before we touch any rows.
+    if credit_to_student_id is not None:
+        target_uuid = UUID(str(credit_to_student_id))
+        if target_uuid not in set(family_ids):
+            raise ValueError(
+                "credit_to_student_id must be one of this parent's children"
+            )
+
+    # ─── Build the allocation list ────────────────────────────────────────
+    allocations: list[dict] = []
+    used_student_ids: list[UUID] = []
+
+    if mode_norm == "auto":
+        # Union of the family's open fees invoices, ordered globally
+        # oldest-first by (academic_year, term_number, created_at). FIFO until
+        # the amount runs out.
+        family_invoices: list[Invoice] = []
+        for sid in family_ids:
+            family_invoices.extend(
+                _student_open_fees_invoices(
+                    db, tenant_id=tenant_id, student_id=sid
+                )
+            )
+        family_invoices.sort(
+            key=lambda i: (
+                i.academic_year or 0,
+                i.term_number or 0,
+                i.created_at or 0,
+            )
+        )
+        remaining = Decimal(amount).quantize(Decimal("0.01"))
+        # Map invoice -> student for the surplus check below.
+        student_by_enrollment = dict(
+            db.execute(
+                select(Enrollment.id, Enrollment.student_id).where(
+                    Enrollment.tenant_id == tenant_id,
+                    Enrollment.id.in_({i.enrollment_id for i in family_invoices if i.enrollment_id}),
+                )
+            ).all()
+        ) if family_invoices else {}
+        for inv in family_invoices:
+            if remaining <= 0:
+                break
+            bal = Decimal(inv.balance_amount or 0)
+            if bal <= 0:
+                continue
+            take = min(remaining, bal)
+            allocations.append({"invoice_id": inv.id, "amount": take})
+            remaining -= take
+            sid = student_by_enrollment.get(inv.enrollment_id)
+            if sid is not None and sid not in used_student_ids:
+                used_student_ids.append(sid)
+
+    else:
+        # ── manual mode ───────────────────────────────────────────────────
+        if not per_student_allocations:
+            raise ValueError(
+                "per_student_allocations is required when mode='manual'"
+            )
+        # Validate each student is in the family and amount is positive.
+        seen: set[UUID] = set()
+        manual_total = Decimal("0")
+        for row in per_student_allocations:
+            sid = UUID(str(row["student_id"]))
+            if sid in seen:
+                raise ValueError(
+                    f"Duplicate per_student_allocations entry for student {sid}"
+                )
+            seen.add(sid)
+            if sid not in set(family_ids):
+                raise ValueError(
+                    f"Student {sid} is not a child of this parent"
+                )
+            try:
+                row_amount = Decimal(str(row["amount"]))
+            except Exception as exc:
+                raise ValueError(
+                    f"Invalid per_student_allocations amount: {row.get('amount')!r}"
+                ) from exc
+            if row_amount <= 0:
+                raise ValueError(
+                    "per_student_allocations amounts must be greater than zero"
+                )
+            manual_total += row_amount
+
+            # FIFO-allocate this student's portion across their invoices,
+            # rejecting if their portion exceeds their outstanding (no silent
+            # spillover to siblings).
+            student_invoices = _student_open_fees_invoices(
+                db, tenant_id=tenant_id, student_id=sid
+            )
+            student_balance = sum(
+                (Decimal(i.balance_amount or 0) for i in student_invoices),
+                Decimal("0"),
+            )
+            if row_amount > student_balance:
+                raise ValueError(
+                    f"Allocation for student {sid} ({row_amount}) exceeds "
+                    f"their outstanding ({student_balance})"
+                )
+            student_remaining = row_amount
+            for inv in student_invoices:
+                if student_remaining <= 0:
+                    break
+                bal = Decimal(inv.balance_amount or 0)
+                if bal <= 0:
+                    continue
+                take = min(student_remaining, bal)
+                allocations.append({"invoice_id": inv.id, "amount": take})
+                student_remaining -= take
+            used_student_ids.append(sid)
+
+        if manual_total.quantize(Decimal("0.01")) > Decimal(amount).quantize(Decimal("0.01")):
+            raise ValueError(
+                "Sum of per_student_allocations cannot exceed payment amount"
+            )
+
+    # Family with no open invoices at all → can't record via this path.
+    if not allocations:
+        raise ValueError(
+            "No outstanding fees invoices for this family. Generate term "
+            "invoices first, or record a credit via Adjust Balance."
+        )
+
+    # Surplus = payment amount minus what we managed to allocate.
+    alloc_sum = sum((a["amount"] for a in allocations), Decimal("0"))
+    surplus = (Decimal(amount) - alloc_sum).quantize(Decimal("0.01"))
+
+    # When surplus would result AND the allocations span more than one
+    # student, credit_to_student_id is mandatory (also re-enforced inside
+    # create_payment as a defensive check).
+    if surplus > 0 and len(used_student_ids) > 1 and credit_to_student_id is None:
+        raise ValueError(
+            "credit_to_student_id is required when this payment leaves a "
+            "surplus and covers multiple children"
+        )
+
+    pay = create_payment(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        provider=provider,
+        reference=reference,
+        amount=Decimal(amount),
+        allocations=[{"invoice_id": a["invoice_id"], "amount": a["amount"]} for a in allocations],
+        credit_to_student_id=credit_to_student_id,
+    )
+
+    # ─── Build the per-student receipt breakdown ──────────────────────────
+    # Map invoice -> student name + meta for grouping.
+    inv_ids = [a["invoice_id"] for a in allocations]
+    inv_rows = db.execute(
+        select(Invoice).where(Invoice.id.in_(inv_ids))
+    ).scalars().all()
+    inv_by_id = {inv.id: inv for inv in inv_rows}
+    inv_enrollment_ids = {inv.enrollment_id for inv in inv_rows if inv.enrollment_id}
+    enrollment_to_student: dict[UUID, tuple] = {}
+    if inv_enrollment_ids:
+        for eid, sid, pl in db.execute(
+            select(Enrollment.id, Enrollment.student_id, Enrollment.payload).where(
+                Enrollment.tenant_id == tenant_id,
+                Enrollment.id.in_(inv_enrollment_ids),
+            )
+        ).all():
+            enrollment_to_student[eid] = (sid, pl)
+
+    student_groups: dict[str, dict] = {}
+    for a in allocations:
+        inv = inv_by_id.get(a["invoice_id"])
+        if inv is None or inv.enrollment_id is None:
+            continue
+        row = enrollment_to_student.get(inv.enrollment_id)
+        if row is None:
+            continue
+        sid, payload = row
+        if sid is None:
+            continue
+        key = str(sid)
+        if key not in student_groups:
+            student_groups[key] = {
+                "student_id": str(sid),
+                "student_name": _student_name_for(db, tenant_id=tenant_id, student_id=sid),
+                "admission_no": (payload or {}).get("admission_number"),
+                "class_code": (
+                    (payload or {}).get("class_code")
+                    or (payload or {}).get("admission_class")
+                    or None
+                ),
+                "subtotal": Decimal("0"),
+                "allocations": [],
+            }
+        group = student_groups[key]
+        amt = Decimal(a["amount"])
+        group["subtotal"] += amt
+        group["allocations"].append({
+            "invoice_id": str(inv.id),
+            "invoice_no": inv.invoice_no,
+            "student_id": str(sid),
+            "student_name": group["student_name"],
+            "term_number": inv.term_number,
+            "academic_year": inv.academic_year,
+            "amount": str(amt),
+        })
+
+    # Stringify subtotals + sort by student name for stable receipt order.
+    students_out: list[dict] = []
+    for g in sorted(student_groups.values(), key=lambda x: x["student_name"].lower()):
+        g["subtotal"] = str(g["subtotal"])
+        students_out.append(g)
+
+    credit_to_name: Optional[str] = None
+    if surplus > 0 and credit_to_student_id is not None:
+        credit_to_name = _student_name_for(
+            db, tenant_id=tenant_id, student_id=UUID(str(credit_to_student_id))
+        )
+
+    # Resolve the credit CF id from the most recent OVERPAYMENT_CREDIT row
+    # this transaction would have created.
+    credit_balance_id: Optional[str] = None
+    if surplus > 0 and credit_to_student_id is not None:
+        from app.models.student_carry_forward import StudentCarryForward
+        latest = db.execute(
+            select(StudentCarryForward)
+            .where(
+                StudentCarryForward.tenant_id == tenant_id,
+                StudentCarryForward.student_id == UUID(str(credit_to_student_id)),
+                StudentCarryForward.category == "OVERPAYMENT_CREDIT",
+            )
+            .order_by(StudentCarryForward.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if latest is not None:
+            credit_balance_id = str(latest.id)
+
+    return {
+        "payment_id": str(pay.id),
+        "receipt_no": pay.receipt_no,
+        "amount": str(pay.amount),
+        "allocated_total": str(alloc_sum.quantize(Decimal("0.01"))),
+        "surplus_credit": str(surplus),
+        "credit_balance_id": credit_balance_id,
+        "credit_to_student_id": (
+            str(credit_to_student_id) if (surplus > 0 and credit_to_student_id is not None) else None
+        ),
+        "credit_to_student_name": credit_to_name,
+        "students": students_out,
+    }
+
+
 def list_payments(
     db: Session,
     *,
@@ -2676,6 +3060,74 @@ def build_payment_receipt_document(
     if surplus_credit < 0:
         surplus_credit = Decimal("0")
 
+    # ── Per-student grouping for the receipt ──────────────────────────────
+    # A single Payment may now cover multiple children (one M-PESA transaction
+    # for two siblings). Group allocations by student so the PDF renders one
+    # named section per child with their own subtotal, class, and admission
+    # number — siblings are often in different classes and the parent needs
+    # to see both clearly on the same receipt.
+    student_groups: dict[str, dict] = {}
+    for row in allocations:
+        sid_key = (row.get("student_name") or "") + "|" + (row.get("admission_no") or "")
+        # Anchor groups by (student_name, admission_no) so different students
+        # with same name still split, and the parent of a one-child record
+        # collapses cleanly.
+        if sid_key not in student_groups:
+            student_groups[sid_key] = {
+                "student_name": row.get("student_name") or "Unknown student",
+                "admission_no": row.get("admission_no") or "",
+                "class_code": row.get("class_code") or "",
+                "parent_name": row.get("parent_name") or "",
+                "subtotal": Decimal("0"),
+                "allocations": [],
+            }
+        group = student_groups[sid_key]
+        amt = Decimal(str(row.get("amount") or 0))
+        group["subtotal"] += amt
+        group["allocations"].append({
+            "invoice_id": row.get("invoice_id"),
+            "invoice_no": row.get("invoice_no"),
+            "amount": row.get("amount"),
+            "lines": row.get("lines", []),
+        })
+    students_out = [
+        {**g, "subtotal": str(g["subtotal"])}
+        for g in sorted(
+            student_groups.values(),
+            key=lambda x: str(x.get("student_name") or "").lower(),
+        )
+    ]
+
+    # Surplus credit student lookup — from the most recent OVERPAYMENT_CREDIT
+    # carry-forward this payment created. We tie back via the description
+    # which embeds the receipt number; safe even if multiple credits ever
+    # land in quick succession because the description is unique per payment.
+    surplus_credit_student: dict | None = None
+    if surplus_credit > 0:
+        from app.models.student_carry_forward import StudentCarryForward
+        from app.models.student import Student as _Student
+        rec_no = getattr(payment, "receipt_no", None) or str(payment.id)
+        cf_row = db.execute(
+            select(StudentCarryForward).where(
+                StudentCarryForward.tenant_id == tenant_id,
+                StudentCarryForward.category == "OVERPAYMENT_CREDIT",
+                StudentCarryForward.description.like(f"%{rec_no}%"),
+            )
+            .order_by(StudentCarryForward.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if cf_row is not None:
+            stu = db.get(_Student, cf_row.student_id)
+            if stu is not None:
+                surplus_credit_student = {
+                    "student_id": str(stu.id),
+                    "student_name": " ".join(
+                        str(getattr(stu, a, "") or "").strip()
+                        for a in ("first_name", "other_names", "last_name")
+                    ).strip() or "Student",
+                    "admission_no": getattr(stu, "admission_no", None),
+                }
+
     profile = get_tenant_print_profile(db, tenant_id=tenant_id)
     checksum = _document_checksum(
         tenant_id=tenant_id,
@@ -2715,8 +3167,10 @@ def build_payment_receipt_document(
             else None
         ),
         "allocations": allocations,
+        "students": students_out,
         "allocated_total": str(alloc_total),
         "surplus_credit": str(surplus_credit),
+        "surplus_credit_student": surplus_credit_student,
         "checksum": checksum,
         "qr_payload": qr_payload,
         "verify_code": str(getattr(payment, "verify_code", "") or ""),
@@ -2871,15 +3325,44 @@ def _document_lines(payload: dict[str, Any]) -> list[str]:
             surplus = Decimal("0")
         if surplus > 0:
             lines.append(f"Allocated to invoices: {payload.get('allocated_total')}")
-            lines.append(f"Credit forward (next term): {surplus}")
+            credit_stu = payload.get("surplus_credit_student") or {}
+            credit_label = credit_stu.get("student_name") if isinstance(credit_stu, dict) else None
+            if credit_label:
+                lines.append(f"Credit forward ({credit_label}): {surplus}")
+            else:
+                lines.append(f"Credit forward (next term): {surplus}")
         lines.append("")
-        lines.append("Allocations:")
-        for idx, row in enumerate(payload.get("allocations") or [], start=1):
-            if not isinstance(row, dict):
-                continue
-            lines.append(
-                f"{idx}. {row.get('invoice_no') or row.get('invoice_id')}: {row.get('student_name')} · {row.get('amount')}"
-            )
+        students = payload.get("students") or []
+        if students and isinstance(students, list):
+            # Per-student sections — needed when a single payment covers two
+            # siblings (often in different classes). Each section shows the
+            # student's identity + their share of the allocations.
+            for stu in students:
+                if not isinstance(stu, dict):
+                    continue
+                ident_bits = [
+                    stu.get("student_name") or "Unknown student",
+                    stu.get("admission_no") or "",
+                    stu.get("class_code") or "",
+                ]
+                header = " · ".join(b for b in ident_bits if b)
+                lines.append(f"Student: {header}")
+                for idx, row in enumerate(stu.get("allocations") or [], start=1):
+                    if not isinstance(row, dict):
+                        continue
+                    lines.append(
+                        f"  {idx}. {row.get('invoice_no') or row.get('invoice_id')}: {row.get('amount')}"
+                    )
+                lines.append(f"  Subtotal: {stu.get('subtotal')}")
+                lines.append("")
+        else:
+            lines.append("Allocations:")
+            for idx, row in enumerate(payload.get("allocations") or [], start=1):
+                if not isinstance(row, dict):
+                    continue
+                lines.append(
+                    f"{idx}. {row.get('invoice_no') or row.get('invoice_id')}: {row.get('student_name')} · {row.get('amount')}"
+                )
     elif dtype == "FEE_STRUCTURE":
         lines.extend(
             [

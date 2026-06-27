@@ -352,6 +352,80 @@ class StudentPaymentRecordOut(BaseModel):
 
 
 # -------------------------
+# Family Record Payment (multi-student, single receipt)
+# -------------------------
+class ParentPaymentSummaryOut(BaseModel):
+    """All of a parent's children's payment summaries + family rollup. Used by
+    the by-parent record-payment view so the secretary sees the whole family
+    on one screen and records one Payment for the whole transaction."""
+    parent_id: UUID
+    parent_name: str
+    children: List[StudentPaymentSummaryOut] = Field(default_factory=list)
+    family_total_outstanding: Decimal
+
+
+class FamilyPerStudentAllocationIn(BaseModel):
+    """Manual-mode per-student split. Each amount is allocated FIFO inside that
+    student's open invoices on the server."""
+    student_id: UUID
+    amount: Decimal
+
+
+class ParentPaymentRecordRequest(BaseModel):
+    """Body for POST /finance/parents/{parent_id}/payments.
+
+    mode controls allocation:
+      - "auto": one amount is FIFO-allocated across the UNION of the family's
+        open school-fees invoices, oldest term first across all children.
+      - "manual": per_student_allocations[] is required. Each (student_id,
+        amount) is FIFO-allocated inside that student's invoices. Each amount
+        must not exceed the student's outstanding (no silent overflow to
+        siblings — that would re-create the ambiguity we just killed).
+
+    credit_to_student_id is required whenever a surplus would result (auto
+    surplus when amount > family total; manual surplus when per-student sum <
+    amount).
+    """
+    amount: Decimal
+    provider: str
+    reference: Optional[str] = None
+    mode: str = "auto"
+    per_student_allocations: Optional[List[FamilyPerStudentAllocationIn]] = None
+    credit_to_student_id: Optional[UUID] = None
+
+
+class FamilyAllocationLineOut(BaseModel):
+    invoice_id: UUID
+    invoice_no: Optional[str] = None
+    student_id: UUID
+    student_name: str
+    term_number: Optional[int] = None
+    academic_year: Optional[int] = None
+    amount: Decimal
+
+
+class FamilyStudentBreakdownOut(BaseModel):
+    student_id: UUID
+    student_name: str
+    admission_no: Optional[str] = None
+    class_code: Optional[str] = None
+    subtotal: Decimal
+    allocations: List[FamilyAllocationLineOut] = Field(default_factory=list)
+
+
+class ParentPaymentRecordOut(BaseModel):
+    payment_id: UUID
+    receipt_no: Optional[str] = None
+    amount: Decimal
+    allocated_total: Decimal
+    surplus_credit: Decimal
+    credit_balance_id: Optional[UUID] = None
+    credit_to_student_id: Optional[UUID] = None
+    credit_to_student_name: Optional[str] = None
+    students: List[FamilyStudentBreakdownOut] = Field(default_factory=list)
+
+
+# -------------------------
 # Paginated list responses
 # -------------------------
 class PageMeta(BaseModel):

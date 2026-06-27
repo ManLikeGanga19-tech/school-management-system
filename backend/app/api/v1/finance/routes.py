@@ -21,6 +21,7 @@ from app.api.v1.finance.schemas import (
     GenerateFeesInvoiceV2Request,
     PaymentCreate, PaymentOut, PaymentWithAllocationsOut, PaymentPageOut,
     StudentPaymentSummaryOut, StudentPaymentRecordRequest, StudentPaymentRecordOut,
+    ParentPaymentSummaryOut, ParentPaymentRecordRequest, ParentPaymentRecordOut,
     TenantPaymentSettingsUpsert, TenantPaymentSettingsOut,
 )
 
@@ -851,6 +852,99 @@ def record_student_payment_route(
             except Exception:
                 # Notification failure must not roll back a recorded payment.
                 pass
+
+        return result
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/parents/{parent_id}/payment-summary",
+    response_model=ParentPaymentSummaryOut,
+    dependencies=[Depends(require_permission("finance.payments.view"))],
+)
+def get_parent_payment_summary_route(
+    parent_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Family roll-up of every linked child's payment summary, plus
+    family_total_outstanding. Used by the family-mode Record Payment view."""
+    try:
+        return service.get_parent_payment_summary(
+            db, tenant_id=tenant.id, parent_id=parent_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post(
+    "/parents/{parent_id}/payments",
+    response_model=ParentPaymentRecordOut,
+    dependencies=[Depends(require_permission("finance.payments.manage"))],
+)
+def record_parent_payment_route(
+    parent_id: UUID,
+    payload: ParentPaymentRecordRequest,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Record ONE payment covering one or more of a parent's children.
+
+    mode=auto: FIFO across the family's open school-fees invoices, oldest term
+    first across all children. mode=manual: per_student_allocations[] gives an
+    explicit split per child; each child's amount is then FIFO-allocated inside
+    that child's invoices (no silent spillover between siblings).
+
+    credit_to_student_id is required when a surplus would result and the
+    payment covers multiple children.
+    """
+    try:
+        per_student = (
+            [a.model_dump() for a in payload.per_student_allocations]
+            if payload.per_student_allocations
+            else None
+        )
+        result = service.record_parent_payment(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            parent_id=parent_id,
+            amount=payload.amount,
+            provider=payload.provider,
+            reference=payload.reference,
+            mode=payload.mode,
+            per_student_allocations=per_student,
+            credit_to_student_id=payload.credit_to_student_id,
+        )
+        db.commit()
+
+        # Notify each child's primary enrollment about the payment portion
+        # that went to them. Best-effort — never roll back a recorded payment.
+        try:
+            for stu in result.get("students", []):
+                stu_id = stu.get("student_id")
+                if not stu_id:
+                    continue
+                # First allocation's invoice for this student → enrollment id.
+                allocs = stu.get("allocations") or []
+                if not allocs:
+                    continue
+                from app.models.invoice import Invoice as _Invoice
+                first_inv_id = UUID(allocs[0]["invoice_id"])
+                inv = db.get(_Invoice, first_inv_id)
+                sms_notify.fire_payment_notification(
+                    db, tenant_id=tenant.id, actor_user_id=user.id,
+                    enrollment_id=inv.enrollment_id if inv else None,
+                    receipt_no=result.get("receipt_no"),
+                    amount=float(stu.get("subtotal") or 0),
+                    new_balance=0.0,
+                )
+        except Exception:
+            pass
 
         return result
     except ValueError as e:
