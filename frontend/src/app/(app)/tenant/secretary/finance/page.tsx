@@ -48,6 +48,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/sonner";
+import { BulkGenerateInvoicesCard } from "@/components/finance/BulkGenerateInvoicesCard";
 import { InvoicePreviewModal, type InvoicePreviewData } from "@/components/finance/InvoicePreviewModal";
 import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStudent";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
@@ -1833,6 +1834,14 @@ function SecretaryFinancePageContent() {
               />
               <SummaryCard label="Enrollments" value={String(data.enrollments.length)} color="blue" />
             </div>
+
+            {/* Bulk Generate (term-start workhorse) — kept above the
+                per-student forms because at the start of a term this is the
+                primary action; per-student generation is for stragglers. */}
+            <BulkGenerateInvoicesCard
+              classOptions={tenantClasses.map((c) => ({ code: c.code, name: c.name }))}
+              onChanged={() => void loadFinance(true)}
+            />
 
             <div className="grid gap-5 xl:grid-cols-2">
               {/* Fees Invoice */}
