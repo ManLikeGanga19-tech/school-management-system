@@ -1558,15 +1558,22 @@ def _recalc_invoice_amounts(db: Session, invoice: Invoice) -> None:
     invoice.paid_amount = paid
     invoice.balance_amount = (Decimal(total) - Decimal(paid))
 
-    # set status
-    if invoice.total_amount == 0:
-        invoice.status = "DRAFT"
-    elif invoice.balance_amount <= 0:
-        invoice.status = "PAID"
-    elif invoice.paid_amount > 0:
-        invoice.status = "PARTIAL"
-    else:
-        invoice.status = "ISSUED"
+    # Status lifecycle for non-DRAFT, non-CANCELLED invoices. DRAFT is held
+    # until publish_invoice is called explicitly — recalc must never
+    # auto-promote a DRAFT to ISSUED, or the secretary's preview-then-publish
+    # step gets bypassed every time totals are recomputed (e.g. on
+    # regeneration or a downstream CF settle).
+    if invoice.status != "DRAFT":
+        if invoice.total_amount == 0:
+            # Emptying out an existing live invoice (rare) sends it back to
+            # DRAFT for the secretary to publish or delete deliberately.
+            invoice.status = "DRAFT"
+        elif invoice.balance_amount <= 0:
+            invoice.status = "PAID"
+        elif invoice.paid_amount > 0:
+            invoice.status = "PARTIAL"
+        else:
+            invoice.status = "ISSUED"
 
     # Arrears (brought-forward balance) breakdown — FIFO accounting: any payment
     # is treated as clearing the arrears portion before the current-term
@@ -1659,6 +1666,10 @@ def create_invoice(
         )
 
     db.flush()
+    # Legacy + interview-fee invoices auto-publish on creation (parents pay
+    # interview fees immediately; there's no preview workflow for them). The
+    # v2 fees generator deliberately keeps DRAFT — see generate_school_fees_invoice_v2.
+    inv.status = "ISSUED"
     _recalc_invoice_amounts(db, inv)
     db.flush()
 
@@ -1988,6 +1999,14 @@ def create_payment(
     invoice_map = {inv.id: inv for inv in invoices}
     for invoice_id, alloc_amount in normalized_allocations:
         inv = invoice_map[invoice_id]
+        # DRAFT invoices have not been signed off by the secretary yet —
+        # money must never land on them. The publish-then-record flow gives
+        # us this guarantee at the point of the payment.
+        if getattr(inv, "status", None) == "DRAFT":
+            raise ValueError(
+                f"Invoice {inv.invoice_no or inv.id} is a draft and has not "
+                "been published yet — publish it before recording a payment."
+            )
         if Decimal(inv.balance_amount) <= 0:
             raise ValueError(f"Invoice {inv.id} is already fully paid")
         if alloc_amount > Decimal(inv.balance_amount):
@@ -4974,6 +4993,71 @@ def generate_school_fees_invoice_v2(
             "academic_year": academic_year,
             "student_type": student_type,
             "student_type_resolved_by": student_type_resolved_by,
+        },
+        meta=None,
+    )
+    return inv
+
+
+def publish_invoice(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    invoice_id: UUID,
+) -> Invoice:
+    """Move an invoice out of DRAFT into its live status (ISSUED / PARTIAL /
+    PAID, depending on existing allocations).
+
+    The DRAFT status is the secretary's safety net — generation produces a
+    DRAFT, the secretary reviews it (preview modal), then publishes. Only
+    after publish are payments allowed and parents notified.
+
+    Raises ValueError when the invoice is not DRAFT (idempotent guard so a
+    double-click does not silently no-op or worse).
+    """
+    inv = db.execute(
+        select(Invoice).where(
+            Invoice.id == invoice_id,
+            Invoice.tenant_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if not inv:
+        raise ValueError("Invoice not found")
+    if inv.status != "DRAFT":
+        raise ValueError(
+            f"Invoice is already {inv.status} — only DRAFT invoices can be published"
+        )
+
+    before_status = inv.status
+    total = Decimal(inv.total_amount or 0)
+    if total <= 0:
+        raise ValueError(
+            "Cannot publish an empty invoice — add fee lines or delete the draft"
+        )
+
+    paid = Decimal(inv.paid_amount or 0)
+    if paid >= total:
+        inv.status = "PAID"
+    elif paid > 0:
+        inv.status = "PARTIAL"
+    else:
+        inv.status = "ISSUED"
+    db.flush()
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="invoice.publish",
+        resource="invoice",
+        resource_id=inv.id,
+        payload={
+            "before_status": before_status,
+            "after_status": inv.status,
+            "invoice_no": inv.invoice_no,
+            "total_amount": str(total),
+            "enrollment_id": str(inv.enrollment_id) if inv.enrollment_id else None,
         },
         meta=None,
     )

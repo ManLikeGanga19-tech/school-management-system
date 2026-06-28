@@ -1,10 +1,39 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 from uuid import UUID
 
 from app.core.database import get_db
 from app.core.dependencies import get_tenant, get_current_user, require_permission
 from app.core.subscription_gate import block_when_inactive
+
+
+def _enforce_director_for_non_draft(request: Request, status: str) -> None:
+    """Inside a route already gated on finance.invoices.manage, refuse the
+    call when the target invoice is no longer DRAFT and the caller is not a
+    director (finance.policy.manage). Used by the status-split delete and
+    replace endpoints so the secretary can fix/discard their own DRAFTs but
+    cannot touch published ones — the director has those exclusively.
+
+    SUPER_ADMIN always passes."""
+    if (status or "").upper() == "DRAFT":
+        return
+    roles = {
+        str(r).strip().upper()
+        for r in (getattr(request.state, "roles", []) or [])
+        if isinstance(r, str) and str(r).strip()
+    }
+    if "SUPER_ADMIN" in roles:
+        return
+    perms = getattr(request.state, "permissions", []) or []
+    if "finance.policy.manage" not in perms:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Only directors can act on published invoices. "
+                "Discard or fix it while it is still a DRAFT, "
+                "or ask the director to perform this action."
+            ),
+        )
 
 from app.api.v1.finance import service
 from app.api.v1.payments import service as payments_service
@@ -639,27 +668,87 @@ def generate_fees_invoice_v2(
         )
         db.commit()
         db.refresh(inv)
-        sms_notify.fire_invoice_notification(
-            db, tenant_id=tenant.id, actor_user_id=user.id,
-            enrollment_id=payload.enrollment_id,
-            invoice_no=inv.invoice_no, total_amount=inv.total_amount,
-        )
+        # Notification deliberately NOT fired here — the invoice is a DRAFT.
+        # Parents are notified only when the secretary publishes it via the
+        # /invoices/{id}/publish endpoint below.
         return inv
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/invoices/{invoice_id}/replace", response_model=InvoiceOut, dependencies=[Depends(require_permission("finance.invoices.manage"))])
-def replace_invoice(
+@router.post(
+    "/invoices/{invoice_id}/publish",
+    response_model=InvoiceOut,
+    dependencies=[Depends(require_permission("finance.invoices.manage"))],
+)
+def publish_invoice_route(
     invoice_id: UUID,
-    payload: dict,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     user=Depends(get_current_user),
 ):
-    """Void a wrong school-fees invoice and regenerate it from the correct
-    structure (NEW/RETURNING), moving any payments onto the new invoice."""
+    """Move a DRAFT invoice into its live status (ISSUED / PARTIAL / PAID).
+    Publishing is what makes the invoice visible to parents and unlocks
+    payment recording against it. Allowed for both secretary and director."""
+    try:
+        inv = service.publish_invoice(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            invoice_id=invoice_id,
+        )
+        db.commit()
+        db.refresh(inv)
+        # Now that it's live, notify the parent — the same notification that
+        # used to fire on generate, deferred to publish so DRAFTs don't spam.
+        try:
+            sms_notify.fire_invoice_notification(
+                db, tenant_id=tenant.id, actor_user_id=user.id,
+                enrollment_id=inv.enrollment_id,
+                invoice_no=inv.invoice_no, total_amount=inv.total_amount,
+            )
+        except Exception:
+            # Notification failure must never roll back a published invoice.
+            pass
+        return inv
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/invoices/{invoice_id}/replace",
+    response_model=InvoiceOut,
+    # Minimum gate; the inner check tightens to finance.policy.manage when
+    # the invoice is no longer DRAFT (only directors can re-issue a live
+    # invoice from a different structure).
+    dependencies=[Depends(require_permission("finance.invoices.manage"))],
+)
+def replace_invoice(
+    invoice_id: UUID,
+    payload: dict,
+    request: Request,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Regenerate a school-fees invoice in place from the chosen structure.
+
+    Both roles can replace a DRAFT they just generated (fix-my-own-mistake);
+    replacing a published invoice (ISSUED / PARTIAL / PAID) requires
+    finance.policy.manage — director only."""
+    from app.models.invoice import Invoice as _Invoice
+    from sqlalchemy import select as _select
+    inv_row = db.execute(
+        _select(_Invoice).where(
+            _Invoice.id == invoice_id, _Invoice.tenant_id == tenant.id,
+        )
+    ).scalar_one_or_none()
+    if not inv_row:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    _enforce_director_for_non_draft(request, inv_row.status or "")
+
     try:
         inv = service.replace_fees_invoice(
             db,
@@ -679,16 +768,33 @@ def replace_invoice(
 
 @router.delete(
     "/invoices/{invoice_id}",
-    dependencies=[Depends(require_permission("finance.policy.manage"))],
+    # Minimum gate; the inner check tightens to finance.policy.manage when
+    # the invoice has been published. Secretaries can discard a DRAFT they
+    # just generated (mistakes happen, no money on it yet); only directors
+    # can hard-delete a live invoice.
+    dependencies=[Depends(require_permission("finance.invoices.manage"))],
 )
 def delete_invoice(
     invoice_id: UUID,
+    request: Request,
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     user=Depends(get_current_user),
 ):
-    """Director-only: hard-delete an invoice and all payments/receipts tied to
-    it. Gated on finance.policy.manage, which only directors hold."""
+    """Hard-delete an invoice + everything tied to it (payments, receipts,
+    allocations, bundled carry-forward releases back to OPEN).
+    DRAFT: both roles. Published: director only."""
+    from app.models.invoice import Invoice as _Invoice
+    from sqlalchemy import select as _select
+    inv_row = db.execute(
+        _select(_Invoice).where(
+            _Invoice.id == invoice_id, _Invoice.tenant_id == tenant.id,
+        )
+    ).scalar_one_or_none()
+    if not inv_row:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    _enforce_director_for_non_draft(request, inv_row.status or "")
+
     try:
         result = service.delete_invoice_cascade(
             db, tenant_id=tenant.id, actor_user_id=user.id, invoice_id=invoice_id

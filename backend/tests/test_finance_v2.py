@@ -1005,3 +1005,297 @@ class TestStudentTypeResolution:
         assert audit is not None
         assert audit.payload.get("student_type") == "NEW"
         assert audit.payload.get("student_type_resolved_by") == "first_intake"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Preview-then-publish lifecycle (Phase C)
+#
+# Generation produces a DRAFT — recalc no longer auto-promotes — and a
+# dedicated publish endpoint moves it to ISSUED. Payments and parent SMS
+# only fire on published invoices. Delete and replace are status-gated:
+# DRAFT is open to both roles (secretary can fix/discard their own
+# mistakes); published is director-only.
+# ────────────────────────────────────────────────────────────────────────────
+
+POLICY_MANAGE = ALL_FINANCE + ["finance.policy.manage"]
+
+# Secretary-equivalent (no policy.manage); has everything else needed to
+# generate, publish, replace DRAFTs, and record payments.
+SECRETARY_PERMS = [p for p in ALL_FINANCE if p != "finance.policy.manage"] + ENROLLMENT_MANAGE
+DIRECTOR_PERMS = POLICY_MANAGE + ENROLLMENT_MANAGE
+
+
+def _setup_published_pipeline(client, db_session, *, class_code="GRADE_1", year=2026):
+    """Build a tenant + perms + structure + enrolled student + a DRAFT
+    invoice (generated via v2). Returns (headers_secretary, headers_director,
+    eid, draft_invoice_id)."""
+    slug = f"pub-{uuid4().hex[:6]}"
+    tenant = create_tenant(db_session, slug=slug, domain=f"{slug}.example.com")
+    _, headers_sec = make_actor(db_session, tenant=tenant, permissions=SECRETARY_PERMS)
+    _, headers_dir = make_actor(db_session, tenant=tenant, permissions=DIRECTOR_PERMS)
+    _setup_full_structure(
+        client, headers_dir, class_code=class_code,
+        academic_year=year, student_type="RETURNING",
+    )
+    eid = _make_enrolled_student(client, headers_dir, class_code=class_code)
+    _link_student_admission_year(
+        db_session, tenant_id=headers_dir["X-Tenant-ID"],
+        enrollment_id=eid, admission_year=year - 1,
+    )
+    # Generate the DRAFT via the secretary (the standard flow).
+    r = client.post(
+        f"{BASE}/invoices/generate/fees/v2",
+        json={"enrollment_id": eid, "term_number": 1, "academic_year": year},
+        headers=headers_sec,
+    )
+    assert r.status_code == 200, r.text
+    invoice_id = r.json()["id"]
+    return headers_sec, headers_dir, eid, invoice_id
+
+
+class TestDraftLifecycle:
+    def test_v2_generate_returns_draft(self, client: TestClient, db_session: Session):
+        """Generation must produce a DRAFT — recalc no longer auto-promotes."""
+        headers_sec, _, _, invoice_id = _setup_published_pipeline(client, db_session)
+        # GET the invoice and verify status.
+        from sqlalchemy import text
+        row = db_session.execute(
+            text("SELECT status FROM core.invoices WHERE id = :id"),
+            {"id": invoice_id},
+        ).mappings().first()
+        assert row["status"] == "DRAFT"
+
+    def test_publish_moves_draft_to_issued(self, client: TestClient, db_session: Session):
+        headers_sec, _, _, invoice_id = _setup_published_pipeline(client, db_session)
+        resp = client.post(
+            f"{BASE}/invoices/{invoice_id}/publish",
+            headers=headers_sec,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "ISSUED"
+
+    def test_publish_twice_rejected(self, client: TestClient, db_session: Session):
+        """Idempotency guard — double-publish is an error so the secretary
+        knows their first call already took effect (and we never accidentally
+        flip a PAID back to ISSUED)."""
+        headers_sec, _, _, invoice_id = _setup_published_pipeline(client, db_session)
+        first = client.post(f"{BASE}/invoices/{invoice_id}/publish", headers=headers_sec)
+        assert first.status_code == 200
+        second = client.post(f"{BASE}/invoices/{invoice_id}/publish", headers=headers_sec)
+        assert second.status_code == 400
+        assert "already" in second.json()["detail"].lower()
+
+    def test_publish_director_also_allowed(self, client: TestClient, db_session: Session):
+        """Both roles can publish (Q3 answer = a)."""
+        _, headers_dir, _, invoice_id = _setup_published_pipeline(client, db_session)
+        resp = client.post(f"{BASE}/invoices/{invoice_id}/publish", headers=headers_dir)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ISSUED"
+
+    def test_publish_emits_audit_with_before_after(
+        self, client: TestClient, db_session: Session
+    ):
+        from app.models.audit_log import AuditLog
+        headers_sec, _, _, invoice_id = _setup_published_pipeline(client, db_session)
+        r = client.post(f"{BASE}/invoices/{invoice_id}/publish", headers=headers_sec)
+        assert r.status_code == 200
+
+        from sqlalchemy import select as sa_select
+        audit = db_session.execute(
+            sa_select(AuditLog)
+            .where(AuditLog.action == "invoice.publish")
+            .order_by(AuditLog.created_at.desc())
+        ).scalars().first()
+        assert audit is not None
+        assert audit.payload.get("before_status") == "DRAFT"
+        assert audit.payload.get("after_status") == "ISSUED"
+        assert audit.payload.get("invoice_no")
+
+    def test_payment_on_draft_rejected(self, client: TestClient, db_session: Session):
+        """Money never lands on a DRAFT — the secretary's preview-publish
+        step gives us this guarantee at the point of payment."""
+        headers_sec, _, eid, invoice_id = _setup_published_pipeline(client, db_session)
+        # Read the invoice total so we can build a valid (but doomed) payment.
+        from sqlalchemy import text
+        total = db_session.execute(
+            text("SELECT total_amount FROM core.invoices WHERE id = :id"),
+            {"id": invoice_id},
+        ).scalar_one()
+        resp = client.post(
+            f"{BASE}/payments",
+            json={
+                "provider": "CASH", "reference": "X",
+                "amount": str(total),
+                "allocations": [{"invoice_id": invoice_id, "amount": str(total)}],
+            },
+            headers=headers_sec,
+        )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"].lower()
+        assert "draft" in detail and "publish" in detail
+
+    def test_payment_after_publish_succeeds(self, client: TestClient, db_session: Session):
+        headers_sec, _, _, invoice_id = _setup_published_pipeline(client, db_session)
+        # Publish, then pay.
+        client.post(f"{BASE}/invoices/{invoice_id}/publish", headers=headers_sec)
+        from sqlalchemy import text
+        total = db_session.execute(
+            text("SELECT total_amount FROM core.invoices WHERE id = :id"),
+            {"id": invoice_id},
+        ).scalar_one()
+        resp = client.post(
+            f"{BASE}/payments",
+            json={
+                "provider": "CASH", "reference": "OK",
+                "amount": str(total),
+                "allocations": [{"invoice_id": invoice_id, "amount": str(total)}],
+            },
+            headers=headers_sec,
+        )
+        assert resp.status_code == 200
+
+    def test_publish_empty_invoice_rejected(self, client: TestClient, db_session: Session):
+        """An invoice with no line items can't be published — surface a
+        clear error rather than a silent zero-amount publish."""
+        slug = f"empty-{uuid4().hex[:6]}"
+        tenant = create_tenant(db_session, slug=slug, domain=f"{slug}.example.com")
+        _, headers = make_actor(
+            db_session, tenant=tenant,
+            permissions=DIRECTOR_PERMS,
+        )
+        # Insert a DRAFT invoice with no lines.
+        from sqlalchemy import text
+        from uuid import uuid4 as _uuid4
+        iid = str(_uuid4())
+        eid = _make_enrolled_student(client, headers)
+        db_session.execute(
+            text(
+                "INSERT INTO core.invoices "
+                "(id, tenant_id, invoice_no, invoice_type, status, enrollment_id, "
+                " currency, total_amount, paid_amount, balance_amount) "
+                "VALUES (:id, :tid, 'INV-EMPTY', 'SCHOOL_FEES', 'DRAFT', :eid, "
+                "        'KES', 0, 0, 0)"
+            ),
+            {"id": iid, "tid": str(tenant.id), "eid": eid},
+        )
+        db_session.commit()
+
+        resp = client.post(f"{BASE}/invoices/{iid}/publish", headers=headers)
+        assert resp.status_code == 400
+        assert "empty" in resp.json()["detail"].lower()
+
+
+class TestStatusGatedPermissions:
+    """Phase C RBAC: secretary CAN delete/replace a DRAFT; director-only
+    for published invoices."""
+
+    def test_secretary_can_delete_own_draft(self, client: TestClient, db_session: Session):
+        """(b) decision: secretary discards their own DRAFT mistake without
+        bothering the director (no money on it yet)."""
+        headers_sec, _, _, invoice_id = _setup_published_pipeline(client, db_session)
+        resp = client.delete(f"{BASE}/invoices/{invoice_id}", headers=headers_sec)
+        assert resp.status_code == 200, resp.text
+
+    def test_secretary_cannot_delete_published(
+        self, client: TestClient, db_session: Session
+    ):
+        headers_sec, headers_dir, _, invoice_id = _setup_published_pipeline(
+            client, db_session
+        )
+        # Publish first.
+        client.post(f"{BASE}/invoices/{invoice_id}/publish", headers=headers_sec)
+
+        resp = client.delete(f"{BASE}/invoices/{invoice_id}", headers=headers_sec)
+        assert resp.status_code == 403
+        assert "director" in resp.json()["detail"].lower()
+
+    def test_director_can_delete_published(
+        self, client: TestClient, db_session: Session
+    ):
+        headers_sec, headers_dir, _, invoice_id = _setup_published_pipeline(
+            client, db_session
+        )
+        client.post(f"{BASE}/invoices/{invoice_id}/publish", headers=headers_sec)
+        resp = client.delete(f"{BASE}/invoices/{invoice_id}", headers=headers_dir)
+        assert resp.status_code == 200
+
+    def test_secretary_can_replace_own_draft(
+        self, client: TestClient, db_session: Session
+    ):
+        """Secretary fixes a DRAFT they generated against the wrong structure
+        without needing a director."""
+        headers_sec, _, _, invoice_id = _setup_published_pipeline(client, db_session)
+        # Need a NEW structure for the replace target (current is RETURNING).
+        _setup_full_structure(
+            client, headers_sec, class_code="GRADE_1",
+            academic_year=2026, student_type="NEW",
+        )
+        resp = client.post(
+            f"{BASE}/invoices/{invoice_id}/replace",
+            json={"student_type": "NEW"},
+            headers=headers_sec,
+        )
+        assert resp.status_code == 200, resp.text
+
+    def test_secretary_cannot_replace_published(
+        self, client: TestClient, db_session: Session
+    ):
+        headers_sec, _, _, invoice_id = _setup_published_pipeline(client, db_session)
+        client.post(f"{BASE}/invoices/{invoice_id}/publish", headers=headers_sec)
+        _setup_full_structure(
+            client, headers_sec, class_code="GRADE_1",
+            academic_year=2026, student_type="NEW",
+        )
+        resp = client.post(
+            f"{BASE}/invoices/{invoice_id}/replace",
+            json={"student_type": "NEW"},
+            headers=headers_sec,
+        )
+        assert resp.status_code == 403
+
+    def test_director_can_replace_published(
+        self, client: TestClient, db_session: Session
+    ):
+        headers_sec, headers_dir, _, invoice_id = _setup_published_pipeline(
+            client, db_session
+        )
+        client.post(f"{BASE}/invoices/{invoice_id}/publish", headers=headers_sec)
+        _setup_full_structure(
+            client, headers_dir, class_code="GRADE_1",
+            academic_year=2026, student_type="NEW",
+        )
+        resp = client.post(
+            f"{BASE}/invoices/{invoice_id}/replace",
+            json={"student_type": "NEW"},
+            headers=headers_dir,
+        )
+        assert resp.status_code == 200, resp.text
+
+    def test_delete_404_when_invoice_in_another_tenant(
+        self, client: TestClient, db_session: Session
+    ):
+        """Delete returns 404 (not 403/200) when the invoice belongs to a
+        different tenant — guards against cross-tenant probing."""
+        ta = create_tenant(db_session, slug=f"dt-a-{uuid4().hex[:6]}")
+        tb = create_tenant(db_session, slug=f"dt-b-{uuid4().hex[:6]}")
+        _, headers_a = make_actor(db_session, tenant=ta, permissions=DIRECTOR_PERMS)
+        _, headers_b = make_actor(db_session, tenant=tb, permissions=DIRECTOR_PERMS)
+        _setup_full_structure(
+            client, headers_a, class_code="GRADE_1",
+            academic_year=2026, student_type="RETURNING",
+        )
+        eid_a = _make_enrolled_student(client, headers_a, class_code="GRADE_1")
+        _link_student_admission_year(
+            db_session, tenant_id=headers_a["X-Tenant-ID"],
+            enrollment_id=eid_a, admission_year=2025,
+        )
+        r = client.post(
+            f"{BASE}/invoices/generate/fees/v2",
+            json={"enrollment_id": eid_a, "term_number": 1, "academic_year": 2026},
+            headers=headers_a,
+        )
+        invoice_id = r.json()["id"]
+
+        # Tenant B (director perms) tries to delete tenant A's invoice.
+        resp = client.delete(f"{BASE}/invoices/{invoice_id}", headers=headers_b)
+        assert resp.status_code == 404
