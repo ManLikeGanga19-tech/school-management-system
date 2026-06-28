@@ -52,7 +52,7 @@ import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStud
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { EnrollmentCombobox, type EnrollmentOption } from "@/components/ui/enrollment-combobox";
 import { api, apiFetchRaw } from "@/lib/api";
-import { normalizeTerms, type TenantTerm } from "@/lib/school-setup/terms";
+import { currentTermIdentity, normalizeTerms, type TenantTerm } from "@/lib/school-setup/terms";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -960,6 +960,25 @@ function SecretaryFinancePageContent() {
       setLoadingStructureLookups(false);
     }
   }, []);
+
+  // Pre-fill the fees-invoice form's term/year from the tenant's current term
+  // (as configured under School Setup → Terms). Runs once when terms first
+  // arrive; if the secretary has already touched the form (enrollment_id set
+  // or year edited), we leave their values alone. Falls back gracefully when
+  // the current term hasn't been tagged with the structured identity yet.
+  const termsPrefilledRef = useRef(false);
+  useEffect(() => {
+    if (termsPrefilledRef.current) return;
+    if (tenantTerms.length === 0) return;
+    const identity = currentTermIdentity(tenantTerms);
+    if (!identity) return;
+    termsPrefilledRef.current = true;
+    setFeesInvoiceForm((p) => ({
+      ...p,
+      term_number: String(identity.term_number),
+      academic_year: String(identity.academic_year),
+    }));
+  }, [tenantTerms]);
 
   useEffect(() => {
     void loadFinance();

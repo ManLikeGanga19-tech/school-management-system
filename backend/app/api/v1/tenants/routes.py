@@ -125,6 +125,11 @@ class TenantTermOut(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     is_current: bool = False
+    # Structured identity used by invoice generation + payment-summary +
+    # bulk-generation. Either may be null when the secretary hasn't set them
+    # for older terms; consumers must fall back gracefully.
+    term_number: Optional[int] = Field(default=None, ge=1, le=3)
+    academic_year: Optional[int] = Field(default=None, ge=2000, le=2199)
 
 
 class TenantTermCreateIn(BaseModel):
@@ -133,6 +138,8 @@ class TenantTermCreateIn(BaseModel):
     is_active: bool = True
     start_date: Optional[str] = Field(default=None, max_length=32)
     end_date: Optional[str] = Field(default=None, max_length=32)
+    term_number: Optional[int] = Field(default=None, ge=1, le=3)
+    academic_year: Optional[int] = Field(default=None, ge=2000, le=2199)
 
 
 class TenantTermUpdateIn(BaseModel):
@@ -141,6 +148,8 @@ class TenantTermUpdateIn(BaseModel):
     is_active: Optional[bool] = None
     start_date: Optional[str] = Field(default=None, max_length=32)
     end_date: Optional[str] = Field(default=None, max_length=32)
+    term_number: Optional[int] = Field(default=None, ge=1, le=3)
+    academic_year: Optional[int] = Field(default=None, ge=2000, le=2199)
 
 
 class TenantSchoolCalendarEventOut(BaseModel):
@@ -4025,7 +4034,8 @@ def list_tenant_terms(
             """
             SELECT id, code, name, COALESCE(is_active, true) AS is_active,
                    CAST(start_date AS TEXT) AS start_date,
-                   CAST(end_date AS TEXT) AS end_date
+                   CAST(end_date AS TEXT) AS end_date,
+                   term_number, academic_year
             FROM {table}
             WHERE tenant_id = :tenant_id
             """
@@ -4046,6 +4056,8 @@ def list_tenant_terms(
             start_date=(str(r.get("start_date")) if r.get("start_date") is not None else None),
             end_date=(str(r.get("end_date")) if r.get("end_date") is not None else None),
             is_current=(str(r.get("id")) == current_id),
+            term_number=(int(r.get("term_number")) if r.get("term_number") is not None else None),
+            academic_year=(int(r.get("academic_year")) if r.get("academic_year") is not None else None),
         )
         for r in rows
     ]
@@ -4083,11 +4095,16 @@ def create_tenant_term(
         raise HTTPException(status_code=409, detail="Term code already exists for this tenant")
 
     insert_q = """
-        INSERT INTO {table} (id, tenant_id, code, name, is_active, start_date, end_date)
-        VALUES (:id, :tenant_id, :code, :name, :is_active, :start_date, :end_date)
+        INSERT INTO {table}
+            (id, tenant_id, code, name, is_active, start_date, end_date,
+             term_number, academic_year)
+        VALUES
+            (:id, :tenant_id, :code, :name, :is_active, :start_date, :end_date,
+             :term_number, :academic_year)
         RETURNING id, code, name, COALESCE(is_active, true) AS is_active,
                   CAST(start_date AS TEXT) AS start_date,
-                  CAST(end_date AS TEXT) AS end_date
+                  CAST(end_date AS TEXT) AS end_date,
+                  term_number, academic_year
     """
     created = db.execute(
         sa.text(insert_q.format(table=table_name)),
@@ -4099,6 +4116,8 @@ def create_tenant_term(
             "is_active": bool(payload.is_active),
             "start_date": payload.start_date,
             "end_date": payload.end_date,
+            "term_number": payload.term_number,
+            "academic_year": payload.academic_year,
         },
     ).mappings().first()
     db.commit()
@@ -4113,6 +4132,8 @@ def create_tenant_term(
         is_active=bool(created["is_active"]),
         start_date=(str(created["start_date"]) if created["start_date"] is not None else None),
         end_date=(str(created["end_date"]) if created["end_date"] is not None else None),
+        term_number=(int(created["term_number"]) if created["term_number"] is not None else None),
+        academic_year=(int(created["academic_year"]) if created["academic_year"] is not None else None),
     )
 
 
@@ -4157,6 +4178,14 @@ def update_tenant_term(
         updates.append("end_date = :end_date")
         params["end_date"] = payload.end_date
 
+    if payload.term_number is not None:
+        updates.append("term_number = :term_number")
+        params["term_number"] = int(payload.term_number)
+
+    if payload.academic_year is not None:
+        updates.append("academic_year = :academic_year")
+        params["academic_year"] = int(payload.academic_year)
+
     if not updates:
         raise HTTPException(status_code=400, detail="No updates supplied")
 
@@ -4195,7 +4224,8 @@ def update_tenant_term(
         WHERE id = :term_id AND tenant_id = :tenant_id
         RETURNING id, code, name, COALESCE(is_active, true) AS is_active,
                   CAST(start_date AS TEXT) AS start_date,
-                  CAST(end_date AS TEXT) AS end_date
+                  CAST(end_date AS TEXT) AS end_date,
+                  term_number, academic_year
     """
     updated = db.execute(sa.text(update_q), params).mappings().first()
     db.commit()
@@ -4210,6 +4240,8 @@ def update_tenant_term(
         is_active=bool(updated["is_active"]),
         start_date=(str(updated["start_date"]) if updated["start_date"] is not None else None),
         end_date=(str(updated["end_date"]) if updated["end_date"] is not None else None),
+        term_number=(int(updated["term_number"]) if updated["term_number"] is not None else None),
+        academic_year=(int(updated["academic_year"]) if updated["academic_year"] is not None else None),
     )
 
 

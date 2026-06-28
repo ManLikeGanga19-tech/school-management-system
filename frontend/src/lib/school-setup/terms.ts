@@ -6,6 +6,11 @@ export type TenantTerm = {
   start_date?: string | null;
   end_date?: string | null;
   is_current?: boolean;
+  // Structured term identity used by invoice generation, payment summary,
+  // and bulk-generation. Either may be null on legacy rows the backfill
+  // could not parse; consumers must fall back gracefully.
+  term_number?: number | null;
+  academic_year?: number | null;
 };
 
 function asString(value: unknown): string {
@@ -52,6 +57,8 @@ export function normalizeTerms(input: unknown): TenantTerm[] {
 
       if (!name) return null;
 
+      const tn = rec.term_number;
+      const ay = rec.academic_year;
       return {
         id: asString(rec.id) || `term-${code.toLowerCase()}-${idx}`,
         code,
@@ -60,10 +67,37 @@ export function normalizeTerms(input: unknown): TenantTerm[] {
         start_date: asString(rec.start_date) || null,
         end_date: asString(rec.end_date) || null,
         is_current: rec.is_current === true,
+        term_number:
+          typeof tn === "number" && Number.isFinite(tn) && tn >= 1 && tn <= 3
+            ? tn
+            : null,
+        academic_year:
+          typeof ay === "number" && Number.isFinite(ay) && ay >= 2000 && ay <= 2199
+            ? ay
+            : null,
       };
     })
     .filter((row): row is TenantTerm => Boolean(row))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The current term's structured (term_number, academic_year). Returns null
+ * when no current term is set, or when the current term hasn't been tagged
+ * with the structured identity yet. Consumers (invoice form, record-payment
+ * summary) fall back to local defaults in that case.
+ */
+export function currentTermIdentity(
+  terms: TenantTerm[]
+): { term_number: number; academic_year: number } | null {
+  if (!terms.length) return null;
+  const current = terms.find((t) => t.is_current) ?? null;
+  if (!current) return null;
+  if (current.term_number == null || current.academic_year == null) return null;
+  return {
+    term_number: current.term_number,
+    academic_year: current.academic_year,
+  };
 }
 
 export function termFromPayload(payload: Record<string, unknown>): string {

@@ -47,6 +47,8 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
     start_date: "",
     end_date: "",
     is_active: true,
+    term_number: "",      // "" | "1" | "2" | "3"
+    academic_year: "",
   });
   const [editing, setEditing] = useState<Record<string, {
     code: string;
@@ -54,6 +56,8 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
     start_date: string;
     end_date: string;
     is_active: boolean;
+    term_number: string;
+    academic_year: string;
   }>>({});
 
   const load = useCallback(async () => {
@@ -101,6 +105,8 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
           is_active: form.is_active,
           start_date: form.start_date || null,
           end_date: form.end_date || null,
+          term_number: form.term_number ? Number(form.term_number) : null,
+          academic_year: form.academic_year ? Number(form.academic_year) : null,
         },
         { tenantRequired: true }
       );
@@ -111,6 +117,8 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
         start_date: "",
         end_date: "",
         is_active: true,
+        term_number: "",
+        academic_year: "",
       });
       await load();
     } catch (err: any) {
@@ -129,6 +137,8 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
         start_date: term.start_date ?? "",
         end_date: term.end_date ?? "",
         is_active: term.is_active !== false,
+        term_number: term.term_number != null ? String(term.term_number) : "",
+        academic_year: term.academic_year != null ? String(term.academic_year) : "",
       },
     }));
   }
@@ -158,6 +168,8 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
           is_active: draft.is_active,
           start_date: draft.start_date || null,
           end_date: draft.end_date || null,
+          term_number: draft.term_number ? Number(draft.term_number) : null,
+          academic_year: draft.academic_year ? Number(draft.academic_year) : null,
         },
         { tenantRequired: true }
       );
@@ -203,6 +215,33 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
           </div>
         )}
 
+        {/* Warn the operator about any active term that doesn't yet carry the
+            structured (term_number, academic_year) tuple. Invoice generation
+            and bulk-generation depend on these values — without them the
+            forms fall back to a calendar-year default and the bulk flow can
+            target the wrong students. */}
+        {!loading && !fallbackUsed && (() => {
+          const missing = terms.filter(
+            (t) => t.is_active !== false && (t.term_number == null || t.academic_year == null)
+          );
+          if (missing.length === 0) return null;
+          return (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <p className="font-semibold">
+                {missing.length} active term{missing.length === 1 ? "" : "s"} missing
+                structured identity.
+              </p>
+              <p className="mt-0.5 text-xs text-amber-700">
+                Term # (1/2/3) and Academic Year are required for invoice
+                generation to pre-fill correctly. Edit each row below and set
+                both values:
+                {" "}
+                {missing.map((t) => t.name).join(", ")}
+              </p>
+            </div>
+          );
+        })()}
+
         <div className="dashboard-surface rounded-[1.6rem] p-5">
           <div className="mb-4">
             <h2 className="text-sm font-semibold text-slate-900">Create Term</h2>
@@ -210,7 +249,7 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
               Add a new academic term for tenant enrollment workflows.
             </p>
           </div>
-          <div className="grid gap-3 md:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-7">
             <div className="space-y-1.5">
               <Label className="text-xs">Code</Label>
               <Input
@@ -225,6 +264,36 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
                 value={form.name}
                 onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Term 1 (2026)"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Term #</Label>
+              <Select
+                value={form.term_number || "__none__"}
+                onValueChange={(v) =>
+                  setForm((p) => ({ ...p, term_number: v === "__none__" ? "" : v }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="—" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  <SelectItem value="1">Term 1</SelectItem>
+                  <SelectItem value="2">Term 2</SelectItem>
+                  <SelectItem value="3">Term 3</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Academic Year</Label>
+              <Input
+                type="number"
+                min={2000}
+                max={2199}
+                value={form.academic_year}
+                onChange={(e) => setForm((p) => ({ ...p, academic_year: e.target.value }))}
+                placeholder="2026"
               />
             </div>
             <div className="space-y-1.5">
@@ -278,6 +347,8 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
               <TableRow className="bg-slate-50">
                 <TableHead className="text-xs">Name</TableHead>
                 <TableHead className="text-xs">Code</TableHead>
+                <TableHead className="text-xs">Term #</TableHead>
+                <TableHead className="text-xs">Year</TableHead>
                 <TableHead className="text-xs">Start</TableHead>
                 <TableHead className="text-xs">End</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
@@ -316,6 +387,61 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
                         />
                       ) : (
                         term.code
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {editing[term.id] ? (
+                        <Select
+                          value={editing[term.id].term_number || "__none__"}
+                          onValueChange={(v) =>
+                            setEditing((prev) => ({
+                              ...prev,
+                              [term.id]: {
+                                ...prev[term.id],
+                                term_number: v === "__none__" ? "" : v,
+                              },
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder="—" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">—</SelectItem>
+                            <SelectItem value="1">1</SelectItem>
+                            <SelectItem value="2">2</SelectItem>
+                            <SelectItem value="3">3</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : term.term_number != null ? (
+                        <span className="font-medium text-slate-800">
+                          {term.term_number}
+                        </span>
+                      ) : (
+                        <span className="text-amber-600">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {editing[term.id] ? (
+                        <Input
+                          type="number"
+                          min={2000}
+                          max={2199}
+                          className="h-8 w-20 text-xs"
+                          value={editing[term.id].academic_year}
+                          onChange={(e) =>
+                            setEditing((prev) => ({
+                              ...prev,
+                              [term.id]: { ...prev[term.id], academic_year: e.target.value },
+                            }))
+                          }
+                        />
+                      ) : term.academic_year != null ? (
+                        <span className="font-medium text-slate-800">
+                          {term.academic_year}
+                        </span>
+                      ) : (
+                        <span className="text-amber-600">—</span>
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-slate-500">
@@ -415,14 +541,14 @@ export function TermsSetupPage({ appTitle, nav, activeHref }: TermsSetupPageProp
                 ))}
               {!loading && terms.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-400">
+                  <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-400">
                     No terms available.
                   </TableCell>
                 </TableRow>
               )}
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-400">
+                  <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-400">
                     Loading terms…
                   </TableCell>
                 </TableRow>

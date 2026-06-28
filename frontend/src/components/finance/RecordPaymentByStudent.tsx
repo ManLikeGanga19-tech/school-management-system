@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/sonner";
 import { api, apiFetchRaw } from "@/lib/api";
+import { currentTermIdentity, normalizeTerms } from "@/lib/school-setup/terms";
 import {
   StudentOrParentCombobox,
   type PickedTarget,
@@ -223,6 +224,14 @@ export function RecordPaymentByStudent() {
   // Family-mode extras
   const [familyMode, setFamilyMode] = useState<"auto" | "manual">("auto");
   const [perStudent, setPerStudent] = useState<Record<string, string>>({});
+
+  // Tenant's current term identity (term_number + academic_year). Used to ask
+  // the per-student payment summary endpoint for the right prior-vs-current
+  // split. Loaded once; null when terms aren't configured / not tagged yet,
+  // in which case the backend falls back to "newest invoice is current".
+  const [currentTerm, setCurrentTerm] = useState<
+    { term_number: number; academic_year: number } | null
+  >(null);
   const [creditToStudentId, setCreditToStudentId] = useState<string>("");
 
   const loadOptions = useCallback(async () => {
@@ -293,8 +302,17 @@ export function RecordPaymentByStudent() {
     setSummaryLoading(true);
     try {
       if (target.kind === "student") {
+        // Anchor the prior-vs-current split on the tenant's current term
+        // when it's been tagged with the structured identity (Phase B).
+        // Otherwise the backend picks 'newest invoice is current' on its own.
+        const params = new URLSearchParams();
+        if (currentTerm) {
+          params.set("current_term_number", String(currentTerm.term_number));
+          params.set("current_academic_year", String(currentTerm.academic_year));
+        }
+        const qs = params.toString() ? `?${params.toString()}` : "";
         const data = await api.get<StudentSummary>(
-          `/finance/students/${encodeURIComponent(target.id)}/payment-summary`,
+          `/finance/students/${encodeURIComponent(target.id)}/payment-summary${qs}`,
           { tenantRequired: true }
         );
         setStudentSummary(data);
@@ -317,10 +335,25 @@ export function RecordPaymentByStudent() {
     } finally {
       setSummaryLoading(false);
     }
-  }, []);
+  }, [currentTerm]);
 
   useEffect(() => {
     void loadOptions();
+    // One-time fetch of tenant terms → resolve current-term identity so the
+    // per-student summary call asks for the right split. Best-effort: if the
+    // endpoint is unreachable or no current term is tagged, currentTerm stays
+    // null and the backend default kicks in.
+    (async () => {
+      try {
+        const raw = await api.get<unknown>("/tenants/terms", {
+          tenantRequired: true,
+          noRedirect: true,
+        });
+        setCurrentTerm(currentTermIdentity(normalizeTerms(raw)));
+      } catch {
+        // Silent fallback.
+      }
+    })();
   }, [loadOptions]);
 
   useEffect(() => {
