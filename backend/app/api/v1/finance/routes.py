@@ -838,6 +838,46 @@ def get_invoice(
     return inv
 
 
+@router.get(
+    "/invoices/{invoice_id}/lines",
+    dependencies=[Depends(require_permission("finance.invoices.view"))],
+)
+def get_invoice_lines(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    """Return the invoice's line items WITH meta. Used by the Preview &
+    Publish modal so the secretary can see line-kind (arrears rollup,
+    scholarship, interview credit, fee) before publishing — the canonical
+    /documents/invoices payload strips meta for PDF rendering.
+    """
+    from app.models.invoice import Invoice as _Invoice, InvoiceLine as _InvoiceLine
+    from sqlalchemy import select as _select
+    inv = db.execute(
+        _select(_Invoice).where(
+            _Invoice.id == invoice_id, _Invoice.tenant_id == tenant.id,
+        )
+    ).scalar_one_or_none()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    rows = db.execute(
+        _select(_InvoiceLine)
+        .where(_InvoiceLine.invoice_id == invoice_id)
+        .order_by(_InvoiceLine.id.asc())
+    ).scalars().all()
+    return [
+        {
+            "id": str(line.id),
+            "description": line.description,
+            "amount": str(line.amount or 0),
+            "meta": line.meta or {},
+        }
+        for line in rows
+    ]
+
+
 # -------------------------
 # Payments
 # -------------------------

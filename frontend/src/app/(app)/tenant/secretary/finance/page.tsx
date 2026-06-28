@@ -20,7 +20,7 @@ import {
   type FinanceSection,
 } from "@/components/layout/nav-config";
 import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome";
-import { FileDown, Printer, ClipboardList, AlertTriangle, CheckCircle2, X, RefreshCw } from "lucide-react";
+import { Eye, FileDown, Printer, ClipboardList, AlertTriangle, CheckCircle2, X, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +48,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/sonner";
+import { InvoicePreviewModal, type InvoicePreviewData } from "@/components/finance/InvoicePreviewModal";
 import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStudent";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { EnrollmentCombobox, type EnrollmentOption } from "@/components/ui/enrollment-combobox";
@@ -465,10 +466,13 @@ function StatusBadge({ active }: { active: boolean }) {
 function InvoiceStatusBadge({ status }: { status: string }) {
   const s = status.toUpperCase();
   const styles: Record<string, string> = {
+    DRAFT: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
+    ISSUED: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
     PAID: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
     PARTIAL: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
     UNPAID: "bg-red-50 text-red-700 ring-1 ring-red-200",
     PENDING: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+    CANCELLED: "bg-slate-100 text-slate-500 ring-1 ring-slate-200",
   };
   return (
     <span
@@ -717,6 +721,12 @@ function SecretaryFinancePageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Preview & Publish modal — opens whenever a v2 fees generation succeeds
+  // (and from the invoices table when a DRAFT row is opened). Holds the
+  // freshly-DRAFTed invoice + a display label for the modal header.
+  const [previewInvoice, setPreviewInvoice] = useState<InvoicePreviewData | null>(null);
+  const [previewLabel, setPreviewLabel] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<FinanceAction | null>(null);
   const [loadingStructureLookups, setLoadingStructureLookups] = useState(true);
   const [tenantClasses, setTenantClasses] = useState<TenantClass[]>([]);
@@ -1111,17 +1121,26 @@ function SecretaryFinancePageContent() {
     payload: unknown,
     successMessage: string,
     onSuccess?: () => void
-  ) {
+  ): Promise<{ data?: unknown } | null> {
     setPendingAction(action);
     setError(null);
     setNotice(null);
     try {
-      await api.post<any>("/tenants/secretary/finance", { action, payload }, { tenantRequired: true });
+      // The tenant action dispatcher returns the action's primary entity in
+      // `data`; returning it lets callers (e.g. fees-invoice generate)
+      // capture the new DRAFT so they can open the Preview & Publish modal.
+      const resp = await api.post<{ data?: unknown }>(
+        "/tenants/secretary/finance",
+        { action, payload },
+        { tenantRequired: true },
+      );
       if (onSuccess) onSuccess();
       setNotice(successMessage);
       await loadFinance(true);
+      return resp ?? null;
     } catch (err: any) {
       setError(typeof err?.message === "string" ? err.message : "Unable to reach finance service. Please try again.");
+      return null;
     } finally {
       setPendingAction(null);
     }
@@ -1686,7 +1705,7 @@ function SecretaryFinancePageContent() {
       }
     }
 
-    await postAction(
+    const resp = await postAction(
       "generate_fees_invoice_v2",
       {
         enrollment_id: feesInvoiceForm.enrollment_id,
@@ -1700,8 +1719,21 @@ function SecretaryFinancePageContent() {
           ? feesInvoiceForm.scholarship_reason.trim()
           : null,
       },
-      "School fees invoice generated."
+      "Draft invoice generated — review and publish.",
     );
+
+    // Open Preview & Publish for the freshly-DRAFTed invoice. The tenant
+    // dispatcher returns the invoice as resp.data — see _serialize_invoice
+    // in tenants/routes.py.
+    const created = resp?.data as InvoicePreviewData | undefined;
+    if (created?.id) {
+      const enrollment = data.enrollments.find(
+        (e) => e.id === created.enrollment_id,
+      );
+      const studentName = enrollment ? enrollmentName(enrollment.payload || {}) : "";
+      setPreviewLabel(studentName || null);
+      setPreviewInvoice(created);
+    }
   }
 
   async function createInterviewInvoice() {
@@ -2186,37 +2218,57 @@ function SecretaryFinancePageContent() {
                           <TableCell className="text-right">
                             <RowActionsMenu
                               ariaLabel="Invoice actions"
-                              actions={[
-                                {
-                                  key: "print",
-                                  label: "Open PDF in new tab",
-                                  icon: <Printer />,
-                                  onSelect: () => {
-                                    void apiFetchRaw(`/finance/documents/invoices/${invoice.id}/pdf`, { method: "GET", tenantRequired: true })
-                                      .then((res) => res.blob())
-                                      .then((blob) => {
-                                        const tab = window.open(URL.createObjectURL(blob), "_blank");
-                                        if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");
-                                      })
-                                      .catch(() => toast.error("Failed to open invoice PDF."));
-                                  },
-                                },
-                                {
-                                  key: "pdf",
-                                  label: "Download PDF",
-                                  icon: <FileDown />,
-                                  onSelect: () => {
-                                    const name = enrollment
-                                      ? enrollmentName(enrollment.payload || {})
-                                      : "invoice";
-                                    void api.downloadFile(
-                                      `/finance/documents/invoices/${invoice.id}/pdf`,
-                                      `${name.replace(/\s+/g, "_")}_invoice.pdf`,
-                                      { tenantRequired: true }
-                                    ).catch(() => toast.error("Failed to download invoice PDF."));
-                                  },
-                                },
-                              ]}
+                              actions={
+                                invoice.status === "DRAFT"
+                                  ? [
+                                      // DRAFT: re-open the Preview & Publish
+                                      // modal so the secretary can review +
+                                      // publish (or close to keep saving).
+                                      {
+                                        key: "preview",
+                                        label: "Preview & Publish",
+                                        icon: <Eye />,
+                                        onSelect: () => {
+                                          const studentName = enrollment
+                                            ? enrollmentName(enrollment.payload || {})
+                                            : "";
+                                          setPreviewLabel(studentName || null);
+                                          setPreviewInvoice(invoice as unknown as InvoicePreviewData);
+                                        },
+                                      },
+                                    ]
+                                  : [
+                                      {
+                                        key: "print",
+                                        label: "Open PDF in new tab",
+                                        icon: <Printer />,
+                                        onSelect: () => {
+                                          void apiFetchRaw(`/finance/documents/invoices/${invoice.id}/pdf`, { method: "GET", tenantRequired: true })
+                                            .then((res) => res.blob())
+                                            .then((blob) => {
+                                              const tab = window.open(URL.createObjectURL(blob), "_blank");
+                                              if (!tab) toast.error("Pop-up blocked — allow pop-ups to print.");
+                                            })
+                                            .catch(() => toast.error("Failed to open invoice PDF."));
+                                        },
+                                      },
+                                      {
+                                        key: "pdf",
+                                        label: "Download PDF",
+                                        icon: <FileDown />,
+                                        onSelect: () => {
+                                          const name = enrollment
+                                            ? enrollmentName(enrollment.payload || {})
+                                            : "invoice";
+                                          void api.downloadFile(
+                                            `/finance/documents/invoices/${invoice.id}/pdf`,
+                                            `${name.replace(/\s+/g, "_")}_invoice.pdf`,
+                                            { tenantRequired: true }
+                                          ).catch(() => toast.error("Failed to download invoice PDF."));
+                                        },
+                                      },
+                                    ]
+                              }
                             />
                           </TableCell>
                         </TableRow>
@@ -2553,6 +2605,19 @@ function SecretaryFinancePageContent() {
           </div>
         )}
       </div>
+
+      <InvoicePreviewModal
+        open={!!previewInvoice}
+        onOpenChange={(o) => {
+          if (!o) {
+            setPreviewInvoice(null);
+            setPreviewLabel(null);
+          }
+        }}
+        invoice={previewInvoice}
+        studentLabel={previewLabel}
+        onSaved={() => void loadFinance(true)}
+      />
     </AppShell>
   );
 }
