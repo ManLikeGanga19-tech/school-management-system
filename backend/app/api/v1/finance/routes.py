@@ -51,6 +51,8 @@ from app.api.v1.finance.schemas import (
     PaymentCreate, PaymentOut, PaymentWithAllocationsOut, PaymentPageOut,
     StudentPaymentSummaryOut, StudentPaymentRecordRequest, StudentPaymentRecordOut,
     ParentPaymentSummaryOut, ParentPaymentRecordRequest, ParentPaymentRecordOut,
+    BulkGenerateFeesInvoicesRequest, BulkGenerateFeesInvoicesOut,
+    BulkPublishInvoicesRequest, BulkPublishInvoicesOut,
     TenantPaymentSettingsUpsert, TenantPaymentSettingsOut,
 )
 
@@ -712,6 +714,94 @@ def publish_invoice_route(
             # Notification failure must never roll back a published invoice.
             pass
         return inv
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/invoices/generate/fees/bulk",
+    response_model=BulkGenerateFeesInvoicesOut,
+    dependencies=[Depends(require_permission("finance.invoices.manage"))],
+)
+def bulk_generate_fees_invoices_route(
+    payload: BulkGenerateFeesInvoicesRequest,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Generate DRAFT v2 fees invoices for every eligible enrollment
+    (ENROLLED / ENROLLED_PARTIAL) for the given term + academic year.
+    Optional class_code narrows the batch to a single class.
+
+    dry_run=true returns the same outcome list but rolls back any DRAFTs
+    that would have been created — used by the UI's 'Preview' step before
+    the secretary commits the batch.
+
+    Per-student failures don't abort the batch; each row shows up in
+    created/skipped/failed with a reason code the UI can render."""
+    try:
+        result = service.bulk_generate_fees_invoices(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            term_number=payload.term_number,
+            academic_year=payload.academic_year,
+            class_code=payload.class_code,
+            dry_run=payload.dry_run,
+        )
+        # The service manages its own savepoint; commit the outer transaction
+        # only when it actually persisted anything.
+        if not payload.dry_run:
+            db.commit()
+        return result
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/invoices/publish/bulk",
+    response_model=BulkPublishInvoicesOut,
+    dependencies=[Depends(require_permission("finance.invoices.manage"))],
+)
+def bulk_publish_invoices_route(
+    payload: BulkPublishInvoicesRequest,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Publish a batch of DRAFT invoices in one request — typically the
+    DRAFTs the secretary just generated via /generate/fees/bulk and
+    reviewed. Each row publishes in its own savepoint so one bad invoice
+    doesn't sink the rest. Returns per-row outcomes."""
+    try:
+        result = service.bulk_publish_invoices(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            invoice_ids=payload.invoice_ids,
+        )
+        db.commit()
+        # Best-effort parent SMS for each successfully published invoice.
+        # Same rule as the single publish endpoint: notification failure
+        # must never roll back a published invoice.
+        try:
+            from app.models.invoice import Invoice as _Invoice
+            from sqlalchemy import select as _select
+            for row in result.get("published", []):
+                inv = db.execute(
+                    _select(_Invoice).where(_Invoice.id == UUID(row["invoice_id"]))
+                ).scalar_one_or_none()
+                if inv is not None:
+                    sms_notify.fire_invoice_notification(
+                        db, tenant_id=tenant.id, actor_user_id=user.id,
+                        enrollment_id=inv.enrollment_id,
+                        invoice_no=inv.invoice_no, total_amount=inv.total_amount,
+                    )
+        except Exception:
+            pass
+        return result
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))

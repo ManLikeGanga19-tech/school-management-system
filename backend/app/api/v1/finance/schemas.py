@@ -430,6 +430,109 @@ class ParentPaymentRecordOut(BaseModel):
 
 
 # -------------------------
+# Bulk fees-invoice generation + bulk publish
+# -------------------------
+class BulkGenerateFeesInvoicesRequest(BaseModel):
+    """Body for POST /finance/invoices/generate/fees/bulk.
+
+    Generates DRAFT v2 fees invoices for every eligible enrollment (ENROLLED
+    or ENROLLED_PARTIAL) for the given term/year. class_code narrows the
+    batch to a single class; omit for the entire tenant.
+
+    dry_run=True runs the same logic atomically and rolls back, returning
+    the same outcome list so the secretary can preview before committing.
+    """
+    term_number: int = Field(..., ge=1, le=3)
+    academic_year: int = Field(..., ge=2000, le=2199)
+    class_code: Optional[str] = Field(default=None, max_length=80)
+    dry_run: bool = False
+
+
+class BulkGenerateSummaryOut(BaseModel):
+    total: int
+    created: int
+    skipped: int
+    failed: int
+    term_number: int
+    academic_year: int
+    class_code: Optional[str] = None
+    dry_run: bool = False
+
+
+class BulkGenerateCreatedOut(BaseModel):
+    enrollment_id: UUID
+    student_id: Optional[UUID] = None
+    student_name: str
+    class_code: Optional[str] = None
+    invoice_id: UUID
+    invoice_no: Optional[str] = None
+    total_amount: Decimal
+    student_type: Optional[str] = None
+    student_type_resolved_by: Optional[str] = None
+
+
+class BulkGenerateSkippedOut(BaseModel):
+    enrollment_id: UUID
+    student_name: str
+    class_code: Optional[str] = None
+    reason: str  # e.g. 'already_invoiced'
+    detail: str
+    existing_invoice_id: Optional[UUID] = None
+
+
+class BulkGenerateFailedOut(BaseModel):
+    enrollment_id: UUID
+    student_name: str
+    class_code: Optional[str] = None
+    reason: str  # no_class | no_structure | no_chargeable_items | error
+    detail: str
+
+
+class BulkGenerateFeesInvoicesOut(BaseModel):
+    summary: BulkGenerateSummaryOut
+    created: List[BulkGenerateCreatedOut] = Field(default_factory=list)
+    skipped: List[BulkGenerateSkippedOut] = Field(default_factory=list)
+    failed: List[BulkGenerateFailedOut] = Field(default_factory=list)
+
+
+class BulkPublishInvoicesRequest(BaseModel):
+    invoice_ids: List[UUID] = Field(..., min_length=1, max_length=1000)
+
+
+class BulkPublishSummaryOut(BaseModel):
+    total: int
+    published: int
+    skipped: int
+    failed: int
+
+
+class BulkPublishPublishedOut(BaseModel):
+    invoice_id: UUID
+    invoice_no: Optional[str] = None
+    after_status: str
+
+
+class BulkPublishSkippedOut(BaseModel):
+    invoice_id: UUID
+    invoice_no: Optional[str] = None
+    reason: str  # not_found | not_draft
+    current_status: Optional[str] = None
+
+
+class BulkPublishFailedOut(BaseModel):
+    invoice_id: UUID
+    reason: str  # empty_invoice | error
+    detail: str
+
+
+class BulkPublishInvoicesOut(BaseModel):
+    summary: BulkPublishSummaryOut
+    published: List[BulkPublishPublishedOut] = Field(default_factory=list)
+    skipped: List[BulkPublishSkippedOut] = Field(default_factory=list)
+    failed: List[BulkPublishFailedOut] = Field(default_factory=list)
+
+
+# -------------------------
 # Paginated list responses
 # -------------------------
 class PageMeta(BaseModel):

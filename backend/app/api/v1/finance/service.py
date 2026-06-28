@@ -5128,6 +5128,351 @@ def replace_fees_invoice(
     return new_inv
 
 
+# ── Bulk fees-invoice generation ────────────────────────────────────────────
+#
+# Term-start workhorse. One call enumerates every eligible enrollment for the
+# tenant (optionally narrowed to a class), tries to generate a DRAFT v2 fees
+# invoice for each, and returns a structured per-student outcome:
+#
+#   created — { enrollment_id, student_id, student_name, class_code,
+#               invoice_id, invoice_no, total_amount, student_type,
+#               student_type_resolved_by }
+#   skipped — { enrollment_id, student_name, reason: 'already_invoiced',
+#               existing_invoice_id }
+#   failed  — { enrollment_id, student_name, reason: code, detail: message }
+#
+# Reasons for failure:
+#   no_class           — enrollment has no recognisable class_code
+#   no_student_record  — enrollment never reached the SIS table (rare)
+#   no_structure       — no active fee structure matches class+year+student_type
+#   no_chargeable_items — structure had no items priced for this term
+#   error              — anything else; the failing enrollment is skipped,
+#                        the batch continues
+#
+# Dry-run mode runs the same logic inside a savepoint and rolls back at the
+# end — no DRAFTs persist, but the same outcome list is returned so the
+# secretary can preview before committing.
+
+
+_BULK_ELIGIBLE_STATUSES = ("ENROLLED", "ENROLLED_PARTIAL")
+
+
+def _enrollment_display_name(payload: dict[str, Any] | None) -> str:
+    if not isinstance(payload, dict):
+        return "Unknown student"
+    for key in ("student_name", "studentName", "full_name", "fullName", "name"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "Unknown student"
+
+
+def bulk_generate_fees_invoices(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    term_number: int,
+    academic_year: int,
+    class_code: Optional[str] = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Generate DRAFT v2 fees invoices for every eligible enrollment in one
+    go. Returns a structured outcome map — see module comment.
+
+    Behaviour:
+      • Only enrollments with status in ENROLLED / ENROLLED_PARTIAL are
+        considered (transfers, drafts, withdrawn etc. are skipped silently).
+      • Optional class_code filter (case-insensitive normalised).
+      • Per-student failure NEVER aborts the batch — bad rows are recorded
+        and the loop moves on.
+      • dry_run=True: every generated invoice (and any bundled CF) is rolled
+        back at the end via a savepoint, so the preview is consequence-free.
+      • Audit: 'invoice.bulk_generate' with the summary counts. Per-student
+        rows are NOT individually audited (the per-student v2 generator
+        already audits each created invoice via 'invoice.create.v2').
+    """
+    if term_number not in (1, 2, 3):
+        raise ValueError("term_number must be 1, 2, or 3")
+    if academic_year < 2000 or academic_year > 2199:
+        raise ValueError("academic_year must be between 2000 and 2199")
+
+    class_filter_norm = _norm_upper(class_code) if class_code else None
+
+    # Pull every eligible enrollment for this tenant. Loading payloads in one
+    # pass keeps the per-row class_code resolution cheap.
+    enrollments = db.execute(
+        select(Enrollment).where(
+            Enrollment.tenant_id == tenant_id,
+            Enrollment.status.in_(_BULK_ELIGIBLE_STATUSES),
+        )
+    ).scalars().all()
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    # Wrap the whole batch in a savepoint so dry_run can roll back atomically.
+    # In commit mode (dry_run=False), per-row failures are rolled back
+    # individually via inner savepoints; the outer one is released cleanly.
+    outer_sp = db.begin_nested()
+    try:
+        for enr in enrollments:
+            display_name = _enrollment_display_name(enr.payload)
+            enr_class = _extract_enrollment_class_code(enr.payload)
+
+            # Class filter — applied here so the outcome list only shows
+            # what the caller actually asked for.
+            if class_filter_norm and (enr_class or "") != class_filter_norm:
+                continue
+
+            row_failed: Optional[dict[str, Any]] = None
+            row_skipped: Optional[dict[str, Any]] = None
+            row_created: Optional[dict[str, Any]] = None
+
+            # Inner savepoint: a single failing enrollment must not poison
+            # the session for the rest of the batch.
+            inner_sp = db.begin_nested()
+            try:
+                inv = generate_school_fees_invoice_v2(
+                    db,
+                    tenant_id=tenant_id,
+                    actor_user_id=actor_user_id,
+                    enrollment_id=enr.id,
+                    term_number=term_number,
+                    academic_year=academic_year,
+                    include_carry_forward=True,
+                )
+                inner_sp.commit()
+                meta = dict(inv.meta or {})
+                row_created = {
+                    "enrollment_id": str(enr.id),
+                    "student_id": str(enr.student_id) if enr.student_id else None,
+                    "student_name": display_name,
+                    "class_code": enr_class,
+                    "invoice_id": str(inv.id),
+                    "invoice_no": inv.invoice_no,
+                    "total_amount": str(inv.total_amount or 0),
+                    "student_type": meta.get("student_type"),
+                    "student_type_resolved_by": meta.get("student_type_resolved_by"),
+                }
+            except ValueError as e:
+                inner_sp.rollback()
+                msg = str(e)
+                # Classify the common failure reasons so the UI can render
+                # actionable chips per row instead of dumping raw text.
+                if "already exists" in msg.lower():
+                    # Pull the duplicate's id out of the existing v2 generator's
+                    # message for the UI to link to.
+                    existing_id: Optional[str] = None
+                    existing_inv = db.execute(
+                        select(Invoice).where(
+                            Invoice.tenant_id == tenant_id,
+                            Invoice.enrollment_id == enr.id,
+                            Invoice.term_number == term_number,
+                            Invoice.academic_year == academic_year,
+                            Invoice.invoice_type == "SCHOOL_FEES",
+                        )
+                    ).scalar_one_or_none()
+                    if existing_inv:
+                        existing_id = str(existing_inv.id)
+                    row_skipped = {
+                        "enrollment_id": str(enr.id),
+                        "student_name": display_name,
+                        "class_code": enr_class,
+                        "reason": "already_invoiced",
+                        "detail": msg,
+                        "existing_invoice_id": existing_id,
+                    }
+                elif "cannot determine class" in msg.lower():
+                    row_failed = {
+                        "enrollment_id": str(enr.id),
+                        "student_name": display_name,
+                        "class_code": enr_class,
+                        "reason": "no_class",
+                        "detail": msg,
+                    }
+                elif "no active fee structure" in msg.lower():
+                    row_failed = {
+                        "enrollment_id": str(enr.id),
+                        "student_name": display_name,
+                        "class_code": enr_class,
+                        "reason": "no_structure",
+                        "detail": msg,
+                    }
+                elif "no chargeable" in msg.lower() or "fee structure has no items" in msg.lower():
+                    row_failed = {
+                        "enrollment_id": str(enr.id),
+                        "student_name": display_name,
+                        "class_code": enr_class,
+                        "reason": "no_chargeable_items",
+                        "detail": msg,
+                    }
+                else:
+                    row_failed = {
+                        "enrollment_id": str(enr.id),
+                        "student_name": display_name,
+                        "class_code": enr_class,
+                        "reason": "error",
+                        "detail": msg,
+                    }
+            except Exception as e:  # pragma: no cover — defensive
+                inner_sp.rollback()
+                row_failed = {
+                    "enrollment_id": str(enr.id),
+                    "student_name": display_name,
+                    "class_code": enr_class,
+                    "reason": "error",
+                    "detail": str(e),
+                }
+
+            if row_created is not None:
+                created.append(row_created)
+            elif row_skipped is not None:
+                skipped.append(row_skipped)
+            elif row_failed is not None:
+                failed.append(row_failed)
+
+        if dry_run:
+            outer_sp.rollback()  # nothing persists
+        else:
+            outer_sp.commit()
+    except Exception:
+        # If the outer savepoint itself blew up (shouldn't happen — per-row
+        # errors are caught above), make sure nothing leaks out partially
+        # committed.
+        try:
+            outer_sp.rollback()
+        except Exception:
+            pass
+        raise
+
+    summary = {
+        "total": len(created) + len(skipped) + len(failed),
+        "created": len(created),
+        "skipped": len(skipped),
+        "failed": len(failed),
+        "term_number": term_number,
+        "academic_year": academic_year,
+        "class_code": class_filter_norm,
+        "dry_run": bool(dry_run),
+    }
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="invoice.bulk_generate",
+        resource="invoice",
+        resource_id=None,
+        payload=summary,
+        meta=None,
+    )
+
+    return {"summary": summary, "created": created, "skipped": skipped, "failed": failed}
+
+
+def bulk_publish_invoices(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    invoice_ids: list[UUID],
+) -> dict[str, Any]:
+    """Publish a batch of DRAFT invoices. Per-row outcome:
+
+      published — { invoice_id, invoice_no, after_status }
+      skipped   — { invoice_id, reason: 'not_draft'|'not_found', current_status }
+      failed    — { invoice_id, reason: 'empty_invoice'|'error', detail }
+
+    Per-row failures don't abort the batch — each publish runs in its own
+    savepoint. Tenant-scoped: invoice ids belonging to other tenants are
+    reported as 'not_found' so we don't leak existence.
+    """
+    if not invoice_ids:
+        return {
+            "summary": {"total": 0, "published": 0, "skipped": 0, "failed": 0},
+            "published": [], "skipped": [], "failed": [],
+        }
+
+    published: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    for inv_id in invoice_ids:
+        sp = db.begin_nested()
+        try:
+            inv = db.execute(
+                select(Invoice).where(
+                    Invoice.id == inv_id,
+                    Invoice.tenant_id == tenant_id,
+                )
+            ).scalar_one_or_none()
+            if inv is None:
+                sp.rollback()
+                skipped.append({
+                    "invoice_id": str(inv_id),
+                    "reason": "not_found",
+                    "current_status": None,
+                })
+                continue
+            if inv.status != "DRAFT":
+                sp.rollback()
+                skipped.append({
+                    "invoice_id": str(inv_id),
+                    "invoice_no": inv.invoice_no,
+                    "reason": "not_draft",
+                    "current_status": inv.status,
+                })
+                continue
+            published_inv = publish_invoice(
+                db,
+                tenant_id=tenant_id,
+                actor_user_id=actor_user_id,
+                invoice_id=inv_id,
+            )
+            sp.commit()
+            published.append({
+                "invoice_id": str(inv_id),
+                "invoice_no": published_inv.invoice_no,
+                "after_status": published_inv.status,
+            })
+        except ValueError as e:
+            sp.rollback()
+            msg = str(e)
+            reason = "empty_invoice" if "empty" in msg.lower() else "error"
+            failed.append({
+                "invoice_id": str(inv_id),
+                "reason": reason,
+                "detail": msg,
+            })
+        except Exception as e:  # pragma: no cover — defensive
+            sp.rollback()
+            failed.append({
+                "invoice_id": str(inv_id),
+                "reason": "error",
+                "detail": str(e),
+            })
+
+    summary = {
+        "total": len(invoice_ids),
+        "published": len(published),
+        "skipped": len(skipped),
+        "failed": len(failed),
+    }
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="invoice.bulk_publish",
+        resource="invoice",
+        resource_id=None,
+        payload=summary,
+        meta=None,
+    )
+    return {"summary": summary, "published": published, "skipped": skipped, "failed": failed}
+
+
 def delete_invoice_cascade(
     db: Session,
     *,
