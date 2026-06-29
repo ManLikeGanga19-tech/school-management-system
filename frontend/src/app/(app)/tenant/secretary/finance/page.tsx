@@ -671,12 +671,21 @@ function SummaryCard({
     amber: "border-amber-100 bg-amber-50 text-amber-900",
     red: "border-red-100 bg-red-50 text-red-900",
   };
+  // Auto-shrink long money strings (KES 1,234,567.00 overflows the card
+  // at sm breakpoints). Long values drop one size + allow soft-wrap.
+  const isLongMoney = value.length > 14;
   return (
     <div className={`rounded-xl border p-4 ${colors[color]}`}>
       <p className="text-xs font-medium uppercase tracking-wide opacity-70">
         {label}
       </p>
-      <p className="mt-1 text-xl font-bold">{value}</p>
+      <p
+        className={`mt-1 font-bold tabular-nums break-words ${
+          isLongMoney ? "text-base sm:text-lg" : "text-xl"
+        }`}
+      >
+        {value}
+      </p>
       {sub && <p className="mt-0.5 text-xs opacity-60">{sub}</p>}
     </div>
   );

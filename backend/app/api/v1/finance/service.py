@@ -1471,7 +1471,11 @@ def list_scholarship_allocations(
                 sa.student_id,
                 COALESCE(
                     s.first_name || ' ' || s.last_name,
-                    ep.payload->>'first_name' || ' ' || ep.payload->>'last_name',
+                    -- Parens required: `||` and `->>` share precedence and
+                    -- are left-associative, so without grouping postgres
+                    -- parses this as `(text || text) || payload ->> 'last_name'`,
+                    -- which trips the `text ->> unknown` operator error.
+                    (ep.payload->>'first_name') || ' ' || (ep.payload->>'last_name'),
                     ep.payload->>'student_name',
                     ep.payload->>'full_name',
                     'Unknown Student'

@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { currentTermIdentity, normalizeTerms } from "@/lib/school-setup/terms";
+import { CollapsibleActionCard } from "@/components/finance/CollapsibleActionCard";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -276,24 +277,12 @@ export function BulkGenerateInvoicesCard({ classOptions, onChanged }: Props) {
   const sum = result?.summary;
 
   return (
-    <div className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-      <div className="border-b border-blue-100 bg-blue-50/40 px-5 py-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <div>
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <Sparkles className="h-4 w-4 text-blue-600" />
-              Bulk Generate Fees Invoices
-            </h3>
-            <p className="mt-0.5 text-xs text-slate-500">
-              One click generates a DRAFT v2 fees invoice for every eligible
-              student in the chosen class (or all classes). Preview first,
-              review the per-row outcome, then publish.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4 p-5">
+    <CollapsibleActionCard
+      title="Bulk Generate Fees Invoices"
+      subtitle="Generate DRAFT invoices for every eligible student in a class."
+      icon={Sparkles}
+    >
+      <div className="space-y-4">
         {/* ── Form ──────────────────────────────────────────────────── */}
         <div className="grid gap-3 md:grid-cols-4">
           <div className="space-y-1">
@@ -488,7 +477,7 @@ export function BulkGenerateInvoicesCard({ classOptions, onChanged }: Props) {
           </div>
         )}
       </div>
-    </div>
+    </CollapsibleActionCard>
   );
 }
 

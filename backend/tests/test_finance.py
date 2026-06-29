@@ -325,6 +325,64 @@ class TestScholarships:
         )
         assert resp.status_code == 403
 
+    def test_list_allocations_handles_payload_only_enrollment(
+        self, client: TestClient, db_session: Session
+    ):
+        """Regression: the allocations query used
+        `ep.payload->>'first_name' || ' ' || ep.payload->>'last_name'`
+        which postgres parsed left-to-right as
+        `(text || text) || jsonb ->> 'last_name'` and crashed with
+        `operator does not exist: text ->> unknown`. The query needs
+        parentheses around each `->>` operand."""
+        import sqlalchemy as sa
+        from uuid import uuid4
+
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(
+            db_session, tenant=tenant,
+            permissions=SCHOLARSHIP_MANAGE,
+        )
+
+        sc = client.post(
+            f"{BASE}/scholarships",
+            json={"name": "Bursary", "type": "FIXED", "value": "5000"},
+            headers=headers,
+        ).json()
+
+        # Hand-craft a payload-only enrollment (no linked student row) +
+        # an allocation. Reproduces the production shape: SELECT must reach
+        # the `ep.payload->>'first_name' || ' ' || ep.payload->>'last_name'`
+        # branch of the COALESCE.
+        eid = str(uuid4())
+        db_session.execute(
+            sa.text(
+                "INSERT INTO core.enrollments "
+                "(id, tenant_id, admission_number, status, payload) "
+                "VALUES (:id, :tid, :adm, 'ENROLLED', "
+                "        CAST('{\"first_name\":\"Asha\",\"last_name\":\"Mwangi\"}' "
+                "             AS jsonb))"
+            ),
+            {"id": eid, "tid": str(tenant.id), "adm": f"A-{uuid4().hex[:6]}"},
+        )
+        aid = str(uuid4())
+        db_session.execute(
+            sa.text(
+                "INSERT INTO core.scholarship_allocations "
+                "(id, tenant_id, scholarship_id, enrollment_id, amount, reason) "
+                "VALUES (:id, :tid, :sid, :eid, 5000, 'Test')"
+            ),
+            {"id": aid, "tid": str(tenant.id), "sid": sc["id"], "eid": eid},
+        )
+        db_session.commit()
+
+        resp = client.get(
+            f"{BASE}/scholarships/{sc['id']}/allocations", headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert len(body["allocations"]) == 1
+        assert body["allocations"][0]["student_name"] == "Asha Mwangi"
+
 
 # ── Invoices ─────────────────────────────────────────────────────────────────
 

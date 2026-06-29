@@ -42,6 +42,7 @@ import {
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { currentTermIdentity, normalizeTerms } from "@/lib/school-setup/terms";
+import { CollapsibleActionCard } from "@/components/finance/CollapsibleActionCard";
 
 type Scope = "all" | "current-term";
 
@@ -162,29 +163,35 @@ export function PublishAllDraftsCard({ onPublished }: Props) {
     }
   }
 
+  const headerBadge =
+    count != null && count > 0 ? (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+        {count} draft{count === 1 ? "" : "s"} ready
+      </span>
+    ) : count === 0 ? (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+        No drafts
+      </span>
+    ) : null;
+
   return (
-    <div className="dashboard-surface overflow-hidden rounded-[1.6rem]">
-      <div className="flex flex-col gap-3 border-b border-[#eadfce] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <div className="flex items-center gap-2">
-          <Send className="h-4 w-4 text-slate-400" />
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">Publish All Drafts</h2>
-            <p className="mt-0.5 text-xs text-slate-400">
-              Issue every DRAFT invoice in one action. Skipped &amp; failed rows are reported.
-            </p>
-          </div>
-        </div>
+    <CollapsibleActionCard
+      title="Publish All Drafts"
+      subtitle="Issue every DRAFT invoice in one action."
+      icon={Send}
+      badge={headerBadge}
+    >
+      <div className="mb-3 flex justify-end">
         <button
           onClick={() => void refreshCount()}
           disabled={counting}
-          className="inline-flex items-center gap-1.5 self-start rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-60 sm:self-auto"
+          className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-60"
         >
           {counting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           Refresh
         </button>
       </div>
-
-      <div className="space-y-4 p-4 sm:p-6">
+      <div className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <div className="space-y-1">
             <Label htmlFor="publish-scope" className="text-xs uppercase tracking-wide text-slate-500">
@@ -319,6 +326,6 @@ export function PublishAllDraftsCard({ onPublished }: Props) {
           </div>
         )}
       </div>
-    </div>
+    </CollapsibleActionCard>
   );
 }
