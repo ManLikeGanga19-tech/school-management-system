@@ -586,6 +586,132 @@ def list_scholarship_allocations(
     return {"ok": True, "scholarship_id": str(scholarship_id), "allocations": rows}
 
 
+@router.post(
+    "/invoices/{invoice_id}/scholarship",
+    response_model=InvoiceOut,
+    # Director-only — applying after-the-fact is a policy decision, not data
+    # entry. Secretary can still apply at create time via the standard
+    # generate endpoints.
+    dependencies=[Depends(require_permission("finance.policy.manage"))],
+)
+def apply_scholarship_to_invoice_route(
+    invoice_id: UUID,
+    payload: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Apply a scholarship to an existing invoice (DRAFT / ISSUED / PARTIAL).
+    PAID + CANCELLED are blocked — issue a refund or void first."""
+    from app.models.invoice import Invoice as _Invoice
+    from sqlalchemy import select as _select
+
+    scholarship_raw = payload.get("scholarship_id")
+    if not scholarship_raw:
+        raise HTTPException(status_code=400, detail="scholarship_id is required")
+    try:
+        scholarship_id = UUID(str(scholarship_raw))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="invalid scholarship_id")
+
+    reason = str(payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+
+    amount_raw = payload.get("amount")
+    amount = None
+    if amount_raw is not None and str(amount_raw).strip() != "":
+        from decimal import Decimal, InvalidOperation
+        try:
+            amount = Decimal(str(amount_raw))
+        except InvalidOperation:
+            raise HTTPException(status_code=400, detail="invalid amount")
+
+    try:
+        service.apply_scholarship_to_existing_invoice(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            invoice_id=invoice_id,
+            scholarship_id=scholarship_id,
+            requested_amount=amount,
+            reason=reason,
+        )
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+    inv = db.execute(
+        _select(_Invoice).where(
+            _Invoice.id == invoice_id, _Invoice.tenant_id == tenant.id,
+        )
+    ).scalar_one()
+    return inv
+
+
+@router.post(
+    "/scholarships/{scholarship_id}/bulk-apply",
+    dependencies=[Depends(require_permission("finance.policy.manage"))],
+)
+def bulk_apply_scholarship_route(
+    scholarship_id: UUID,
+    payload: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Director action — apply this scholarship to every student in a class
+    for a given term + year. Optional dry_run returns the preview without
+    persisting. Skip-on-conflict: students whose invoice already has an
+    ACTIVE scholarship are reported as skipped, never replaced."""
+    try:
+        class_code = str(payload.get("class_code") or "")
+        term_number = int(payload.get("term_number") or 0)
+        academic_year = int(payload.get("academic_year") or 0)
+        reason = str(payload.get("reason") or "")
+        dry_run = bool(payload.get("dry_run", False))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="invalid request")
+
+    try:
+        result = service.bulk_apply_scholarship_to_class(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            scholarship_id=scholarship_id,
+            class_code=class_code,
+            term_number=term_number,
+            academic_year=academic_year,
+            reason=reason,
+            dry_run=dry_run,
+        )
+        if not dry_run:
+            db.commit()
+        return result
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/students/{student_id}/scholarships",
+    dependencies=[Depends(require_permission("finance.scholarships.view"))],
+)
+def list_student_scholarships(
+    student_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    """Full scholarship history for a student — ACTIVE + REVOKED, newest
+    first. Drives the student profile 'Awards' tab and the parent portal."""
+    rows = service.list_student_scholarship_history(
+        db, tenant_id=tenant.id, student_id=student_id,
+    )
+    return {"ok": True, "student_id": str(student_id), "allocations": rows}
+
+
 # -------------------------
 # Invoices
 # -------------------------

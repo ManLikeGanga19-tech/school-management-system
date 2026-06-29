@@ -1691,6 +1691,285 @@ def compute_full_waiver_discount(
     return max(discount, Decimal("0"))
 
 
+def list_student_scholarship_history(
+    db: Session, *, tenant_id: UUID, student_id: UUID,
+) -> list[dict[str, Any]]:
+    """Full allocation history for a student (ACTIVE + REVOKED), newest first.
+    Powers the parent portal / student profile 'Awards' tab."""
+    rows = db.execute(
+        sa_text("""
+            SELECT
+                sa.id           AS allocation_id,
+                sa.scholarship_id,
+                s.name          AS scholarship_name,
+                s.type          AS scholarship_type,
+                sa.amount,
+                sa.reason,
+                sa.status,
+                sa.invoice_id,
+                inv.invoice_no,
+                inv.term_number,
+                inv.academic_year,
+                sa.created_at
+            FROM core.scholarship_allocations sa
+            LEFT JOIN core.scholarships s ON s.id = sa.scholarship_id
+            LEFT JOIN core.invoices inv   ON inv.id = sa.invoice_id
+            WHERE sa.tenant_id  = :tid
+              AND sa.student_id = :sid
+            ORDER BY sa.created_at DESC
+        """),
+        {"tid": str(tenant_id), "sid": str(student_id)},
+    ).mappings().all()
+    return [
+        {
+            "allocation_id":    str(r["allocation_id"]),
+            "scholarship_id":   str(r["scholarship_id"]) if r["scholarship_id"] else None,
+            "scholarship_name": r["scholarship_name"] or "(deleted)",
+            "scholarship_type": r["scholarship_type"] or "",
+            "amount":           str(r["amount"] or "0"),
+            "reason":           r["reason"] or "",
+            "status":           r["status"] or "",
+            "invoice_id":       str(r["invoice_id"]) if r["invoice_id"] else None,
+            "invoice_no":       r["invoice_no"] or "",
+            "term_number":      int(r["term_number"]) if r["term_number"] is not None else None,
+            "academic_year":    int(r["academic_year"]) if r["academic_year"] is not None else None,
+            "created_at":       r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+def apply_scholarship_to_existing_invoice(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    invoice_id: UUID,
+    scholarship_id: UUID,
+    requested_amount: Decimal | None,
+    reason: str,
+) -> "ScholarshipAllocation":
+    """Director-only path: apply a scholarship to an already-existing invoice
+    (DRAFT / ISSUED / PARTIAL). Refuses PAID + CANCELLED. Caller is responsible
+    for the RBAC gate at the route layer."""
+    inv = db.execute(
+        select(Invoice).where(
+            Invoice.id == invoice_id,
+            Invoice.tenant_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if not inv:
+        raise ValueError("Invoice not found")
+    if inv.status in ("PAID", "CANCELLED"):
+        raise ValueError(
+            f"Cannot apply scholarship to a {inv.status} invoice. "
+            "Issue a refund or void first."
+        )
+
+    # Resolve enrollment + student for the allocation row.
+    student_id = None
+    enrollment_id = inv.enrollment_id
+    if enrollment_id is not None:
+        enr = db.get(Enrollment, enrollment_id)
+        student_id = getattr(enr, "student_id", None) if enr is not None else None
+
+    allocation = apply_scholarship_to_invoice(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        invoice=inv,
+        scholarship_id=scholarship_id,
+        requested_amount=requested_amount,
+        reason=reason,
+        student_id=student_id,
+        enrollment_id=enrollment_id,
+    )
+
+    # If new total drops below paid_amount, the invoice flips to PAID and the
+    # surplus would need to become a credit on the student — but for now we
+    # just leave it: paid > total is mathematically OK and the existing
+    # carry-forward refund flow handles overpayments out-of-band.
+    if inv.status == "DRAFT":
+        # DRAFT stays DRAFT — director can publish after review.
+        pass
+    else:
+        total = Decimal(inv.total_amount or 0)
+        paid = Decimal(inv.paid_amount or 0)
+        if paid >= total > 0 or total == 0:
+            inv.status = "PAID"
+        elif paid > 0:
+            inv.status = "PARTIAL"
+        else:
+            inv.status = "ISSUED"
+        db.flush()
+
+    return allocation
+
+
+def bulk_apply_scholarship_to_class(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    scholarship_id: UUID,
+    class_code: str,
+    term_number: int,
+    academic_year: int,
+    reason: str,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Director action: apply `scholarship_id` to every student in `class_code`
+    who has a non-cancelled invoice for the given term + year.
+
+    Per-row outcome:
+      applied — {invoice_id, invoice_no, student_name, amount}
+      skipped — {invoice_id, student_name, reason: 'already_has_scholarship' |
+                 'paid' | 'cancelled' | 'no_invoice'}
+      failed  — {invoice_id, student_name, reason, detail}
+
+    Each row runs in its own savepoint so a per-row error doesn't abort
+    the batch. dry_run wraps the whole thing in an outer savepoint that
+    rolls back at the end — preview without consequences.
+    """
+    if term_number not in (1, 2, 3):
+        raise ValueError("term_number must be 1, 2, or 3")
+    if not class_code:
+        raise ValueError("class_code is required")
+    reason_clean = (reason or "").strip()
+    if not reason_clean:
+        raise ValueError("reason is required")
+
+    sch = db.execute(
+        select(Scholarship).where(
+            Scholarship.tenant_id == tenant_id,
+            Scholarship.id == scholarship_id,
+        )
+    ).scalar_one_or_none()
+    if not sch:
+        raise ValueError("Scholarship not found")
+    if not sch.is_active:
+        raise ValueError("Scholarship is inactive")
+
+    class_norm = class_code.strip().upper()
+
+    # Pull every non-cancelled SCHOOL_FEES invoice for the (class, term, year).
+    rows = db.execute(
+        sa_text("""
+            SELECT
+                i.id            AS invoice_id,
+                i.invoice_no,
+                i.status,
+                i.enrollment_id,
+                e.student_id,
+                COALESCE(
+                    NULLIF(TRIM(s.first_name || ' ' || COALESCE(s.last_name, '')), ''),
+                    e.payload->>'student_name',
+                    'Unknown student'
+                ) AS student_name,
+                EXISTS(
+                    SELECT 1 FROM core.scholarship_allocations sa
+                    WHERE sa.invoice_id = i.id AND sa.status = 'ACTIVE'
+                ) AS has_scholarship
+            FROM core.invoices i
+            JOIN core.enrollments e ON e.id = i.enrollment_id
+            LEFT JOIN core.students s ON s.id = e.student_id
+            WHERE i.tenant_id    = :tid
+              AND i.invoice_type = 'SCHOOL_FEES'
+              AND i.term_number  = :tn
+              AND i.academic_year = :yr
+              AND UPPER(COALESCE(
+                  i.meta->>'class_code',
+                  e.payload->>'class_code',
+                  e.payload->>'admission_class'
+              )) = :cc
+              AND i.status != 'CANCELLED'
+            ORDER BY student_name ASC
+        """),
+        {
+            "tid": str(tenant_id),
+            "tn": int(term_number),
+            "yr": int(academic_year),
+            "cc": class_norm,
+        },
+    ).mappings().all()
+
+    applied: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    outer_sp = db.begin_nested()
+    try:
+        for r in rows:
+            inv_id = r["invoice_id"]
+            common = {
+                "invoice_id": str(inv_id),
+                "invoice_no": r["invoice_no"],
+                "student_name": r["student_name"],
+            }
+            if r["status"] == "PAID":
+                skipped.append({**common, "reason": "paid"})
+                continue
+            if r["has_scholarship"]:
+                skipped.append({**common, "reason": "already_has_scholarship"})
+                continue
+
+            sp = db.begin_nested()
+            try:
+                alloc = apply_scholarship_to_existing_invoice(
+                    db,
+                    tenant_id=tenant_id,
+                    actor_user_id=actor_user_id,
+                    invoice_id=inv_id,
+                    scholarship_id=scholarship_id,
+                    requested_amount=None,  # let type rules compute it
+                    reason=reason_clean,
+                )
+                sp.commit()
+                applied.append({**common, "amount": str(alloc.amount)})
+            except ValueError as e:
+                sp.rollback()
+                failed.append({**common, "reason": "validation_error", "detail": str(e)})
+            except Exception as e:  # pragma: no cover — defensive
+                sp.rollback()
+                failed.append({**common, "reason": "error", "detail": str(e)})
+
+        if dry_run:
+            outer_sp.rollback()
+        else:
+            outer_sp.commit()
+    except Exception:
+        outer_sp.rollback()
+        raise
+
+    summary = {
+        "total":   len(rows),
+        "applied": len(applied),
+        "skipped": len(skipped),
+        "failed":  len(failed),
+        "dry_run": bool(dry_run),
+        "class_code": class_norm,
+        "term_number": int(term_number),
+        "academic_year": int(academic_year),
+    }
+    if not dry_run:
+        log_event(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            action="scholarship.bulk_apply",
+            resource="scholarship",
+            resource_id=scholarship_id,
+            payload=summary,
+            meta=None,
+        )
+    return {
+        "summary": summary,
+        "applied": applied,
+        "skipped": skipped,
+        "failed":  failed,
+    }
+
+
 def revoke_allocations_for_invoice(
     db: Session,
     *,
