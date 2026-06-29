@@ -27,6 +27,7 @@ from app.api.v1.tenants.dashboard_stats import (
     get_finance_by_provider,
     get_finance_by_term,
     get_finance_current_term,
+    get_scholarship_breakdown,
     get_student_demographics,
     get_top_outstanding,
 )
@@ -66,6 +67,7 @@ def get_director_kpis(
         "by_term":      get_finance_by_term(db, tenant_id=tenant.id),
         "by_provider":  get_finance_by_provider(db, tenant_id=tenant.id),
         "top_outstanding": get_top_outstanding(db, tenant_id=tenant.id, limit=20),
+        "scholarships":  get_scholarship_breakdown(db, tenant_id=tenant.id),
     }
 
     # ── Enrollments by status ─────────────────────────────────────────────

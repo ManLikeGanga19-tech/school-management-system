@@ -23,6 +23,7 @@ from app.api.v1.tenants.dashboard_stats import (
     get_finance_by_provider,
     get_finance_by_term,
     get_finance_current_term,
+    get_scholarship_breakdown,
     get_student_demographics,
     get_top_outstanding,
 )
@@ -383,3 +384,63 @@ class TestFinanceBreakdowns:
         assert rows["MPESA"]["payment_count"] == 2
         assert rows["MPESA"]["amount"] == 2000.0
         assert rows["CASH"]["amount"] == 3000.0
+
+
+# ── Scholarship breakdown ──────────────────────────────────────────────────
+
+
+class TestScholarshipBreakdown:
+    def test_excludes_revoked_from_totals(self, db_session: Session):
+        from uuid import uuid4
+        tenant = create_tenant(db_session)
+        sch_id = str(uuid4())
+        db_session.execute(sa.text(
+            "INSERT INTO core.scholarships "
+            "(id, tenant_id, name, type, value, is_active, covers_carry_forward) "
+            "VALUES (:id, :tid, 'Pool', 'FIXED', 20000, TRUE, FALSE)"
+        ), {"id": sch_id, "tid": str(tenant.id)})
+        # Two students; one ACTIVE, one REVOKED.
+        sids = []
+        for status in ("ACTIVE", "REVOKED"):
+            stu = str(uuid4())
+            sids.append(stu)
+            db_session.execute(sa.text(
+                "INSERT INTO core.students "
+                "(id, tenant_id, admission_no, first_name, last_name, status) "
+                "VALUES (:id, :tid, :adm, 'X', 'Y', 'ACTIVE')"
+            ), {"id": stu, "tid": str(tenant.id),
+                "adm": f"A-{uuid4().hex[:4]}"})
+            db_session.execute(sa.text(
+                "INSERT INTO core.scholarship_allocations "
+                "(id, tenant_id, scholarship_id, student_id, amount, reason, status) "
+                "VALUES (:id, :tid, :sid, :stu, 5000, 'x', :st)"
+            ), {"id": str(uuid4()), "tid": str(tenant.id),
+                "sid": sch_id, "stu": stu, "st": status})
+        db_session.commit()
+
+        out = get_scholarship_breakdown(db_session, tenant_id=tenant.id)
+        # Summary counts only ACTIVE.
+        assert out["summary"]["active_allocations"] == 1
+        assert out["summary"]["unique_recipients"]  == 1
+        assert out["summary"]["total_discount_granted"] == 5000.0
+        # Per-scholarship row tracks both buckets.
+        row = out["by_scholarship"][0]
+        assert row["active_allocations"]  == 1
+        assert row["revoked_allocations"] == 1
+        assert row["remaining"] == 15000.0  # FIXED only
+
+    def test_remaining_is_none_for_percentage_and_full_waiver(self, db_session: Session):
+        from uuid import uuid4
+        tenant = create_tenant(db_session)
+        for t in ("PERCENTAGE", "FULL_WAIVER"):
+            db_session.execute(sa.text(
+                "INSERT INTO core.scholarships "
+                "(id, tenant_id, name, type, value, is_active, covers_carry_forward) "
+                "VALUES (:id, :tid, :nm, :ty, 10, TRUE, FALSE)"
+            ), {"id": str(uuid4()), "tid": str(tenant.id),
+                "nm": f"S-{t}", "ty": t})
+        db_session.commit()
+        rows = {r["type"]: r for r in get_scholarship_breakdown(
+            db_session, tenant_id=tenant.id)["by_scholarship"]}
+        assert rows["PERCENTAGE"]["remaining"] is None
+        assert rows["FULL_WAIVER"]["remaining"] is None

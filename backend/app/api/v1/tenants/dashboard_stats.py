@@ -408,3 +408,95 @@ def get_top_outstanding(
         }
         for r in rows
     ]
+
+
+# ── Scholarship analytics ──────────────────────────────────────────────────
+
+
+def get_scholarship_breakdown(db: Session, *, tenant_id: UUID) -> dict[str, Any]:
+    """Director-grade scholarship visibility for the all-time finance KPI
+    and the CSV/PDF report. Counts only ACTIVE allocations — REVOKED rows
+    are the audit trail of cancelled/replaced invoices and don't represent
+    real discount granted.
+    """
+    totals = db.execute(
+        sa.text("""
+            SELECT
+                COALESCE(SUM(amount), 0)                  AS total_discount,
+                COUNT(*)                                   AS allocation_count,
+                COUNT(DISTINCT student_id)
+                    FILTER (WHERE student_id IS NOT NULL) AS unique_recipients
+            FROM core.scholarship_allocations
+            WHERE tenant_id = :tid AND status = 'ACTIVE'
+        """),
+        {"tid": str(tenant_id)},
+    ).mappings().first()
+
+    active_scholarships = db.execute(
+        sa.text("""
+            SELECT COUNT(*) FROM core.scholarships
+            WHERE tenant_id = :tid AND is_active = TRUE
+        """),
+        {"tid": str(tenant_id)},
+    ).scalar() or 0
+
+    by_sch = db.execute(
+        sa.text("""
+            SELECT
+                s.id            AS scholarship_id,
+                s.name          AS name,
+                s.type          AS type,
+                s.value         AS budget,
+                s.max_recipients,
+                s.is_active,
+                s.covers_carry_forward,
+                COALESCE(SUM(sa.amount) FILTER (WHERE sa.status='ACTIVE'), 0) AS allocated,
+                COUNT(DISTINCT sa.student_id)
+                    FILTER (WHERE sa.status='ACTIVE' AND sa.student_id IS NOT NULL)
+                                                          AS unique_recipients,
+                COUNT(*) FILTER (WHERE sa.status='ACTIVE') AS active_allocations,
+                COUNT(*) FILTER (WHERE sa.status='REVOKED') AS revoked_allocations
+            FROM core.scholarships s
+            LEFT JOIN core.scholarship_allocations sa
+                   ON sa.scholarship_id = s.id
+                  AND sa.tenant_id = s.tenant_id
+            WHERE s.tenant_id = :tid
+            GROUP BY s.id
+            ORDER BY allocated DESC, s.name ASC
+        """),
+        {"tid": str(tenant_id)},
+    ).mappings().all()
+
+    rows: list[dict[str, Any]] = []
+    for r in by_sch:
+        budget = _dec(r["budget"])
+        allocated = _dec(r["allocated"])
+        # `remaining` only meaningful for FIXED — percentage and full-waiver
+        # have no monetary cap; UI uses recipient count instead.
+        remaining = None
+        if (r["type"] or "").upper() == "FIXED":
+            remaining = float(max(Decimal("0"), budget - allocated))
+        rows.append({
+            "scholarship_id": str(r["scholarship_id"]),
+            "name": r["name"] or "",
+            "type": r["type"] or "",
+            "budget": float(budget),
+            "allocated": float(allocated),
+            "remaining": remaining,
+            "max_recipients": int(r["max_recipients"]) if r["max_recipients"] is not None else None,
+            "unique_recipients": int(r["unique_recipients"] or 0),
+            "active_allocations": int(r["active_allocations"] or 0),
+            "revoked_allocations": int(r["revoked_allocations"] or 0),
+            "is_active": bool(r["is_active"]),
+            "covers_carry_forward": bool(r["covers_carry_forward"]),
+        })
+
+    return {
+        "summary": {
+            "total_discount_granted": float(_dec(totals["total_discount"])),
+            "active_allocations":     int(totals["allocation_count"] or 0),
+            "unique_recipients":      int(totals["unique_recipients"] or 0),
+            "active_scholarships":    int(active_scholarships),
+        },
+        "by_scholarship": rows,
+    }

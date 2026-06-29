@@ -26,6 +26,7 @@ from app.api.v1.tenants.dashboard_stats import (
     get_finance_by_provider,
     get_finance_by_term,
     get_finance_current_term,
+    get_scholarship_breakdown,
     get_student_demographics,
     get_top_outstanding,
 )
@@ -45,6 +46,7 @@ def build_finance_report_bundle(db: Session, *, tenant_id: UUID) -> dict[str, An
         "by_term":         get_finance_by_term(db, tenant_id=tenant_id),
         "by_provider":     get_finance_by_provider(db, tenant_id=tenant_id),
         "top_outstanding": get_top_outstanding(db, tenant_id=tenant_id, limit=20),
+        "scholarships":    get_scholarship_breakdown(db, tenant_id=tenant_id),
         "active_term":     current,
     }
 
@@ -136,6 +138,38 @@ def build_finance_report_csv(bundle: dict[str, Any], *, school_name: str) -> byt
             row["student_name"], row.get("admission_no") or "",
             row.get("class_code") or "",
             _money(row["outstanding"]), int(row["invoice_count"]),
+        ])
+    w.writerow([])
+
+    sch = bundle.get("scholarships") or {}
+    summary = sch.get("summary") or {}
+    w.writerow(["# Scholarships"])
+    w.writerow(["Metric", "Value"])
+    w.writerow(["Total discount granted (KES)", _money(summary.get("total_discount_granted") or 0)])
+    w.writerow(["Active allocations",            int(summary.get("active_allocations") or 0)])
+    w.writerow(["Unique recipients",             int(summary.get("unique_recipients") or 0)])
+    w.writerow(["Active scholarships",           int(summary.get("active_scholarships") or 0)])
+    w.writerow([])
+
+    w.writerow(["# Scholarships — per programme"])
+    w.writerow([
+        "Name", "Type", "Budget (KES)", "Allocated (KES)", "Remaining (KES)",
+        "Recipients", "Cap", "Active allocs", "Revoked allocs",
+        "Active?", "Covers carry-forward?",
+    ])
+    for row in (sch.get("by_scholarship") or []):
+        rem = row.get("remaining")
+        w.writerow([
+            row["name"], row["type"],
+            _money(row.get("budget") or 0),
+            _money(row.get("allocated") or 0),
+            "" if rem is None else _money(rem),
+            int(row.get("unique_recipients") or 0),
+            "" if row.get("max_recipients") is None else int(row["max_recipients"]),
+            int(row.get("active_allocations") or 0),
+            int(row.get("revoked_allocations") or 0),
+            "yes" if row.get("is_active") else "no",
+            "yes" if row.get("covers_carry_forward") else "no",
         ])
 
     return buf.getvalue().encode("utf-8")
@@ -428,6 +462,83 @@ def build_finance_report_pdf(
         ]))
         story.append(to_table)
         story.append(Spacer(1, 5 * mm))
+
+    # ── Scholarships ──
+    sch_bundle = bundle.get("scholarships") or {}
+    sch_rows = sch_bundle.get("by_scholarship") or []
+    sch_summary = sch_bundle.get("summary") or {}
+    if sch_rows or sch_summary.get("active_scholarships"):
+        story.append(Paragraph("Scholarships", style("sch", size=11, bold=True, color=sage)))
+        story.append(Spacer(1, 2 * mm))
+
+        # Compact summary row of 4 KPI tiles.
+        s_kpi = [
+            [
+                Paragraph("<b>Discount granted</b>", style("k", size=8, color=colors.grey)),
+                Paragraph("<b>Active allocations</b>", style("k", size=8, color=colors.grey)),
+                Paragraph("<b>Unique recipients</b>", style("k", size=8, color=colors.grey)),
+                Paragraph("<b>Active scholarships</b>", style("k", size=8, color=colors.grey)),
+            ],
+            [
+                Paragraph(f"<b>KES {sch_summary.get('total_discount_granted', 0):,.2f}</b>",
+                          style("v", size=11, bold=True, color=sage)),
+                Paragraph(f"<b>{int(sch_summary.get('active_allocations') or 0)}</b>",
+                          style("v", size=11, bold=True, color=teal)),
+                Paragraph(f"<b>{int(sch_summary.get('unique_recipients') or 0)}</b>",
+                          style("v", size=11, bold=True, color=teal)),
+                Paragraph(f"<b>{int(sch_summary.get('active_scholarships') or 0)}</b>",
+                          style("v", size=11, bold=True, color=teal)),
+            ],
+        ]
+        s_kpi_table = Table(s_kpi, colWidths=[None, None, None, None])
+        s_kpi_table.setStyle(TableStyle([
+            ("BOX",        (0, 0), (-1, -1), 0.5, grid),
+            ("INNERGRID",  (0, 0), (-1, -1), 0.3, grid),
+            ("BACKGROUND", (0, 0), (-1, 0),  alt),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+            ("TOPPADDING",    (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(s_kpi_table)
+        story.append(Spacer(1, 4 * mm))
+
+        if sch_rows:
+            sr_rows = [["Programme", "Type", "Budget", "Allocated", "Recip.", "Status"]]
+            for row in sch_rows:
+                budget_cell = "—" if (row["type"] or "").upper() != "FIXED" else f"KES {row['budget']:,.2f}"
+                recip_cell = (
+                    f"{row.get('unique_recipients', 0)}/{row['max_recipients']}"
+                    if row.get("max_recipients") is not None
+                    else str(row.get("unique_recipients", 0))
+                )
+                status_cell = "Active" if row.get("is_active") else "Inactive"
+                if row.get("revoked_allocations"):
+                    status_cell += f" · {row['revoked_allocations']} revoked"
+                sr_rows.append([
+                    row["name"],
+                    row["type"].replace("_", " ").title(),
+                    budget_cell,
+                    f"KES {row['allocated']:,.2f}",
+                    recip_cell,
+                    status_cell,
+                ])
+            sr_table = Table(
+                sr_rows, repeatRows=1,
+                colWidths=[55 * mm, 30 * mm, 32 * mm, 32 * mm, 20 * mm, 30 * mm],
+            )
+            sr_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), sage),
+                ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+                ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE",   (0, 0), (-1, -1), 8.5),
+                ("ALIGN",      (2, 1), (4, -1), "RIGHT"),
+                ("BOX",        (0, 0), (-1, -1), 0.5, grid),
+                ("INNERGRID",  (0, 0), (-1, -1), 0.3, grid),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, alt]),
+            ]))
+            story.append(sr_table)
+            story.append(Spacer(1, 5 * mm))
 
     # ── Footer / signature line ──
     story.append(Spacer(1, 8 * mm))

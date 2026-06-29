@@ -60,6 +60,22 @@ def _seed_min_data(db: Session, tenant_id):
         "INSERT INTO core.payments (id, tenant_id, provider, amount, received_at) "
         "VALUES (:id, :tid, 'MPESA', 3000, NOW())"
     ), {"id": pid, "tid": str(tenant_id)})
+
+    # Scholarship + ACTIVE allocation so the new breakdown isn't empty.
+    sch_id = str(uuid4())
+    db.execute(sa.text(
+        "INSERT INTO core.scholarships "
+        "(id, tenant_id, name, type, value, is_active, covers_carry_forward) "
+        "VALUES (:id, :tid, 'Test Bursary', 'FIXED', 5000, TRUE, FALSE)"
+    ), {"id": sch_id, "tid": str(tenant_id)})
+    aid = str(uuid4())
+    db.execute(sa.text(
+        "INSERT INTO core.scholarship_allocations "
+        "(id, tenant_id, scholarship_id, enrollment_id, student_id, invoice_id, "
+        " amount, reason, status) "
+        "VALUES (:id, :tid, :sid, :eid, :stu, :inv, 1500, 'For testing', 'ACTIVE')"
+    ), {"id": aid, "tid": str(tenant_id), "sid": sch_id,
+        "eid": eid, "stu": sid, "inv": iid})
     db.commit()
 
 
@@ -79,6 +95,10 @@ class TestFinanceExportCsv:
         assert "# Student demographics" in body
         assert "# Finance by class" in body
         assert "# Payments by provider" in body
+        assert "# Scholarships" in body
+        assert "# Scholarships — per programme" in body
+        assert "Test Bursary" in body
+        assert "1500.00" in body  # allocated discount
         # KES values formatted as plain decimals (no thousands separator)
         assert "10000.00" in body  # billed
         assert "MPESA" in body
