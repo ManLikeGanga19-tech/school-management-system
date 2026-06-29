@@ -9,10 +9,17 @@ from __future__ import annotations
 from decimal import Decimal
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from app.api.v1.director.finance_export import (
+    build_finance_report_bundle,
+    build_finance_report_csv,
+    build_finance_report_pdf,
+)
+from app.api.v1.finance.service import get_tenant_print_profile
 from app.api.v1.tenants.dashboard_today import get_today_at_school
+from app.core.audit import log_event
 from app.api.v1.tenants.dashboard_stats import (
     _resolve_current_term_by_date,
     get_finance_all_time,
@@ -244,3 +251,75 @@ def get_group_dashboard(
         },
         "campuses": campuses,
     }
+
+
+# ── Finance report exports (CSV + branded PDF) ─────────────────────────────
+
+_EXPORT_PERM = "finance.invoices.view"
+
+
+def _emit_export_audit(
+    db: Session, *, tenant_id, actor_user_id, scope: str, fmt: str
+) -> None:
+    try:
+        log_event(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            action="finance.report.export",
+            resource="director.finance_report",
+            meta={"scope": scope, "format": fmt},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+@router.get("/finance/export.csv")
+def export_finance_csv(
+    scope: str = "all-time",
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+    _=Depends(require_permission(_EXPORT_PERM)),
+):
+    if scope != "all-time":
+        raise HTTPException(400, "Unsupported scope")
+    bundle = build_finance_report_bundle(db, tenant_id=tenant.id)
+    school = getattr(tenant, "name", None) or getattr(tenant, "slug", "School")
+    body = build_finance_report_csv(bundle, school_name=str(school))
+    _emit_export_audit(
+        db, tenant_id=tenant.id,
+        actor_user_id=getattr(user, "id", None),
+        scope=scope, fmt="csv",
+    )
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="finance-all-time.csv"'},
+    )
+
+
+@router.get("/finance/export.pdf")
+def export_finance_pdf(
+    scope: str = "all-time",
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+    _=Depends(require_permission(_EXPORT_PERM)),
+):
+    if scope != "all-time":
+        raise HTTPException(400, "Unsupported scope")
+    bundle = build_finance_report_bundle(db, tenant_id=tenant.id)
+    profile = get_tenant_print_profile(db, tenant_id=tenant.id)
+    body = build_finance_report_pdf(bundle, profile=profile)
+    _emit_export_audit(
+        db, tenant_id=tenant.id,
+        actor_user_id=getattr(user, "id", None),
+        scope=scope, fmt="pdf",
+    )
+    return Response(
+        content=body,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="finance-all-time.pdf"'},
+    )

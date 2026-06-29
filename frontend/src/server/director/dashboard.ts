@@ -44,7 +44,58 @@ export type TermFinanceKPIs = {
   term_outstanding: number;
   term_collection_rate_pct: number;
   term_invoice_count: number;
+  term_name: string | null;
+  term_code: string | null;
+  term_number: number | null;
+  academic_year: number | null;
+  scope: "structured" | "created_at_window";
 } | null;
+
+export type DemographicsKPIs = {
+  total_students: number;
+  male_count: number;
+  female_count: number;
+  unspecified_count: number;
+  male_pct: number;
+  female_pct: number;
+  unspecified_pct: number;
+};
+
+export type FinanceByClass = {
+  class_code: string;
+  billed: number;
+  collected: number;
+  outstanding: number;
+  invoice_count: number;
+};
+export type FinanceByTerm = {
+  academic_year: number;
+  term_number: number;
+  label: string;
+  billed: number;
+  collected: number;
+  outstanding: number;
+  invoice_count: number;
+};
+export type FinanceByProvider = {
+  provider: string;
+  payment_count: number;
+  amount: number;
+};
+export type TopOutstanding = {
+  student_id: string | null;
+  student_name: string;
+  admission_no: string | null;
+  class_code: string | null;
+  outstanding: number;
+  invoice_count: number;
+};
+export type FinanceBreakdowns = {
+  by_class: FinanceByClass[];
+  by_term: FinanceByTerm[];
+  by_provider: FinanceByProvider[];
+  top_outstanding: TopOutstanding[];
+};
 
 export type EnrollmentKPIs = {
   total_enrolled: number;
@@ -64,6 +115,8 @@ export type ActiveTerm = {
   id: string;
   name: string;
   code: string;
+  term_number: number | null;
+  academic_year: number | null;
 } | null;
 
 export type RecentPayment = {
@@ -81,6 +134,8 @@ import type { TodayAtSchoolData } from "@/components/dashboard/TodayAtSchool";
 export type DirectorKPIs = {
   finance: FinanceKPIs;
   term_finance: TermFinanceKPIs;
+  finance_breakdowns: FinanceBreakdowns;
+  demographics: DemographicsKPIs;
   enrollments: EnrollmentKPIs;
   school: SchoolMeta;
   active_term: ActiveTerm;

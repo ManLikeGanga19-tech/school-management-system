@@ -26,6 +26,16 @@ import {
   DashboardStatCard,
 } from "@/components/dashboard/dashboard-primitives";
 import { TodayAtSchool } from "@/components/dashboard/TodayAtSchool";
+import {
+  CollectionRateGauge,
+  DemographicsDonut,
+  DemographicsLegend,
+  FinanceByClassChart,
+  FinanceByProviderChart,
+  FinanceByTermChart,
+  TopOutstandingChart,
+} from "@/components/dashboard/finance-charts";
+import { DirectorFinanceExportButtons } from "@/components/dashboard/DirectorFinanceExportButtons";
 import { directorNav } from "@/components/layout/nav-config";
 import { TenantNotificationsOverview } from "@/components/notifications/TenantNotificationsOverview";
 import { getDirectorDashboardData } from "@/server/director/dashboard";
@@ -67,6 +77,10 @@ export default async function DirectorDashboardPage() {
   const activeTerm    = kpis?.active_term ?? null;
   const todayAtSchool = kpis?.today_at_school ?? null;
   const recentPayments = kpis?.recent_payments ?? [];
+  const demographics  = kpis?.demographics ?? null;
+  const breakdowns    = kpis?.finance_breakdowns ?? {
+    by_class: [], by_term: [], by_provider: [], top_outstanding: [],
+  };
 
   const totalBilled      = finance?.total_billed      ?? 0;
   const totalCollected   = finance?.total_collected   ?? 0;
@@ -144,48 +158,68 @@ export default async function DirectorDashboardPage() {
           </div>
         )}
 
-        {/* ── All-time finance KPIs ── */}
+        {/* ── All-time finance KPIs + gauge + exports ── */}
         <div>
-          <DashboardSectionLabel>
-            Finance — All Time
-          </DashboardSectionLabel>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <DashboardStatCard
-              label="Total Billed"
-              value={formatKes(totalBilled)}
-              sub={`${invoiceCount} invoice${invoiceCount !== 1 ? "s" : ""}`}
-              icon={Receipt}
-              tone="secondary"
-            />
-            <DashboardStatCard
-              label="Collected"
-              value={formatKes(totalCollected)}
-              sub={`${collectionRate}% collection rate`}
-              icon={CheckCircle}
-              tone="sage"
-            />
-            <DashboardStatCard
-              label="Outstanding"
-              value={formatKes(totalOutstanding)}
-              sub={totalOutstanding > 0 ? "Pending collection" : "All clear"}
-              icon={CircleDollarSign}
-              tone={totalOutstanding > 0 ? "warning" : "sage"}
-            />
-            <DashboardStatCard
-              label="Payments"
-              value={finance?.payment_count ?? 0}
-              sub="recorded transactions"
-              icon={Banknote}
-              tone="neutral"
-            />
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <DashboardSectionLabel>Finance — All Time</DashboardSectionLabel>
+            <DirectorFinanceExportButtons scope="all-time" />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DashboardStatCard
+                label="Total Billed"
+                value={formatKes(totalBilled)}
+                sub={`${invoiceCount} invoice${invoiceCount !== 1 ? "s" : ""}`}
+                icon={Receipt}
+                tone="secondary"
+              />
+              <DashboardStatCard
+                label="Collected"
+                value={formatKes(totalCollected)}
+                sub={`${collectionRate}% collection rate`}
+                icon={CheckCircle}
+                tone="sage"
+              />
+              <DashboardStatCard
+                label="Outstanding"
+                value={formatKes(totalOutstanding)}
+                sub={totalOutstanding > 0 ? "Pending collection" : "All clear"}
+                icon={CircleDollarSign}
+                tone={totalOutstanding > 0 ? "warning" : "sage"}
+              />
+              <DashboardStatCard
+                label="Payments"
+                value={finance?.payment_count ?? 0}
+                sub="recorded transactions"
+                icon={Banknote}
+                tone="neutral"
+              />
+            </div>
+            <div className="dashboard-surface rounded-[1.6rem] p-5">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <TrendingUp className="h-4 w-4 text-slate-400" />
+                Collection Rate
+              </div>
+              <CollectionRateGauge
+                ratePct={collectionRate}
+                billed={totalBilled}
+                collected={totalCollected}
+                height={200}
+              />
+            </div>
           </div>
         </div>
 
-        {/* ── Current-term finance KPIs ── */}
+        {/* ── Current-term finance KPIs (by-date selection) ── */}
         {termFinance && (
           <div>
             <DashboardSectionLabel>
-              Finance — {activeTerm?.name ?? "Current Term"}
+              Finance — {termFinance.term_name ?? activeTerm?.name ?? "Current Term"}
+              {termFinance.academic_year != null && termFinance.term_number != null && (
+                <span className="ml-2 text-[10px] font-medium tracking-normal text-slate-400">
+                  Term {termFinance.term_number} · {termFinance.academic_year}
+                </span>
+              )}
             </DashboardSectionLabel>
             <div className="grid gap-4 sm:grid-cols-3">
               <DashboardStatCard
@@ -213,28 +247,63 @@ export default async function DirectorDashboardPage() {
           </div>
         )}
 
-        {/* ── Collection progress bar (all-time) ── */}
-        {totalBilled > 0 && (
-          <div className="dashboard-surface rounded-[1.6rem] p-5">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                <TrendingUp className="h-4 w-4 text-slate-400" />
-                Overall Fee Collection Progress
-              </div>
-              <span className="text-sm font-bold text-slate-800">{collectionRate}%</span>
+        {/* ── Student demographics (donut + breakdown) ── */}
+        <div>
+          <DashboardSectionLabel>Student Demographics</DashboardSectionLabel>
+          <div className="grid gap-5 lg:grid-cols-3">
+            <div className="dashboard-surface rounded-[1.6rem] p-5 lg:col-span-1">
+              <h3 className="mb-2 text-sm font-semibold text-slate-700">Gender Distribution</h3>
+              <DemographicsDonut data={demographics} height={220} />
             </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-[#20644f] transition-all"
-                style={{ width: `${collectionRate}%` }}
-              />
-            </div>
-            <div className="mt-2 flex justify-between text-xs text-slate-400">
-              <span>Collected {formatKes(totalCollected)}</span>
-              <span>Target {formatKes(totalBilled)}</span>
+            <div className="dashboard-surface rounded-[1.6rem] p-5 lg:col-span-2">
+              <h3 className="mb-3 text-sm font-semibold text-slate-700">Breakdown</h3>
+              {demographics ? <DemographicsLegend data={demographics} /> : (
+                <p className="text-sm text-slate-400">No student records yet</p>
+              )}
             </div>
           </div>
-        )}
+        </div>
+
+        {/* ── Finance analytics: per-class billed vs collected ── */}
+        <div>
+          <DashboardSectionLabel>Finance Analytics</DashboardSectionLabel>
+          <div className="grid gap-5 xl:grid-cols-2">
+            <div className="dashboard-surface rounded-[1.6rem] p-5">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-700">Billed vs Collected by Class</h3>
+                <span className="text-xs text-slate-400">
+                  {breakdowns.by_class.length} class{breakdowns.by_class.length === 1 ? "" : "es"}
+                </span>
+              </div>
+              <FinanceByClassChart rows={breakdowns.by_class} height={280} />
+            </div>
+            <div className="dashboard-surface rounded-[1.6rem] p-5">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-700">Term-over-Term Trend</h3>
+                <span className="text-xs text-slate-400">
+                  {breakdowns.by_term.length} term{breakdowns.by_term.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <FinanceByTermChart rows={breakdowns.by_term} height={280} />
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_1fr]">
+            <div className="dashboard-surface rounded-[1.6rem] p-5">
+              <h3 className="mb-3 text-sm font-semibold text-slate-700">Payment Channel Mix</h3>
+              <FinanceByProviderChart rows={breakdowns.by_provider} height={260} />
+            </div>
+            <div className="dashboard-surface rounded-[1.6rem] p-5">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-700">Top Outstanding Balances</h3>
+                <span className="text-xs text-slate-400">
+                  {breakdowns.top_outstanding.length} student{breakdowns.top_outstanding.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <TopOutstandingChart rows={breakdowns.top_outstanding} height={320} />
+            </div>
+          </div>
+        </div>
 
         {/* ── Enrollment + school meta KPIs ── */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
