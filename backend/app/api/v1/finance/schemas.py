@@ -496,7 +496,33 @@ class BulkGenerateFeesInvoicesOut(BaseModel):
 
 
 class BulkPublishInvoicesRequest(BaseModel):
-    invoice_ids: List[UUID] = Field(..., min_length=1, max_length=1000)
+    """Publish a batch of DRAFT invoices.
+
+    Two modes:
+      * Explicit list — pass `invoice_ids` (1..1000 UUIDs).
+      * All-drafts    — pass `all_drafts: true`; the server snapshots every
+        DRAFT invoice in the tenant (optionally narrowed by term_number +
+        academic_year) up to `all_drafts_limit` and publishes them. This
+        avoids a client-side fetch-then-publish round-trip and gives an
+        atomic snapshot of what's still in DRAFT at the time of the request.
+    """
+
+    invoice_ids: Optional[List[UUID]] = Field(default=None, max_length=1000)
+    all_drafts: bool = False
+    term_number: Optional[int] = Field(default=None, ge=1, le=3)
+    academic_year: Optional[int] = Field(default=None, ge=2000, le=2999)
+    all_drafts_limit: int = Field(default=5000, ge=1, le=5000)
+
+    @model_validator(mode="after")
+    def _exactly_one_mode(self):
+        has_ids = bool(self.invoice_ids)
+        if has_ids and self.all_drafts:
+            raise ValueError("Provide either invoice_ids or all_drafts=true, not both.")
+        if not has_ids and not self.all_drafts:
+            raise ValueError("Provide invoice_ids or set all_drafts=true.")
+        if has_ids and self.invoice_ids is not None and len(self.invoice_ids) == 0:
+            raise ValueError("invoice_ids must not be empty.")
+        return self
 
 
 class BulkPublishSummaryOut(BaseModel):

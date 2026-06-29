@@ -781,6 +781,10 @@ def bulk_publish_invoices_route(
             tenant_id=tenant.id,
             actor_user_id=user.id,
             invoice_ids=payload.invoice_ids,
+            all_drafts=payload.all_drafts,
+            term_number=payload.term_number,
+            academic_year=payload.academic_year,
+            all_drafts_limit=payload.all_drafts_limit,
         )
         db.commit()
         # Best-effort parent SMS for each successfully published invoice.
@@ -805,6 +809,35 @@ def bulk_publish_invoices_route(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/invoices/drafts/count",
+    dependencies=[Depends(require_permission("finance.invoices.view"))],
+)
+def count_draft_invoices(
+    term_number: int | None = None,
+    academic_year: int | None = None,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+):
+    """How many DRAFT invoices match the optional term filter. Powers the
+    'Publish All Drafts' confirm dialog so the user sees a real number
+    before committing."""
+    from sqlalchemy import text as _text
+    sql = (
+        "SELECT COUNT(*) FROM core.invoices "
+        "WHERE tenant_id = :tid AND status = 'DRAFT'"
+    )
+    params: dict[str, object] = {"tid": str(tenant.id)}
+    if term_number is not None:
+        sql += " AND term_number = :tn"
+        params["tn"] = int(term_number)
+    if academic_year is not None:
+        sql += " AND academic_year = :yr"
+        params["yr"] = int(academic_year)
+    count = db.execute(_text(sql), params).scalar() or 0
+    return {"count": int(count)}
 
 
 @router.post(

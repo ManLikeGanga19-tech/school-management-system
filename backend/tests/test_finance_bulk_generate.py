@@ -580,3 +580,206 @@ class TestBulkPublish:
         assert audit is not None
         assert audit.payload.get("published") == 1
         assert audit.payload.get("total") == 1
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Bulk publish: all_drafts mode
+# ────────────────────────────────────────────────────────────────────────────
+
+class TestBulkPublishAllDrafts:
+    def test_publishes_every_draft_in_tenant(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant, headers = _make_actor_with_perms(db_session, slug_prefix="bpub-all")
+        _setup_full_structure(
+            client, headers, class_code="GRADE_1",
+            academic_year=2026, student_type="RETURNING",
+        )
+        for _ in range(3):
+            _enroll_with_admission_year(
+                client, headers, db_session,
+                class_code="GRADE_1", admission_year=2025,
+            )
+        gen = _bulk(client, headers, term_number=1, academic_year=2026)
+        assert len(gen.json()["created"]) == 3
+
+        resp = client.post(
+            f"{BASE}/invoices/publish/bulk",
+            json={"all_drafts": True},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["summary"]["total"]     == 3
+        assert body["summary"]["published"] == 3
+        assert body["summary"]["skipped"]   == 0
+
+        # No DRAFTs left in the tenant after the call.
+        leftover = db_session.execute(
+            text("SELECT COUNT(*) FROM core.invoices "
+                 "WHERE tenant_id = :tid AND status = 'DRAFT'"),
+            {"tid": str(tenant.id)},
+        ).scalar()
+        assert leftover == 0
+
+    def test_term_filter_only_publishes_matching_drafts(
+        self, client: TestClient, db_session: Session
+    ):
+        """Hand-seed two DRAFTs in different terms, publish only term 1 via
+        the all_drafts mode with a term filter, confirm term 2 is untouched."""
+        tenant, headers = _make_actor_with_perms(db_session, slug_prefix="bpub-tflt")
+        _setup_full_structure(
+            client, headers, class_code="GRADE_1",
+            academic_year=2026, student_type="RETURNING",
+        )
+        _enroll_with_admission_year(
+            client, headers, db_session,
+            class_code="GRADE_1", admission_year=2025,
+        )
+        gen1 = _bulk(client, headers, term_number=1, academic_year=2026)
+        term1_id = gen1.json()["created"][0]["invoice_id"]
+
+        # Hand-craft a term-2 DRAFT for a different enrollment (avoids the
+        # one-invoice-per-student-per-term guard).
+        sid = str(uuid4())
+        eid = str(uuid4())
+        db_session.execute(
+            text(
+                "INSERT INTO core.students (id, tenant_id, admission_no, "
+                "first_name, last_name, status, admission_year) "
+                "VALUES (:id, :tid, :adm, 'T2', 'Kid', 'ACTIVE', 2025)"
+            ),
+            {"id": sid, "tid": str(tenant.id),
+             "adm": f"ADM-{uuid4().hex[:6].upper()}"},
+        )
+        db_session.execute(
+            text(
+                "INSERT INTO core.enrollments "
+                "(id, tenant_id, student_id, status, payload) "
+                "VALUES (:id, :tid, :sid, 'ENROLLED', "
+                "        CAST('{\"class_code\":\"GRADE_1\"}' AS jsonb))"
+            ),
+            {"id": eid, "tid": str(tenant.id), "sid": sid},
+        )
+        term2_id = str(uuid4())
+        db_session.execute(
+            text(
+                "INSERT INTO core.invoices "
+                "(id, tenant_id, invoice_no, invoice_type, status, enrollment_id, "
+                " currency, total_amount, paid_amount, balance_amount, "
+                " term_number, academic_year) "
+                "VALUES (:id, :tid, 'INV-T2-FILTER', 'SCHOOL_FEES', 'DRAFT', :eid, "
+                "        'KES', 5000, 0, 5000, 2, 2026)"
+            ),
+            {"id": term2_id, "tid": str(tenant.id), "eid": eid},
+        )
+        # Give it one line so it isn't an empty invoice and can publish.
+        db_session.execute(
+            text(
+                "INSERT INTO core.invoice_lines "
+                "(id, invoice_id, description, amount) "
+                "VALUES (:id, :inv, 'Term 2 fees', 5000)"
+            ),
+            {"id": str(uuid4()), "inv": term2_id},
+        )
+        db_session.commit()
+
+        resp = client.post(
+            f"{BASE}/invoices/publish/bulk",
+            json={"all_drafts": True, "term_number": 1, "academic_year": 2026},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["summary"]["published"] == 1
+        # Term 2 DRAFT untouched.
+        status = db_session.execute(
+            text("SELECT status FROM core.invoices WHERE id = :id"),
+            {"id": term2_id},
+        ).scalar()
+        assert status == "DRAFT"
+        # Term 1 invoice is ISSUED.
+        status1 = db_session.execute(
+            text("SELECT status FROM core.invoices WHERE id = :id"),
+            {"id": term1_id},
+        ).scalar()
+        assert status1 == "ISSUED"
+
+    def test_all_drafts_is_tenant_scoped(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant_a, headers_a = _make_actor_with_perms(db_session, slug_prefix="bpub-iso-a")
+        tenant_b, headers_b = _make_actor_with_perms(db_session, slug_prefix="bpub-iso-b")
+        for h in (headers_a, headers_b):
+            _setup_full_structure(
+                client, h, class_code="GRADE_1",
+                academic_year=2026, student_type="RETURNING",
+            )
+        for h in (headers_a, headers_b):
+            _enroll_with_admission_year(
+                client, h, db_session, class_code="GRADE_1", admission_year=2025,
+            )
+            _bulk(client, h, term_number=1, academic_year=2026)
+
+        resp = client.post(
+            f"{BASE}/invoices/publish/bulk",
+            json={"all_drafts": True},
+            headers=headers_a,
+        )
+        assert resp.status_code == 200
+        # Tenant B's DRAFT must remain untouched.
+        leftover_b = db_session.execute(
+            text("SELECT COUNT(*) FROM core.invoices "
+                 "WHERE tenant_id = :tid AND status = 'DRAFT'"),
+            {"tid": str(tenant_b.id)},
+        ).scalar()
+        assert leftover_b == 1
+
+    def test_rejects_both_modes_set(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant, headers = _make_actor_with_perms(db_session, slug_prefix="bpub-mode")
+        resp = client.post(
+            f"{BASE}/invoices/publish/bulk",
+            json={"all_drafts": True, "invoice_ids": [str(uuid4())]},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_rejects_neither_mode_set(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant, headers = _make_actor_with_perms(db_session, slug_prefix="bpub-none")
+        resp = client.post(
+            f"{BASE}/invoices/publish/bulk",
+            json={},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_count_drafts_endpoint(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant, headers = _make_actor_with_perms(db_session, slug_prefix="bpub-cnt")
+        _setup_full_structure(
+            client, headers, class_code="GRADE_1",
+            academic_year=2026, student_type="RETURNING",
+        )
+        for _ in range(2):
+            _enroll_with_admission_year(
+                client, headers, db_session,
+                class_code="GRADE_1", admission_year=2025,
+            )
+        _bulk(client, headers, term_number=1, academic_year=2026)
+
+        resp = client.get(f"{BASE}/invoices/drafts/count", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 2
+
+        # Term filter narrows to zero when academic_year=2027.
+        resp2 = client.get(
+            f"{BASE}/invoices/drafts/count?term_number=1&academic_year=2027",
+            headers=headers,
+        )
+        assert resp2.status_code == 200
+        assert resp2.json()["count"] == 0

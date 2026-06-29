@@ -5372,12 +5372,43 @@ def bulk_generate_fees_invoices(
     return {"summary": summary, "created": created, "skipped": skipped, "failed": failed}
 
 
+def _snapshot_draft_invoice_ids(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    term_number: Optional[int] = None,
+    academic_year: Optional[int] = None,
+    limit: int = 5000,
+) -> list[UUID]:
+    """Return DRAFT invoice IDs for this tenant, deterministically ordered
+    (created_at ASC). Used by the all_drafts mode of bulk_publish so the
+    server captures the snapshot, not the client."""
+    sql = (
+        "SELECT id FROM core.invoices "
+        "WHERE tenant_id = :tid AND status = 'DRAFT'"
+    )
+    params: dict[str, Any] = {"tid": str(tenant_id), "lim": int(limit)}
+    if term_number is not None:
+        sql += " AND term_number = :tn"
+        params["tn"] = int(term_number)
+    if academic_year is not None:
+        sql += " AND academic_year = :yr"
+        params["yr"] = int(academic_year)
+    sql += " ORDER BY created_at ASC LIMIT :lim"
+    rows = db.execute(sa_text(sql), params).all()
+    return [r[0] for r in rows]
+
+
 def bulk_publish_invoices(
     db: Session,
     *,
     tenant_id: UUID,
     actor_user_id: Optional[UUID],
-    invoice_ids: list[UUID],
+    invoice_ids: list[UUID] | None = None,
+    all_drafts: bool = False,
+    term_number: Optional[int] = None,
+    academic_year: Optional[int] = None,
+    all_drafts_limit: int = 5000,
 ) -> dict[str, Any]:
     """Publish a batch of DRAFT invoices. Per-row outcome:
 
@@ -5388,7 +5419,21 @@ def bulk_publish_invoices(
     Per-row failures don't abort the batch — each publish runs in its own
     savepoint. Tenant-scoped: invoice ids belonging to other tenants are
     reported as 'not_found' so we don't leak existence.
+
+    When `all_drafts=True`, the IDs are snapshotted server-side from every
+    DRAFT in the tenant (optionally filtered by term_number + academic_year)
+    up to all_drafts_limit, so the caller doesn't need to fetch the list
+    first and there's no UI/server drift.
     """
+    if all_drafts:
+        invoice_ids = _snapshot_draft_invoice_ids(
+            db,
+            tenant_id=tenant_id,
+            term_number=term_number,
+            academic_year=academic_year,
+            limit=all_drafts_limit,
+        )
+
     if not invoice_ids:
         return {
             "summary": {"total": 0, "published": 0, "skipped": 0, "failed": 0},

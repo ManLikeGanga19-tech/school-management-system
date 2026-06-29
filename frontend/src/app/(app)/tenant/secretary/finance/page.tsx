@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/sonner";
 import { BulkGenerateInvoicesCard } from "@/components/finance/BulkGenerateInvoicesCard";
+import { PublishAllDraftsCard } from "@/components/finance/PublishAllDraftsCard";
 import { InvoicePreviewModal, type InvoicePreviewData } from "@/components/finance/InvoicePreviewModal";
 import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStudent";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
@@ -1837,6 +1838,11 @@ function SecretaryFinancePageContent() {
               classOptions={tenantClasses.map((c) => ({ code: c.code, name: c.name }))}
               onChanged={() => void loadFinance(true)}
             />
+
+            {/* Publish-all-drafts companion — for when the generator built
+                drafts in an earlier session (or one-by-one), the secretary
+                doesn't want to tick checkboxes. */}
+            <PublishAllDraftsCard onPublished={() => void loadFinance(true)} />
 
             <div className="grid gap-5 xl:grid-cols-2">
               {/* Fees Invoice */}
