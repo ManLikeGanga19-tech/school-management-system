@@ -704,6 +704,11 @@ class SecretaryDashboardOut(BaseModel):
     audit: list[SecretaryAuditOut]
     health: dict
     today_at_school: dict | None = None
+    demographics: dict | None = None
+    # Outstanding-only finance snapshot for the secretary KPI. Secretary
+    # role intentionally never sees total_billed or total_collected
+    # aggregates (collections analytics are director-only).
+    finance_outstanding: dict | None = None
 
 
 class PrincipalDashboardOut(BaseModel):
@@ -14767,6 +14772,23 @@ def secretary_dashboard(
         # Today block is supplementary — never let it break the dashboard.
         today_at_school = None
 
+    # Demographics + outstanding-only finance for the secretary KPI strip.
+    # No collected/billed aggregates exposed here — RBAC at the data layer.
+    try:
+        from app.api.v1.tenants.dashboard_stats import (
+            get_student_demographics,
+            get_finance_all_time,
+        )
+        demographics = get_student_demographics(db, tenant_id=tenant.id)
+        fin_all = get_finance_all_time(db, tenant_id=tenant.id)
+        finance_outstanding = {
+            "total_outstanding": fin_all["total_outstanding"],
+            "invoice_count":     fin_all["invoice_count"],
+        }
+    except Exception:
+        demographics = None
+        finance_outstanding = None
+
     return SecretaryDashboardOut(
         me=me,
         summary=summary,
@@ -14776,4 +14798,6 @@ def secretary_dashboard(
         audit=audit,
         health=health,
         today_at_school=today_at_school,
+        demographics=demographics,
+        finance_outstanding=finance_outstanding,
     )

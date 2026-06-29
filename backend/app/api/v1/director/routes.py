@@ -13,6 +13,16 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.v1.tenants.dashboard_today import get_today_at_school
+from app.api.v1.tenants.dashboard_stats import (
+    _resolve_current_term_by_date,
+    get_finance_all_time,
+    get_finance_by_class,
+    get_finance_by_provider,
+    get_finance_by_term,
+    get_finance_current_term,
+    get_student_demographics,
+    get_top_outstanding,
+)
 from app.core.dependencies import get_current_user, get_db, get_tenant, require_permission
 
 router = APIRouter()
@@ -33,58 +43,23 @@ def get_director_kpis(
 ):
     tid = str(tenant.id)
 
-    # ── Finance: all-time aggregation ─────────────────────────────────────
-    fin = db.execute(sa.text("""
-        SELECT
-            COALESCE(SUM(total_amount),   0) AS total_billed,
-            COALESCE(SUM(paid_amount),    0) AS total_collected,
-            COALESCE(SUM(balance_amount), 0) AS total_outstanding,
-            COUNT(*)                          AS invoice_count
-        FROM core.invoices
-        WHERE tenant_id = :tid
-    """), {"tid": tid}).mappings().first()
+    # ── Finance: all-time + current term (shared helpers) ────────────────
+    # Shared with secretary dashboard so the numbers agree; secretary
+    # endpoint just hides the collected/billed aggregates on its way out.
+    finance = get_finance_all_time(db, tenant_id=tenant.id)
+    current_term = _resolve_current_term_by_date(db, tenant_id=tenant.id)
+    term_finance = get_finance_current_term(
+        db, tenant_id=tenant.id, current_term=current_term
+    )
 
-    pay_count = db.execute(sa.text(
-        "SELECT COUNT(*) FROM core.payments WHERE tenant_id = :tid"
-    ), {"tid": tid}).scalar() or 0
-
-    # ── Active term ────────────────────────────────────────────────────────
-    term = db.execute(sa.text("""
-        SELECT id, name, code, start_date, end_date
-        FROM core.tenant_terms
-        WHERE tenant_id = :tid AND is_active = true
-        ORDER BY created_at DESC
-        LIMIT 1
-    """), {"tid": tid}).mappings().first()
-
-    # ── Finance: current term window ──────────────────────────────────────
-    term_finance = None
-    if term and term["start_date"]:
-        tf = db.execute(sa.text("""
-            SELECT
-                COALESCE(SUM(total_amount),   0) AS term_billed,
-                COALESCE(SUM(paid_amount),    0) AS term_collected,
-                COALESCE(SUM(balance_amount), 0) AS term_outstanding,
-                COUNT(*)                          AS term_invoice_count
-            FROM core.invoices
-            WHERE tenant_id = :tid
-              AND created_at >= :start
-              AND (:end IS NULL OR created_at <= :end)
-        """), {
-            "tid": tid,
-            "start": term["start_date"],
-            "end": term["end_date"],
-        }).mappings().first()
-
-        tb = _dec(tf["term_billed"])
-        tc = _dec(tf["term_collected"])
-        term_finance = {
-            "term_billed":            float(tb),
-            "term_collected":         float(tc),
-            "term_outstanding":       float(_dec(tf["term_outstanding"])),
-            "term_collection_rate_pct": int(tc / tb * 100) if tb > 0 else 0,
-            "term_invoice_count":     int(tf["term_invoice_count"] or 0),
-        }
+    # ── Demographics + detailed finance breakdowns ───────────────────────
+    demographics = get_student_demographics(db, tenant_id=tenant.id)
+    finance_breakdowns = {
+        "by_class":     get_finance_by_class(db, tenant_id=tenant.id),
+        "by_term":      get_finance_by_term(db, tenant_id=tenant.id),
+        "by_provider":  get_finance_by_provider(db, tenant_id=tenant.id),
+        "top_outstanding": get_top_outstanding(db, tenant_id=tenant.id, limit=20),
+    }
 
     # ── Enrollments by status ─────────────────────────────────────────────
     enr_rows = db.execute(sa.text("""
@@ -135,20 +110,11 @@ def get_director_kpis(
     """), {"tid": tid}).mappings().all()
 
     # ── Assemble response ─────────────────────────────────────────────────
-    total_billed    = _dec(fin["total_billed"])
-    total_collected = _dec(fin["total_collected"])
-    collection_rate = int(total_collected / total_billed * 100) if total_billed > 0 else 0
-
     return {
-        "finance": {
-            "total_billed":         float(total_billed),
-            "total_collected":      float(total_collected),
-            "total_outstanding":    float(_dec(fin["total_outstanding"])),
-            "collection_rate_pct":  collection_rate,
-            "invoice_count":        int(fin["invoice_count"] or 0),
-            "payment_count":        int(pay_count),
-        },
+        "finance": finance,
         "term_finance": term_finance,
+        "finance_breakdowns": finance_breakdowns,
+        "demographics": demographics,
         "enrollments": {
             "total_enrolled":   total_enrolled,
             "pending_intake":   pending_intake,
@@ -162,10 +128,12 @@ def get_director_kpis(
             "fee_items":         int(meta["fee_items"]         or 0),
         },
         "active_term": {
-            "id":   str(term["id"]),
-            "name": term["name"],
-            "code": term["code"],
-        } if term else None,
+            "id":            str(current_term["id"]),
+            "name":          current_term["name"],
+            "code":          current_term["code"],
+            "term_number":   current_term.get("term_number"),
+            "academic_year": current_term.get("academic_year"),
+        } if current_term else None,
         # Today's term context + every event (school-calendar + general)
         # overlapping today, used by the dashboard 'Today at School' card.
         # Uses by-date current-term selection (not 'latest is_active'), so
