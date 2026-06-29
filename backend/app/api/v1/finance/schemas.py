@@ -144,11 +144,15 @@ class FeeStructureWithItemsOut(FeeStructureOut):
 # -------------------------
 class ScholarshipCreate(BaseModel):
     name: str
-    type: str  # PERCENTAGE|FIXED
+    type: str  # PERCENTAGE | FIXED | FULL_WAIVER
     value: Decimal
-    max_recipients: Optional[int] = None  # if set, value / max_recipients = per-student amount
+    max_recipients: Optional[int] = None  # if set, value / max_recipients = per-student amount (FIXED)
     description: Optional[str] = None
     is_active: bool = True
+    # FULL_WAIVER only: when true, the waiver also clears bundled carry-forward
+    # arrears on the invoice it's applied to. Default false keeps the
+    # conservative policy that bursaries don't retroactively erase prior debt.
+    covers_carry_forward: bool = False
 
 
 class ScholarshipOut(ORMOutModel, ScholarshipCreate):
@@ -162,6 +166,7 @@ class ScholarshipUpdate(BaseModel):
     max_recipients: Optional[int] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    covers_carry_forward: Optional[bool] = None
 
 
 class ScholarshipAllocationOut(BaseModel):

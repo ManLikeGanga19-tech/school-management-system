@@ -1325,6 +1325,18 @@ def assign_fee_structure_to_enrollment(
 # -------------------------
 # Scholarships CRUD
 # -------------------------
+SCHOLARSHIP_TYPES = ("PERCENTAGE", "FIXED", "FULL_WAIVER")
+
+
+def _validate_scholarship_type(type_: str) -> str:
+    t = (type_ or "").upper().strip()
+    if t not in SCHOLARSHIP_TYPES:
+        raise ValueError(
+            f"Scholarship type must be one of {', '.join(SCHOLARSHIP_TYPES)}"
+        )
+    return t
+
+
 def create_scholarship(
     db: Session,
     *,
@@ -1336,12 +1348,16 @@ def create_scholarship(
     is_active: bool,
     max_recipients: int | None = None,
     description: str | None = None,
+    covers_carry_forward: bool = False,
 ) -> Scholarship:
-    t = type_.upper().strip()
-    if t not in ("PERCENTAGE", "FIXED"):
-        raise ValueError("Scholarship type must be PERCENTAGE or FIXED")
+    t = _validate_scholarship_type(type_)
     if max_recipients is not None and max_recipients < 1:
         raise ValueError("max_recipients must be at least 1")
+    # FULL_WAIVER stores a 0 value by convention (the type itself encodes the
+    # discount semantics); allow any non-negative value passed in so existing
+    # callers don't have to special-case.
+    if t == "FULL_WAIVER":
+        value = Decimal("0")
 
     row = Scholarship(
         tenant_id=tenant_id,
@@ -1351,6 +1367,7 @@ def create_scholarship(
         is_active=is_active,
         max_recipients=max_recipients,
         description=description,
+        covers_carry_forward=bool(covers_carry_forward),
     )
     db.add(row)
     db.flush()
@@ -1362,7 +1379,11 @@ def create_scholarship(
         action="scholarship.create",
         resource="scholarship",
         resource_id=row.id,
-        payload={"type": row.type, "value": str(row.value)},
+        payload={
+            "type": row.type,
+            "value": str(row.value),
+            "covers_carry_forward": bool(row.covers_carry_forward),
+        },
         meta=None,
     )
     return row
@@ -1384,11 +1405,10 @@ def update_scholarship(
     if "name" in updates and updates["name"]:
         row.name = str(updates["name"]).strip()
     if "type" in updates and updates["type"]:
-        t = str(updates["type"]).upper().strip()
-        if t not in ("PERCENTAGE", "FIXED"):
-            raise ValueError("Scholarship type must be PERCENTAGE or FIXED")
-        row.type = t
-    if "value" in updates and updates["value"] is not None:
+        row.type = _validate_scholarship_type(updates["type"])
+        if row.type == "FULL_WAIVER":
+            row.value = Decimal("0")
+    if "value" in updates and updates["value"] is not None and row.type != "FULL_WAIVER":
         from decimal import Decimal, InvalidOperation
         try:
             row.value = Decimal(str(updates["value"]))
@@ -1405,6 +1425,8 @@ def update_scholarship(
         row.description = updates["description"]
     if "is_active" in updates:
         row.is_active = bool(updates["is_active"])
+    if "covers_carry_forward" in updates:
+        row.covers_carry_forward = bool(updates["covers_carry_forward"])
     db.flush()
     log_event(
         db,
@@ -1413,7 +1435,11 @@ def update_scholarship(
         action="scholarship.update",
         resource="scholarship",
         resource_id=row.id,
-        payload={"type": row.type, "value": str(row.value)},
+        payload={
+            "type": row.type,
+            "value": str(row.value),
+            "covers_carry_forward": bool(row.covers_carry_forward),
+        },
         meta=None,
     )
     return row
@@ -1516,12 +1542,17 @@ def scholarship_usage_map(
     tenant_id: UUID,
     scholarship_ids: list[UUID] | None = None,
 ) -> dict[UUID, Decimal]:
+    """Sum of ACTIVE allocation amounts per scholarship. REVOKED rows are
+    excluded so a cancelled/replaced invoice frees its slot."""
     q = (
         select(
             ScholarshipAllocation.scholarship_id,
             sa_func.coalesce(sa_func.sum(ScholarshipAllocation.amount), 0).label("allocated"),
         )
-        .where(ScholarshipAllocation.tenant_id == tenant_id)
+        .where(
+            ScholarshipAllocation.tenant_id == tenant_id,
+            ScholarshipAllocation.status == "ACTIVE",
+        )
         .group_by(ScholarshipAllocation.scholarship_id)
     )
     if scholarship_ids:
@@ -1532,6 +1563,172 @@ def scholarship_usage_map(
     for row in rows:
         usage[row.scholarship_id] = Decimal(row.allocated or 0)
     return usage
+
+
+def scholarship_recipient_count_map(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    scholarship_ids: list[UUID] | None = None,
+) -> dict[UUID, int]:
+    """Unique-student recipient count per scholarship. ACTIVE allocations
+    only. NULL student_id rows (legacy data) count as one each, since we
+    can't dedupe them — this errs on the side of treating the slot as
+    consumed."""
+    q = (
+        select(
+            ScholarshipAllocation.scholarship_id,
+            sa_func.count(sa_func.distinct(ScholarshipAllocation.student_id)).label("unique_students"),
+            sa_func.count().filter(ScholarshipAllocation.student_id.is_(None)).label("anon"),
+        )
+        .where(
+            ScholarshipAllocation.tenant_id == tenant_id,
+            ScholarshipAllocation.status == "ACTIVE",
+        )
+        .group_by(ScholarshipAllocation.scholarship_id)
+    )
+    if scholarship_ids:
+        q = q.where(ScholarshipAllocation.scholarship_id.in_(scholarship_ids))
+
+    rows = db.execute(q).all()
+    out: dict[UUID, int] = {}
+    for row in rows:
+        out[row.scholarship_id] = int(row.unique_students or 0) + int(row.anon or 0)
+    return out
+
+
+def _validate_allocation_capacity(
+    db: Session,
+    *,
+    scholarship: Scholarship,
+    student_id: UUID | None,
+    requested_amount: Decimal,
+) -> None:
+    """Central pre-allocation guard. Raises ValueError when the request would
+    blow the budget (FIXED) or the recipient cap (any type). Idempotent for
+    the same student — re-allocating to a student who already has an ACTIVE
+    slot does not consume an additional recipient seat."""
+    if not scholarship.is_active:
+        raise ValueError("Scholarship is inactive")
+
+    # Budget guard — applies to FIXED only. PERCENTAGE has no upper bound on
+    # cumulative discount, and FULL_WAIVER explicitly waives without metering.
+    if scholarship.type == "FIXED":
+        usage = scholarship_usage_map(
+            db,
+            tenant_id=scholarship.tenant_id,
+            scholarship_ids=[scholarship.id],
+        )
+        allocated = usage.get(scholarship.id, Decimal("0"))
+        budget = Decimal(scholarship.value or 0)
+        remaining = max(Decimal("0"), budget - allocated)
+        if requested_amount > remaining:
+            raise ValueError(
+                f"Scholarship pool exhausted: KES {remaining:.2f} remaining, "
+                f"KES {requested_amount:.2f} requested."
+            )
+
+    # Recipient cap — applies to all types. Idempotent: if this student
+    # already has an ACTIVE allocation, the slot is already counted.
+    if scholarship.max_recipients is not None:
+        already_counted = False
+        if student_id is not None:
+            already_counted = db.execute(
+                select(sa_func.count())
+                .select_from(ScholarshipAllocation)
+                .where(
+                    ScholarshipAllocation.tenant_id == scholarship.tenant_id,
+                    ScholarshipAllocation.scholarship_id == scholarship.id,
+                    ScholarshipAllocation.student_id == student_id,
+                    ScholarshipAllocation.status == "ACTIVE",
+                )
+            ).scalar() > 0
+        if not already_counted:
+            recip = scholarship_recipient_count_map(
+                db,
+                tenant_id=scholarship.tenant_id,
+                scholarship_ids=[scholarship.id],
+            )
+            current = recip.get(scholarship.id, 0)
+            if current >= scholarship.max_recipients:
+                raise ValueError(
+                    f"Scholarship recipient cap reached "
+                    f"({current}/{scholarship.max_recipients})."
+                )
+
+
+def compute_full_waiver_discount(
+    db: Session, *, invoice: "Invoice", covers_carry_forward: bool
+) -> Decimal:
+    """Compute the discount amount for a FULL_WAIVER applied to `invoice`.
+
+    Without CF coverage: waive the current-term portion only — discount =
+    invoice total minus the arrears bundled in from prior terms.
+
+    With CF coverage: waive the whole invoice — discount = invoice total.
+
+    Caller is responsible for inserting the negative line + recomputing
+    invoice totals afterwards.
+    """
+    total = max(Decimal(invoice.total_amount or 0), Decimal("0"))
+    if covers_carry_forward:
+        return total
+
+    from app.models.student_carry_forward import StudentCarryForward
+    arrears = db.execute(
+        select(sa_func.coalesce(sa_func.sum(StudentCarryForward.amount), 0))
+        .where(
+            StudentCarryForward.invoice_id == invoice.id,
+            StudentCarryForward.status.in_(("BUNDLED", "SETTLED")),
+        )
+    ).scalar() or Decimal("0")
+    arrears_d = Decimal(str(arrears))
+    if arrears_d < 0:
+        # Net-credit carry-forward already reduces the invoice; waiver only
+        # touches the positive current-term portion.
+        arrears_d = Decimal("0")
+    discount = total - arrears_d
+    return max(discount, Decimal("0"))
+
+
+def revoke_allocations_for_invoice(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    invoice_id: UUID,
+    reason: str,
+) -> int:
+    """Soft-revoke every ACTIVE allocation tied to `invoice_id`. Used when an
+    invoice is cancelled/replaced/deleted — preserves the audit trail while
+    freeing the budget + recipient slot. Returns count revoked."""
+    rows = db.execute(
+        select(ScholarshipAllocation).where(
+            ScholarshipAllocation.tenant_id == tenant_id,
+            ScholarshipAllocation.invoice_id == invoice_id,
+            ScholarshipAllocation.status == "ACTIVE",
+        )
+    ).scalars().all()
+    if not rows:
+        return 0
+    for row in rows:
+        row.status = "REVOKED"
+    db.flush()
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="scholarship.allocation.revoke",
+        resource="invoice",
+        resource_id=invoice_id,
+        payload={
+            "revoked_count": len(rows),
+            "reason": reason,
+            "allocation_ids": [str(r.id) for r in rows],
+        },
+        meta=None,
+    )
+    return len(rows)
 
 
 # -------------------------
@@ -1808,92 +2005,147 @@ def generate_school_fees_invoice_from_structure(
 
     # apply scholarship as a negative line (discount)
     if scholarship_id:
-        sch = db.execute(
-            select(Scholarship).where(
-                Scholarship.tenant_id == tenant_id,
-                Scholarship.id == scholarship_id,
-                Scholarship.is_active == True
-            )
-        ).scalar_one_or_none()
-        if not sch:
-            raise ValueError("Scholarship not found")
-
-        if scholarship_amount is None:
-            raise ValueError("scholarship_amount is required when scholarship_id is provided")
-        requested = Decimal(scholarship_amount)
-        if requested <= 0:
-            raise ValueError("scholarship_amount must be greater than 0")
-
-        reason = (scholarship_reason or "").strip()
-        if not reason:
-            raise ValueError("scholarship_reason is required when scholarship_id is provided")
-
-        usage = scholarship_usage_map(
-            db,
-            tenant_id=tenant_id,
-            scholarship_ids=[sch.id],
-        )
-        allocated = usage.get(sch.id, Decimal("0"))
-        budget = Decimal(sch.value or 0)
-        remaining = max(Decimal("0"), budget - allocated)
-        if remaining <= 0:
-            raise ValueError("Scholarship has no remaining balance")
-        if requested > remaining:
-            raise ValueError(
-                f"Scholarship remaining balance is {remaining}. Requested {requested} exceeds available amount."
-            )
-
-        current_total = max(Decimal(inv.total_amount or 0), Decimal("0"))
-        discount = min(requested, current_total)
-        if discount <= 0:
-            raise ValueError("Cannot apply scholarship to an invoice with zero total amount")
-
-        allocation = ScholarshipAllocation(
-            tenant_id=tenant_id,
-            scholarship_id=sch.id,
-            enrollment_id=enrollment_id,
-            invoice_id=inv.id,
-            amount=discount,
-            reason=reason,
-            created_by=actor_user_id,
-        )
-        db.add(allocation)
-        db.flush()
-
-        db.add(
-            InvoiceLine(
-                invoice_id=inv.id,
-                description=f"Scholarship: {sch.name}",
-                amount=(discount * Decimal("-1")),
-                meta={
-                    "scholarship_id": str(sch.id),
-                    "scholarship_allocation_id": str(allocation.id),
-                    "reason": reason,
-                },
-            )
-        )
-        db.flush()
-        _recalc_invoice_amounts(db, inv)
-        db.flush()
-
-        log_event(
+        apply_scholarship_to_invoice(
             db,
             tenant_id=tenant_id,
             actor_user_id=actor_user_id,
-            action="invoice.scholarship.apply",
-            resource="invoice",
-            resource_id=inv.id,
-            payload={
-                "scholarship_id": str(sch.id),
-                "requested_amount": str(requested),
-                "applied_amount": str(discount),
-                "remaining_after": str(max(Decimal("0"), remaining - discount)),
-                "reason": reason,
-            },
-            meta=None,
+            invoice=inv,
+            scholarship_id=scholarship_id,
+            requested_amount=scholarship_amount,
+            reason=scholarship_reason,
+            student_id=getattr(enrollment, "student_id", None),
+            enrollment_id=enrollment_id,
         )
 
     return inv
+
+
+def apply_scholarship_to_invoice(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    invoice: "Invoice",
+    scholarship_id: UUID,
+    requested_amount: Decimal | None,
+    reason: str | None,
+    student_id: UUID | None,
+    enrollment_id: UUID | None,
+) -> "ScholarshipAllocation":
+    """Single canonical entry point for applying a scholarship to an invoice.
+
+    Used by v1 + v2 generators AND by the after-the-fact apply endpoint.
+    Handles all three types:
+
+      * PERCENTAGE — discount = invoice_total × value / 100. requested_amount
+        is ignored (the percent is the rule of record).
+      * FIXED      — discount = requested_amount (or sch.value when omitted),
+        capped at invoice total. Enforces budget cap.
+      * FULL_WAIVER — discount = current-term portion (or whole invoice when
+        covers_carry_forward=True). Requested_amount ignored.
+
+    For all types: enforces recipient cap (unique-students), writes
+    InvoiceLine + ScholarshipAllocation, recalcs invoice totals, audits
+    `invoice.scholarship.apply`.
+    """
+    sch = db.execute(
+        select(Scholarship).where(
+            Scholarship.tenant_id == tenant_id,
+            Scholarship.id == scholarship_id,
+        )
+    ).scalar_one_or_none()
+    if not sch:
+        raise ValueError("Scholarship not found")
+    if not sch.is_active:
+        raise ValueError("Scholarship is inactive")
+
+    reason_clean = (reason or "").strip()
+    if not reason_clean:
+        raise ValueError(
+            "scholarship reason is required when applying a scholarship"
+        )
+
+    # Compute discount per type.
+    if sch.type == "FULL_WAIVER":
+        discount = compute_full_waiver_discount(
+            db, invoice=invoice, covers_carry_forward=bool(sch.covers_carry_forward),
+        )
+    elif sch.type == "PERCENTAGE":
+        current_total = max(Decimal(invoice.total_amount or 0), Decimal("0"))
+        discount = (current_total * Decimal(sch.value or 0) / Decimal("100")).quantize(Decimal("0.01"))
+    else:  # FIXED
+        if requested_amount is None:
+            # Default to full per-recipient slice when caller omits amount.
+            if sch.max_recipients and sch.max_recipients > 1:
+                discount = (Decimal(sch.value or 0) / Decimal(sch.max_recipients)).quantize(Decimal("0.01"))
+            else:
+                discount = Decimal(sch.value or 0)
+        else:
+            discount = Decimal(requested_amount)
+        if discount <= 0:
+            raise ValueError("scholarship amount must be greater than 0")
+        current_total = max(Decimal(invoice.total_amount or 0), Decimal("0"))
+        discount = min(discount, current_total)
+
+    if discount <= 0:
+        raise ValueError("Cannot apply scholarship to an invoice with zero balance")
+
+    # Capacity guards (budget for FIXED, recipient cap for all types).
+    _validate_allocation_capacity(
+        db,
+        scholarship=sch,
+        student_id=student_id,
+        requested_amount=discount,
+    )
+
+    allocation = ScholarshipAllocation(
+        tenant_id=tenant_id,
+        scholarship_id=sch.id,
+        enrollment_id=enrollment_id,
+        student_id=student_id,
+        invoice_id=invoice.id,
+        amount=discount,
+        reason=reason_clean,
+        created_by=actor_user_id,
+    )
+    db.add(allocation)
+    db.flush()
+
+    label = "Full Scholarship Waiver" if sch.type == "FULL_WAIVER" else f"Scholarship: {sch.name}"
+    db.add(
+        InvoiceLine(
+            invoice_id=invoice.id,
+            description=label if sch.type == "FULL_WAIVER" else f"Scholarship: {sch.name}",
+            amount=(discount * Decimal("-1")),
+            meta={
+                "scholarship_id": str(sch.id),
+                "scholarship_type": sch.type,
+                "scholarship_allocation_id": str(allocation.id),
+                "covers_carry_forward": bool(sch.covers_carry_forward),
+                "reason": reason_clean,
+            },
+        )
+    )
+    db.flush()
+    _recalc_invoice_amounts(db, invoice)
+    db.flush()
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="invoice.scholarship.apply",
+        resource="invoice",
+        resource_id=invoice.id,
+        payload={
+            "scholarship_id": str(sch.id),
+            "scholarship_type": sch.type,
+            "applied_amount": str(discount),
+            "reason": reason_clean,
+        },
+        meta=None,
+    )
+    return allocation
 
 
 # -------------------------
@@ -4931,58 +5183,21 @@ def generate_school_fees_invoice_v2(
     }
     db.flush()
 
-    # Apply scholarship discount if provided
+    # Apply scholarship discount if provided. Single canonical entry point
+    # — type-aware (PERCENTAGE / FIXED / FULL_WAIVER), enforces budget +
+    # recipient caps, writes the negative line + allocation + audit.
     if scholarship_id:
-        sch = db.execute(
-            select(Scholarship).where(
-                Scholarship.id == scholarship_id,
-                Scholarship.tenant_id == tenant_id,
-                Scholarship.is_active == True,
-            )
-        ).scalar_one_or_none()
-        if not sch:
-            raise ValueError("Scholarship not found or inactive")
-
-        if scholarship_amount is None:
-            if sch.type == "PERCENTAGE":
-                scholarship_amount = (inv.total_amount * Decimal(sch.value) / 100).quantize(Decimal("0.01"))
-            elif sch.max_recipients and sch.max_recipients > 1:
-                # Pool scholarship: divide equally among all recipients
-                scholarship_amount = (Decimal(sch.value) / Decimal(sch.max_recipients)).quantize(Decimal("0.01"))
-            else:
-                scholarship_amount = Decimal(sch.value)
-
-        if scholarship_amount > 0:
-            recipient_note = (
-                f" (1 of {sch.max_recipients} recipients)"
-                if sch.max_recipients and sch.max_recipients > 1
-                else ""
-            )
-            db.add(InvoiceLine(
-                invoice_id=inv.id,
-                description=f"Scholarship: {sch.name}{recipient_note}{(' — ' + scholarship_reason) if scholarship_reason else ''}",
-                amount=-abs(scholarship_amount),
-                meta={
-                    "scholarship_id": str(scholarship_id),
-                    "scholarship_type": sch.type,
-                    "max_recipients": sch.max_recipients,
-                },
-            ))
-            db.flush()
-            _recalc_invoice_amounts(db, inv)
-            db.flush()
-
-            allocation = ScholarshipAllocation(
-                tenant_id=tenant_id,
-                scholarship_id=scholarship_id,
-                enrollment_id=enrollment_id,
-                student_id=student_id,
-                invoice_id=inv.id,
-                amount=scholarship_amount,
-                reason=scholarship_reason or "",
-            )
-            db.add(allocation)
-            db.flush()
+        apply_scholarship_to_invoice(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            invoice=inv,
+            scholarship_id=scholarship_id,
+            requested_amount=scholarship_amount,
+            reason=scholarship_reason,
+            student_id=student_id,
+            enrollment_id=enrollment_id,
+        )
 
     log_event(
         db,
@@ -5103,6 +5318,20 @@ def replace_fees_invoice(
         raise ValueError("This invoice has already been cancelled")
     if inv.enrollment_id is None or inv.term_number is None or inv.academic_year is None:
         raise ValueError("Invoice is missing the enrollment/term context needed to replace it")
+
+    # Soft-revoke any scholarship allocations against the old invoice —
+    # regenerating rebuilds the line set from scratch so the old discount
+    # line will disappear, and we don't want orphaned allocations still
+    # counting toward the scholarship's budget/recipient cap. Director
+    # re-applies via POST /invoices/{id}/scholarship if they want the
+    # discount back on the regenerated invoice.
+    revoke_allocations_for_invoice(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        invoice_id=invoice_id,
+        reason="invoice_replaced",
+    )
 
     # Regenerate the invoice in place from the chosen structure. The same row
     # is reused — its invoice number and any payments stay attached, so nothing
@@ -5578,17 +5807,18 @@ def delete_invoice_cascade(
     )
     db.flush()
 
-    # Drop scholarship allocations recorded against this invoice. The FK is
-    # ON DELETE SET NULL, so without this the rows would survive (orphaned) and
-    # keep counting toward the scholarship's pool/recipient limit — wrongly
-    # showing the slot as still consumed after the invoice is gone.
-    scholarship_allocs_removed = db.execute(
-        ScholarshipAllocation.__table__.delete().where(
-            ScholarshipAllocation.tenant_id == tenant_id,
-            ScholarshipAllocation.invoice_id == invoice_id,
-        )
-    ).rowcount
-    db.flush()
+    # Soft-revoke any scholarship allocations recorded against this invoice.
+    # Slot is freed (budget + recipient cap recover) but the row survives for
+    # audit. The FK is ON DELETE SET NULL so the row would also survive after
+    # the cascade-delete below — revoking first keeps the historic invoice
+    # link intact in the snapshot meta until the cascade unlinks invoice_id.
+    scholarship_allocs_removed = revoke_allocations_for_invoice(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        invoice_id=invoice_id,
+        reason="invoice_deleted",
+    )
 
     # Release any carry-forward balances this invoice had absorbed.
     from app.models.student_carry_forward import StudentCarryForward

@@ -516,6 +516,7 @@ def create_scholarship(
             is_active=payload.is_active,
             max_recipients=payload.max_recipients,
             description=payload.description,
+            covers_carry_forward=payload.covers_carry_forward,
         )
         db.commit()
         db.refresh(row)

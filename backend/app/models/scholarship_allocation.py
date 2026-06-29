@@ -31,5 +31,11 @@ class ScholarshipAllocation(Base):
 
     amount = Column(Numeric(12, 2), nullable=False)
     reason = Column(String(500), nullable=False)
+    # Lifecycle: ACTIVE counts toward budget + recipient cap; REVOKED is the
+    # soft-released state used when the source invoice is cancelled/replaced
+    # so the slot is freed without destroying the audit trail.
+    status = Column(
+        String(20), nullable=False, server_default=text("'ACTIVE'")
+    )
     created_by = Column(UUID(as_uuid=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

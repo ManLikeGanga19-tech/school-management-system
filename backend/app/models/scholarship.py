@@ -16,13 +16,24 @@ class Scholarship(Base):
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("core.tenants.id", ondelete="CASCADE"), nullable=False)
 
     name = Column(String(160), nullable=False)
-    type = Column(String(20), nullable=False)  # PERCENT|FIXED
+    # PERCENTAGE | FIXED | FULL_WAIVER (CHECK constraint enforces — see
+    # migration sch1f2w3a4v5). FULL_WAIVER ignores `value` and waives the
+    # invoice's current-term total at allocation time.
+    type = Column(String(20), nullable=False)
     value = Column(Numeric(12, 2), nullable=False)
 
-    # If set, the scholarship pool is divided equally among this many students.
-    # Per-student amount = value / max_recipients (FIXED type only).
-    # NULL means the full value/percentage applies to each student independently.
+    # If set, caps the unique-student recipient count. For FIXED with a pool,
+    # the per-student amount is `value / max_recipients`. For PERCENTAGE and
+    # FULL_WAIVER the value math doesn't apply, but the recipient cap still
+    # does — useful for "first 20 top performers get a full scholarship".
     max_recipients = Column(Integer, nullable=True)
+
+    # When TRUE, a FULL_WAIVER also clears bundled carry-forward arrears on
+    # the invoice it's applied to. Default FALSE keeps the conservative
+    # policy that bursaries don't retroactively erase prior debt.
+    covers_carry_forward = Column(
+        Boolean, nullable=False, server_default=text("false")
+    )
 
     description = Column(String(500), nullable=True)
 
