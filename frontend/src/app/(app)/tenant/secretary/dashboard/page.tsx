@@ -15,6 +15,11 @@ import {
   type TodayAtSchoolData,
 } from "@/components/dashboard/TodayAtSchool";
 import {
+  DemographicsDonut,
+  DemographicsLegend,
+  type DemographicsData,
+} from "@/components/dashboard/finance-charts";
+import {
   Table,
   TableBody,
   TableCell,
@@ -41,6 +46,7 @@ import {
   FileText,
   UserCheck,
   AlertCircle,
+  PieChart as PieChartIcon,
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
@@ -72,6 +78,11 @@ type DashboardResponse = {
   audit: { id: string; action: string; resource: string; created_at: string }[];
   health: Record<string, boolean>;
   today_at_school?: TodayAtSchoolData | null;
+  demographics?: DemographicsData | null;
+  finance_outstanding?: {
+    total_outstanding: number;
+    invoice_count: number;
+  } | null;
 };
 
 // ─── Chart config ─────────────────────────────────────────────────────────────
@@ -241,11 +252,13 @@ export default function SecretaryDashboardPage() {
   const audit       = Array.isArray(data?.audit)       ? data.audit       : [];
   const health      = data?.health ?? {};
 
-  // Secretary only sees the outstanding balance — no revenue breakdown
-  const outstandingBalance = invoices.reduce(
-    (acc, inv) => acc + toNumber(inv.balance_amount),
-    0
-  );
+  // Secretary only sees outstanding balance — never total billed or collected.
+  // Backend's `finance_outstanding` is the authoritative tenant-wide total;
+  // fall back to summing the visible invoice rows when it isn't supplied.
+  const outstandingBalance = data?.finance_outstanding
+    ? toNumber(data.finance_outstanding.total_outstanding)
+    : invoices.reduce((acc, inv) => acc + toNumber(inv.balance_amount), 0);
+  const demographics = data?.demographics ?? null;
 
   const enrollmentStatusData = Object.entries(
     enrollments.reduce((acc, row) => {
@@ -297,9 +310,12 @@ export default function SecretaryDashboardPage() {
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
               <div className="grid grid-cols-1 gap-3 text-center sm:grid-cols-3">
                 {[
-                  { label: "Enrollments",  value: loading ? "—" : enrollments.length },
-                  { label: "Pending",      value: loading ? "—" : pendingEnrollments },
-                  { label: "Active Users", value: loading ? "—" : activeUsers },
+                  {
+                    label: "Students",
+                    value: loading ? "—" : (demographics?.total_students ?? 0).toLocaleString(),
+                  },
+                  { label: "Pending Intake", value: loading ? "—" : pendingEnrollments },
+                  { label: "Active Users",   value: loading ? "—" : activeUsers },
                 ].map((item) => (
                   <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 backdrop-blur sm:px-4">
                     <div className="text-xl font-bold text-white">{item.value}</div>
@@ -344,11 +360,61 @@ export default function SecretaryDashboardPage() {
           </div>
         )}
 
-        {/* ── Stat cards + notifications overview ── */}
+        {/* ── Student demographics (enterprise donut + breakdown) ── */}
+        <SectionLabel>Student Demographics</SectionLabel>
+        <div className="grid gap-5 lg:grid-cols-3">
+          <div className="dashboard-surface rounded-[1.6rem] p-5 lg:col-span-1">
+            <div className="mb-3 flex items-center gap-2">
+              <PieChartIcon className="h-4 w-4 text-slate-400" />
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Gender Distribution</h3>
+                <p className="text-xs text-slate-400">Active enrolled students</p>
+              </div>
+            </div>
+            <DemographicsDonut data={demographics} height={220} />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:col-span-2">
+            <DashboardStatCard
+              label="Total Students"
+              value={loading ? "—" : (demographics?.total_students ?? 0).toLocaleString()}
+              sub={demographics
+                ? `${demographics.male_count.toLocaleString()} boys · ${demographics.female_count.toLocaleString()} girls`
+                : "—"}
+              icon={Users}
+              tone="secondary"
+            />
+            <DashboardStatCard
+              label="Boys"
+              value={loading ? "—" : (demographics?.male_count ?? 0).toLocaleString()}
+              sub={demographics ? `${demographics.male_pct}% of student body` : "—"}
+              icon={GraduationCap}
+              tone="secondary"
+            />
+            <DashboardStatCard
+              label="Girls"
+              value={loading ? "—" : (demographics?.female_count ?? 0).toLocaleString()}
+              sub={demographics ? `${demographics.female_pct}% of student body` : "—"}
+              icon={GraduationCap}
+              tone="accent"
+            />
+            <DashboardStatCard
+              label="Outstanding Balance"
+              value={loading ? "—" : formatKes(outstandingBalance)}
+              sub={outstandingBalance > 0
+                ? `${data?.finance_outstanding?.invoice_count ?? invoices.length} invoices unsettled`
+                : "All invoices settled"}
+              icon={AlertTriangle}
+              tone={outstandingBalance > 0 ? "warning" : "sage"}
+            />
+          </div>
+        </div>
+
+        {/* ── Operations strip + notifications ── */}
         <SectionLabel>School Operations Overview</SectionLabel>
         <div className="grid gap-5 xl:grid-cols-3">
           <div className="xl:col-span-2">
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
               <DashboardStatCard
                 label="Active Users"
                 value={loading ? "—" : `${activeUsers} / ${users.length}`}
@@ -359,20 +425,13 @@ export default function SecretaryDashboardPage() {
                 tone="secondary"
               />
               <DashboardStatCard
-                label="Total Enrollments"
-                value={loading ? "—" : enrollments.length}
+                label="Pending Intake"
+                value={loading ? "—" : pendingEnrollments}
                 sub={pendingEnrollments > 0
-                  ? `${pendingEnrollments} pending review`
+                  ? `Of ${enrollments.length} recent submissions`
                   : "All up to date"}
                 icon={GraduationCap}
                 tone="sage"
-              />
-              <DashboardStatCard
-                label="Outstanding Balance"
-                value={loading ? "—" : formatKes(outstandingBalance)}
-                sub={outstandingBalance > 0 ? "View breakdown in Finance module" : "No outstanding balance"}
-                icon={AlertTriangle}
-                tone={outstandingBalance > 0 ? "warning" : "sage"}
               />
               <DashboardStatCard
                 label="Audit Events"
@@ -384,6 +443,12 @@ export default function SecretaryDashboardPage() {
                 tone="neutral"
               />
             </div>
+            {demographics && demographics.total_students > 0 && (
+              <div className="dashboard-surface mt-4 rounded-[1.6rem] p-5">
+                <h3 className="mb-3 text-sm font-semibold text-slate-900">Demographics Breakdown</h3>
+                <DemographicsLegend data={demographics} />
+              </div>
+            )}
           </div>
           <div className="xl:col-span-1">
             <TenantNotificationsOverview

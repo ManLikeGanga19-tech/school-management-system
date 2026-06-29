@@ -1200,11 +1200,6 @@ function SecretaryFinancePageContent() {
   const showPayments = section === "payments";
   const showReceipts = section === "receipts";
   const showRecordPayment = section === "record-payment";
-  const totalCollections = data.payments.reduce(
-    (acc, payment) => acc + toNumber(payment.amount),
-    0
-  );
-
   const selectedStructure = data.fee_structures.find(
     (s) => s.id === selectedStructureId
   );
@@ -1818,21 +1813,21 @@ function SecretaryFinancePageContent() {
         {/* ── INVOICES SECTION ── */}
         {showInvoices && (
           <div className="space-y-5">
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {/* Summary Cards — secretary RBAC: outstanding-only, never
+                show total billed or money collected aggregates here. */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <SummaryCard
-                label="Total Billed"
-                value={formatKes(totals.total)}
-                sub={`${data.invoices.length} invoices`}
-                color="blue"
-              />
-              <SummaryCard
-                label="Outstanding"
+                label="Outstanding Balance"
                 value={formatKes(totals.balance)}
-                sub={`${outstandingInvoices.length} unpaid`}
+                sub={`${outstandingInvoices.length} unpaid invoices`}
                 color="amber"
               />
-              <SummaryCard label="Enrollments" value={String(data.enrollments.length)} color="blue" />
+              <SummaryCard
+                label="Enrollments"
+                value={String(data.enrollments.length)}
+                sub={`${data.invoices.length} invoices in scope`}
+                color="blue"
+              />
             </div>
 
             {/* Bulk Generate (term-start workhorse) — kept above the
