@@ -20,12 +20,18 @@ async def init_redis() -> None:
     # Use the authenticated URL (password injected from REDIS_PASSWORD env var).
     # Log only the base URL so the password is never written to logs.
     auth_url = settings.redis_url_with_auth
+    # Aggressive timeouts: on Render's internal network a healthy Redis call
+    # is sub-millisecond. The 5s defaults were the slow-UI culprit when the
+    # instance was suspended — every request waited 5s before giving up.
+    # 250ms is still 100x the normal latency, and the circuit breaker in
+    # front of session_cache will short-circuit before this even fires once
+    # the backend trips offline.
     _redis_pool = aioredis.ConnectionPool.from_url(
         auth_url,
         max_connections=20,
         decode_responses=True,
-        socket_connect_timeout=5,
-        socket_timeout=5,
+        socket_connect_timeout=0.25,
+        socket_timeout=0.25,
         health_check_interval=30,
     )
     _redis_client = aioredis.Redis(connection_pool=_redis_pool)

@@ -199,9 +199,11 @@ app.include_router(api_router, prefix="/api/v1")
 @app.get("/healthz")
 def healthz():
     from app.core.rate_limit import limiter_health
+    from app.core.session_cache import breaker_snapshot
     return {
         "status": "ok",
         "rate_limiter": limiter_health(),
+        "session_cache": breaker_snapshot(),
     }
 
 
