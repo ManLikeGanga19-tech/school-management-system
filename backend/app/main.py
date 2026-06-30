@@ -198,7 +198,11 @@ app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok"}
+    from app.core.rate_limit import limiter_health
+    return {
+        "status": "ok",
+        "rate_limiter": limiter_health(),
+    }
 
 
 @app.get("/readyz")
