@@ -8,8 +8,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from typing import Optional
+from uuid import UUID
+
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.api.v1.director.finance_export import (
@@ -17,6 +20,7 @@ from app.api.v1.director.finance_export import (
     build_finance_report_csv,
     build_finance_report_pdf,
 )
+from app.api.v1.finance import service as finance_service
 from app.api.v1.finance.service import get_tenant_print_profile
 from app.api.v1.tenants.dashboard_today import get_today_at_school
 from app.core.audit import log_event
@@ -325,3 +329,68 @@ def export_finance_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="finance-all-time.pdf"'},
     )
+
+
+# ── Paginated invoice listing ───────────────────────────────────────────────
+
+
+def _serialize_invoice_row(inv) -> dict:
+    """Lean per-row payload — kept close to the director table's columns so we
+    don't ship line items / meta blobs the table doesn't render. Lines are
+    fetched on demand when the user opens an invoice."""
+    return {
+        "id":                   str(inv.id),
+        "invoice_no":           inv.invoice_no,
+        "invoice_type":         inv.invoice_type,
+        "status":               inv.status,
+        "enrollment_id":        str(inv.enrollment_id) if inv.enrollment_id else None,
+        "term_number":          inv.term_number,
+        "academic_year":        inv.academic_year,
+        "currency":             inv.currency,
+        "total_amount":         str(inv.total_amount or 0),
+        "paid_amount":          str(inv.paid_amount or 0),
+        "balance_amount":       str(inv.balance_amount or 0),
+        "created_at":           inv.created_at.isoformat() if inv.created_at else None,
+        "student_type_snapshot": getattr(inv, "student_type_snapshot", None),
+    }
+
+
+@router.get(
+    "/finance/invoices",
+    dependencies=[Depends(require_permission("finance.invoices.view"))],
+)
+def list_director_invoices(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=200),
+    q: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    invoice_type: Optional[str] = Query(None),
+    enrollment_id: Optional[UUID] = Query(None),
+    outstanding_only: bool = Query(False),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD inclusive"),
+    date_to: Optional[str]   = Query(None, description="YYYY-MM-DD inclusive"),
+):
+    """Server-paginated invoice table for the director Finance > Invoices page.
+
+    Default page_size is 30 to match the UI's first dropdown option. Filters
+    are all server-side so the "Showing X-Y of Z" count is honest even with
+    tens of thousands of invoices — no silent client-side truncation.
+    """
+    result = finance_service.list_invoices(
+        db,
+        tenant_id=tenant.id,
+        page=page,
+        page_size=page_size,
+        q=q,
+        status=status,
+        invoice_type=invoice_type,
+        enrollment_id=enrollment_id,
+        outstanding_only=outstanding_only,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    items = [_serialize_invoice_row(inv) for inv in result["items"]]
+    return {"items": items, "meta": result["meta"]}

@@ -11,7 +11,7 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func as sa_func, text as sa_text
+from sqlalchemy import cast as sa_cast, Date as SA_Date, select, func as sa_func, text as sa_text
 
 from app.core.audit import log_event
 
@@ -2174,23 +2174,45 @@ def list_invoices(
     invoice_type: Optional[str] = None,
     status: Optional[str] = None,
     outstanding_only: bool = False,
+    q: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
 ) -> dict:
-    q = select(Invoice).where(Invoice.tenant_id == tenant_id)
+    """Paginated invoice listing. All filters are server-side so the director
+    table can show "Showing X-Y of Z" honestly. `q` matches against invoice_no
+    (case-insensitive substring). Date filters apply to created_at (inclusive)."""
+    stmt = select(Invoice).where(Invoice.tenant_id == tenant_id)
     if enrollment_id:
-        q = q.where(Invoice.enrollment_id == enrollment_id)
+        stmt = stmt.where(Invoice.enrollment_id == enrollment_id)
     if invoice_type:
-        q = q.where(Invoice.invoice_type == (_normalize_invoice_type(invoice_type) or ""))
+        stmt = stmt.where(Invoice.invoice_type == (_normalize_invoice_type(invoice_type) or ""))
     if status:
-        q = q.where(Invoice.status == status.upper())
+        stmt = stmt.where(Invoice.status == status.upper())
     if outstanding_only:
-        q = q.where(Invoice.balance_amount > 0)
-    total: int = db.execute(select(sa_func.count()).select_from(q.subquery())).scalar() or 0
+        stmt = stmt.where(Invoice.balance_amount > 0)
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(Invoice.invoice_no.ilike(like))
+    if date_from:
+        # Compare on the date portion of created_at so a "from = today" filter
+        # captures invoices created later today. Explicit ::date cast on the
+        # bound parameter, otherwise psycopg infers VARCHAR and Postgres has
+        # no `date >= text` operator.
+        stmt = stmt.where(
+            sa_func.date(Invoice.created_at) >= sa_cast(date_from, SA_Date)
+        )
+    if date_to:
+        stmt = stmt.where(
+            sa_func.date(Invoice.created_at) <= sa_cast(date_to, SA_Date)
+        )
+
+    total: int = db.execute(select(sa_func.count()).select_from(stmt.subquery())).scalar() or 0
     pages = max(1, (total + page_size - 1) // page_size)
     page = max(1, min(page, pages))
     items = db.execute(
-        q.order_by(Invoice.created_at.desc())
+        stmt.order_by(Invoice.created_at.desc())
          .limit(page_size)
          .offset((page - 1) * page_size)
     ).scalars().all()
