@@ -1211,6 +1211,13 @@ function SecretaryFinancePageContent() {
   const showPayments = section === "payments";
   const showReceipts = section === "receipts";
   const showRecordPayment = section === "record-payment";
+  // Secretary RBAC: replace money aggregates with action-oriented counts.
+  // DRAFTs are the secretary's workflow signal — they're the queue waiting
+  // to be reviewed and published.
+  const draftInvoiceCount = data.invoices.filter(
+    (inv) => (inv.status || "").toUpperCase() === "DRAFT"
+  ).length;
+
   const selectedStructure = data.fee_structures.find(
     (s) => s.id === selectedStructureId
   );
@@ -1804,7 +1811,9 @@ function SecretaryFinancePageContent() {
           badges={[{ label: "Finance desk" }]}
           metrics={[
             { label: "Invoices", value: data.invoices.length },
-            { label: "Outstanding", value: formatKes(totals.balance) },
+            // Secretary doesn't see money aggregates — DRAFTs awaiting
+            // publish is the workflow signal that matters here.
+            { label: "Drafts", value: draftInvoiceCount },
             { label: "Structures", value: data.fee_structures.length },
           ]}
           actions={
@@ -1832,14 +1841,20 @@ function SecretaryFinancePageContent() {
         {/* ── INVOICES SECTION ── */}
         {showInvoices && (
           <div className="space-y-5">
-            {/* Summary Cards — secretary RBAC: outstanding-only, never
-                show total billed or money collected aggregates here. */}
+            {/* Summary Cards — secretary RBAC: NO money aggregates here
+                (no total billed, no outstanding). Director sees those on
+                their own dashboard + export. Secretary sees workflow
+                signals: drafts to publish + enrollments in scope. */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <SummaryCard
-                label="Outstanding Balance"
-                value={formatKes(totals.balance)}
-                sub={`${outstandingInvoices.length} unpaid invoices`}
-                color="amber"
+                label="Drafts Awaiting Publish"
+                value={String(draftInvoiceCount)}
+                sub={
+                  draftInvoiceCount > 0
+                    ? "Review and publish to issue them"
+                    : "Queue clear — all invoices live"
+                }
+                color={draftInvoiceCount > 0 ? "amber" : "emerald"}
               />
               <SummaryCard
                 label="Enrollments"
@@ -2461,14 +2476,20 @@ function SecretaryFinancePageContent() {
         {/* ── RECEIPTS SECTION ── */}
         {showReceipts && (
           <div className="space-y-5">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {/* Receipt-section KPIs — secretary RBAC: no money aggregates,
+                only operational counts. The Outstanding KES tile lived here
+                previously; it's now director-only on the director dashboard. */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <SummaryCard
                 label="Paid Invoices"
                 value={String(receiptMeta.total || data.invoices.filter((i) => i.status.toUpperCase() === "PAID").length)}
                 color="emerald"
               />
-              <SummaryCard label="Total Payments" value={String(paymentMeta.total || data.payments.length)} color="blue" />
-              <SummaryCard label="Outstanding" value={formatKes(totals.balance)} color="amber" />
+              <SummaryCard
+                label="Total Payments"
+                value={String(paymentMeta.total || data.payments.length)}
+                color="blue"
+              />
             </div>
 
             <SectionCard title="Paid Invoices (Receipts)">
