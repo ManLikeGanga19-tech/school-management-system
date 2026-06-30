@@ -1127,6 +1127,7 @@ def _serialize_scholarship(row: Any, *, allocated_amount: Decimal | None = None)
         "allocated_amount": str(allocated),
         "remaining_amount": str(remaining),
         "is_active": bool(getattr(row, "is_active", True)),
+        "covers_carry_forward": bool(getattr(row, "covers_carry_forward", False)),
     }
 
 
@@ -13185,6 +13186,13 @@ def secretary_finance_action(
             data = {"ok": True}
 
         elif action == "create_scholarship":
+            # Pass max_recipients + description + covers_carry_forward so the
+            # secretary dispatcher matches the director endpoint exactly
+            # (previously dropped them silently).
+            max_recip_raw = payload.get("max_recipients")
+            max_recip = (
+                int(max_recip_raw) if max_recip_raw not in (None, "", 0) else None
+            )
             row = finance_service.create_scholarship(
                 db,
                 tenant_id=tenant.id,
@@ -13193,6 +13201,10 @@ def secretary_finance_action(
                 type_=str(payload.get("type") or ""),
                 value=_parse_decimal(payload.get("value"), field="payload.value"),
                 is_active=bool(payload.get("is_active", True)),
+                max_recipients=max_recip,
+                description=(str(payload.get("description")).strip() or None)
+                    if payload.get("description") else None,
+                covers_carry_forward=bool(payload.get("covers_carry_forward", False)),
             )
             db.commit()
             db.refresh(row)

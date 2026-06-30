@@ -112,11 +112,12 @@ type FeeStructureItem = {
 type Scholarship = {
   id: string;
   name: string;
-  type: string;
+  type: string; // PERCENTAGE | FIXED | FULL_WAIVER
   value: string | number;
   allocated_amount?: string | number;
   remaining_amount?: string | number;
   is_active: boolean;
+  covers_carry_forward?: boolean;
 };
 
 type Invoice = {
@@ -1696,14 +1697,21 @@ function SecretaryFinancePageContent() {
     }
 
     const scholarshipSelected = Boolean(feesInvoiceForm.scholarship_id);
+    const pickedSch = data.scholarships.find(
+      (row) => row.id === feesInvoiceForm.scholarship_id
+    );
+    const amountAutoComputed =
+      pickedSch?.type === "FULL_WAIVER" || pickedSch?.type === "PERCENTAGE";
     if (scholarshipSelected) {
-      if (!feesInvoiceForm.scholarship_amount.trim()) {
-        setError("Scholarship amount is required when applying a scholarship.");
-        return;
-      }
-      if (toNumber(feesInvoiceForm.scholarship_amount) <= 0) {
-        setError("Scholarship amount must be greater than 0.");
-        return;
+      if (!amountAutoComputed) {
+        if (!feesInvoiceForm.scholarship_amount.trim()) {
+          setError("Scholarship amount is required when applying a scholarship.");
+          return;
+        }
+        if (toNumber(feesInvoiceForm.scholarship_amount) <= 0) {
+          setError("Scholarship amount must be greater than 0.");
+          return;
+        }
       }
       if (!feesInvoiceForm.scholarship_reason.trim()) {
         setError("Scholarship reason is required.");
@@ -1718,9 +1726,10 @@ function SecretaryFinancePageContent() {
         term_number: termNum,
         academic_year: acadYear,
         scholarship_id: feesInvoiceForm.scholarship_id || null,
-        scholarship_amount: scholarshipSelected
-          ? feesInvoiceForm.scholarship_amount.trim()
-          : null,
+        scholarship_amount:
+          scholarshipSelected && !amountAutoComputed
+            ? feesInvoiceForm.scholarship_amount.trim()
+            : null,
         scholarship_reason: scholarshipSelected
           ? feesInvoiceForm.scholarship_reason.trim()
           : null,
@@ -1926,56 +1935,79 @@ function SecretaryFinancePageContent() {
                       </Select>
                     </FormField>
                   </div>
-                  {feesInvoiceForm.scholarship_id && (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <FormField
-                        label="Scholarship Amount (KES)"
-                        hint="Amount to apply for this specific student"
-                        required
-                      >
-                        <Input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          placeholder="e.g. 3000"
-                          value={feesInvoiceForm.scholarship_amount}
-                          onChange={(e) =>
-                            setFeesInvoiceForm((p) => ({
-                              ...p,
-                              scholarship_amount: e.target.value,
-                            }))
-                          }
-                        />
-                      </FormField>
-                      <FormField
-                        label="Scholarship Reason"
-                        hint="Mandatory audit reason for this application"
-                        required
-                      >
-                        <Textarea
-                          rows={3}
-                          placeholder="Reason for awarding this scholarship amount"
-                          value={feesInvoiceForm.scholarship_reason}
-                          onChange={(e) =>
-                            setFeesInvoiceForm((p) => ({
-                              ...p,
-                              scholarship_reason: e.target.value,
-                            }))
-                          }
-                        />
-                      </FormField>
-                    </div>
-                  )}
-                  {feesInvoiceForm.scholarship_id && (
-                    <p className="text-xs text-slate-500">
-                      Remaining scholarship balance:{" "}
-                      {formatAmount(
-                        data.scholarships.find(
-                          (row) => row.id === feesInvoiceForm.scholarship_id
-                        )?.remaining_amount
-                      )}
-                    </p>
-                  )}
+                  {feesInvoiceForm.scholarship_id && (() => {
+                    const picked = data.scholarships.find(
+                      (row) => row.id === feesInvoiceForm.scholarship_id
+                    );
+                    const isFullWaiver = picked?.type === "FULL_WAIVER";
+                    const isPercentage = picked?.type === "PERCENTAGE";
+                    const amountAutoComputed = isFullWaiver || isPercentage;
+                    return (
+                      <>
+                        <div className={`grid gap-3 ${amountAutoComputed ? "" : "sm:grid-cols-2"}`}>
+                          {!amountAutoComputed && (
+                            <FormField
+                              label="Scholarship Amount (KES)"
+                              hint="Amount to apply for this specific student"
+                              required
+                            >
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                placeholder="e.g. 3000"
+                                value={feesInvoiceForm.scholarship_amount}
+                                onChange={(e) =>
+                                  setFeesInvoiceForm((p) => ({
+                                    ...p,
+                                    scholarship_amount: e.target.value,
+                                  }))
+                                }
+                              />
+                            </FormField>
+                          )}
+                          <FormField
+                            label="Scholarship Reason"
+                            hint="Mandatory audit reason for this application"
+                            required
+                          >
+                            <Textarea
+                              rows={3}
+                              placeholder="Reason for awarding this scholarship"
+                              value={feesInvoiceForm.scholarship_reason}
+                              onChange={(e) =>
+                                setFeesInvoiceForm((p) => ({
+                                  ...p,
+                                  scholarship_reason: e.target.value,
+                                }))
+                              }
+                            />
+                          </FormField>
+                        </div>
+                        {isFullWaiver && (
+                          <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-800">
+                            <strong>Full Waiver</strong> — invoice will be set to{" "}
+                            <strong>KES 0</strong>
+                            {picked?.covers_carry_forward
+                              ? " including any carry-forward arrears."
+                              : " for the current term (arrears, if any, remain billed)."}
+                          </div>
+                        )}
+                        {isPercentage && (
+                          <p className="text-xs text-slate-500">
+                            Auto-computed as {toNumber(picked?.value ?? 0)}% of
+                            the invoice total.
+                          </p>
+                        )}
+                        {picked?.type === "FIXED" && (
+                          <p className="text-xs text-slate-500">
+                            Remaining scholarship balance:{" "}
+                            {formatAmount(picked?.remaining_amount)}
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
                   <p className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
                     Any open balance adjustments (arrears or credits) for this
                     student are automatically rolled into a single

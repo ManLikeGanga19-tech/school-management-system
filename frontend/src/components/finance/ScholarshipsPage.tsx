@@ -6,6 +6,7 @@ import { GraduationCap, Plus, Pencil, Trash2, RefreshCw, Users, ChevronDown, Che
 import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
+import { BulkApplyScholarshipCard } from "@/components/finance/BulkApplyScholarshipCard";
 import { usePermissions } from "@/lib/auth/usePermissions";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,9 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
 }
 
 function perStudentAmount(s: Scholarship): string {
+  if (s.type === "FULL_WAIVER") {
+    return s.covers_carry_forward ? "100% + arrears" : "100% (current term)";
+  }
   if (s.type === "PERCENTAGE") return `${toNumber(s.value)}%`;
   if (s.max_recipients && s.max_recipients > 1) {
     const per = toNumber(s.value) / s.max_recipients;
@@ -263,6 +267,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
   const readonly = !has("finance.scholarships.manage");
 
   const [scholarships, setScholarships] = useState<Scholarship[]>([]);
+  const [classOptions, setClassOptions] = useState<{ code: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -274,6 +279,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
     max_recipients: "",
     description: "",
     is_active: true,
+    covers_carry_forward: false,
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -293,6 +299,27 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
     },
     [apiBase]
   );
+
+  // Director gets the bulk-apply card, which needs the class list.
+  useEffect(() => {
+    if (role !== "director") return;
+    (async () => {
+      try {
+        const body = await api.get<unknown>("/tenants/classes", {
+          tenantRequired: true, noRedirect: true,
+        });
+        const arr = Array.isArray(body)
+          ? body
+          : ((body as { items?: unknown[] })?.items ?? []);
+        const opts = (arr as Array<{ code?: unknown; name?: unknown }>)
+          .map((c) => ({ code: String(c.code ?? ""), name: String(c.name ?? c.code ?? "") }))
+          .filter((c) => c.code);
+        setClassOptions(opts);
+      } catch {
+        /* class list is best-effort; the card will say "No classes loaded" */
+      }
+    })();
+  }, [role]);
 
   useEffect(() => {
     void load();
@@ -318,7 +345,10 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
   }
 
   function openCreate() {
-    setForm({ name: "", type: "PERCENTAGE", value: "", max_recipients: "", description: "", is_active: true });
+    setForm({
+      name: "", type: "PERCENTAGE", value: "", max_recipients: "",
+      description: "", is_active: true, covers_carry_forward: false,
+    });
     setEditingId(null);
     setDialog("create");
   }
@@ -331,6 +361,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
       max_recipients: s.max_recipients ? String(s.max_recipients) : "",
       description: s.description ?? "",
       is_active: s.is_active,
+      covers_carry_forward: Boolean(s.covers_carry_forward),
     });
     setEditingId(s.id);
     setDialog("edit");
@@ -338,9 +369,17 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
 
   async function save() {
     const name = form.name.trim();
-    const value = form.value.trim();
-    if (!name || !value || toNumber(value) <= 0) {
-      toast.error("Name and a valid value (> 0) are required.");
+    if (!name) {
+      toast.error("Name is required.");
+      return;
+    }
+    // FULL_WAIVER doesn't take a monetary value — the type itself encodes
+    // the discount semantics (waive the current-term invoice in full).
+    let value = form.value.trim();
+    if (form.type === "FULL_WAIVER") {
+      value = "0";
+    } else if (!value || toNumber(value) <= 0) {
+      toast.error("A valid value (> 0) is required.");
       return;
     }
     const max_recipients = form.max_recipients.trim()
@@ -357,6 +396,8 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
       max_recipients,
       description: form.description.trim() || null,
       is_active: form.is_active,
+      covers_carry_forward:
+        form.type === "FULL_WAIVER" ? form.covers_carry_forward : false,
     };
     if (editingId) {
       await postAction(
@@ -419,6 +460,16 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
             </Button>
           }
         />
+
+        {/* Director-only: bulk apply to a class. Lives above the table because
+            at term-start this is the action they're here to take. */}
+        {role === "director" && !readonly && (
+          <BulkApplyScholarshipCard
+            scholarships={scholarships}
+            classOptions={classOptions}
+            onApplied={() => void load(true)}
+          />
+        )}
 
         <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
@@ -531,24 +582,33 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
                   <SelectContent>
                     <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
                     <SelectItem value="FIXED">Fixed Amount (KES)</SelectItem>
+                    <SelectItem value="FULL_WAIVER">Full Waiver (100%)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
-                <Label>
-                  {form.type === "FIXED" && form.max_recipients
-                    ? "Total Pool Amount (KES)"
-                    : `Value ${form.type === "PERCENTAGE" ? "(%)" : "(KES)"}`}{" "}
-                  <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  type="number"
-                  min={0}
-                  placeholder={form.type === "PERCENTAGE" ? "e.g. 25" : "e.g. 50000"}
-                  value={form.value}
-                  onChange={(e) => setForm((p) => ({ ...p, value: e.target.value }))}
-                />
-              </div>
+              {form.type !== "FULL_WAIVER" && (
+                <div className="space-y-1.5">
+                  <Label>
+                    {form.type === "FIXED" && form.max_recipients
+                      ? "Total Pool Amount (KES)"
+                      : `Value ${form.type === "PERCENTAGE" ? "(%)" : "(KES)"}`}{" "}
+                    <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder={form.type === "PERCENTAGE" ? "e.g. 25" : "e.g. 50000"}
+                    value={form.value}
+                    onChange={(e) => setForm((p) => ({ ...p, value: e.target.value }))}
+                  />
+                </div>
+              )}
+              {form.type === "FULL_WAIVER" && (
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-800">
+                  Waives the current-term invoice in full. No monetary value
+                  needed — the recipient pays nothing for that term.
+                </div>
+              )}
             </div>
 
             {form.type === "FIXED" && (
@@ -571,6 +631,40 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
                   </p>
                 )}
               </div>
+            )}
+
+            {form.type !== "FIXED" && (
+              <div className="space-y-1.5">
+                <Label>Max Recipients (Optional Cap)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Cap the number of students who can receive it"
+                  value={form.max_recipients}
+                  onChange={(e) => setForm((p) => ({ ...p, max_recipients: e.target.value }))}
+                />
+              </div>
+            )}
+
+            {form.type === "FULL_WAIVER" && (
+              <label className="flex items-start gap-2 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={form.covers_carry_forward}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, covers_carry_forward: e.target.checked }))
+                  }
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600"
+                />
+                <span>
+                  Also clear carry-forward arrears
+                  <span className="block text-xs text-slate-500">
+                    When checked, the waiver also covers any unpaid balance from
+                    prior terms bundled into the new invoice. Default: arrears
+                    stay billed.
+                  </span>
+                </span>
+              </label>
             )}
 
             <label className="flex items-center gap-2 text-sm text-slate-700">

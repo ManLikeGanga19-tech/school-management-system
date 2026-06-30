@@ -45,11 +45,15 @@ export type FeeStructureItem = {
 export type Scholarship = {
   id: string;
   name: string;
-  type: string;
+  type: string; // PERCENTAGE | FIXED | FULL_WAIVER
   value: string | number;
   max_recipients?: number | null;
   description?: string | null;
   is_active: boolean;
+  // FULL_WAIVER only — when true, the waiver also clears bundled
+  // carry-forward arrears on the invoice. Default false keeps the
+  // conservative policy: arrears remain billed.
+  covers_carry_forward?: boolean;
 };
 
 export type ScholarshipAllocation = {
@@ -62,6 +66,9 @@ export type ScholarshipAllocation = {
   enrollment_id: string | null;
   student_id: string | null;
   created_at: string | null;
+  // Present on the per-student history endpoint; absent from the
+  // per-scholarship endpoint. ACTIVE | REVOKED.
+  status?: string;
 };
 
 export type FinanceSetupData = {
