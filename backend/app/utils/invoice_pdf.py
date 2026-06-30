@@ -329,7 +329,12 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
     stream_lines.append("0 0 0 rg")
     y -= row_h
 
-    subtotal = Decimal("0")
+    # Split sums so the totals block can show "Fees subtotal /
+    # Scholarship discount / Net" instead of a confusing single line.
+    items_subtotal = Decimal("0")
+    scholarship_discount = Decimal("0")
+    other_credits = Decimal("0")
+
     for i, ln in enumerate(lines):
         if y < MB + 80:
             break
@@ -338,7 +343,13 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
         rule(ML, y - row_h + 2, ML + UW, y - row_h + 2, w=0.1)
 
         amt = Decimal(str(ln.get("amount") or 0))
-        subtotal += amt
+        meta = ln.get("meta") if isinstance(ln.get("meta"), dict) else {}
+        if amt < 0 and meta.get("scholarship_id"):
+            scholarship_discount += -amt  # accumulate as positive
+        elif amt < 0:
+            other_credits += -amt
+        else:
+            items_subtotal += amt
 
         txt(ML + 4, y - 10, str(i + 1), size=8)
         txt(ML + col_no_w + 4, y - 10, str(ln.get("description") or ""), size=8)
@@ -367,7 +378,18 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
             stream_lines.append("0 0 0 rg")
         y -= 14
 
-    total_row("Sub-total:", _fmt_amount(subtotal))
+    # Always show items subtotal so the math is auditable.
+    total_row("Fees Subtotal:", _fmt_amount(items_subtotal))
+    if scholarship_discount > 0:
+        # Render as a clearly-marked negative line so parents see exactly
+        # what was waived. Tinted teal for emphasis (matches header banner).
+        total_row(
+            "Scholarship Discount:",
+            f"-{_fmt_amount(scholarship_discount)}",
+            color_teal=True,
+        )
+    if other_credits > 0:
+        total_row("Other Credits:", f"-{_fmt_amount(other_credits)}")
     total_row(f"Total ({currency}):", _fmt_amount(data.get("total_amount")), bold=True)
 
     try:
