@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePersistedState } from "@/lib/usePersistedState";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Pie, PieChart, Cell } from "recharts";
 import {
   Receipt,
@@ -22,11 +22,16 @@ import {
   Printer,
   Download,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStudent";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
+import { ApplyScholarshipDialog } from "@/components/finance/ApplyScholarshipDialog";
+import type { Scholarship } from "@/components/finance/finance-utils";
 import {
   directorFinanceHref,
   directorNav,
@@ -619,6 +624,8 @@ function SectionCard({
 
 function TenantFinancePageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const section = useMemo(
     () => normalizeSection(searchParams.get("section")),
     [searchParams]
@@ -627,6 +634,15 @@ function TenantFinancePageContent() {
     () => asString(searchParams.get("q")),
     [searchParams]
   );
+  // Bookmarkable invoice table state — page + page size restored from URL.
+  const initialInvoicePage = useMemo(() => {
+    const raw = Number(searchParams.get("inv_page"));
+    return Number.isFinite(raw) && raw >= 1 ? raw : 1;
+  }, [searchParams]);
+  const initialInvoicePageSize = useMemo(() => {
+    const raw = Number(searchParams.get("inv_size"));
+    return [30, 50, 100].includes(raw) ? raw : 30;
+  }, [searchParams]);
 
   const [loading, setLoading] = useState(true);
   const [tenantInfo, setTenantInfo] = useState<TenantInfo | null>(null);
@@ -664,6 +680,86 @@ function TenantFinancePageContent() {
     outstanding_only: false,
   });
 
+  // Server-paginated invoice table. The full `invoices` array (loaded by
+  // /director/finance) is kept for cross-references on other tabs; the table
+  // itself reads from `invoiceTableItems` so we don't silently truncate.
+  type InvoiceTableMeta = { total: number; page: number; page_size: number; pages: number };
+  const [invoicePage, setInvoicePage]         = useState<number>(initialInvoicePage);
+  const [invoicePageSize, setInvoicePageSize] = useState<number>(initialInvoicePageSize);
+  const [invoiceTableItems, setInvoiceTableItems] = useState<Invoice[]>([]);
+  const [invoiceTableMeta, setInvoiceTableMeta]   = useState<InvoiceTableMeta>({
+    total: 0, page: 1, page_size: initialInvoicePageSize, pages: 1,
+  });
+  const [invoiceTableLoading, setInvoiceTableLoading] = useState(false);
+
+  // Debounce `q` so each keystroke doesn't fire a request.
+  const [debouncedQ, setDebouncedQ] = useState(invoiceFilters.q);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(invoiceFilters.q), 300);
+    return () => clearTimeout(t);
+  }, [invoiceFilters.q]);
+
+  // Reset to page 1 whenever a filter changes — otherwise users sitting on
+  // page 5 then narrowing to a class with 12 rows would see "page out of range".
+  const filterFingerprint =
+    `${debouncedQ}|${invoiceFilters.enrollment_id}|${invoiceFilters.type}|` +
+    `${invoiceFilters.status}|${invoiceFilters.outstanding_only}|` +
+    `${invoiceFilters.date_from}|${invoiceFilters.date_to}`;
+  const prevFingerprintRef = useRef(filterFingerprint);
+  useEffect(() => {
+    if (prevFingerprintRef.current !== filterFingerprint) {
+      prevFingerprintRef.current = filterFingerprint;
+      setInvoicePage(1);
+    }
+  }, [filterFingerprint]);
+
+  const fetchInvoiceTable = useCallback(async () => {
+    if (section !== "invoices") return;
+    setInvoiceTableLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("page", String(invoicePage));
+      params.set("page_size", String(invoicePageSize));
+      if (debouncedQ.trim()) params.set("q", debouncedQ.trim());
+      if (invoiceFilters.enrollment_id) params.set("enrollment_id", invoiceFilters.enrollment_id);
+      if (invoiceFilters.type)          params.set("invoice_type", invoiceFilters.type);
+      if (invoiceFilters.status)        params.set("status", invoiceFilters.status);
+      if (invoiceFilters.outstanding_only) params.set("outstanding_only", "true");
+      if (invoiceFilters.date_from)     params.set("date_from", invoiceFilters.date_from);
+      if (invoiceFilters.date_to)       params.set("date_to", invoiceFilters.date_to);
+      const resp = await api.get<{ items: Invoice[]; meta: InvoiceTableMeta }>(
+        `/director/finance/invoices?${params.toString()}`,
+        { tenantRequired: true },
+      );
+      setInvoiceTableItems(asArray<Invoice>(resp?.items));
+      if (resp?.meta) setInvoiceTableMeta(resp.meta);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load invoices");
+    } finally {
+      setInvoiceTableLoading(false);
+    }
+  }, [
+    section, invoicePage, invoicePageSize, debouncedQ,
+    invoiceFilters.enrollment_id, invoiceFilters.type, invoiceFilters.status,
+    invoiceFilters.outstanding_only, invoiceFilters.date_from, invoiceFilters.date_to,
+  ]);
+
+  useEffect(() => { void fetchInvoiceTable(); }, [fetchInvoiceTable]);
+
+  // Sync page + page_size to the URL so a refresh or bookmark restores state.
+  useEffect(() => {
+    if (section !== "invoices") return;
+    const next = new URLSearchParams(searchParams.toString());
+    if (invoicePage > 1) next.set("inv_page", String(invoicePage));
+    else next.delete("inv_page");
+    if (invoicePageSize !== 30) next.set("inv_size", String(invoicePageSize));
+    else next.delete("inv_size");
+    const qs = next.toString();
+    const target = qs ? `${pathname}?${qs}` : pathname;
+    router.replace(target, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoicePage, invoicePageSize, section]);
+
   const [paymentFilters, setPaymentFilters] = usePersistedState<PaymentFilterState>(
     "dir.finance.paymentFilters",
     {
@@ -684,6 +780,10 @@ function TenantFinancePageContent() {
 
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
   const [deletingInvoice, setDeletingInvoice] = useState(false);
+
+  // Apply-scholarship dialog target — Path 3 director-only after-the-fact
+  // award on an existing invoice.
+  const [scholarshipTarget, setScholarshipTarget] = useState<Invoice | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -995,48 +1095,9 @@ function TenantFinancePageContent() {
     return Array.from(set).sort();
   }, [invoices]);
 
-  const filteredInvoices = useMemo(() => {
-    const q = invoiceFilters.q.trim().toLowerCase();
-    const type = normalizeInvoiceType(invoiceFilters.type || "");
-    const status = normalizeInvoiceStatus(invoiceFilters.status || "");
-    const enrollmentId = invoiceFilters.enrollment_id;
-    const dateFrom = invoiceFilters.date_from;
-    const dateTo = invoiceFilters.date_to;
-
-    return invoices
-      .filter((inv) => {
-        if (enrollmentId && String(inv.enrollment_id || "") !== enrollmentId) {
-          return false;
-        }
-        if (type && normalizeInvoiceType(inv.invoice_type || "") !== type) {
-          return false;
-        }
-        if (status && normalizeInvoiceStatus(inv.status || "") !== status) {
-          return false;
-        }
-        if (invoiceFilters.outstanding_only && toNumber(inv.balance_amount) <= 0) {
-          return false;
-        }
-        if (inv.created_at) {
-          const d = inv.created_at.slice(0, 10);
-          if (dateFrom && d < dateFrom) return false;
-          if (dateTo && d > dateTo) return false;
-        }
-        if (!q) return true;
-
-        const student = (
-          enrollmentNameById.get(String(inv.enrollment_id || "")) || ""
-        ).toLowerCase();
-        const hay = [
-          String(inv.id || "").toLowerCase(),
-          normalizeInvoiceType(inv.invoice_type || "").toLowerCase(),
-          normalizeInvoiceStatus(inv.status || "").toLowerCase(),
-          student,
-        ];
-        return hay.some((part) => part.includes(q));
-      })
-      .sort((a, b) => String(b.id).localeCompare(String(a.id)));
-  }, [invoices, invoiceFilters, enrollmentNameById]);
+  // (client-side `filteredInvoices` was removed — the table now reads from
+  // `invoiceTableItems` which is fetched server-side via the paginated
+  // /director/finance/invoices endpoint with proper filter pushdown.)
 
   const decoratedPayments = useMemo<DecoratedPayment[]>(() => {
     return payments.map((payment) => {
@@ -1960,29 +2021,46 @@ function TenantFinancePageContent() {
                   variant="outline"
                   onClick={() =>
                     exportInvoicesCsv(
-                      filteredInvoices,
+                      invoiceTableItems,
                       enrollmentNameById,
                       invoiceFilters.date_from,
                       invoiceFilters.date_to
                     )
                   }
-                  disabled={filteredInvoices.length === 0}
+                  disabled={invoiceTableItems.length === 0}
                   className="flex items-center gap-2 shrink-0"
                 >
                   <Download className="h-4 w-4" />
-                  Export CSV ({filteredInvoices.length})
+                  Export CSV ({invoiceTableItems.length})
                 </Button>
               </div>
             </div>
 
-            <div className="mb-3 text-xs text-slate-500">
-              Results: <strong>{filteredInvoices.length}</strong> · Total:&nbsp;
-              <strong>{formatKes(
-                filteredInvoices.reduce(
-                  (sum, row) => sum + toNumber(row.total_amount),
-                  0
-                )
-              )}</strong>
+            <div className="mb-3 flex items-center justify-between text-xs text-slate-500">
+              <div>
+                {invoiceTableMeta.total > 0 ? (
+                  <>
+                    Showing{" "}
+                    <strong>
+                      {(invoiceTableMeta.page - 1) * invoiceTableMeta.page_size + 1}
+                      –
+                      {Math.min(
+                        invoiceTableMeta.page * invoiceTableMeta.page_size,
+                        invoiceTableMeta.total
+                      )}
+                    </strong>{" "}
+                    of <strong>{invoiceTableMeta.total}</strong>
+                  </>
+                ) : (
+                  <>No invoices match the selected filters.</>
+                )}
+              </div>
+              {invoiceTableLoading && (
+                <span className="inline-flex items-center gap-1 text-slate-400">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading…
+                </span>
+              )}
             </div>
 
             <div className="rounded-xl border border-slate-100 overflow-hidden">
@@ -2001,7 +2079,7 @@ function TenantFinancePageContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredInvoices.slice(0, 200).map((invoice) => {
+                  {invoiceTableItems.map((invoice) => {
                     const student =
                       enrollmentNameById.get(String(invoice.enrollment_id || "")) ||
                       "N/A";
@@ -2048,6 +2126,15 @@ function TenantFinancePageContent() {
                                 onSelect: () => downloadInvoicePdf(invoice),
                               },
                               {
+                                key: "apply-scholarship",
+                                label: "Apply scholarship",
+                                icon: <GraduationCap />,
+                                onSelect: () => setScholarshipTarget(invoice),
+                                disabled:
+                                  invoice.status === "PAID" ||
+                                  invoice.status === "CANCELLED",
+                              },
+                              {
                                 key: "delete",
                                 label: "Delete invoice",
                                 icon: <Trash2 />,
@@ -2062,7 +2149,7 @@ function TenantFinancePageContent() {
                     );
                   })}
 
-                  {filteredInvoices.length === 0 && (
+                  {invoiceTableItems.length === 0 && !invoiceTableLoading && (
                     <TableRow>
                       <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-400">
                         No invoices match the selected filters.
@@ -2071,6 +2158,51 @@ function TenantFinancePageContent() {
                   )}
                 </TableBody>
               </Table>
+            </div>
+
+            {/* Pagination row — page-size dropdown sits BELOW the table per
+                spec. URL is updated on change so the view is bookmarkable. */}
+            <div className="mt-3 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span>Page size</span>
+                <select
+                  value={invoicePageSize}
+                  onChange={(e) => setInvoicePageSize(Number(e.target.value))}
+                  className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs"
+                >
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  disabled={invoicePage <= 1 || invoiceTableLoading}
+                  onClick={() => setInvoicePage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <span className="tabular-nums">
+                  Page <strong>{invoiceTableMeta.page}</strong> of{" "}
+                  <strong>{invoiceTableMeta.pages}</strong>
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  disabled={
+                    invoicePage >= invoiceTableMeta.pages || invoiceTableLoading
+                  }
+                  onClick={() =>
+                    setInvoicePage((p) => Math.min(invoiceTableMeta.pages, p + 1))
+                  }
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           </SectionCard>
         )}
@@ -2488,6 +2620,19 @@ function TenantFinancePageContent() {
           </div>
         </div>
       )}
+
+      {/* Director-only: apply a scholarship to an existing invoice (Path 3).
+          Backend rejects PAID + CANCELLED + non-director callers. */}
+      <ApplyScholarshipDialog
+        open={scholarshipTarget !== null}
+        invoice={scholarshipTarget}
+        scholarships={scholarships as Scholarship[]}
+        onClose={() => setScholarshipTarget(null)}
+        onApplied={() => {
+          void fetchInvoiceTable();
+          void load(true);
+        }}
+      />
     </AppShell>
   );
 }
