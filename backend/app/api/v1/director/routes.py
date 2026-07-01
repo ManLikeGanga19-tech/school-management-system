@@ -334,16 +334,23 @@ def export_finance_pdf(
 # ── Paginated invoice listing ───────────────────────────────────────────────
 
 
-def _serialize_invoice_row(inv) -> dict:
-    """Lean per-row payload — kept close to the director table's columns so we
-    don't ship line items / meta blobs the table doesn't render. Lines are
-    fetched on demand when the user opens an invoice."""
+def _serialize_invoice_row(inv, *, student_name: str = "", admission_no: str = "") -> dict:
+    """Lean per-row payload for the director invoice table.
+
+    student_name + admission_no come from a batch lookup at the endpoint
+    level (single query for the whole page) so the frontend doesn't need a
+    client-side enrollment map to render names — that map was incomplete
+    at scale because it lived inside the bulk 2000-row secretary_finance
+    payload.
+    """
     return {
         "id":                   str(inv.id),
         "invoice_no":           inv.invoice_no,
         "invoice_type":         inv.invoice_type,
         "status":               inv.status,
         "enrollment_id":        str(inv.enrollment_id) if inv.enrollment_id else None,
+        "student_name":         student_name or "Unknown student",
+        "admission_no":         admission_no,
         "term_number":          inv.term_number,
         "academic_year":        inv.academic_year,
         "currency":             inv.currency,
@@ -352,6 +359,51 @@ def _serialize_invoice_row(inv) -> dict:
         "balance_amount":       str(inv.balance_amount or 0),
         "created_at":           inv.created_at.isoformat() if inv.created_at else None,
         "student_type_snapshot": getattr(inv, "student_type_snapshot", None),
+    }
+
+
+def _batch_student_labels(
+    db: Session, *, tenant_id, enrollment_ids: list
+) -> dict:
+    """Resolve {enrollment_id: (student_name, admission_no)} in one query.
+    Prefers the SIS student row; falls back to the enrollment payload for
+    legacy rows where the SIS link was never populated. Empty result when
+    called with an empty list — safe to unconditionally call."""
+    if not enrollment_ids:
+        return {}
+    rows = db.execute(
+        sa.text(
+            """
+            SELECT
+                e.id AS enrollment_id,
+                COALESCE(
+                    NULLIF(TRIM(s.first_name || ' ' || COALESCE(s.last_name, '')), ''),
+                    e.payload->>'student_name',
+                    e.payload->>'full_name',
+                    'Unknown student'
+                ) AS student_name,
+                COALESCE(
+                    s.admission_no,
+                    e.payload->>'admission_no',
+                    e.admission_number,
+                    ''
+                ) AS admission_no
+            FROM core.enrollments e
+            LEFT JOIN core.students s
+                   ON s.id = e.student_id
+                  AND s.tenant_id = :tid
+            WHERE e.id = ANY(:ids)
+              AND e.tenant_id = :tid
+            """
+        ),
+        {"tid": str(tenant_id), "ids": [str(eid) for eid in enrollment_ids]},
+    ).mappings().all()
+    return {
+        str(r["enrollment_id"]): (
+            str(r["student_name"] or "Unknown student"),
+            str(r["admission_no"] or ""),
+        )
+        for r in rows
     }
 
 
@@ -392,5 +444,14 @@ def list_director_invoices(
         date_from=date_from,
         date_to=date_to,
     )
-    items = [_serialize_invoice_row(inv) for inv in result["items"]]
+    # Batch-resolve student labels for the whole page in a single query so
+    # the frontend gets student_name + admission_no per row without needing
+    # a client-side enrollment lookup.
+    invoices = result["items"]
+    enrollment_ids = [inv.enrollment_id for inv in invoices if inv.enrollment_id]
+    labels = _batch_student_labels(db, tenant_id=tenant.id, enrollment_ids=enrollment_ids)
+    items = []
+    for inv in invoices:
+        name, adm = labels.get(str(inv.enrollment_id), ("", "")) if inv.enrollment_id else ("", "")
+        items.append(_serialize_invoice_row(inv, student_name=name, admission_no=adm))
     return {"items": items, "meta": result["meta"]}

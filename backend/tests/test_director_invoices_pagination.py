@@ -192,6 +192,110 @@ class TestFilters:
         assert len(items) == 1
         assert items[0]["invoice_no"] == "ALPHA-001"
 
+    def test_q_searches_student_name_from_sis(
+        self, client: TestClient, db_session: Session
+    ):
+        """The reported bug: searching by student name returned nothing
+        because backend q only matched invoice_no."""
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PERMS)
+        # Student in SIS table
+        sid = str(uuid4())
+        db_session.execute(sa.text(
+            "INSERT INTO core.students "
+            "(id, tenant_id, admission_no, first_name, last_name, status) "
+            "VALUES (:id, :tid, :adm, 'Amina', 'Wanjiru', 'ACTIVE')"
+        ), {"id": sid, "tid": str(tenant.id),
+            "adm": f"ADM-{uuid4().hex[:6].upper()}"})
+        eid = str(uuid4())
+        db_session.execute(sa.text(
+            "INSERT INTO core.enrollments "
+            "(id, tenant_id, student_id, admission_number, status, payload) "
+            "VALUES (:id, :tid, :sid, :adm, 'ENROLLED', "
+            "        CAST('{\"student_name\":\"Amina Wanjiru\"}' AS jsonb))"
+        ), {"id": eid, "tid": str(tenant.id), "sid": sid,
+            "adm": f"ADM-{uuid4().hex[:6].upper()}"})
+        db_session.commit()
+        _seed_invoice(db_session, tenant_id=tenant.id, enrollment_id=eid,
+                      no="INV-0001")
+        # Foil: another invoice with an unrelated student
+        sid2 = str(uuid4())
+        eid2 = str(uuid4())
+        db_session.execute(sa.text(
+            "INSERT INTO core.students "
+            "(id, tenant_id, admission_no, first_name, last_name, status) "
+            "VALUES (:id, :tid, :adm, 'John', 'Otieno', 'ACTIVE')"
+        ), {"id": sid2, "tid": str(tenant.id),
+            "adm": f"ADM-{uuid4().hex[:6].upper()}"})
+        db_session.execute(sa.text(
+            "INSERT INTO core.enrollments "
+            "(id, tenant_id, student_id, admission_number, status, payload) "
+            "VALUES (:id, :tid, :sid, :adm, 'ENROLLED', "
+            "        CAST('{\"student_name\":\"John Otieno\"}' AS jsonb))"
+        ), {"id": eid2, "tid": str(tenant.id), "sid": sid2,
+            "adm": f"ADM-{uuid4().hex[:6].upper()}"})
+        db_session.commit()
+        _seed_invoice(db_session, tenant_id=tenant.id, enrollment_id=eid2,
+                      no="INV-0002")
+
+        r = client.get(f"{ROUTE}?q=amina", headers=headers)
+        items = r.json()["items"]
+        assert len(items) == 1
+        assert items[0]["invoice_no"] == "INV-0001"
+        # Endpoint enriched the row with student_name — table no longer needs
+        # a client-side enrollment map.
+        assert items[0]["student_name"] == "Amina Wanjiru"
+
+    def test_q_searches_admission_number(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PERMS)
+        sid = str(uuid4())
+        db_session.execute(sa.text(
+            "INSERT INTO core.students "
+            "(id, tenant_id, admission_no, first_name, last_name, status) "
+            "VALUES (:id, :tid, 'ADM-UNIQ42', 'Grace', 'Kim', 'ACTIVE')"
+        ), {"id": sid, "tid": str(tenant.id)})
+        eid = str(uuid4())
+        db_session.execute(sa.text(
+            "INSERT INTO core.enrollments "
+            "(id, tenant_id, student_id, admission_number, status, payload) "
+            "VALUES (:id, :tid, :sid, 'ADM-UNIQ42', 'ENROLLED', "
+            "        CAST('{}' AS jsonb))"
+        ), {"id": eid, "tid": str(tenant.id), "sid": sid})
+        db_session.commit()
+        _seed_invoice(db_session, tenant_id=tenant.id, enrollment_id=eid,
+                      no="INV-A")
+
+        r = client.get(f"{ROUTE}?q=UNIQ42", headers=headers)
+        items = r.json()["items"]
+        assert len(items) == 1
+        assert items[0]["admission_no"] == "ADM-UNIQ42"
+
+    def test_q_matches_payload_when_no_sis_link(
+        self, client: TestClient, db_session: Session
+    ):
+        """Legacy enrollments have their student name in payload only —
+        no linked core.students row. Search must still find them."""
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PERMS)
+        eid = str(uuid4())
+        db_session.execute(sa.text(
+            "INSERT INTO core.enrollments "
+            "(id, tenant_id, admission_number, status, payload) "
+            "VALUES (:id, :tid, :adm, 'ENROLLED', "
+            "        CAST('{\"student_name\":\"Zawadi Mwangi\"}' AS jsonb))"
+        ), {"id": eid, "tid": str(tenant.id),
+            "adm": f"ADM-{uuid4().hex[:6].upper()}"})
+        db_session.commit()
+        _seed_invoice(db_session, tenant_id=tenant.id, enrollment_id=eid,
+                      no="INV-LEGACY-1")
+        r = client.get(f"{ROUTE}?q=zawadi", headers=headers)
+        items = r.json()["items"]
+        assert len(items) == 1
+        assert items[0]["student_name"] == "Zawadi Mwangi"
+
     def test_date_range_filter(self, client: TestClient, db_session: Session):
         tenant, headers, eid = self._setup(client, db_session)
         today = date.today()

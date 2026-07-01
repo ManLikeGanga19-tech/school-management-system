@@ -11,7 +11,7 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
-from sqlalchemy import cast as sa_cast, Date as SA_Date, select, func as sa_func, text as sa_text
+from sqlalchemy import cast as sa_cast, Date as SA_Date, or_ as sa_or, select, func as sa_func, text as sa_text
 
 from app.core.audit import log_event
 
@@ -2181,8 +2181,18 @@ def list_invoices(
     page_size: int = 20,
 ) -> dict:
     """Paginated invoice listing. All filters are server-side so the director
-    table can show "Showing X-Y of Z" honestly. `q` matches against invoice_no
-    (case-insensitive substring). Date filters apply to created_at (inclusive)."""
+    table can show "Showing X-Y of Z" honestly.
+
+    `q` matches against invoice_no OR the enrolled student's name / admission
+    number. Student side sourced from the linked core.students row when
+    present, falling back to the enrollment payload (jsonb) for legacy rows
+    where the SIS link was never populated. Case-insensitive.
+
+    Date filters apply to created_at (inclusive).
+    """
+    from app.models.enrollment import Enrollment
+    from app.models.student import Student
+
     stmt = select(Invoice).where(Invoice.tenant_id == tenant_id)
     if enrollment_id:
         stmt = stmt.where(Invoice.enrollment_id == enrollment_id)
@@ -2194,7 +2204,30 @@ def list_invoices(
         stmt = stmt.where(Invoice.balance_amount > 0)
     if q:
         like = f"%{q.strip()}%"
-        stmt = stmt.where(Invoice.invoice_no.ilike(like))
+        # Left-join enrollment + student so the OR can reach into either
+        # source without dropping invoices whose enrollment/student rows
+        # are missing. Each invoice has at most one enrollment (1:1) so
+        # no de-dup needed after the joins.
+        stmt = (
+            stmt
+            .outerjoin(Enrollment, Enrollment.id == Invoice.enrollment_id)
+            .outerjoin(Student, Student.id == Enrollment.student_id)
+            .where(
+                sa_or(
+                    Invoice.invoice_no.ilike(like),
+                    # Structured student name (first + last from SIS).
+                    sa_func.concat(
+                        Student.first_name, " ", sa_func.coalesce(Student.last_name, "")
+                    ).ilike(like),
+                    # Admission number from the SIS row.
+                    Student.admission_no.ilike(like),
+                    # Enrollment-side fallbacks for legacy rows.
+                    Enrollment.admission_number.ilike(like),
+                    Enrollment.payload["student_name"].astext.ilike(like),
+                    Enrollment.payload["full_name"].astext.ilike(like),
+                )
+            )
+        )
     if date_from:
         # Compare on the date portion of created_at so a "from = today" filter
         # captures invoices created later today. Explicit ::date cast on the

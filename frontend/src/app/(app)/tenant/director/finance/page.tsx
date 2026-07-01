@@ -91,6 +91,10 @@ type Invoice = {
   paid_amount: string | number;
   balance_amount: string | number;
   created_at?: string | null;
+  // Populated by /director/finance/invoices via batch enrollment lookup.
+  // Absent on the bulk /director/finance payload used by other tabs.
+  student_name?: string | null;
+  admission_no?: string | null;
 };
 
 type FeeStructure = {
@@ -1894,7 +1898,7 @@ function TenantFinancePageContent() {
                 <div className="lg:col-span-4">
                   <Label className="text-xs text-slate-600">Search</Label>
                   <Input
-                    placeholder="Student, invoice id, type, status..."
+                    placeholder="Student name, admission no, invoice no…"
                     value={invoiceFilters.q}
                     onChange={(e) =>
                       setInvoiceFilters((p) => ({ ...p, q: e.target.value }))
@@ -2080,9 +2084,13 @@ function TenantFinancePageContent() {
                 </TableHeader>
                 <TableBody>
                   {invoiceTableItems.map((invoice) => {
+                    // Prefer the server-resolved student_name (batch-loaded
+                    // for the current page); fall back to the client-side
+                    // enrollment map only if the row somehow lacks it.
                     const student =
+                      invoice.student_name ||
                       enrollmentNameById.get(String(invoice.enrollment_id || "")) ||
-                      "N/A";
+                      "Unknown student";
                     return (
                       <TableRow key={invoice.id}>
                         <TableCell className="font-mono text-xs text-slate-700">
