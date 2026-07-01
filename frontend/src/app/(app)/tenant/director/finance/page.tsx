@@ -2087,9 +2087,10 @@ function TenantFinancePageContent() {
                                 label: "Apply scholarship",
                                 icon: <GraduationCap />,
                                 onSelect: () => setScholarshipTarget(invoice),
-                                disabled:
-                                  invoice.status === "PAID" ||
-                                  invoice.status === "CANCELLED",
+                                // Only CANCELLED blocked — PAID invoices now
+                                // route the surplus to an overpayment credit
+                                // for the student (Phase M1 Option B).
+                                disabled: invoice.status === "CANCELLED",
                               },
                               {
                                 key: "delete",

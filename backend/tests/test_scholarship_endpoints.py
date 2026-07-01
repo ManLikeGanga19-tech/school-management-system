@@ -25,6 +25,7 @@ BASE = "/api/v1/finance"
 DIRECTOR_PERMS = [
     "finance.scholarships.view", "finance.scholarships.manage",
     "finance.invoices.view", "finance.invoices.manage",
+    "finance.payments.view", "finance.payments.manage",
     "finance.fees.view", "finance.fees.manage",
     "finance.policy.view", "finance.policy.manage",
     "enrollment.manage",
@@ -33,6 +34,7 @@ DIRECTOR_PERMS = [
 SECRETARY_PERMS = [
     "finance.scholarships.view", "finance.scholarships.manage",
     "finance.invoices.view", "finance.invoices.manage",
+    "finance.payments.view", "finance.payments.manage",
     "finance.fees.view", "finance.fees.manage",
     "enrollment.manage",
 ]
@@ -134,18 +136,19 @@ class TestApplyToExistingInvoice:
         body = resp.json()
         assert Decimal(str(body["total_amount"])) == Decimal("0.00")
 
-    def test_secretary_cannot_apply_after_the_fact(
+    def test_secretary_can_apply_after_the_fact(
         self, client: TestClient, db_session: Session
     ):
+        """M1 Decision 1 (Option C): secretary now has the same apply
+        permission as director. Every apply still audits, and the
+        scholarship's capacity guards still enforce. This matches the
+        real workflow — secretary at the front desk completing the
+        award without having to loop in the director."""
         tenant = create_tenant(db_session)
         _, sec_headers = make_actor(
             db_session, tenant=tenant, permissions=SECRETARY_PERMS,
         )
-        _, dir_headers = make_actor(
-            db_session, tenant=tenant, permissions=DIRECTOR_PERMS,
-            email=f"d-{uuid4().hex[:6]}@x.com",
-        )
-        _seed_structure(client, dir_headers, fee="8000")
+        _seed_structure(client, sec_headers, fee="8000")
         sid = _seed_student(db_session, tenant_id=tenant.id)
         eid = _seed_enrollment(db_session, tenant_id=tenant.id, student_id=sid)
         inv = _gen_invoice(client, sec_headers, eid)
@@ -153,28 +156,48 @@ class TestApplyToExistingInvoice:
             f"{BASE}/scholarships",
             json={"name": "Bursary", "type": "FULL_WAIVER",
                   "value": "0", "is_active": True},
-            headers=dir_headers,
+            headers=sec_headers,
         ).json()
         resp = client.post(
             f"{BASE}/invoices/{inv['id']}/scholarship",
-            json={"scholarship_id": sch["id"], "reason": "Try"},
+            json={"scholarship_id": sch["id"], "reason": "Front-desk award"},
             headers=sec_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert Decimal(str(body["total_amount"])) == Decimal("0.00")
+
+    def test_caller_without_scholarships_manage_is_still_blocked(
+        self, client: TestClient, db_session: Session
+    ):
+        """Loosening the gate to scholarships.manage means anyone without
+        THAT permission (parent/teacher/janitor) still gets 403."""
+        tenant = create_tenant(db_session)
+        # Only invoice-view permission — no scholarships.manage.
+        _, headers = make_actor(
+            db_session, tenant=tenant,
+            permissions=["finance.invoices.view"],
+        )
+        resp = client.post(
+            f"{BASE}/invoices/{uuid4()}/scholarship",
+            json={"scholarship_id": str(uuid4()), "reason": "x"},
+            headers=headers,
         )
         assert resp.status_code == 403
 
-    def test_block_on_paid_invoice(
+    def test_block_on_cancelled_invoice(
         self, client: TestClient, db_session: Session
     ):
+        """CANCELLED invoices are voided documents; a retroactive award
+        must un-void first (or apply to the replacement)."""
         tenant = create_tenant(db_session)
         _, headers = make_actor(db_session, tenant=tenant, permissions=DIRECTOR_PERMS)
         _seed_structure(client, headers, fee="5000")
         sid = _seed_student(db_session, tenant_id=tenant.id)
         eid = _seed_enrollment(db_session, tenant_id=tenant.id, student_id=sid)
         inv = _gen_invoice(client, headers, eid)
-        # Force PAID directly.
         db_session.execute(sa.text(
-            "UPDATE core.invoices SET status='PAID', paid_amount=total_amount, "
-            "balance_amount=0 WHERE id = :id"
+            "UPDATE core.invoices SET status='CANCELLED' WHERE id = :id"
         ), {"id": inv["id"]})
         db_session.commit()
         sch = client.post(
@@ -186,11 +209,11 @@ class TestApplyToExistingInvoice:
         resp = client.post(
             f"{BASE}/invoices/{inv['id']}/scholarship",
             json={"scholarship_id": sch["id"], "amount": "500",
-                  "reason": "Too late"},
+                  "reason": "Won't work"},
             headers=headers,
         )
         assert resp.status_code == 400
-        assert "paid" in resp.text.lower()
+        assert "cancelled" in resp.text.lower()
 
     def test_reason_required(
         self, client: TestClient, db_session: Session
@@ -213,6 +236,192 @@ class TestApplyToExistingInvoice:
             headers=headers,
         )
         assert resp.status_code == 400
+
+
+# ── M1 Decision 2 (Option B): overpayment surplus → OVERPAYMENT_CREDIT ─────
+
+class TestOverpaymentCredit:
+    """When applying a scholarship reduces total below what's already been
+    paid, the surplus must be booked as an OVERPAYMENT_CREDIT carry-forward
+    row on the student — never left as negative balance on the invoice.
+    """
+
+    def _seed_partial_paid_invoice(
+        self, client, db_session, tenant, headers, *, fee="10000", paid="6000",
+    ):
+        _seed_structure(client, headers, fee=fee)
+        sid = _seed_student(db_session, tenant_id=tenant.id)
+        eid = _seed_enrollment(db_session, tenant_id=tenant.id, student_id=sid)
+        inv = _gen_invoice(client, headers, eid)
+        # Publish the DRAFT so we can record a payment against it.
+        pub = client.post(
+            f"{BASE}/invoices/{inv['id']}/publish", headers=headers,
+        )
+        assert pub.status_code == 200, pub.text
+        # Record a payment → invoice becomes PARTIAL (or PAID if fully paid).
+        pay = client.post(
+            f"{BASE}/payments",
+            json={
+                "provider": "MPESA", "amount": paid, "reference": "TEST-REF",
+                "allocations": [{"invoice_id": inv["id"], "amount": paid}],
+            },
+            headers=headers,
+        )
+        assert pay.status_code == 200, pay.text
+        return sid, eid, inv
+
+    def test_full_waiver_on_partial_invoice_credits_overpayment(
+        self, client: TestClient, db_session: Session
+    ):
+        """Invoice: total 10,000, paid 6,000. Apply FULL_WAIVER:
+        new total 0, surplus 6,000 becomes an OVERPAYMENT_CREDIT
+        carry-forward. Invoice books to PAID with balance 0 (not −6,000)."""
+        import sqlalchemy as sa
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=DIRECTOR_PERMS)
+        sid, eid, inv = self._seed_partial_paid_invoice(
+            client, db_session, tenant, headers, fee="10000", paid="6000",
+        )
+
+        sch = client.post(
+            f"{BASE}/scholarships",
+            json={"name": "Mid-term bursary", "type": "FULL_WAIVER",
+                  "value": "0", "is_active": True},
+            headers=headers,
+        ).json()
+
+        resp = client.post(
+            f"{BASE}/invoices/{inv['id']}/scholarship",
+            json={"scholarship_id": sch["id"],
+                  "reason": "Award granted mid-term after partial payment"},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert Decimal(str(body["total_amount"])) == Decimal("0.00")
+        assert Decimal(str(body["paid_amount"])) == Decimal("0.00")
+        assert Decimal(str(body["balance_amount"])) == Decimal("0.00")
+        assert body["status"] == "PAID"
+
+        # Carry-forward row exists, signed negative (credit), matches surplus.
+        cf = db_session.execute(sa.text(
+            "SELECT amount, category, status, description "
+            "FROM core.student_carry_forward_balances "
+            "WHERE tenant_id = :tid AND student_id = :sid"
+        ), {"tid": str(tenant.id), "sid": sid}).mappings().first()
+        assert cf is not None
+        assert cf["category"] == "OVERPAYMENT_CREDIT"
+        assert cf["status"] == "OPEN"
+        assert Decimal(str(cf["amount"])) == Decimal("-6000.00")
+        assert "Mid-term bursary" in (cf["description"] or "")
+
+    def test_fixed_scholarship_creating_partial_surplus_credits_only_the_surplus(
+        self, client: TestClient, db_session: Session
+    ):
+        """Invoice: total 10,000, paid 8,000. Apply FIXED 5,000 discount:
+        new total 5,000, but paid was 8,000 → surplus 3,000 credited."""
+        import sqlalchemy as sa
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=DIRECTOR_PERMS)
+        sid, eid, inv = self._seed_partial_paid_invoice(
+            client, db_session, tenant, headers, fee="10000", paid="8000",
+        )
+        sch = client.post(
+            f"{BASE}/scholarships",
+            json={"name": "Partial bursary", "type": "FIXED",
+                  "value": "5000", "is_active": True},
+            headers=headers,
+        ).json()
+        resp = client.post(
+            f"{BASE}/invoices/{inv['id']}/scholarship",
+            json={"scholarship_id": sch["id"], "amount": "5000",
+                  "reason": "Awarded 5k discount after 8k paid"},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert Decimal(str(body["total_amount"])) == Decimal("5000.00")
+        assert Decimal(str(body["paid_amount"])) == Decimal("5000.00")
+        assert Decimal(str(body["balance_amount"])) == Decimal("0.00")
+        assert body["status"] == "PAID"
+
+        cf = db_session.execute(sa.text(
+            "SELECT amount FROM core.student_carry_forward_balances "
+            "WHERE tenant_id = :tid AND student_id = :sid"
+        ), {"tid": str(tenant.id), "sid": sid}).mappings().first()
+        assert cf is not None
+        assert Decimal(str(cf["amount"])) == Decimal("-3000.00")
+
+    def test_no_surplus_no_credit_row(
+        self, client: TestClient, db_session: Session
+    ):
+        """Discount stays above what was paid — no credit row created
+        (avoids polluting the carry-forward ledger with zero-amount
+        rows). Invoice moves to PARTIAL or stays whatever it should."""
+        import sqlalchemy as sa
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=DIRECTOR_PERMS)
+        sid, eid, inv = self._seed_partial_paid_invoice(
+            client, db_session, tenant, headers, fee="10000", paid="3000",
+        )
+        sch = client.post(
+            f"{BASE}/scholarships",
+            json={"name": "Small discount", "type": "FIXED",
+                  "value": "2000", "is_active": True},
+            headers=headers,
+        ).json()
+        resp = client.post(
+            f"{BASE}/invoices/{inv['id']}/scholarship",
+            json={"scholarship_id": sch["id"], "amount": "2000",
+                  "reason": "Small discount, still partial"},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert Decimal(str(body["total_amount"])) == Decimal("8000.00")
+        assert Decimal(str(body["paid_amount"])) == Decimal("3000.00")
+        assert Decimal(str(body["balance_amount"])) == Decimal("5000.00")
+        assert body["status"] == "PARTIAL"
+
+        cnt = db_session.execute(sa.text(
+            "SELECT COUNT(*) FROM core.student_carry_forward_balances "
+            "WHERE tenant_id = :tid AND student_id = :sid"
+        ), {"tid": str(tenant.id), "sid": sid}).scalar()
+        assert cnt == 0
+
+    def test_overpayment_credit_audit_event_emitted(
+        self, client: TestClient, db_session: Session
+    ):
+        """The `invoice.scholarship.overpayment_credit` audit row must
+        capture the surplus + credit row id so operators can trace the
+        credit back to its source without spelunking."""
+        import sqlalchemy as sa
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=DIRECTOR_PERMS)
+        sid, eid, inv = self._seed_partial_paid_invoice(
+            client, db_session, tenant, headers, fee="8000", paid="8000",
+        )
+        sch = client.post(
+            f"{BASE}/scholarships",
+            json={"name": "Full waiver after pay",
+                  "type": "FULL_WAIVER", "value": "0", "is_active": True},
+            headers=headers,
+        ).json()
+        resp = client.post(
+            f"{BASE}/invoices/{inv['id']}/scholarship",
+            json={"scholarship_id": sch["id"], "reason": "Award post-pay"},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+
+        payload = db_session.execute(sa.text(
+            "SELECT payload FROM core.audit_logs "
+            "WHERE tenant_id = :tid "
+            "  AND action = 'invoice.scholarship.overpayment_credit'"
+        ), {"tid": str(tenant.id)}).scalar()
+        assert payload is not None
+        assert Decimal(str(payload.get("surplus_credited"))) == Decimal("8000")
+        assert payload.get("credit_row_id")
 
 
 # ── POST /scholarships/{id}/bulk-apply ─────────────────────────────────────

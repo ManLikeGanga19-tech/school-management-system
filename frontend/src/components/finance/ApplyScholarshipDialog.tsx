@@ -1,18 +1,23 @@
 "use client";
 
 /**
- * ApplyScholarshipDialog — Path 3: director-only after-the-fact
- * scholarship application on an existing invoice.
+ * ApplyScholarshipDialog — apply a scholarship to an existing invoice.
  *
- * Calls POST /finance/invoices/{id}/scholarship. Backend rejects PAID +
- * CANCELLED invoices and refuses non-director callers.
+ * Backend contract (M1):
+ *   POST /finance/invoices/{id}/scholarship
+ *   - Gate:  finance.scholarships.manage (secretary + director both)
+ *   - Blocks: CANCELLED only (PAID is allowed — surplus becomes an
+ *             OVERPAYMENT_CREDIT carry-forward for the student)
+ *   - Amount field required only for FIXED scholarships; PERCENTAGE and
+ *     FULL_WAIVER are computed server-side from invoice total.
  *
- * The Amount field is only shown for FIXED-type scholarships — PERCENTAGE
- * and FULL_WAIVER are auto-computed server-side from invoice total.
+ * The dialog shows the invoice's current numbers up front and warns when
+ * the discount will create an overpayment credit — the operator sees
+ * the outcome BEFORE clicking Apply (no silent surprises).
  */
 
-import { useEffect, useState } from "react";
-import { Loader2, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, Loader2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +40,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
+import { formatKes, toNumber } from "@/lib/format";
 import type { Scholarship } from "@/components/finance/finance-utils";
 
 type Props = {
@@ -44,11 +50,29 @@ type Props = {
     invoice_no?: string | null;
     status?: string | null;
     total_amount?: string | number;
+    paid_amount?: string | number;
+    balance_amount?: string | number;
   } | null;
   scholarships: Scholarship[];
   onClose: () => void;
   onApplied?: () => void;
 };
+
+function computePreviewDiscount(
+  picked: Scholarship | undefined,
+  invoiceTotal: number,
+  amountInput: string,
+): number {
+  if (!picked) return 0;
+  if (picked.type === "FULL_WAIVER") return invoiceTotal;
+  if (picked.type === "PERCENTAGE") {
+    const pct = toNumber(picked.value);
+    return Math.round(((invoiceTotal * pct) / 100) * 100) / 100;
+  }
+  // FIXED — user-entered
+  const requested = toNumber(amountInput);
+  return Math.min(Math.max(requested, 0), invoiceTotal);
+}
 
 export function ApplyScholarshipDialog({
   open,
@@ -73,6 +97,19 @@ export function ApplyScholarshipDialog({
 
   const picked = scholarships.find((s) => s.id === scholarshipId);
   const requiresAmount = picked?.type === "FIXED";
+  const activeScholarships = scholarships.filter((s) => s.is_active);
+  const isBlockedStatus = invoice?.status === "CANCELLED";
+
+  // Financial preview — the operator sees the outcome before clicking Apply.
+  const invoiceTotal = toNumber(invoice?.total_amount ?? 0);
+  const invoicePaid = toNumber(invoice?.paid_amount ?? 0);
+  const previewDiscount = useMemo(
+    () => computePreviewDiscount(picked, invoiceTotal, amount),
+    [picked, invoiceTotal, amount],
+  );
+  const previewNewTotal = Math.max(0, invoiceTotal - previewDiscount);
+  const previewSurplus = Math.max(0, invoicePaid - previewNewTotal);
+  const previewNewBalance = Math.max(0, previewNewTotal - invoicePaid);
 
   async function submit() {
     if (!invoice) return;
@@ -99,7 +136,11 @@ export function ApplyScholarshipDialog({
         },
         { tenantRequired: true },
       );
-      toast.success("Scholarship applied.");
+      toast.success(
+        previewSurplus > 0
+          ? `Scholarship applied. KES ${previewSurplus.toLocaleString()} credited to student.`
+          : "Scholarship applied.",
+      );
       onApplied?.();
       onClose();
     } catch (e) {
@@ -108,10 +149,6 @@ export function ApplyScholarshipDialog({
       setSubmitting(false);
     }
   }
-
-  const activeScholarships = scholarships.filter((s) => s.is_active);
-  const isBlockedStatus =
-    invoice?.status === "PAID" || invoice?.status === "CANCELLED";
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -126,14 +163,45 @@ export function ApplyScholarshipDialog({
             <span className="font-mono text-slate-700">
               {invoice?.invoice_no ?? invoice?.id?.slice(0, 8)}
             </span>
-            . Director-only action — audit recorded.
+            . Audit recorded.
           </DialogDescription>
         </DialogHeader>
 
+        {/* Current invoice financial snapshot — shown up front so the
+            operator anchors the discount against real numbers. */}
+        {invoice && (
+          <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-100 bg-slate-50/60 p-2 text-center text-xs">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                Total
+              </div>
+              <div className="font-semibold text-slate-700">
+                {formatKes(invoiceTotal)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                Paid
+              </div>
+              <div className="font-semibold text-emerald-700">
+                {formatKes(invoicePaid)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                Balance
+              </div>
+              <div className="font-semibold text-red-600">
+                {formatKes(toNumber(invoice?.balance_amount ?? 0))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {isBlockedStatus ? (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            This invoice is <strong>{invoice?.status}</strong> — issue a refund
-            or void it before applying a scholarship.
+            This invoice is <strong>{invoice?.status}</strong> — un-void it
+            first, or apply to the replacement invoice.
           </div>
         ) : (
           <div className="space-y-3 py-2">
@@ -174,7 +242,7 @@ export function ApplyScholarshipDialog({
 
             {picked?.type === "FULL_WAIVER" && (
               <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-800">
-                <strong>Full Waiver</strong> — invoice will be set to{" "}
+                <strong>Full Waiver</strong> — invoice total set to{" "}
                 <strong>KES 0</strong>
                 {picked.covers_carry_forward
                   ? " including any carry-forward arrears."
@@ -185,6 +253,41 @@ export function ApplyScholarshipDialog({
               <p className="text-xs text-slate-500">
                 Auto-computed as {Number(picked.value)}% of the invoice total.
               </p>
+            )}
+
+            {/* Financial preview — outcome BEFORE clicking Apply. */}
+            {picked && (
+              <div className="space-y-1 rounded-lg border border-slate-100 bg-white px-3 py-2 text-xs">
+                <div className="flex justify-between text-slate-500">
+                  <span>Discount applied</span>
+                  <span className="font-semibold text-slate-700">
+                    −{formatKes(previewDiscount)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>New invoice total</span>
+                  <span className="font-semibold text-slate-800">
+                    {formatKes(previewNewTotal)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>New balance</span>
+                  <span className="font-semibold text-slate-800">
+                    {formatKes(previewNewBalance)}
+                  </span>
+                </div>
+                {previewSurplus > 0 && (
+                  <div className="mt-1.5 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-amber-800">
+                    <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                    <span>
+                      Parent already paid <strong>{formatKes(invoicePaid)}</strong>.
+                      The surplus of <strong>{formatKes(previewSurplus)}</strong>{" "}
+                      will be booked as an overpayment credit on the student's
+                      account (redeemable against future invoices).
+                    </span>
+                  </div>
+                )}
+              </div>
             )}
 
             <div className="space-y-1.5">

@@ -646,10 +646,14 @@ def list_scholarship_allocations(
 @router.post(
     "/invoices/{invoice_id}/scholarship",
     response_model=InvoiceOut,
-    # Director-only — applying after-the-fact is a policy decision, not data
-    # entry. Secretary can still apply at create time via the standard
-    # generate endpoints.
-    dependencies=[Depends(require_permission("finance.policy.manage"))],
+    # Applying an existing scholarship to an existing invoice is a normal
+    # operational task in schools where most invoices are already ISSUED
+    # by the time an award is granted (mid-term bursaries, county
+    # scholarships etc.). Gated on finance.scholarships.manage so the
+    # secretary at the front desk can complete the workflow — every
+    # apply is audited (invoice.scholarship.apply) and the service
+    # enforces the scholarship's budget + recipient caps.
+    dependencies=[Depends(require_permission("finance.scholarships.manage"))],
 )
 def apply_scholarship_to_invoice_route(
     invoice_id: UUID,

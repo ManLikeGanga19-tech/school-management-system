@@ -20,7 +20,7 @@ import {
   type FinanceSection,
 } from "@/components/layout/nav-config";
 import { TenantPageHeader, TenantSurface } from "@/components/tenant/page-chrome";
-import { Eye, FileDown, Printer, ClipboardList, AlertTriangle, CheckCircle2, X, RefreshCw } from "lucide-react";
+import { Eye, FileDown, Printer, ClipboardList, AlertTriangle, CheckCircle2, X, RefreshCw, GraduationCap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +50,8 @@ import {
 import { toast } from "@/components/ui/sonner";
 import { BulkGenerateInvoicesCard } from "@/components/finance/BulkGenerateInvoicesCard";
 import { PublishAllDraftsCard } from "@/components/finance/PublishAllDraftsCard";
+import { ApplyScholarshipDialog } from "@/components/finance/ApplyScholarshipDialog";
+import type { Scholarship as ScholarshipType } from "@/components/finance/finance-utils";
 import { usePaginatedTable } from "@/lib/usePaginatedTable";
 import {
   TablePaginationFooter,
@@ -744,6 +746,11 @@ function SecretaryFinancePageContent() {
   // freshly-DRAFTed invoice + a display label for the modal header.
   const [previewInvoice, setPreviewInvoice] = useState<InvoicePreviewData | null>(null);
   const [previewLabel, setPreviewLabel] = useState<string | null>(null);
+  // M1: after-the-fact scholarship apply — secretary now has this action
+  // per Decision 1 (Option C). The dialog handles the overpayment credit
+  // preview + submission.
+  const [scholarshipInvoiceTarget, setScholarshipInvoiceTarget] =
+    useState<Invoice | null>(null);
   const [pendingAction, setPendingAction] = useState<FinanceAction | null>(null);
   const [loadingStructureLookups, setLoadingStructureLookups] = useState(true);
   const [tenantClasses, setTenantClasses] = useState<TenantClass[]>([]);
@@ -2278,6 +2285,13 @@ function SecretaryFinancePageContent() {
                                           setPreviewInvoice(invoice as unknown as InvoicePreviewData);
                                         },
                                       },
+                                      {
+                                        key: "apply-scholarship",
+                                        label: "Apply scholarship",
+                                        icon: <GraduationCap />,
+                                        onSelect: () =>
+                                          setScholarshipInvoiceTarget(invoice),
+                                      },
                                     ]
                                   : [
                                       {
@@ -2308,6 +2322,17 @@ function SecretaryFinancePageContent() {
                                             { tenantRequired: true }
                                           ).catch(() => toast.error("Failed to download invoice PDF."));
                                         },
+                                      },
+                                      {
+                                        key: "apply-scholarship",
+                                        label: "Apply scholarship",
+                                        icon: <GraduationCap />,
+                                        onSelect: () =>
+                                          setScholarshipInvoiceTarget(invoice),
+                                        // Only CANCELLED blocked — PAID
+                                        // invoices route the surplus to an
+                                        // overpayment credit (M1 Option B).
+                                        disabled: invoice.status === "CANCELLED",
                                       },
                                     ]
                               }
@@ -2724,6 +2749,20 @@ function SecretaryFinancePageContent() {
         invoice={previewInvoice}
         studentLabel={previewLabel}
         onSaved={() => void loadFinance(true)}
+      />
+
+      {/* M1: after-the-fact scholarship apply. Backend enforces the
+          scholarship budget/recipient caps + emits audit + handles
+          overpayment credits when total drops below paid_amount. */}
+      <ApplyScholarshipDialog
+        open={scholarshipInvoiceTarget !== null}
+        invoice={scholarshipInvoiceTarget}
+        scholarships={data.scholarships as unknown as ScholarshipType[]}
+        onClose={() => setScholarshipInvoiceTarget(null)}
+        onApplied={() => {
+          void loadFinance(true);
+          void invoicesTable.reload();
+        }}
       />
     </AppShell>
   );

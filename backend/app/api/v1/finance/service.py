@@ -1959,11 +1959,24 @@ def apply_scholarship_to_existing_invoice(
     ).scalar_one_or_none()
     if not inv:
         raise ValueError("Invoice not found")
-    if inv.status in ("PAID", "CANCELLED"):
+    # M1 Decision 2 (Option B): PAID is now allowed — the retroactive
+    # bursary scenario is real (Governor's Bursary announced after the
+    # term, county waiver awarded mid-year etc.). The paid amount above
+    # the new post-discount total is booked as an OVERPAYMENT_CREDIT
+    # carry-forward for the student. CANCELLED remains blocked because
+    # it's a voided document, not a state that can be retroactively
+    # amended without un-voiding first.
+    if inv.status == "CANCELLED":
         raise ValueError(
-            f"Cannot apply scholarship to a {inv.status} invoice. "
-            "Issue a refund or void first."
+            "Cannot apply scholarship to a CANCELLED invoice. "
+            "Un-void it first, or apply to the replacement invoice."
         )
+
+    # Capture status BEFORE the apply — `_recalc_invoice_amounts` inside
+    # the helper can demote total=0 invoices back to DRAFT, and we need
+    # to distinguish "was a DRAFT going in" from "became total=0 after
+    # the waiver" so the overpayment credit branch below still fires.
+    original_status = inv.status
 
     # Resolve enrollment + student for the allocation row.
     student_id = None
@@ -1984,17 +1997,100 @@ def apply_scholarship_to_existing_invoice(
         enrollment_id=enrollment_id,
     )
 
-    # If new total drops below paid_amount, the invoice flips to PAID and the
-    # surplus would need to become a credit on the student — but for now we
-    # just leave it: paid > total is mathematically OK and the existing
-    # carry-forward refund flow handles overpayments out-of-band.
-    if inv.status == "DRAFT":
-        # DRAFT stays DRAFT — director can publish after review.
-        pass
+    # Overpayment handling (Phase M1 Decision 2 / Option B).
+    #
+    # Real-world scenario: parent has already partly paid an ISSUED
+    # invoice, then a mid-term bursary is granted. Applying the discount
+    # drops the invoice total below what's already been paid — the surplus
+    # belongs to the student as a credit, redeemable against the next term
+    # OR refundable via the existing refund flow.
+    #
+    # We split the surplus off as a StudentCarryForward with
+    # category=OVERPAYMENT_CREDIT (negative amount by convention) and
+    # reduce the invoice's paid_amount to match the new total so the
+    # invoice books cleanly to PAID with balance=0 — no negative balance
+    # anywhere in the ledger.
+    if original_status == "DRAFT":
+        # Was a DRAFT going in — publish flow handles status transitions
+        # once the secretary reviews the discounted lines. No overpayment
+        # is possible on a DRAFT (no payments yet).
+        return allocation
+
+    total = Decimal(inv.total_amount or 0)
+    paid = Decimal(inv.paid_amount or 0)
+    surplus = paid - total
+
+    if surplus > 0 and student_id is not None:
+        # Split the surplus off. Negative amount by carry-forward
+        # convention (credits reduce the next invoice).
+        from app.models.student_carry_forward import StudentCarryForward
+
+        # Look up the scholarship name for a readable description on the
+        # carry-forward row. Cheap — one row by PK.
+        sch_row = db.execute(
+            select(Scholarship).where(Scholarship.id == scholarship_id)
+        ).scalar_one_or_none()
+        sch_name = getattr(sch_row, "name", None) or "Scholarship"
+
+        term_label = f"Overpayment credit from INV {inv.invoice_no or str(inv.id)[:8]}"
+
+        credit_row = StudentCarryForward(
+            tenant_id=tenant_id,
+            student_id=student_id,
+            term_label=term_label,
+            academic_year=inv.academic_year,
+            term_number=inv.term_number,
+            amount=(-surplus).quantize(Decimal("0.01")),
+            category="OVERPAYMENT_CREDIT",
+            status="OPEN",
+            description=(
+                f"Scholarship '{sch_name}' applied to invoice "
+                f"{inv.invoice_no or inv.id} after {paid} already paid; "
+                f"surplus of {surplus} credited to student."
+            ),
+            recorded_by=actor_user_id,
+        )
+        db.add(credit_row)
+        db.flush()
+
+        # Reduce paid_amount to the new total so the invoice books to
+        # PAID with balance = 0. The surplus lives in the carry-forward
+        # ledger, not on the invoice.
+        inv.paid_amount = total
+        inv.balance_amount = Decimal("0")
+        inv.status = "PAID"
+        db.flush()
+
+        log_event(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            action="invoice.scholarship.overpayment_credit",
+            resource="invoice",
+            resource_id=inv.id,
+            payload={
+                "invoice_no": inv.invoice_no,
+                "student_id": str(student_id),
+                "surplus_credited": str(surplus),
+                "credit_row_id": str(credit_row.id),
+                "new_invoice_total": str(total),
+                "reduced_paid_amount": str(total),
+            },
+            meta=None,
+        )
+    elif surplus > 0 and student_id is None:
+        # Extremely rare — enrollment with no linked SIS student row.
+        # Refuse instead of silently orphaning the surplus. This is one
+        # of the "no silent failures" the user asked us to prevent.
+        raise ValueError(
+            f"Applying this scholarship would create a surplus of "
+            f"{surplus} but the enrollment has no linked student "
+            f"record, so no overpayment credit can be booked. Fix the "
+            f"enrollment's student link first."
+        )
     else:
-        total = Decimal(inv.total_amount or 0)
-        paid = Decimal(inv.paid_amount or 0)
-        if paid >= total > 0 or total == 0:
+        # No overpayment — just recompute status normally.
+        if total == 0 or paid >= total:
             inv.status = "PAID"
         elif paid > 0:
             inv.status = "PARTIAL"
