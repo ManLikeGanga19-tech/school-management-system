@@ -99,6 +99,12 @@ class TestFinanceExportCsv:
         assert "# Scholarships — per programme" in body
         assert "Test Bursary" in body
         assert "1500.00" in body  # allocated discount
+        # M3: grant-summary rows present.
+        assert "Active grants" in body
+        assert "Unique grant recipients" in body
+        # M3: Top Beneficiaries section present + names the student.
+        assert "# Top Scholarship Beneficiaries" in body
+        assert "Jane Doe" in body  # from _seed_min_data
         # KES values formatted as plain decimals (no thousands separator)
         assert "10000.00" in body  # billed
         assert "MPESA" in body

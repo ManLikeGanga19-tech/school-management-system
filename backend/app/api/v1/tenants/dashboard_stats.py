@@ -413,11 +413,22 @@ def get_top_outstanding(
 # ── Scholarship analytics ──────────────────────────────────────────────────
 
 
-def get_scholarship_breakdown(db: Session, *, tenant_id: UUID) -> dict[str, Any]:
+def get_scholarship_breakdown(
+    db: Session, *, tenant_id: UUID, top_beneficiaries_limit: int = 10,
+) -> dict[str, Any]:
     """Director-grade scholarship visibility for the all-time finance KPI
-    and the CSV/PDF report. Counts only ACTIVE allocations — REVOKED rows
-    are the audit trail of cancelled/replaced invoices and don't represent
-    real discount granted.
+    and the CSV/PDF report.
+
+    Counts only ACTIVE rows across allocations + grants — REVOKED rows are
+    the audit trail and don't represent live commitments. Includes the
+    Phase M2 grant view (student-level attachment) alongside the existing
+    per-invoice allocation view.
+
+    Returns:
+      summary — totals across the tenant
+      by_scholarship — per-scholarship row, sorted by allocated desc
+      top_beneficiaries — top-N students by ACTIVE allocation total
+        (drives director's "who's on the biggest bursary" view)
     """
     totals = db.execute(
         sa.text("""
@@ -440,6 +451,21 @@ def get_scholarship_breakdown(db: Session, *, tenant_id: UUID) -> dict[str, Any]
         {"tid": str(tenant_id)},
     ).scalar() or 0
 
+    # Phase M2: student-level grants live independently of allocations.
+    # A student may hold an ACTIVE grant that hasn't yet produced an
+    # allocation (e.g. no invoice this term yet) — we report both counts
+    # so the director can see forward-looking commitments as well.
+    grant_totals = db.execute(
+        sa.text("""
+            SELECT
+                COUNT(*)                                   AS active_grants,
+                COUNT(DISTINCT student_id)                 AS unique_grant_recipients
+            FROM core.student_scholarship_grants
+            WHERE tenant_id = :tid AND status = 'ACTIVE'
+        """),
+        {"tid": str(tenant_id)},
+    ).mappings().first()
+
     by_sch = db.execute(
         sa.text("""
             SELECT
@@ -455,7 +481,14 @@ def get_scholarship_breakdown(db: Session, *, tenant_id: UUID) -> dict[str, Any]
                     FILTER (WHERE sa.status='ACTIVE' AND sa.student_id IS NOT NULL)
                                                           AS unique_recipients,
                 COUNT(*) FILTER (WHERE sa.status='ACTIVE') AS active_allocations,
-                COUNT(*) FILTER (WHERE sa.status='REVOKED') AS revoked_allocations
+                COUNT(*) FILTER (WHERE sa.status='REVOKED') AS revoked_allocations,
+                COALESCE((
+                    SELECT COUNT(*)
+                    FROM core.student_scholarship_grants g
+                    WHERE g.scholarship_id = s.id
+                      AND g.tenant_id      = s.tenant_id
+                      AND g.status         = 'ACTIVE'
+                ), 0)                                       AS active_grants
             FROM core.scholarships s
             LEFT JOIN core.scholarship_allocations sa
                    ON sa.scholarship_id = s.id
@@ -487,16 +520,67 @@ def get_scholarship_breakdown(db: Session, *, tenant_id: UUID) -> dict[str, Any]
             "unique_recipients": int(r["unique_recipients"] or 0),
             "active_allocations": int(r["active_allocations"] or 0),
             "revoked_allocations": int(r["revoked_allocations"] or 0),
+            "active_grants": int(r["active_grants"] or 0),
             "is_active": bool(r["is_active"]),
             "covers_carry_forward": bool(r["covers_carry_forward"]),
         })
 
+    # Top-N beneficiaries by ACTIVE allocation total. Uses batch student-
+    # identity join so we get real names even for legacy enrollment-only
+    # rows.
+    top_rows = db.execute(
+        sa.text("""
+            SELECT
+                sa.student_id,
+                COALESCE(
+                    NULLIF(TRIM(st.first_name || ' ' || COALESCE(st.last_name, '')), ''),
+                    'Unknown student'
+                )                                          AS student_name,
+                COALESCE(st.admission_no, '')              AS admission_no,
+                COALESCE(SUM(sa.amount), 0)                AS total_allocated,
+                COUNT(*)                                    AS allocation_count,
+                COUNT(DISTINCT sa.scholarship_id)          AS scholarship_count,
+                (SELECT COUNT(*)
+                 FROM core.student_scholarship_grants g
+                 WHERE g.tenant_id = :tid
+                   AND g.student_id = sa.student_id
+                   AND g.status = 'ACTIVE')                AS active_grants
+            FROM core.scholarship_allocations sa
+            LEFT JOIN core.students st
+                   ON st.id = sa.student_id
+                  AND st.tenant_id = sa.tenant_id
+            WHERE sa.tenant_id = :tid
+              AND sa.status = 'ACTIVE'
+              AND sa.student_id IS NOT NULL
+            GROUP BY sa.student_id, st.first_name, st.last_name, st.admission_no
+            ORDER BY total_allocated DESC
+            LIMIT :lim
+        """),
+        {"tid": str(tenant_id), "lim": int(top_beneficiaries_limit)},
+    ).mappings().all()
+
+    top_beneficiaries = [
+        {
+            "student_id":        str(r["student_id"]),
+            "student_name":      r["student_name"] or "Unknown student",
+            "admission_no":      r["admission_no"] or "",
+            "total_allocated":   float(_dec(r["total_allocated"])),
+            "allocation_count":  int(r["allocation_count"] or 0),
+            "scholarship_count": int(r["scholarship_count"] or 0),
+            "active_grants":     int(r["active_grants"] or 0),
+        }
+        for r in top_rows
+    ]
+
     return {
         "summary": {
-            "total_discount_granted": float(_dec(totals["total_discount"])),
-            "active_allocations":     int(totals["allocation_count"] or 0),
-            "unique_recipients":      int(totals["unique_recipients"] or 0),
-            "active_scholarships":    int(active_scholarships),
+            "total_discount_granted":  float(_dec(totals["total_discount"])),
+            "active_allocations":      int(totals["allocation_count"] or 0),
+            "unique_recipients":       int(totals["unique_recipients"] or 0),
+            "active_scholarships":     int(active_scholarships),
+            "active_grants":           int(grant_totals["active_grants"] or 0),
+            "unique_grant_recipients": int(grant_totals["unique_grant_recipients"] or 0),
         },
-        "by_scholarship": rows,
+        "by_scholarship":     rows,
+        "top_beneficiaries":  top_beneficiaries,
     }

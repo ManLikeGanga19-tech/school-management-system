@@ -444,3 +444,132 @@ class TestScholarshipBreakdown:
             db_session, tenant_id=tenant.id)["by_scholarship"]}
         assert rows["PERCENTAGE"]["remaining"] is None
         assert rows["FULL_WAIVER"]["remaining"] is None
+
+    def test_summary_includes_active_grant_counts(self, db_session: Session):
+        """Phase M3 — summary + per-scholarship rows must expose the
+        active-grant counts alongside allocations."""
+        from uuid import uuid4
+        tenant = create_tenant(db_session)
+        sch_id = str(uuid4())
+        db_session.execute(sa.text(
+            "INSERT INTO core.scholarships "
+            "(id, tenant_id, name, type, value, is_active, covers_carry_forward) "
+            "VALUES (:id, :tid, 'S1', 'FULL_WAIVER', 0, TRUE, FALSE)"
+        ), {"id": sch_id, "tid": str(tenant.id)})
+        # Two students on ACTIVE grants, one REVOKED grant, plus one
+        # ACTIVE grant on a different scholarship.
+        sids = []
+        for i in range(3):
+            stu = str(uuid4())
+            sids.append(stu)
+            db_session.execute(sa.text(
+                "INSERT INTO core.students "
+                "(id, tenant_id, admission_no, first_name, last_name, status) "
+                "VALUES (:id, :tid, :adm, 'X', 'Y', 'ACTIVE')"
+            ), {"id": stu, "tid": str(tenant.id),
+                "adm": f"A-{uuid4().hex[:4]}"})
+        # 2 ACTIVE grants on sch_id
+        for stu in sids[:2]:
+            db_session.execute(sa.text(
+                "INSERT INTO core.student_scholarship_grants "
+                "(id, tenant_id, student_id, scholarship_id, "
+                " granted_reason, status) "
+                "VALUES (:id, :tid, :stu, :sid, 'audit', 'ACTIVE')"
+            ), {"id": str(uuid4()), "tid": str(tenant.id),
+                "stu": stu, "sid": sch_id})
+        # 1 REVOKED grant on sch_id
+        db_session.execute(sa.text(
+            "INSERT INTO core.student_scholarship_grants "
+            "(id, tenant_id, student_id, scholarship_id, "
+            " granted_reason, status, revoked_reason, revoked_at) "
+            "VALUES (:id, :tid, :stu, :sid, 'audit', 'REVOKED', "
+            "        'policy', NOW())"
+        ), {"id": str(uuid4()), "tid": str(tenant.id),
+            "stu": sids[2], "sid": sch_id})
+        db_session.commit()
+
+        out = get_scholarship_breakdown(db_session, tenant_id=tenant.id)
+        assert out["summary"]["active_grants"] == 2
+        assert out["summary"]["unique_grant_recipients"] == 2
+        row = out["by_scholarship"][0]
+        assert row["active_grants"] == 2
+
+    def test_top_beneficiaries_orders_by_total_allocated_desc(self, db_session: Session):
+        """Two students with different allocation totals; the higher
+        total ranks first. Includes their active_grant count."""
+        from uuid import uuid4
+        tenant = create_tenant(db_session)
+        sch_id = str(uuid4())
+        db_session.execute(sa.text(
+            "INSERT INTO core.scholarships "
+            "(id, tenant_id, name, type, value, is_active, covers_carry_forward) "
+            "VALUES (:id, :tid, 'S1', 'FIXED', 100000, TRUE, FALSE)"
+        ), {"id": sch_id, "tid": str(tenant.id)})
+        # Student A gets 3000, Student B gets 8000 — B should top.
+        stu_a = str(uuid4())
+        stu_b = str(uuid4())
+        for sid, name in ((stu_a, "Ada"), (stu_b, "Bea")):
+            db_session.execute(sa.text(
+                "INSERT INTO core.students "
+                "(id, tenant_id, admission_no, first_name, last_name, status) "
+                "VALUES (:id, :tid, :adm, :nm, 'X', 'ACTIVE')"
+            ), {"id": sid, "tid": str(tenant.id),
+                "adm": f"A-{uuid4().hex[:4]}", "nm": name})
+        db_session.execute(sa.text(
+            "INSERT INTO core.scholarship_allocations "
+            "(id, tenant_id, scholarship_id, student_id, amount, reason, status) "
+            "VALUES (:id, :tid, :sid, :stu, 3000, 'x', 'ACTIVE')"
+        ), {"id": str(uuid4()), "tid": str(tenant.id),
+            "sid": sch_id, "stu": stu_a})
+        db_session.execute(sa.text(
+            "INSERT INTO core.scholarship_allocations "
+            "(id, tenant_id, scholarship_id, student_id, amount, reason, status) "
+            "VALUES (:id, :tid, :sid, :stu, 8000, 'x', 'ACTIVE')"
+        ), {"id": str(uuid4()), "tid": str(tenant.id),
+            "sid": sch_id, "stu": stu_b})
+        # Give Bea an active grant so we assert the join wiring.
+        db_session.execute(sa.text(
+            "INSERT INTO core.student_scholarship_grants "
+            "(id, tenant_id, student_id, scholarship_id, "
+            " granted_reason, status) "
+            "VALUES (:id, :tid, :stu, :sid, 'audit', 'ACTIVE')"
+        ), {"id": str(uuid4()), "tid": str(tenant.id),
+            "stu": stu_b, "sid": sch_id})
+        db_session.commit()
+
+        top = get_scholarship_breakdown(db_session, tenant_id=tenant.id)["top_beneficiaries"]
+        assert len(top) == 2
+        assert top[0]["student_name"].startswith("Bea")
+        assert top[0]["total_allocated"] == 8000.0
+        assert top[0]["active_grants"] == 1
+        assert top[1]["student_name"].startswith("Ada")
+        assert top[1]["active_grants"] == 0
+
+    def test_top_beneficiaries_limit_respected(self, db_session: Session):
+        from uuid import uuid4
+        tenant = create_tenant(db_session)
+        sch_id = str(uuid4())
+        db_session.execute(sa.text(
+            "INSERT INTO core.scholarships "
+            "(id, tenant_id, name, type, value, is_active, covers_carry_forward) "
+            "VALUES (:id, :tid, 'S1', 'FIXED', 100000, TRUE, FALSE)"
+        ), {"id": sch_id, "tid": str(tenant.id)})
+        for i in range(5):
+            stu = str(uuid4())
+            db_session.execute(sa.text(
+                "INSERT INTO core.students "
+                "(id, tenant_id, admission_no, first_name, last_name, status) "
+                "VALUES (:id, :tid, :adm, 'S', :nm, 'ACTIVE')"
+            ), {"id": stu, "tid": str(tenant.id),
+                "adm": f"A-{uuid4().hex[:4]}", "nm": str(i)})
+            db_session.execute(sa.text(
+                "INSERT INTO core.scholarship_allocations "
+                "(id, tenant_id, scholarship_id, student_id, amount, reason, status) "
+                "VALUES (:id, :tid, :sid, :stu, :amt, 'x', 'ACTIVE')"
+            ), {"id": str(uuid4()), "tid": str(tenant.id),
+                "sid": sch_id, "stu": stu, "amt": 1000 * (i + 1)})
+        db_session.commit()
+        out = get_scholarship_breakdown(
+            db_session, tenant_id=tenant.id, top_beneficiaries_limit=3,
+        )
+        assert len(out["top_beneficiaries"]) == 3

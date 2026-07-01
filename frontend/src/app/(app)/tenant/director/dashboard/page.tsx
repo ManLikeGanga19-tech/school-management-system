@@ -39,6 +39,7 @@ import { DirectorFinanceExportButtons } from "@/components/dashboard/DirectorFin
 import { directorNav } from "@/components/layout/nav-config";
 import { TenantNotificationsOverview } from "@/components/notifications/TenantNotificationsOverview";
 import { getDirectorDashboardData } from "@/server/director/dashboard";
+import type { ScholarshipBreakdown } from "@/server/director/dashboard";
 import { formatKes } from "@/lib/format";
 
 function fmtDate(iso: string | null) {
@@ -51,6 +52,211 @@ function fmtDate(iso: string | null) {
 function providerLabel(p: string) {
   const m: Record<string, string> = { MPESA: "M-Pesa", CASH: "Cash", BANK: "Bank", CHEQUE: "Cheque" };
   return m[p] || p;
+}
+
+// ─── Phase M3 — Scholarships section ─────────────────────────────────────────
+
+function ScholarshipsSection({
+  scholarships,
+}: {
+  scholarships: ScholarshipBreakdown;
+}) {
+  const summary = scholarships.summary;
+  const top = scholarships.top_beneficiaries;
+  const programmes = [...scholarships.by_scholarship].sort(
+    (a, b) => b.allocated - a.allocated,
+  );
+
+  const hasAny =
+    summary.total_discount_granted > 0 ||
+    summary.active_scholarships > 0 ||
+    summary.active_grants > 0;
+  if (!hasAny) return null;
+
+  return (
+    <div>
+      <DashboardSectionLabel>Scholarships & Awards</DashboardSectionLabel>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <DashboardStatCard
+          label="Discount granted"
+          value={formatKes(summary.total_discount_granted)}
+          sub={`${summary.active_allocations} allocation${summary.active_allocations === 1 ? "" : "s"}`}
+          icon={GraduationCap}
+          tone="sage"
+        />
+        <DashboardStatCard
+          label="Recipients"
+          value={summary.unique_recipients}
+          sub={`Across ${summary.active_scholarships} programme${summary.active_scholarships === 1 ? "" : "s"}`}
+          icon={Users}
+          tone="secondary"
+        />
+        <DashboardStatCard
+          label="Active grants"
+          value={summary.active_grants}
+          sub={`${summary.unique_grant_recipients} student${summary.unique_grant_recipients === 1 ? "" : "s"} attached`}
+          icon={GraduationCap}
+          tone="accent"
+        />
+        <DashboardStatCard
+          label="Active programmes"
+          value={summary.active_scholarships}
+          sub="Available to grant"
+          icon={ClipboardList}
+          tone="neutral"
+        />
+        <DashboardStatCard
+          label="Programmes seen"
+          value={programmes.length}
+          sub={
+            programmes.filter((p) => p.remaining != null && p.remaining <= 0)
+              .length
+              ? "Some pools exhausted"
+              : "Pool budgets healthy"
+          }
+          icon={CircleDollarSign}
+          tone="neutral"
+        />
+      </div>
+
+      {top.length > 0 && (
+        <div className="dashboard-surface mt-5 rounded-[1.6rem] p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-700">
+              Top Beneficiaries
+            </h3>
+            <span className="text-xs text-slate-400">
+              {top.length} student{top.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2">Student</th>
+                  <th className="px-3 py-2">Adm.</th>
+                  <th className="px-3 py-2 text-right">Total discount</th>
+                  <th className="px-3 py-2 text-right">Allocs</th>
+                  <th className="px-3 py-2 text-right">Programmes</th>
+                  <th className="px-3 py-2 text-right">Grants</th>
+                </tr>
+              </thead>
+              <tbody>
+                {top.map((row) => (
+                  <tr
+                    key={row.student_id}
+                    className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60"
+                  >
+                    <td className="px-3 py-2 font-medium text-slate-800">
+                      {row.student_name}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-slate-500">
+                      {row.admission_no || "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-emerald-700">
+                      {formatKes(row.total_allocated)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                      {row.allocation_count}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                      {row.scholarship_count}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                      {row.active_grants}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {programmes.length > 0 && (
+        <div className="dashboard-surface mt-4 rounded-[1.6rem] p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-700">
+              Programme Health
+            </h3>
+            <span className="text-xs text-slate-400">
+              {programmes.length} programme{programmes.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2">Programme</th>
+                  <th className="px-3 py-2">Type</th>
+                  <th className="px-3 py-2 text-right">Allocated</th>
+                  <th className="px-3 py-2 text-right">Remaining</th>
+                  <th className="px-3 py-2 text-right">Recipients</th>
+                  <th className="px-3 py-2 text-right">Grants</th>
+                  <th className="px-3 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {programmes.map((p) => {
+                  const capLabel =
+                    p.max_recipients != null
+                      ? `${p.unique_recipients} / ${p.max_recipients}`
+                      : String(p.unique_recipients);
+                  const poolLow =
+                    p.remaining != null && p.remaining > 0 && p.remaining <= p.budget * 0.1;
+                  const poolEmpty = p.remaining != null && p.remaining <= 0 && p.type === "FIXED";
+                  return (
+                    <tr
+                      key={p.scholarship_id}
+                      className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60"
+                    >
+                      <td className="px-3 py-2 font-medium text-slate-800">
+                        {p.name}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-slate-500">
+                        {p.type.replace(/_/g, " ").toLowerCase()}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                        {formatKes(p.allocated)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                        {p.remaining != null ? formatKes(p.remaining) : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                        {capLabel}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                        {p.active_grants}
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {poolEmpty ? (
+                          <span className="rounded-full bg-red-50 px-2 py-0.5 font-medium text-red-700 ring-1 ring-red-200">
+                            Pool exhausted
+                          </span>
+                        ) : poolLow ? (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700 ring-1 ring-amber-200">
+                            Pool low
+                          </span>
+                        ) : !p.is_active ? (
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500 ring-1 ring-slate-200">
+                            Inactive
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-200">
+                            Active
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default async function DirectorDashboardPage() {
@@ -304,6 +510,11 @@ export default async function DirectorDashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* ── Scholarships (Phase M3) ── */}
+        {breakdowns.scholarships && (
+          <ScholarshipsSection scholarships={breakdowns.scholarships} />
+        )}
 
         {/* ── Enrollment + school meta KPIs ── */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -90,11 +90,54 @@ export type TopOutstanding = {
   outstanding: number;
   invoice_count: number;
 };
+// Phase M3 — scholarship breakdown surfaced on the director dashboard.
+export type ScholarshipSummary = {
+  total_discount_granted: number;
+  active_allocations: number;
+  unique_recipients: number;
+  active_scholarships: number;
+  active_grants: number;
+  unique_grant_recipients: number;
+};
+
+export type ScholarshipProgramme = {
+  scholarship_id: string;
+  name: string;
+  type: string; // FIXED | PERCENTAGE | FULL_WAIVER
+  budget: number;
+  allocated: number;
+  remaining: number | null;
+  max_recipients: number | null;
+  unique_recipients: number;
+  active_allocations: number;
+  revoked_allocations: number;
+  active_grants: number;
+  is_active: boolean;
+  covers_carry_forward: boolean;
+};
+
+export type ScholarshipBeneficiary = {
+  student_id: string;
+  student_name: string;
+  admission_no: string;
+  total_allocated: number;
+  allocation_count: number;
+  scholarship_count: number;
+  active_grants: number;
+};
+
+export type ScholarshipBreakdown = {
+  summary: ScholarshipSummary;
+  by_scholarship: ScholarshipProgramme[];
+  top_beneficiaries: ScholarshipBeneficiary[];
+};
+
 export type FinanceBreakdowns = {
   by_class: FinanceByClass[];
   by_term: FinanceByTerm[];
   by_provider: FinanceByProvider[];
   top_outstanding: TopOutstanding[];
+  scholarships?: ScholarshipBreakdown;
 };
 
 export type EnrollmentKPIs = {

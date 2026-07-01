@@ -149,12 +149,17 @@ def build_finance_report_csv(bundle: dict[str, Any], *, school_name: str) -> byt
     w.writerow(["Active allocations",            int(summary.get("active_allocations") or 0)])
     w.writerow(["Unique recipients",             int(summary.get("unique_recipients") or 0)])
     w.writerow(["Active scholarships",           int(summary.get("active_scholarships") or 0)])
+    # Phase M3 — student-level grants (attached at student level, auto-
+    # apply on every subsequent invoice via Phase M2).
+    w.writerow(["Active grants",                 int(summary.get("active_grants") or 0)])
+    w.writerow(["Unique grant recipients",       int(summary.get("unique_grant_recipients") or 0)])
     w.writerow([])
 
     w.writerow(["# Scholarships — per programme"])
     w.writerow([
         "Name", "Type", "Budget (KES)", "Allocated (KES)", "Remaining (KES)",
         "Recipients", "Cap", "Active allocs", "Revoked allocs",
+        "Active grants",
         "Active?", "Covers carry-forward?",
     ])
     for row in (sch.get("by_scholarship") or []):
@@ -168,9 +173,31 @@ def build_finance_report_csv(bundle: dict[str, Any], *, school_name: str) -> byt
             "" if row.get("max_recipients") is None else int(row["max_recipients"]),
             int(row.get("active_allocations") or 0),
             int(row.get("revoked_allocations") or 0),
+            int(row.get("active_grants") or 0),
             "yes" if row.get("is_active") else "no",
             "yes" if row.get("covers_carry_forward") else "no",
         ])
+    w.writerow([])
+
+    # Phase M3 — Top beneficiaries by total ACTIVE discount received.
+    # Drives director's "who has the biggest bursary" view without needing
+    # to click into individual student profiles.
+    top = sch.get("top_beneficiaries") or []
+    if top:
+        w.writerow(["# Top Scholarship Beneficiaries"])
+        w.writerow([
+            "Student", "Admission", "Total discount (KES)",
+            "Allocations", "Scholarships", "Active grants",
+        ])
+        for row in top:
+            w.writerow([
+                row.get("student_name") or "",
+                row.get("admission_no") or "",
+                _money(row.get("total_allocated") or 0),
+                int(row.get("allocation_count") or 0),
+                int(row.get("scholarship_count") or 0),
+                int(row.get("active_grants") or 0),
+            ])
 
     return buf.getvalue().encode("utf-8")
 
@@ -467,17 +494,20 @@ def build_finance_report_pdf(
     sch_bundle = bundle.get("scholarships") or {}
     sch_rows = sch_bundle.get("by_scholarship") or []
     sch_summary = sch_bundle.get("summary") or {}
+    sch_top = sch_bundle.get("top_beneficiaries") or []
     if sch_rows or sch_summary.get("active_scholarships"):
         story.append(Paragraph("Scholarships", style("sch", size=11, bold=True, color=sage)))
         story.append(Spacer(1, 2 * mm))
 
-        # Compact summary row of 4 KPI tiles.
+        # Compact summary row — 5 KPI tiles (Phase M3 adds the active-grants
+        # count so directors can see forward-looking commitments too).
         s_kpi = [
             [
                 Paragraph("<b>Discount granted</b>", style("k", size=8, color=colors.grey)),
                 Paragraph("<b>Active allocations</b>", style("k", size=8, color=colors.grey)),
-                Paragraph("<b>Unique recipients</b>", style("k", size=8, color=colors.grey)),
+                Paragraph("<b>Recipients</b>", style("k", size=8, color=colors.grey)),
                 Paragraph("<b>Active scholarships</b>", style("k", size=8, color=colors.grey)),
+                Paragraph("<b>Active grants</b>", style("k", size=8, color=colors.grey)),
             ],
             [
                 Paragraph(f"<b>KES {sch_summary.get('total_discount_granted', 0):,.2f}</b>",
@@ -488,9 +518,13 @@ def build_finance_report_pdf(
                           style("v", size=11, bold=True, color=teal)),
                 Paragraph(f"<b>{int(sch_summary.get('active_scholarships') or 0)}</b>",
                           style("v", size=11, bold=True, color=teal)),
+                Paragraph(
+                    f"<b>{int(sch_summary.get('active_grants') or 0)}</b>",
+                    style("v", size=11, bold=True, color=teal),
+                ),
             ],
         ]
-        s_kpi_table = Table(s_kpi, colWidths=[None, None, None, None])
+        s_kpi_table = Table(s_kpi, colWidths=[None, None, None, None, None])
         s_kpi_table.setStyle(TableStyle([
             ("BOX",        (0, 0), (-1, -1), 0.5, grid),
             ("INNERGRID",  (0, 0), (-1, -1), 0.3, grid),
@@ -538,6 +572,45 @@ def build_finance_report_pdf(
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, alt]),
             ]))
             story.append(sr_table)
+            story.append(Spacer(1, 5 * mm))
+
+        # Phase M3 — Top beneficiaries. Shows who's on the biggest
+        # bursaries so directors can reconcile against board policy at
+        # a glance without opening individual student profiles.
+        if sch_top:
+            story.append(Paragraph(
+                "Top Scholarship Beneficiaries",
+                style("tb", size=11, bold=True, color=sage),
+            ))
+            story.append(Spacer(1, 2 * mm))
+            tb_rows = [[
+                "Student", "Admission", "Total discount",
+                "Allocs", "Progs", "Grants",
+            ]]
+            for row in sch_top:
+                tb_rows.append([
+                    row.get("student_name") or "",
+                    row.get("admission_no") or "—",
+                    f"KES {float(row.get('total_allocated') or 0):,.2f}",
+                    str(int(row.get("allocation_count") or 0)),
+                    str(int(row.get("scholarship_count") or 0)),
+                    str(int(row.get("active_grants") or 0)),
+                ])
+            tb_table = Table(
+                tb_rows, repeatRows=1,
+                colWidths=[55 * mm, 28 * mm, 38 * mm, 16 * mm, 16 * mm, 16 * mm],
+            )
+            tb_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), sage),
+                ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+                ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE",   (0, 0), (-1, -1), 8.5),
+                ("ALIGN",      (2, 1), (-1, -1), "RIGHT"),
+                ("BOX",        (0, 0), (-1, -1), 0.5, grid),
+                ("INNERGRID",  (0, 0), (-1, -1), 0.3, grid),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, alt]),
+            ]))
+            story.append(tb_table)
             story.append(Spacer(1, 5 * mm))
 
     # ── Footer / signature line ──
