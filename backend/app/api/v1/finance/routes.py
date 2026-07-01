@@ -1348,19 +1348,49 @@ def record_parent_payment_route(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/payments", response_model=PaymentPageOut, dependencies=[Depends(require_permission("finance.payments.view"))])
+@router.get("/payments", dependencies=[Depends(require_permission("finance.payments.view"))])
 def list_payments(
     enrollment_id: UUID | None = Query(default=None),
+    q: str | None = Query(default=None),
+    provider: str | None = Query(default=None),
+    date_from: str | None = Query(default=None, description="YYYY-MM-DD inclusive"),
+    date_to: str | None = Query(default=None, description="YYYY-MM-DD inclusive"),
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
+    page_size: int = Query(default=20, ge=1, le=200),
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
-    return service.list_payments(
+    """Paginated payments listing shared by secretary + parent-facing UIs.
+
+    Same filter set as /director/finance/payments (both wrap the same
+    list_payments service). Response no longer uses PaymentPageOut so the
+    extended row payload (student_label, received_at) surfaces cleanly.
+    """
+    result = service.list_payments(
         db, tenant_id=tenant.id, enrollment_id=enrollment_id,
+        q=q, provider=provider, date_from=date_from, date_to=date_to,
         page=page, page_size=page_size,
     )
+    items = []
+    for row in result["items"]:
+        items.append({
+            "id":            str(row["id"]),
+            "receipt_no":    row.get("receipt_no"),
+            "provider":      row.get("provider"),
+            "reference":     row.get("reference"),
+            "amount":        str(row.get("amount") or 0),
+            "received_at":   row.get("received_at"),
+            "student_label": row.get("student_label") or "",
+            "allocations": [
+                {
+                    "invoice_id": str(a["invoice_id"]),
+                    "amount":     str(a["amount"] or 0),
+                }
+                for a in (row.get("allocations") or [])
+            ],
+        })
+    return {"items": items, "meta": result["meta"]}
 
 
 # -------------------------

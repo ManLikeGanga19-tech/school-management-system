@@ -32,6 +32,11 @@ import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStud
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { ApplyScholarshipDialog } from "@/components/finance/ApplyScholarshipDialog";
 import type { Scholarship } from "@/components/finance/finance-utils";
+import { usePaginatedTable } from "@/lib/usePaginatedTable";
+import {
+  TablePaginationFooter,
+  TableRangeCaption,
+} from "@/components/finance/TablePaginationFooter";
 import {
   directorFinanceHref,
   directorNav,
@@ -146,6 +151,11 @@ type Payment = {
   reference: string | null;
   amount: string | number;
   allocations: PaymentAllocation[];
+  // Populated by /director/finance/payments (server row) — comma-joined
+  // for multi-student family payments. Absent on the bulk-loaded payload
+  // used by other tabs.
+  student_label?: string | null;
+  received_at?: string | null;
 };
 
 type TenantInfo = {
@@ -764,14 +774,15 @@ function TenantFinancePageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoicePage, invoicePageSize, section]);
 
-  const [paymentFilters, setPaymentFilters] = usePersistedState<PaymentFilterState>(
-    "dir.finance.paymentFilters",
-    {
-      q: "",
-      enrollment_id: "",
-      provider: "",
-    }
-  );
+  // Server-paginated payments table via shared hook. Fetches from
+  // /director/finance/payments; hook owns page + pageSize + filters +
+  // URL state (pay_page, pay_size).
+  const paymentsTable = usePaginatedTable<Payment, PaymentFilterState>({
+    endpoint: "/director/finance/payments",
+    keyPrefix: "pay",
+    initialFilters: { q: "", enrollment_id: "", provider: "" },
+    enabled: section === "payments",
+  });
 
   const [receiptFilters, setReceiptFilters] = usePersistedState<ReceiptFilterState>(
     "dir.finance.receiptFilters",
@@ -1103,6 +1114,11 @@ function TenantFinancePageContent() {
   // `invoiceTableItems` which is fetched server-side via the paginated
   // /director/finance/invoices endpoint with proper filter pushdown.)
 
+  // Payments TABLE runs server-side via paymentsTable now. The old
+  // client-side filtering was removed. The RECEIPTS block below still uses
+  // the bulk-loaded payments array (Phase J will move it to a paginated
+  // endpoint too); until then we keep the decoratedPayments derivation to
+  // feed that path.
   const decoratedPayments = useMemo<DecoratedPayment[]>(() => {
     return payments.map((payment) => {
       const names = new Set<string>();
@@ -1112,60 +1128,13 @@ function TenantFinancePageContent() {
         const name = enrollmentNameById.get(enrollmentId);
         if (name) names.add(name);
       }
-      return {
-        ...payment,
-        student_names: Array.from(names),
-      };
+      return { ...payment, student_names: Array.from(names) };
     });
   }, [payments, invoiceById, enrollmentNameById]);
 
-  const availablePaymentProviders = useMemo(() => {
-    const set = new Set<string>();
-    for (const payment of decoratedPayments) {
-      const provider = asString(payment.provider).toUpperCase();
-      if (provider) set.add(provider);
-    }
-    return Array.from(set).sort();
-  }, [decoratedPayments]);
-
-  const filteredPayments = useMemo(() => {
-    const q = paymentFilters.q.trim().toLowerCase();
-    const enrollmentId = paymentFilters.enrollment_id;
-    const provider = asString(paymentFilters.provider).toUpperCase();
-
-    return decoratedPayments
-      .filter((payment) => {
-        if (provider && asString(payment.provider).toUpperCase() !== provider) {
-          return false;
-        }
-
-        const allocationInvoices = (payment.allocations || [])
-          .map((alloc) => invoiceById.get(String(alloc.invoice_id || "")))
-          .filter(Boolean) as Invoice[];
-
-        if (
-          enrollmentId &&
-          !allocationInvoices.some(
-            (inv) => String(inv.enrollment_id || "") === enrollmentId
-          )
-        ) {
-          return false;
-        }
-
-        if (!q) return true;
-
-        const textBlob = [
-          String(payment.id || "").toLowerCase(),
-          asString(payment.provider).toLowerCase(),
-          asString(payment.reference).toLowerCase(),
-          payment.student_names.join(" ").toLowerCase(),
-          ...allocationInvoices.map((inv) => String(inv.id || "").toLowerCase()),
-        ].join(" ");
-
-        return textBlob.includes(q);
-      })
-      .sort((a, b) => String(b.id).localeCompare(String(a.id)));
-  }, [decoratedPayments, paymentFilters, invoiceById]);
+  // Providers list for the dropdown is a fixed enterprise set — no more
+  // "derive from currently loaded array" since the array is only one page.
+  const availablePaymentProviders = ["MPESA", "CASH", "BANK", "CHEQUE", "OTHER"];
 
   const paidInvoices = useMemo(
     () => invoices.filter((inv) => isInvoiceSettled(inv)),
@@ -1331,7 +1300,7 @@ function TenantFinancePageContent() {
     }
   }
 
-  async function printPaymentReceipt(payment: DecoratedPayment) {
+  async function printPaymentReceipt(payment: Payment) {
     // /print follows the tenant's paper_size setting (thermal HTML or A4 PDF).
     await printEnterprisePdf(`/finance/documents/payments/${payment.id}/print`);
     // Also print the related invoice(s) as a second document — the up-to-date
@@ -1379,7 +1348,7 @@ function TenantFinancePageContent() {
     );
   }
 
-  function downloadPaymentPdf(payment: DecoratedPayment) {
+  function downloadPaymentPdf(payment: Payment) {
     void downloadPdf(
       `/finance/documents/payments/${payment.id}/pdf`,
       `${payment.receipt_no || payment.id}.pdf`
@@ -2226,10 +2195,10 @@ function TenantFinancePageContent() {
                 <div className="lg:col-span-4">
                   <Label className="text-xs text-slate-600">Search</Label>
                   <Input
-                    placeholder="Payment id, provider, reference, student..."
-                    value={paymentFilters.q}
+                    placeholder="Student name, admission no, receipt no, reference…"
+                    value={paymentsTable.filters.q ?? ""}
                     onChange={(e) =>
-                      setPaymentFilters((p) => ({ ...p, q: e.target.value }))
+                      paymentsTable.setFilters((p) => ({ ...p, q: e.target.value }))
                     }
                   />
                 </div>
@@ -2237,9 +2206,9 @@ function TenantFinancePageContent() {
                 <div className="lg:col-span-4">
                   <Label className="text-xs text-slate-600">Student</Label>
                   <Select
-                    value={paymentFilters.enrollment_id || "__all__"}
+                    value={paymentsTable.filters.enrollment_id || "__all__"}
                     onValueChange={(v) =>
-                      setPaymentFilters((p) => ({
+                      paymentsTable.setFilters((p) => ({
                         ...p,
                         enrollment_id: v === "__all__" ? "" : v,
                       }))
@@ -2262,9 +2231,9 @@ function TenantFinancePageContent() {
                 <div className="lg:col-span-4">
                   <Label className="text-xs text-slate-600">Provider</Label>
                   <Select
-                    value={paymentFilters.provider || "__all__"}
+                    value={paymentsTable.filters.provider || "__all__"}
                     onValueChange={(v) =>
-                      setPaymentFilters((p) => ({
+                      paymentsTable.setFilters((p) => ({
                         ...p,
                         provider: v === "__all__" ? "" : v,
                       }))
@@ -2286,6 +2255,10 @@ function TenantFinancePageContent() {
               </div>
             </div>
 
+            <div className="mb-3 text-xs text-slate-500">
+              <TableRangeCaption meta={paymentsTable.meta} />
+            </div>
+
             <div className="rounded-xl border border-slate-100 overflow-hidden">
               <Table>
                 <TableHeader>
@@ -2301,7 +2274,7 @@ function TenantFinancePageContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredPayments.slice(0, 200).map((payment) => (
+                  {paymentsTable.items.map((payment) => (
                     <TableRow key={payment.id}>
                       <TableCell className="font-mono text-xs text-slate-700">
                         {payment.receipt_no || "—"}
@@ -2310,8 +2283,8 @@ function TenantFinancePageContent() {
                         {payment.id}
                       </TableCell>
                       <TableCell className="text-sm">
-                        {payment.student_names.length > 0
-                          ? payment.student_names.join(", ")
+                        {payment.student_label && payment.student_label.trim()
+                          ? payment.student_label
                           : "N/A"}
                       </TableCell>
                       <TableCell className="text-xs">{payment.provider}</TableCell>
@@ -2367,7 +2340,7 @@ function TenantFinancePageContent() {
                     </TableRow>
                   ))}
 
-                  {filteredPayments.length === 0 && (
+                  {paymentsTable.items.length === 0 && !paymentsTable.loading && (
                     <TableRow>
                       <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-400">
                         No payments match the selected filters.
@@ -2377,6 +2350,15 @@ function TenantFinancePageContent() {
                 </TableBody>
               </Table>
             </div>
+
+            <TablePaginationFooter
+              meta={paymentsTable.meta}
+              page={paymentsTable.page}
+              pageSize={paymentsTable.pageSize}
+              loading={paymentsTable.loading}
+              onPageChange={paymentsTable.setPage}
+              onPageSizeChange={paymentsTable.setPageSize}
+            />
           </SectionCard>
         )}
 

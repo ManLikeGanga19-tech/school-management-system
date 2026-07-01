@@ -50,6 +50,11 @@ import {
 import { toast } from "@/components/ui/sonner";
 import { BulkGenerateInvoicesCard } from "@/components/finance/BulkGenerateInvoicesCard";
 import { PublishAllDraftsCard } from "@/components/finance/PublishAllDraftsCard";
+import { usePaginatedTable } from "@/lib/usePaginatedTable";
+import {
+  TablePaginationFooter,
+  TableRangeCaption,
+} from "@/components/finance/TablePaginationFooter";
 import { InvoicePreviewModal, type InvoicePreviewData } from "@/components/finance/InvoicePreviewModal";
 import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStudent";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
@@ -831,6 +836,17 @@ function SecretaryFinancePageContent() {
   const [paymentPageLoading, setPaymentPageLoading] = useState(false);
   const [paymentPageError, setPaymentPageError] = useState<string | null>(null);
 
+  // Payments tab now uses the shared paginated-table hook (server-side
+  // filters + URL state). Leftover `pagedPayments` state above still
+  // powers the Receipts tab; Phase J refactors that too.
+  type PaymentFilterState = { q: string; provider: string };
+  const paymentsTable = usePaginatedTable<Payment, PaymentFilterState>({
+    endpoint: "/finance/payments",
+    keyPrefix: "pay",
+    initialFilters: { q: "", provider: "" },
+    enabled: section === "payments",
+  });
+
   const [receiptPage, setReceiptPage] = usePersistedState("sec.finance.receiptPage", 1);
   const [receiptMeta, setReceiptMeta] = useState<PageMeta>(defaultMeta);
   const [pagedReceipts, setPagedReceipts] = useState<Invoice[]>([]);
@@ -1252,6 +1268,12 @@ function SecretaryFinancePageContent() {
   }, [data.invoices]);
 
   function paymentStudentLabel(payment: Payment): string {
+    // Prefer the server-resolved label (populated by /finance/payments
+    // via batch student-enrichment). Fall back to the client-side
+    // enrollment map so bulk-loaded contexts still render names.
+    const serverLabel = (payment as { student_label?: string | null }).student_label;
+    if (serverLabel && serverLabel.trim()) return serverLabel;
+
     if (!Array.isArray(payment.allocations) || payment.allocations.length === 0) {
       return "N/A";
     }
@@ -2371,6 +2393,41 @@ function SecretaryFinancePageContent() {
           <div className="space-y-5">
             {/* Payments Table */}
             <SectionCard title="Payment Records">
+              {/* Filter row — server-side search + provider. */}
+              <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="lg:col-span-2">
+                  <Input
+                    placeholder="Search student, admission, receipt, reference…"
+                    value={paymentsTable.filters.q}
+                    onChange={(e) =>
+                      paymentsTable.setFilters((p) => ({ ...p, q: e.target.value }))
+                    }
+                  />
+                </div>
+                <div>
+                  <Select
+                    value={paymentsTable.filters.provider || "__all__"}
+                    onValueChange={(v) =>
+                      paymentsTable.setFilters((p) => ({
+                        ...p, provider: v === "__all__" ? "" : v,
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="All providers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All providers</SelectItem>
+                      {["MPESA", "CASH", "BANK", "CHEQUE", "OTHER"].map((p) => (
+                        <SelectItem key={p} value={p}>{p}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center px-1 text-xs text-slate-500">
+                  <TableRangeCaption meta={paymentsTable.meta} />
+                </div>
+              </div>
               <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                 <Table>
                   <TableHeader>
@@ -2385,7 +2442,7 @@ function SecretaryFinancePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pagedPayments.map((payment) => (
+                    {paymentsTable.items.map((payment) => (
                       <TableRow key={payment.id} className="hover:bg-slate-50">
                         <TableCell className="font-mono text-xs font-medium text-blue-700">
                           {String(payment.id).slice(0, 8).toUpperCase()}
@@ -2449,12 +2506,12 @@ function SecretaryFinancePageContent() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {pagedPayments.length === 0 && !paymentPageLoading && (
-                      paymentPageError ? (
+                    {paymentsTable.items.length === 0 && !paymentsTable.loading && (
+                      paymentsTable.error ? (
                         <ErrorRow
                           colSpan={7}
-                          message={paymentPageError}
-                          onRetry={() => void loadPagedPayments(paymentPage)}
+                          message={paymentsTable.error}
+                          onRetry={() => void paymentsTable.reload()}
                         />
                       ) : (
                         <EmptyRow colSpan={7} message="No payments recorded yet." />
@@ -2462,11 +2519,13 @@ function SecretaryFinancePageContent() {
                     )}
                   </TableBody>
                 </Table>
-                <PaginationBar
-                  meta={paymentMeta}
-                  loading={paymentPageLoading}
-                  onPrev={() => setPaymentPage((p) => Math.max(1, p - 1))}
-                  onNext={() => setPaymentPage((p) => Math.min(paymentMeta.pages, p + 1))}
+                <TablePaginationFooter
+                  meta={paymentsTable.meta}
+                  page={paymentsTable.page}
+                  pageSize={paymentsTable.pageSize}
+                  loading={paymentsTable.loading}
+                  onPageChange={paymentsTable.setPage}
+                  onPageSizeChange={paymentsTable.setPageSize}
                 />
               </div>
             </SectionCard>
