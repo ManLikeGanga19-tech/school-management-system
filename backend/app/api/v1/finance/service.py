@@ -351,6 +351,31 @@ def _validate_fee_item_belongs_to_structure(
         raise ValueError("fee_item_id is not attached to this fee structure")
 
 
+def list_fee_structure_policies_paginated(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    fee_structure_id: UUID | None = None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    paginated: bool = False,
+):
+    """Structure policies don't have a text name — search is a no-op unless
+    we later add a display-name column. Still paginates by created_at."""
+    extra = None
+    if fee_structure_id is not None:
+        extra = FinanceStructurePolicy.fee_structure_id == fee_structure_id
+    return _paginate_helper(
+        db, tenant_id=tenant_id, entity=FinanceStructurePolicy,
+        search=None, search_cols=[],
+        page=page, page_size=page_size,
+        sort_col=FinanceStructurePolicy.created_at, sort_direction="desc",
+        paginated=paginated,
+        extra_filter=extra,
+    )
+
+
 def list_fee_structure_policies(
     db: Session,
     *,
@@ -592,6 +617,106 @@ def list_fee_categories(db: Session, *, tenant_id: UUID) -> list[FeeCategory]:
     ).scalars().all()
 
 
+def _paginate_helper(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    entity,
+    search: Optional[str],
+    search_cols: list,
+    is_active_col=None,
+    is_active: Optional[bool] = None,
+    page: int,
+    page_size: int,
+    sort_col=None,
+    sort_direction: str = "desc",
+    paginated: bool = False,
+    extra_filter=None,
+):
+    """Shared pagination wrapper for the config-table endpoints. When
+    paginated=False, returns just the item list (legacy shape). When
+    paginated=True, returns {items, meta} with a proper COUNT so the
+    frontend's TablePaginationFooter can render "Showing X-Y of Z".
+
+    `search_cols` is a list of column attrs that q/search will ILIKE-match
+    against as an OR.
+    """
+    stmt = select(entity).where(entity.tenant_id == tenant_id)
+
+    if is_active_col is not None and is_active is not None:
+        stmt = stmt.where(is_active_col == bool(is_active))
+
+    if search:
+        term = f"%{search.strip()}%"
+        stmt = stmt.where(sa_or(*(col.ilike(term) for col in search_cols)))
+
+    if extra_filter is not None:
+        stmt = stmt.where(extra_filter)
+
+    if sort_col is not None:
+        stmt = stmt.order_by(sort_col.asc() if sort_direction == "asc" else sort_col.desc())
+
+    if not paginated:
+        # Legacy shape — respect the requested page/page_size (existing
+        # callers already do this) and return the items list only.
+        stmt = stmt.offset((max(page, 1) - 1) * max(page_size, 1)).limit(page_size)
+        return db.execute(stmt).scalars().all()
+
+    # Paginated shape — compute total for meta, then paginate.
+    total = db.execute(
+        select(sa_func.count()).select_from(stmt.subquery())
+    ).scalar() or 0
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = max(1, min(page, pages))
+    items = db.execute(
+        stmt.offset((page - 1) * page_size).limit(page_size)
+    ).scalars().all()
+    return {
+        "items": items,
+        "meta": {"total": total, "page": page, "page_size": page_size, "pages": pages},
+    }
+
+
+def list_fee_categories_paginated(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    search: str | None = None,
+    is_active: bool | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    sort: str = "-created_at",
+    paginated: bool = False,
+):
+    """Paginated variant of list_fee_categories that shares the same
+    filter/sort semantics as list_fee_categories_filtered but returns
+    {items, meta} when paginated=True."""
+    # Parse sort: '-created_at' → col=created_at, direction=desc.
+    direction = "desc"
+    field = "created_at"
+    s = (sort or "-created_at").strip()
+    if s.startswith("-"):
+        direction, s = "desc", s[1:]
+    else:
+        direction = "asc"
+    if s in ("code", "name", "created_at"):
+        field = s
+    sort_col = {
+        "code": FeeCategory.code,
+        "name": FeeCategory.name,
+        "created_at": FeeCategory.created_at,
+    }[field]
+
+    return _paginate_helper(
+        db, tenant_id=tenant_id, entity=FeeCategory,
+        search=search, search_cols=[FeeCategory.name, FeeCategory.code],
+        is_active_col=FeeCategory.is_active, is_active=is_active,
+        page=page, page_size=page_size,
+        sort_col=sort_col, sort_direction=direction,
+        paginated=paginated,
+    )
+
+
 def list_fee_categories_filtered(
     db: Session,
     *,
@@ -776,6 +901,38 @@ def list_fee_items(db: Session, *, tenant_id: UUID) -> list[FeeItem]:
     ).scalars().all()
 
 
+def list_fee_items_paginated(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    search: str | None = None,
+    is_active: bool | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    sort: str = "-created_at",
+    paginated: bool = False,
+):
+    direction = "desc"
+    field = "created_at"
+    s = (sort or "-created_at").strip()
+    if s.startswith("-"):
+        direction, s = "desc", s[1:]
+    else:
+        direction = "asc"
+    if s in ("code", "name", "created_at"):
+        field = s
+    sort_col = {"code": FeeItem.code, "name": FeeItem.name, "created_at": FeeItem.created_at}[field]
+
+    return _paginate_helper(
+        db, tenant_id=tenant_id, entity=FeeItem,
+        search=search, search_cols=[FeeItem.name, FeeItem.code],
+        is_active_col=FeeItem.is_active, is_active=is_active,
+        page=page, page_size=page_size,
+        sort_col=sort_col, sort_direction=direction,
+        paginated=paginated,
+    )
+
+
 def list_fee_items_filtered(
     db: Session,
     *,
@@ -886,6 +1043,27 @@ def list_fee_structures(db: Session, *, tenant_id: UUID) -> list[FeeStructure]:
         .where(FeeStructure.tenant_id == tenant_id)
         .order_by(FeeStructure.class_code.asc(), FeeStructure.term_code.asc(), FeeStructure.created_at.desc())
     ).scalars().all()
+
+
+def list_fee_structures_paginated(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    search: str | None = None,
+    is_active: bool | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    paginated: bool = False,
+):
+    return _paginate_helper(
+        db, tenant_id=tenant_id, entity=FeeStructure,
+        search=search,
+        search_cols=[FeeStructure.name, FeeStructure.class_code, FeeStructure.structure_no],
+        is_active_col=FeeStructure.is_active, is_active=is_active,
+        page=page, page_size=page_size,
+        sort_col=FeeStructure.created_at, sort_direction="desc",
+        paginated=paginated,
+    )
 
 
 def update_fee_structure(
@@ -1475,6 +1653,27 @@ def list_scholarships(db: Session, *, tenant_id: UUID) -> list[Scholarship]:
     return db.execute(
         select(Scholarship).where(Scholarship.tenant_id == tenant_id).order_by(Scholarship.created_at.desc())
     ).scalars().all()
+
+
+def list_scholarships_paginated(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    search: str | None = None,
+    is_active: bool | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    paginated: bool = False,
+):
+    return _paginate_helper(
+        db, tenant_id=tenant_id, entity=Scholarship,
+        search=search,
+        search_cols=[Scholarship.name, Scholarship.description],
+        is_active_col=Scholarship.is_active, is_active=is_active,
+        page=page, page_size=page_size,
+        sort_col=Scholarship.created_at, sort_direction="desc",
+        paginated=paginated,
+    )
 
 
 def list_scholarship_allocations(

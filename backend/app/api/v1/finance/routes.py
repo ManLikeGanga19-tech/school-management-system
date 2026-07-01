@@ -87,15 +87,25 @@ def upsert_policy(
 
 @router.get(
     "/structure-policies",
-    response_model=list[FinanceStructurePolicyOut],
     dependencies=[Depends(require_permission("finance.policy.view"))],
 )
 def list_structure_policies(
     fee_structure_id: UUID | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=500),
+    paginated: bool = Query(default=False, description="Return {items, meta} shape when true"),
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
+    """Backwards-compat: default returns list[T]. paginated=true triggers
+    the {items, meta} shape used by the shared frontend usePaginatedTable
+    hook."""
+    if paginated:
+        return service.list_fee_structure_policies_paginated(
+            db, tenant_id=tenant.id, fee_structure_id=fee_structure_id,
+            page=page, page_size=page_size, paginated=True,
+        )
     return service.list_fee_structure_policies(
         db,
         tenant_id=tenant.id,
@@ -170,18 +180,26 @@ def create_fee_category(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/fee-categories", response_model=list[FeeCategoryOut], dependencies=[Depends(require_permission("finance.fees.view"))])
+@router.get("/fee-categories", dependencies=[Depends(require_permission("finance.fees.view"))])
 def list_fee_categories(
     search: str | None = Query(default=None),
     is_active: bool | None = Query(default=None),
+    q: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
     sort: str = Query(default="-created_at"),
+    paginated: bool = Query(default=False, description="Return {items, meta} shape when true"),
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
-    return service.list_fee_categories_filtered(db, tenant_id=tenant.id, search=search, is_active=is_active, page=page, page_size=page_size, sort=sort)
+    """Backwards-compat: default returns list[T]. When paginated=true,
+    returns {items, meta} for the shared frontend usePaginatedTable hook.
+    `q` is an alias of `search` used by the shared hook."""
+    return service.list_fee_categories_paginated(
+        db, tenant_id=tenant.id, search=q or search, is_active=is_active,
+        page=page, page_size=page_size, sort=sort, paginated=paginated,
+    )
 
 
 @router.post("/fee-items", response_model=FeeItemOut, dependencies=[Depends(require_permission("finance.fees.manage"))])
@@ -246,19 +264,32 @@ def delete_fee_category(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/fee-items", response_model=list[FeeItemOut], dependencies=[Depends(require_permission("finance.fees.view"))])
+@router.get("/fee-items", dependencies=[Depends(require_permission("finance.fees.view"))])
 def list_fee_items(
     search: str | None = Query(default=None),
+    q: str | None = Query(default=None),
     category_id: UUID | None = Query(default=None),
     is_active: bool | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
     sort: str = Query(default="-created_at"),
+    paginated: bool = Query(default=False, description="Return {items, meta} shape when true"),
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
-    return service.list_fee_items_filtered(db, tenant_id=tenant.id, search=search, category_id=category_id, is_active=is_active, page=page, page_size=page_size, sort=sort)
+    # Backwards-compat: paginated=false returns the legacy list[T] shape via
+    # list_fee_items_filtered (which still applies category_id). paginated=true
+    # returns {items, meta} for the shared frontend usePaginatedTable hook.
+    if not paginated:
+        return service.list_fee_items_filtered(
+            db, tenant_id=tenant.id, search=q or search, category_id=category_id,
+            is_active=is_active, page=page, page_size=page_size, sort=sort,
+        )
+    return service.list_fee_items_paginated(
+        db, tenant_id=tenant.id, search=q or search, is_active=is_active,
+        page=page, page_size=page_size, sort=sort, paginated=True,
+    )
 
 
 @router.put("/fee-items/{item_id}", response_model=FeeItemOut, dependencies=[Depends(require_permission("finance.fees.manage"))])
@@ -326,13 +357,26 @@ def create_fee_structure(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/fee-structures", response_model=list[FeeStructureOut], dependencies=[Depends(require_permission("finance.fees.view"))])
+@router.get("/fee-structures", dependencies=[Depends(require_permission("finance.fees.view"))])
 def list_fee_structures(
+    q: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=500),
+    paginated: bool = Query(default=False, description="Return {items, meta} shape when true"),
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
-    return service.list_fee_structures(db, tenant_id=tenant.id)
+    """Backwards-compat: default returns list[T] (no filters applied for
+    legacy callers). paginated=true triggers the {items, meta} shape used
+    by the shared frontend usePaginatedTable hook."""
+    if not paginated:
+        return service.list_fee_structures(db, tenant_id=tenant.id)
+    return service.list_fee_structures_paginated(
+        db, tenant_id=tenant.id, search=q, is_active=is_active,
+        page=page, page_size=page_size, paginated=True,
+    )
 
 
 @router.put("/fee-structures/{structure_id}", response_model=FeeStructureOut, dependencies=[Depends(require_permission("finance.fees.manage"))])
@@ -525,13 +569,26 @@ def create_scholarship(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/scholarships", response_model=list[ScholarshipOut], dependencies=[Depends(require_permission("finance.scholarships.view"))])
+@router.get("/scholarships", dependencies=[Depends(require_permission("finance.scholarships.view"))])
 def list_scholarships(
+    q: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=500),
+    paginated: bool = Query(default=False, description="Return {items, meta} shape when true"),
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
-    return service.list_scholarships(db, tenant_id=tenant.id)
+    """Backwards-compat: default returns list[T]. paginated=true triggers
+    the {items, meta} shape used by the shared frontend usePaginatedTable
+    hook. Search matches name + description."""
+    if not paginated:
+        return service.list_scholarships(db, tenant_id=tenant.id)
+    return service.list_scholarships_paginated(
+        db, tenant_id=tenant.id, search=q, is_active=is_active,
+        page=page, page_size=page_size, paginated=True,
+    )
 
 
 @router.put("/scholarships/{scholarship_id}", response_model=ScholarshipOut, dependencies=[Depends(require_permission("finance.scholarships.manage"))])
