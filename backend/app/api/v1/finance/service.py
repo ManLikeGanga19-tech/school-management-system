@@ -1938,6 +1938,443 @@ def list_student_scholarship_history(
     ]
 
 
+# ── Student-level scholarship grants (Phase M2) ────────────────────────────
+
+
+def _load_grant_or_raise(
+    db: Session, *, tenant_id: UUID, grant_id: UUID
+) -> "StudentScholarshipGrant":
+    from app.models.student_scholarship_grant import StudentScholarshipGrant
+    row = db.execute(
+        select(StudentScholarshipGrant).where(
+            StudentScholarshipGrant.tenant_id == tenant_id,
+            StudentScholarshipGrant.id == grant_id,
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise ValueError("Grant not found")
+    return row
+
+
+def _apply_grant_to_open_invoices(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    grant,  # StudentScholarshipGrant
+    reason: str,
+) -> dict[str, Any]:
+    """Walk this student's open (non-CANCELLED) SCHOOL_FEES invoices whose
+    (term_number, academic_year) match the grant's scope and apply the
+    scholarship to each. Per-row savepoints so a single failure doesn't
+    abort the batch — enterprise reliability.
+
+    Returns a summary {applied, skipped, failed} with per-row detail so
+    the caller can surface it (dialog / audit).
+    """
+    stmt = select(Invoice).where(
+        Invoice.tenant_id == tenant_id,
+        Invoice.invoice_type == "SCHOOL_FEES",
+        Invoice.status != "CANCELLED",
+    )
+    # Filter by scope on invoices that HAVE a matching enrollment/student.
+    # We join enrollment → student to filter by student_id.
+    stmt = stmt.join(
+        Enrollment, Enrollment.id == Invoice.enrollment_id
+    ).where(Enrollment.student_id == grant.student_id)
+
+    if grant.academic_year is not None:
+        stmt = stmt.where(Invoice.academic_year == grant.academic_year)
+    if grant.term_number is not None:
+        stmt = stmt.where(Invoice.term_number == grant.term_number)
+
+    invoices = db.execute(stmt).scalars().all()
+
+    applied: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    for inv in invoices:
+        # Skip if this invoice already has an ACTIVE allocation from THIS
+        # scholarship (avoid double-applying when a grant is created after
+        # the same scholarship was already manually applied).
+        already = db.execute(
+            select(sa_func.count()).select_from(ScholarshipAllocation)
+            .where(
+                ScholarshipAllocation.tenant_id == tenant_id,
+                ScholarshipAllocation.invoice_id == inv.id,
+                ScholarshipAllocation.scholarship_id == grant.scholarship_id,
+                ScholarshipAllocation.status == "ACTIVE",
+            )
+        ).scalar() or 0
+        if already:
+            skipped.append({
+                "invoice_id": str(inv.id),
+                "invoice_no": inv.invoice_no,
+                "reason": "already_has_this_scholarship",
+            })
+            continue
+
+        sp = db.begin_nested()
+        try:
+            apply_scholarship_to_existing_invoice(
+                db,
+                tenant_id=tenant_id,
+                actor_user_id=actor_user_id,
+                invoice_id=inv.id,
+                scholarship_id=grant.scholarship_id,
+                requested_amount=None,  # driven by scholarship type
+                reason=f"[Grant] {reason}",
+            )
+            sp.commit()
+            applied.append({
+                "invoice_id": str(inv.id),
+                "invoice_no": inv.invoice_no,
+            })
+        except ValueError as e:
+            sp.rollback()
+            failed.append({
+                "invoice_id": str(inv.id),
+                "invoice_no": inv.invoice_no,
+                "reason": "validation_error",
+                "detail": str(e),
+            })
+        except Exception as e:  # pragma: no cover — defensive
+            sp.rollback()
+            failed.append({
+                "invoice_id": str(inv.id),
+                "invoice_no": inv.invoice_no,
+                "reason": "error",
+                "detail": str(e),
+            })
+
+    return {
+        "total":   len(invoices),
+        "applied": applied,
+        "skipped": skipped,
+        "failed":  failed,
+    }
+
+
+def create_student_scholarship_grant(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    student_id: UUID,
+    scholarship_id: UUID,
+    reason: str,
+    academic_year: int | None = None,
+    term_number: int | None = None,
+    apply_to_existing_open_invoices: bool = True,
+) -> dict[str, Any]:
+    """Create a student-level grant + (optionally) apply the scholarship
+    to any open matching invoices immediately.
+
+    Enterprise-grade guards:
+      * scholarship must exist and be ACTIVE
+      * student must exist and belong to this tenant
+      * duplicate ACTIVE grant of same scholarship for same student is
+        blocked at the DB level by the partial unique index; we raise a
+        readable ValueError before hitting the constraint
+      * scholarship's max_recipients cap is checked as unique students
+        (matches Phase F1 semantics)
+
+    Returns the grant row + a summary of any auto-applies.
+    """
+    from app.models.student_scholarship_grant import StudentScholarshipGrant
+
+    reason_clean = (reason or "").strip()
+    if not reason_clean:
+        raise ValueError("A reason is required to grant a scholarship (audit).")
+
+    if term_number is not None and term_number not in (1, 2, 3):
+        raise ValueError("term_number must be 1, 2, or 3 when provided.")
+    if academic_year is not None and (academic_year < 2000 or academic_year > 2999):
+        raise ValueError("academic_year is out of range.")
+
+    # Load scholarship — must exist + be active.
+    sch = db.execute(
+        select(Scholarship).where(
+            Scholarship.tenant_id == tenant_id,
+            Scholarship.id == scholarship_id,
+        )
+    ).scalar_one_or_none()
+    if not sch:
+        raise ValueError("Scholarship not found.")
+    if not sch.is_active:
+        raise ValueError("Scholarship is inactive.")
+
+    # Load student — must exist + belong to tenant.
+    student_row = db.execute(
+        sa_text(
+            "SELECT id FROM core.students "
+            "WHERE id = :sid AND tenant_id = :tid"
+        ),
+        {"sid": str(student_id), "tid": str(tenant_id)},
+    ).first()
+    if not student_row:
+        raise ValueError("Student not found in this tenant.")
+
+    # Duplicate-active guard (mirrors the DB partial unique index).
+    dup = db.execute(
+        select(sa_func.count()).select_from(StudentScholarshipGrant)
+        .where(
+            StudentScholarshipGrant.tenant_id == tenant_id,
+            StudentScholarshipGrant.student_id == student_id,
+            StudentScholarshipGrant.scholarship_id == scholarship_id,
+            StudentScholarshipGrant.status == "ACTIVE",
+        )
+    ).scalar() or 0
+    if dup:
+        raise ValueError(
+            f"This student already has an active grant for '{sch.name}'. "
+            "Revoke the existing grant first."
+        )
+
+    # Recipient-cap check — treats the grant AS consuming a slot before
+    # any invoice has been generated. Otherwise a school could grant a
+    # 1-recipient scholarship to 50 students on the same day and only
+    # discover the cap when the first invoice tries to allocate.
+    #
+    # Slot accounting = unique students holding an ACTIVE allocation OR
+    # an ACTIVE grant for this scholarship. The current student's own
+    # existing ACTIVE grant/allocation doesn't self-block (idempotent).
+    if sch.max_recipients is not None:
+        from app.models.student_scholarship_grant import StudentScholarshipGrant
+        # Distinct students with an ACTIVE grant that ISN'T this student.
+        grant_recipients = db.execute(
+            select(sa_func.count(sa_func.distinct(StudentScholarshipGrant.student_id)))
+            .where(
+                StudentScholarshipGrant.tenant_id == tenant_id,
+                StudentScholarshipGrant.scholarship_id == scholarship_id,
+                StudentScholarshipGrant.status == "ACTIVE",
+                StudentScholarshipGrant.student_id != student_id,
+            )
+        ).scalar() or 0
+        # Distinct students with an ACTIVE allocation that ISN'T this student.
+        alloc_recipients = db.execute(
+            select(sa_func.count(sa_func.distinct(ScholarshipAllocation.student_id)))
+            .where(
+                ScholarshipAllocation.tenant_id == tenant_id,
+                ScholarshipAllocation.scholarship_id == scholarship_id,
+                ScholarshipAllocation.status == "ACTIVE",
+                ScholarshipAllocation.student_id.isnot(None),
+                ScholarshipAllocation.student_id != student_id,
+            )
+        ).scalar() or 0
+        # Union (upper bound: grants + allocations may overlap on the
+        # same students; err on the strict side so a race can't bypass
+        # the cap).
+        seat_count = grant_recipients + alloc_recipients
+        if seat_count >= sch.max_recipients:
+            raise ValueError(
+                f"Scholarship recipient cap reached "
+                f"({sch.max_recipients} students already awarded)."
+            )
+    # Budget capacity: for FIXED scholarships, granting doesn't itself
+    # consume budget — each invoice application does. So no budget check
+    # at grant-creation. The per-invoice apply_scholarship_to_invoice
+    # calls will fail cleanly when the pool is exhausted.
+
+    grant = StudentScholarshipGrant(
+        tenant_id=tenant_id,
+        student_id=student_id,
+        scholarship_id=scholarship_id,
+        academic_year=academic_year,
+        term_number=term_number,
+        granted_reason=reason_clean,
+        granted_by=actor_user_id,
+    )
+    db.add(grant)
+    db.flush()
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="scholarship.grant.create",
+        resource="scholarship_grant",
+        resource_id=grant.id,
+        payload={
+            "student_id": str(student_id),
+            "scholarship_id": str(scholarship_id),
+            "scholarship_name": sch.name,
+            "scholarship_type": sch.type,
+            "academic_year": academic_year,
+            "term_number": term_number,
+            "reason": reason_clean,
+        },
+        meta=None,
+    )
+
+    application_summary: dict[str, Any] | None = None
+    if apply_to_existing_open_invoices:
+        application_summary = _apply_grant_to_open_invoices(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            grant=grant,
+            reason=reason_clean,
+        )
+        log_event(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            action="scholarship.grant.apply_to_existing",
+            resource="scholarship_grant",
+            resource_id=grant.id,
+            payload={
+                "applied_count": len(application_summary["applied"]),
+                "skipped_count": len(application_summary["skipped"]),
+                "failed_count":  len(application_summary["failed"]),
+            },
+            meta=None,
+        )
+
+    return {"grant": grant, "application_summary": application_summary}
+
+
+def revoke_student_scholarship_grant(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    grant_id: UUID,
+    reason: str,
+) -> "StudentScholarshipGrant":
+    """Soft-revoke a grant. Past allocations stay ACTIVE (audit + carry-
+    forward credits already booked); future invoices simply skip this
+    grant at generation time.
+
+    The user can re-grant the same scholarship after revocation (the
+    partial unique index only covers ACTIVE rows).
+    """
+    reason_clean = (reason or "").strip()
+    if not reason_clean:
+        raise ValueError("A reason is required to revoke a grant (audit).")
+
+    from datetime import datetime, timezone as _tz
+
+    grant = _load_grant_or_raise(db, tenant_id=tenant_id, grant_id=grant_id)
+    if grant.status == "REVOKED":
+        raise ValueError("Grant is already revoked.")
+
+    grant.status = "REVOKED"
+    grant.revoked_at = datetime.now(_tz.utc)
+    grant.revoked_by = actor_user_id
+    grant.revoked_reason = reason_clean
+    db.flush()
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="scholarship.grant.revoke",
+        resource="scholarship_grant",
+        resource_id=grant.id,
+        payload={
+            "student_id": str(grant.student_id),
+            "scholarship_id": str(grant.scholarship_id),
+            "reason": reason_clean,
+        },
+        meta=None,
+    )
+    return grant
+
+
+def list_student_scholarship_grants(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+    include_revoked: bool = True,
+) -> list[dict[str, Any]]:
+    """Full grant history for a student — powers the Awards tab. Rows
+    include the scholarship's current name + type for display."""
+    rows = db.execute(
+        sa_text(
+            """
+            SELECT
+                g.id                AS grant_id,
+                g.status,
+                g.academic_year,
+                g.term_number,
+                g.granted_reason,
+                g.granted_at,
+                g.revoked_reason,
+                g.revoked_at,
+                g.scholarship_id,
+                s.name              AS scholarship_name,
+                s.type              AS scholarship_type,
+                s.value             AS scholarship_value,
+                s.max_recipients,
+                s.covers_carry_forward
+            FROM core.student_scholarship_grants g
+            LEFT JOIN core.scholarships s ON s.id = g.scholarship_id
+            WHERE g.tenant_id = :tid
+              AND g.student_id = :sid
+              AND (:include_revoked OR g.status = 'ACTIVE')
+            ORDER BY g.granted_at DESC
+            """
+        ),
+        {
+            "tid": str(tenant_id),
+            "sid": str(student_id),
+            "include_revoked": include_revoked,
+        },
+    ).mappings().all()
+    return [
+        {
+            "grant_id":        str(r["grant_id"]),
+            "status":          r["status"],
+            "academic_year":   int(r["academic_year"]) if r["academic_year"] is not None else None,
+            "term_number":     int(r["term_number"]) if r["term_number"] is not None else None,
+            "granted_reason":  r["granted_reason"],
+            "granted_at":      r["granted_at"].isoformat() if r["granted_at"] else None,
+            "revoked_reason":  r["revoked_reason"],
+            "revoked_at":      r["revoked_at"].isoformat() if r["revoked_at"] else None,
+            "scholarship_id":  str(r["scholarship_id"]) if r["scholarship_id"] else None,
+            "scholarship_name": r["scholarship_name"] or "(deleted)",
+            "scholarship_type": r["scholarship_type"] or "",
+            "scholarship_value": str(r["scholarship_value"] or 0),
+            "max_recipients":  int(r["max_recipients"]) if r["max_recipients"] is not None else None,
+            "covers_carry_forward": bool(r["covers_carry_forward"]),
+        }
+        for r in rows
+    ]
+
+
+def find_active_grants_for_invoice(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+    academic_year: int,
+    term_number: int,
+) -> list:
+    """v2 generator hot-path lookup — returns ACTIVE grants whose scope
+    matches (academic_year, term_number). NULL-scope grants are always
+    included. Used by the v2 generator to auto-apply on invoice
+    creation."""
+    from app.models.student_scholarship_grant import StudentScholarshipGrant
+    return db.execute(
+        select(StudentScholarshipGrant).where(
+            StudentScholarshipGrant.tenant_id == tenant_id,
+            StudentScholarshipGrant.student_id == student_id,
+            StudentScholarshipGrant.status == "ACTIVE",
+            sa_or(
+                StudentScholarshipGrant.academic_year.is_(None),
+                StudentScholarshipGrant.academic_year == academic_year,
+            ),
+            sa_or(
+                StudentScholarshipGrant.term_number.is_(None),
+                StudentScholarshipGrant.term_number == term_number,
+            ),
+        )
+    ).scalars().all()
+
+
 def apply_scholarship_to_existing_invoice(
     db: Session,
     *,
@@ -5940,6 +6377,63 @@ def generate_school_fees_invoice_v2(
             student_id=student_id,
             enrollment_id=enrollment_id,
         )
+
+    # Phase M2 — auto-apply any ACTIVE student-level grants whose scope
+    # matches (academic_year, term_number). This is what turns the
+    # scholarship submodule from "remember to click Apply every term"
+    # into policy that flows automatically. Each grant applies through
+    # the same canonical helper, so budget/recipient guards + audit +
+    # overpayment credits all still fire.
+    #
+    # We skip the grant if the same scholarship was ALREADY applied above
+    # (explicit scholarship_id param wins to avoid double-application when
+    # the caller explicitly requested that scholarship).
+    if student_id is not None:
+        try:
+            grants = find_active_grants_for_invoice(
+                db,
+                tenant_id=tenant_id,
+                student_id=student_id,
+                academic_year=academic_year,
+                term_number=term_number,
+            )
+        except Exception:
+            grants = []
+        for grant in grants:
+            if scholarship_id is not None and grant.scholarship_id == scholarship_id:
+                # Already applied via the explicit param — don't double-apply.
+                continue
+            try:
+                apply_scholarship_to_invoice(
+                    db,
+                    tenant_id=tenant_id,
+                    actor_user_id=actor_user_id,
+                    invoice=inv,
+                    scholarship_id=grant.scholarship_id,
+                    requested_amount=None,  # driven by scholarship type
+                    reason=f"[Grant] {grant.granted_reason}",
+                    student_id=student_id,
+                    enrollment_id=enrollment_id,
+                )
+            except ValueError as exc:
+                # A grant that can't be applied (pool exhausted, cap
+                # reached, etc.) MUST NOT silently swallow — log an
+                # audit event and continue with the remaining grants.
+                # The invoice generation itself succeeds.
+                log_event(
+                    db,
+                    tenant_id=tenant_id,
+                    actor_user_id=actor_user_id,
+                    action="scholarship.grant.auto_apply_failed",
+                    resource="scholarship_grant",
+                    resource_id=grant.id,
+                    payload={
+                        "invoice_id": str(inv.id),
+                        "scholarship_id": str(grant.scholarship_id),
+                        "reason": str(exc),
+                    },
+                    meta=None,
+                )
 
     log_event(
         db,

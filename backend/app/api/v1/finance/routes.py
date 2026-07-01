@@ -773,6 +773,161 @@ def list_student_scholarships(
     return {"ok": True, "student_id": str(student_id), "allocations": rows}
 
 
+# ── Student-level scholarship grants (Phase M2) ────────────────────────────
+
+
+@router.post(
+    "/students/{student_id}/scholarship-grants",
+    dependencies=[Depends(require_permission("finance.scholarships.manage"))],
+)
+def create_student_scholarship_grant_route(
+    student_id: UUID,
+    payload: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Grant a scholarship to a student at the student level.
+
+    Body:
+      scholarship_id (required)
+      reason         (required, audit)
+      academic_year  (optional, restricts scope to this year)
+      term_number    (optional, restricts scope to this term)
+      apply_to_existing_open_invoices (default true) — auto-apply the
+          scholarship to any of this student's open (non-CANCELLED) invoices
+          matching the scope. Uses the same overpayment-credit machinery
+          as after-the-fact apply so past payments book cleanly.
+
+    Every subsequent v2 invoice generation checks for active grants and
+    auto-applies. Revoke via the sibling endpoint below.
+    """
+    scholarship_raw = payload.get("scholarship_id")
+    if not scholarship_raw:
+        raise HTTPException(status_code=400, detail="scholarship_id is required")
+    try:
+        scholarship_id = UUID(str(scholarship_raw))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="invalid scholarship_id")
+
+    reason = str(payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+
+    academic_year = payload.get("academic_year")
+    if academic_year is not None:
+        try:
+            academic_year = int(academic_year)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="invalid academic_year")
+
+    term_number = payload.get("term_number")
+    if term_number is not None:
+        try:
+            term_number = int(term_number)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="invalid term_number")
+
+    apply_to_existing = bool(
+        payload.get("apply_to_existing_open_invoices", True)
+    )
+
+    try:
+        result = service.create_student_scholarship_grant(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            student_id=student_id,
+            scholarship_id=scholarship_id,
+            reason=reason,
+            academic_year=academic_year,
+            term_number=term_number,
+            apply_to_existing_open_invoices=apply_to_existing,
+        )
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+    grant = result["grant"]
+    return {
+        "grant": {
+            "id": str(grant.id),
+            "student_id": str(grant.student_id),
+            "scholarship_id": str(grant.scholarship_id),
+            "academic_year": grant.academic_year,
+            "term_number": grant.term_number,
+            "status": grant.status,
+            "granted_reason": grant.granted_reason,
+            "granted_at": grant.granted_at.isoformat() if grant.granted_at else None,
+        },
+        "application_summary": result.get("application_summary"),
+    }
+
+
+@router.post(
+    "/students/{student_id}/scholarship-grants/{grant_id}/revoke",
+    dependencies=[Depends(require_permission("finance.scholarships.manage"))],
+)
+def revoke_student_scholarship_grant_route(
+    student_id: UUID,
+    grant_id: UUID,
+    payload: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Revoke a grant. Past allocations stay ACTIVE — the audit trail
+    survives. Future v2 generations skip the revoked grant."""
+    reason = str(payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+
+    try:
+        grant = service.revoke_student_scholarship_grant(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            grant_id=grant_id,
+            reason=reason,
+        )
+        # Extra tenant/student-id guard on top of the service check.
+        if grant.student_id != student_id:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Grant not found for this student")
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "grant_id": str(grant.id),
+        "status": grant.status,
+        "revoked_at": grant.revoked_at.isoformat() if grant.revoked_at else None,
+        "revoked_reason": grant.revoked_reason,
+    }
+
+
+@router.get(
+    "/students/{student_id}/scholarship-grants",
+    dependencies=[Depends(require_permission("finance.scholarships.view"))],
+)
+def list_student_scholarship_grants_route(
+    student_id: UUID,
+    include_revoked: bool = True,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _=Depends(get_current_user),
+):
+    """List every grant held by a student (ACTIVE + REVOKED by default).
+    Powers the student profile 'Awards' tab."""
+    rows = service.list_student_scholarship_grants(
+        db, tenant_id=tenant.id, student_id=student_id,
+        include_revoked=include_revoked,
+    )
+    return {"ok": True, "student_id": str(student_id), "grants": rows}
+
+
 # -------------------------
 # Invoices
 # -------------------------
