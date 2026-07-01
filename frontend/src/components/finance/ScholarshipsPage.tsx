@@ -8,6 +8,11 @@ import type { AppNavItem } from "@/components/layout/AppShell";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { BulkApplyScholarshipCard } from "@/components/finance/BulkApplyScholarshipCard";
 import { usePermissions } from "@/lib/auth/usePermissions";
+import { useClientPaginatedList } from "@/lib/useClientPaginatedList";
+import {
+  TablePaginationFooter,
+  TableRangeCaption,
+} from "@/components/finance/TablePaginationFooter";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -271,6 +276,19 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Client-side pagination over the bulk-loaded scholarships list.
+  // Search matches name + description + type case-insensitively.
+  const scholarshipTable = useClientPaginatedList<Scholarship, { q: string }>({
+    source: scholarships,
+    initialFilters: { q: "" },
+    defaultPageSize: 30,
+    filterFn: (s, _f, q) => {
+      if (!q) return true;
+      const hay = `${s.name} ${s.description ?? ""} ${s.type}`.toLowerCase();
+      return hay.includes(q);
+    },
+  });
+
   const [dialog, setDialog] = useState<"create" | "edit" | null>(null);
   const [form, setForm] = useState({
     name: "",
@@ -490,6 +508,22 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
             )}
           </div>
 
+          {scholarships.length > 5 && (
+            <div className="flex flex-col gap-2 border-b border-slate-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <Input
+                placeholder="Search scholarships…"
+                value={scholarshipTable.filters.q}
+                onChange={(e) =>
+                  scholarshipTable.setFilters((p) => ({ ...p, q: e.target.value }))
+                }
+                className="max-w-xs"
+              />
+              <span className="text-xs text-slate-500">
+                <TableRangeCaption meta={scholarshipTable.meta} />
+              </span>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -505,7 +539,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {scholarships.map((s) => (
+                {scholarshipTable.items.map((s) => (
                   <AllocationRow
                     key={s.id}
                     scholarship={s}
@@ -516,15 +550,31 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
                     onDelete={setDeletingId}
                   />
                 ))}
-                {scholarships.length === 0 && (
+                {scholarshipTable.items.length === 0 && (
                   <EmptyRow
                     colSpan={readonly ? 5 : 6}
-                    message="No scholarships yet. Create one to apply discounts on student invoices."
+                    message={
+                      scholarships.length === 0
+                        ? "No scholarships yet. Create one to apply discounts on student invoices."
+                        : "No scholarships match this search."
+                    }
                   />
                 )}
               </TableBody>
             </Table>
           </div>
+
+          {scholarships.length > 30 && (
+            <div className="border-t border-slate-100 px-4 py-3">
+              <TablePaginationFooter
+                meta={scholarshipTable.meta}
+                page={scholarshipTable.page}
+                pageSize={scholarshipTable.pageSize}
+                onPageChange={scholarshipTable.setPage}
+                onPageSizeChange={scholarshipTable.setPageSize}
+              />
+            </div>
+          )}
 
           {!readonly && scholarships.length > 0 && (
             <div className="border-t border-slate-100 px-6 py-3">

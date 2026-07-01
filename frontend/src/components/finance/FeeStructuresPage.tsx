@@ -17,6 +17,11 @@ import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { usePermissions } from "@/lib/auth/usePermissions";
+import { useClientPaginatedList } from "@/lib/useClientPaginatedList";
+import {
+  TablePaginationFooter,
+  TableRangeCaption,
+} from "@/components/finance/TablePaginationFooter";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -411,6 +416,27 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
 
   // ── Derived helpers ──────────────────────────────────────────────────────────
   const selectedStructure = structures.find((s) => s.id === selectedId) ?? null;
+
+  // Client-side pagination — structures are policy-bounded (dozens per school).
+  // Search matches name + class_code + structure_no + academic_year.
+  const structuresTable = useClientPaginatedList<FeeStructure, { q: string }>({
+    source: structures,
+    initialFilters: { q: "" },
+    defaultPageSize: 30,
+    filterFn: (s, _f, q) => {
+      if (!q) return true;
+      const hay = [
+        s.name,
+        s.class_code,
+        (s as { structure_no?: string | null }).structure_no ?? "",
+        String(s.academic_year ?? ""),
+        String(s.student_type ?? ""),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    },
+  });
   const categoryName = (categoryId: string) =>
     categories.find((c) => c.id === categoryId)?.name ?? categoryId;
 
@@ -484,6 +510,22 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
             )}
           </div>
 
+          {structures.length > 5 && (
+            <div className="flex flex-col gap-2 border-b border-slate-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <Input
+                placeholder="Search by name, class, structure no…"
+                value={structuresTable.filters.q}
+                onChange={(e) =>
+                  structuresTable.setFilters((p) => ({ ...p, q: e.target.value }))
+                }
+                className="max-w-md"
+              />
+              <span className="text-xs text-slate-500">
+                <TableRangeCaption meta={structuresTable.meta} />
+              </span>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -499,7 +541,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {structures.map((s) => {
+                {structuresTable.items.map((s) => {
                   const isSelected = selectedId === s.id;
                   const itemCount = (structureItems[s.id] ?? []).length;
                   return (
@@ -579,15 +621,30 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                     </TableRow>
                   );
                 })}
-                {structures.length === 0 && (
+                {structuresTable.items.length === 0 && (
                   <EmptyRow
                     colSpan={8}
-                    message="No fee structures yet. Create one to start defining fee line items per class."
+                    message={
+                      structures.length === 0
+                        ? "No fee structures yet. Create one to start defining fee line items per class."
+                        : "No fee structures match this search."
+                    }
                   />
                 )}
               </TableBody>
             </Table>
           </div>
+          {structures.length > 30 && (
+            <div className="border-t border-slate-100 px-4 py-3">
+              <TablePaginationFooter
+                meta={structuresTable.meta}
+                page={structuresTable.page}
+                pageSize={structuresTable.pageSize}
+                onPageChange={structuresTable.setPage}
+                onPageSizeChange={structuresTable.setPageSize}
+              />
+            </div>
+          )}
         </div>
 
         {/* ── Items panel ── */}

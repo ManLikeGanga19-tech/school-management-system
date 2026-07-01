@@ -7,6 +7,11 @@ import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { usePermissions } from "@/lib/auth/usePermissions";
+import { useClientPaginatedList } from "@/lib/useClientPaginatedList";
+import {
+  TablePaginationFooter,
+  TableRangeCaption,
+} from "@/components/finance/TablePaginationFooter";
 import { TenantPageHeader } from "@/components/tenant/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -277,6 +282,24 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
 
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
 
+  // Client-side pagination — categories + items are policy-bounded (dozens,
+  // not thousands). Same 30/50/100 UX as invoices/payments but no API
+  // round-trip per keystroke.
+  const categoriesTable = useClientPaginatedList<FeeCategory, { q: string }>({
+    source: categories,
+    initialFilters: { q: "" },
+    defaultPageSize: 30,
+    filterFn: (c, _f, q) =>
+      !q || `${c.name} ${c.code}`.toLowerCase().includes(q),
+  });
+  const itemsTable = useClientPaginatedList<FeeItem, { q: string }>({
+    source: filteredItems,
+    initialFilters: { q: "" },
+    defaultPageSize: 30,
+    filterFn: (it, _f, q) =>
+      !q || `${it.name} ${it.code}`.toLowerCase().includes(q),
+  });
+
   if (loading) {
     return (
       <AppShell title={role === "director" ? "Director" : "Secretary"} nav={nav} activeHref={activeHref}>
@@ -431,6 +454,21 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
               </Button>
             )}
           </div>
+          {categories.length > 5 && (
+            <div className="flex flex-col gap-2 border-b border-slate-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <Input
+                placeholder="Search categories…"
+                value={categoriesTable.filters.q}
+                onChange={(e) =>
+                  categoriesTable.setFilters((p) => ({ ...p, q: e.target.value }))
+                }
+                className="max-w-xs"
+              />
+              <span className="text-xs text-slate-500">
+                <TableRangeCaption meta={categoriesTable.meta} />
+              </span>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -443,7 +481,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {categories.map((cat) => {
+                {categoriesTable.items.map((cat) => {
                   const isSelected = selectedCategoryId === cat.id;
                   const itemCount = items.filter((i) => i.category_id === cat.id).length;
                   return (
@@ -501,15 +539,30 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                     </TableRow>
                   );
                 })}
-                {categories.length === 0 && (
+                {categoriesTable.items.length === 0 && (
                   <EmptyRow
                     colSpan={readonly ? 4 : 5}
-                    message="No categories yet. Create one to get started."
+                    message={
+                      categories.length === 0
+                        ? "No categories yet. Create one to get started."
+                        : "No categories match this search."
+                    }
                   />
                 )}
               </TableBody>
             </Table>
           </div>
+          {categories.length > 30 && (
+            <div className="border-t border-slate-100 px-4 py-3">
+              <TablePaginationFooter
+                meta={categoriesTable.meta}
+                page={categoriesTable.page}
+                pageSize={categoriesTable.pageSize}
+                onPageChange={categoriesTable.setPage}
+                onPageSizeChange={categoriesTable.setPageSize}
+              />
+            </div>
+          )}
         </div>
 
         {/* ── Fee Items ── */}
@@ -559,6 +612,21 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
             </div>
           )}
 
+          {filteredItems.length > 5 && (
+            <div className="flex flex-col gap-2 border-b border-slate-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <Input
+                placeholder="Search items…"
+                value={itemsTable.filters.q}
+                onChange={(e) =>
+                  itemsTable.setFilters((p) => ({ ...p, q: e.target.value }))
+                }
+                className="max-w-xs"
+              />
+              <span className="text-xs text-slate-500">
+                <TableRangeCaption meta={itemsTable.meta} />
+              </span>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -571,7 +639,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredItems.map((item) => {
+                {itemsTable.items.map((item) => {
                   const cat = categories.find((c) => c.id === item.category_id);
                   return (
                     <TableRow key={item.id} className="hover:bg-slate-50">
@@ -615,19 +683,32 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                     </TableRow>
                   );
                 })}
-                {filteredItems.length === 0 && (
+                {itemsTable.items.length === 0 && (
                   <EmptyRow
                     colSpan={readonly ? 4 : 5}
                     message={
-                      selectedCategory
-                        ? `No items in ${selectedCategory.name} yet.`
-                        : "No fee items yet."
+                      filteredItems.length === 0
+                        ? selectedCategory
+                          ? `No items in ${selectedCategory.name} yet.`
+                          : "No fee items yet."
+                        : "No fee items match this search."
                     }
                   />
                 )}
               </TableBody>
             </Table>
           </div>
+          {filteredItems.length > 30 && (
+            <div className="border-t border-slate-100 px-4 py-3">
+              <TablePaginationFooter
+                meta={itemsTable.meta}
+                page={itemsTable.page}
+                pageSize={itemsTable.pageSize}
+                onPageChange={itemsTable.setPage}
+                onPageSizeChange={itemsTable.setPageSize}
+              />
+            </div>
+          )}
         </div>
       </div>
 
