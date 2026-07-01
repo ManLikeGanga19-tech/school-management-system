@@ -455,3 +455,66 @@ def list_director_invoices(
         name, adm = labels.get(str(inv.enrollment_id), ("", "")) if inv.enrollment_id else ("", "")
         items.append(_serialize_invoice_row(inv, student_name=name, admission_no=adm))
     return {"items": items, "meta": result["meta"]}
+
+
+# ── Paginated payments listing ─────────────────────────────────────────────
+
+
+@router.get(
+    "/finance/payments",
+    dependencies=[Depends(require_permission("finance.payments.view"))],
+)
+def list_director_payments(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=200),
+    q: Optional[str] = Query(None),
+    provider: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD inclusive"),
+    date_to: Optional[str]   = Query(None, description="YYYY-MM-DD inclusive"),
+    enrollment_id: Optional[UUID] = Query(None),
+):
+    """Server-paginated payments table shared by director + secretary.
+
+    Search (`q`) matches receipt_no, external reference, and the payer
+    student's name / admission — across every allocation on the payment,
+    so family payments still surface for either child's name.
+
+    Row payload includes student_label (comma-joined for multi-student
+    payments) so the frontend renders names without a client-side
+    enrollment map.
+    """
+    result = finance_service.list_payments(
+        db,
+        tenant_id=tenant.id,
+        page=page,
+        page_size=page_size,
+        q=q,
+        provider=provider,
+        date_from=date_from,
+        date_to=date_to,
+        enrollment_id=enrollment_id,
+    )
+    # list_payments already returns dicts (not ORM); coerce UUIDs / decimals
+    # to str for JSON.
+    items = []
+    for row in result["items"]:
+        items.append({
+            "id":            str(row["id"]),
+            "receipt_no":    row.get("receipt_no"),
+            "provider":      row.get("provider"),
+            "reference":     row.get("reference"),
+            "amount":        str(row.get("amount") or 0),
+            "received_at":   row.get("received_at"),
+            "student_label": row.get("student_label") or "",
+            "allocations": [
+                {
+                    "invoice_id": str(a["invoice_id"]),
+                    "amount":     str(a["amount"] or 0),
+                }
+                for a in (row.get("allocations") or [])
+            ],
+        })
+    return {"items": items, "meta": result["meta"]}

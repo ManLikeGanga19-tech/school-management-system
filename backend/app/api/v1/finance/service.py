@@ -3378,16 +3378,75 @@ def list_payments(
     *,
     tenant_id: UUID,
     enrollment_id: Optional[UUID] = None,
+    q: Optional[str] = None,
+    provider: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
 ) -> dict:
+    """Paginated payment listing with server-side filters.
+
+    `q` matches receipt_no, reference, or the payer student's name /
+    admission — via the payment's allocation → invoice → enrollment chain.
+    All filters push to the database so the "Showing X-Y of Z" count is
+    honest at any tenant scale.
+
+    Note: a payment may cover multiple students (family payments). Search
+    matching against ANY of the allocated invoices' students is enough
+    to surface the payment.
+    """
+    from app.models.enrollment import Enrollment
+    from app.models.student import Student
+
     base_q = select(Payment).where(Payment.tenant_id == tenant_id)
+
     if enrollment_id:
         base_q = base_q.join(
             PaymentAllocation, PaymentAllocation.payment_id == Payment.id
         ).join(
             Invoice, Invoice.id == PaymentAllocation.invoice_id
         ).where(Invoice.enrollment_id == enrollment_id).distinct()
+
+    if provider:
+        base_q = base_q.where(Payment.provider == provider.upper().strip())
+
+    if date_from:
+        base_q = base_q.where(
+            sa_func.date(Payment.received_at) >= sa_cast(date_from, SA_Date)
+        )
+    if date_to:
+        base_q = base_q.where(
+            sa_func.date(Payment.received_at) <= sa_cast(date_to, SA_Date)
+        )
+
+    if q:
+        like = f"%{q.strip()}%"
+        # Left-join the payment's allocations → invoice → enrollment → student
+        # so q can match any student on any allocation. Left joins keep
+        # unallocated payments visible when q hits receipt_no or reference.
+        base_q = (
+            base_q
+            .outerjoin(PaymentAllocation, PaymentAllocation.payment_id == Payment.id)
+            .outerjoin(Invoice, Invoice.id == PaymentAllocation.invoice_id)
+            .outerjoin(Enrollment, Enrollment.id == Invoice.enrollment_id)
+            .outerjoin(Student, Student.id == Enrollment.student_id)
+            .where(
+                sa_or(
+                    Payment.receipt_no.ilike(like),
+                    Payment.reference.ilike(like),
+                    sa_func.concat(
+                        Student.first_name, " ", sa_func.coalesce(Student.last_name, "")
+                    ).ilike(like),
+                    Student.admission_no.ilike(like),
+                    Enrollment.admission_number.ilike(like),
+                    Enrollment.payload["student_name"].astext.ilike(like),
+                )
+            )
+            # Dedup: a payment split across N invoices would appear N times
+            # after the joins without this.
+            .distinct()
+        )
 
     total: int = db.execute(select(sa_func.count()).select_from(base_q.subquery())).scalar() or 0
     pages = max(1, (total + page_size - 1) // page_size)
@@ -3399,6 +3458,35 @@ def list_payments(
               .offset((page - 1) * page_size)
     ).scalars().all()
 
+    # Batch-resolve student labels for every payer across the page so the
+    # frontend renders names without a client-side enrollment map.
+    payment_ids = [p.id for p in payment_rows]
+    student_labels_by_payment: dict[str, list[str]] = {}
+    if payment_ids:
+        rows = db.execute(
+            sa_text(
+                """
+                SELECT
+                    pa.payment_id,
+                    COALESCE(
+                        NULLIF(TRIM(s.first_name || ' ' || COALESCE(s.last_name, '')), ''),
+                        e.payload->>'student_name',
+                        'Unknown student'
+                    ) AS student_name
+                FROM core.payment_allocations pa
+                JOIN core.invoices i         ON i.id = pa.invoice_id
+                LEFT JOIN core.enrollments e ON e.id = i.enrollment_id
+                LEFT JOIN core.students s    ON s.id = e.student_id
+                                            AND s.tenant_id = :tid
+                WHERE pa.payment_id = ANY(:ids)
+                  AND i.tenant_id = :tid
+                """
+            ),
+            {"tid": str(tenant_id), "ids": [str(pid) for pid in payment_ids]},
+        ).mappings().all()
+        for r in rows:
+            student_labels_by_payment.setdefault(str(r["payment_id"]), []).append(str(r["student_name"]))
+
     items: list[dict] = []
     for payment in payment_rows:
         alloc_query = (
@@ -3409,6 +3497,16 @@ def list_payments(
                    Invoice.tenant_id == tenant_id)
         )
         allocations = db.execute(alloc_query).all()
+        # Deduplicate + join to "Ali, Amina, John" if multi-student payment.
+        raw_names = student_labels_by_payment.get(str(payment.id), [])
+        seen: set[str] = set()
+        dedup: list[str] = []
+        for n in raw_names:
+            if n not in seen:
+                seen.add(n)
+                dedup.append(n)
+        student_label = ", ".join(dedup) if dedup else ""
+
         items.append({
             "id": payment.id,
             "tenant_id": payment.tenant_id,
@@ -3416,6 +3514,8 @@ def list_payments(
             "provider": payment.provider,
             "reference": payment.reference,
             "amount": payment.amount,
+            "received_at": payment.received_at.isoformat() if getattr(payment, "received_at", None) else None,
+            "student_label": student_label,
             "allocations": [{"invoice_id": r.invoice_id, "amount": r.amount} for r in allocations],
         })
 
