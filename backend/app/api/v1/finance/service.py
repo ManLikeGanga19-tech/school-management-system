@@ -3382,6 +3382,7 @@ def list_payments(
     provider: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    settled_only: bool = False,
     page: int = 1,
     page_size: int = 20,
 ) -> dict:
@@ -3410,6 +3411,18 @@ def list_payments(
 
     if provider:
         base_q = base_q.where(Payment.provider == provider.upper().strip())
+
+    if settled_only:
+        # Receipts view: only payments where at least one allocated invoice
+        # is fully settled (PAID). Subselect keeps the query on the payments
+        # table without inflating row count.
+        base_q = base_q.where(
+            Payment.id.in_(
+                select(PaymentAllocation.payment_id)
+                .join(Invoice, Invoice.id == PaymentAllocation.invoice_id)
+                .where(Invoice.tenant_id == tenant_id, Invoice.status == "PAID")
+            )
+        )
 
     if date_from:
         base_q = base_q.where(

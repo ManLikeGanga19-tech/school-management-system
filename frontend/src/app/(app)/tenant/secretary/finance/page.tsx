@@ -836,15 +836,14 @@ function SecretaryFinancePageContent() {
   const [paymentPageLoading, setPaymentPageLoading] = useState(false);
   const [paymentPageError, setPaymentPageError] = useState<string | null>(null);
 
-  // Payments tab now uses the shared paginated-table hook (server-side
-  // filters + URL state). Leftover `pagedPayments` state above still
-  // powers the Receipts tab; Phase J refactors that too.
+  // Payments tab AND the "Payment Records" table on the Receipts tab
+  // both read from this hook. Server-side filters + URL state (pay_*).
   type PaymentFilterState = { q: string; provider: string };
   const paymentsTable = usePaginatedTable<Payment, PaymentFilterState>({
     endpoint: "/finance/payments",
     keyPrefix: "pay",
     initialFilters: { q: "", provider: "" },
-    enabled: section === "payments",
+    enabled: section === "payments" || section === "receipts",
   });
 
   const [receiptPage, setReceiptPage] = usePersistedState("sec.finance.receiptPage", 1);
@@ -852,6 +851,15 @@ function SecretaryFinancePageContent() {
   const [pagedReceipts, setPagedReceipts] = useState<Invoice[]>([]);
   const [receiptPageLoading, setReceiptPageLoading] = useState(false);
   const [receiptPageError, setReceiptPageError] = useState<string | null>(null);
+
+  // Secretary receipts tab — PAID invoices via the shared hook.
+  type ReceiptTableFilters = { q: string; status: string };
+  const receiptsTable = usePaginatedTable<Invoice, ReceiptTableFilters>({
+    endpoint: "/finance/invoices",
+    keyPrefix: "rcp",
+    initialFilters: { q: "", status: "PAID" },
+    enabled: section === "receipts",
+  });
 
   async function loadFinance(silent = false) {
     if (!silent) setLoading(true);
@@ -2552,6 +2560,18 @@ function SecretaryFinancePageContent() {
             </div>
 
             <SectionCard title="Paid Invoices (Receipts)">
+              <div className="mb-3 grid gap-2 sm:grid-cols-2">
+                <Input
+                  placeholder="Search student, admission, invoice no…"
+                  value={receiptsTable.filters.q}
+                  onChange={(e) =>
+                    receiptsTable.setFilters((p) => ({ ...p, q: e.target.value }))
+                  }
+                />
+                <div className="flex items-center text-xs text-slate-500">
+                  <TableRangeCaption meta={receiptsTable.meta} />
+                </div>
+              </div>
               <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[640px]">
                 <Table>
                   <TableHeader>
@@ -2565,12 +2585,16 @@ function SecretaryFinancePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pagedReceipts.map((invoice) => {
+                    {receiptsTable.items.map((invoice) => {
+                      const invAny = invoice as Invoice & { student_name?: string | null };
                       const enrollment = data.enrollments.find((r) => r.id === invoice.enrollment_id);
+                      const studentName = invAny.student_name && invAny.student_name.trim()
+                        ? invAny.student_name
+                        : enrollment ? enrollmentName(enrollment.payload || {}) : "N/A";
                       return (
                         <TableRow key={invoice.id} className="hover:bg-slate-50">
                           <TableCell className="text-sm font-medium">
-                            {enrollment ? enrollmentName(enrollment.payload || {}) : "N/A"}
+                            {studentName}
                           </TableCell>
                           <TableCell>
                             <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs">
@@ -2625,12 +2649,12 @@ function SecretaryFinancePageContent() {
                         </TableRow>
                       );
                     })}
-                    {pagedReceipts.length === 0 && !receiptPageLoading && (
-                      receiptPageError ? (
+                    {receiptsTable.items.length === 0 && !receiptsTable.loading && (
+                      receiptsTable.error ? (
                         <ErrorRow
                           colSpan={6}
-                          message={receiptPageError}
-                          onRetry={() => void loadPagedReceipts(receiptPage)}
+                          message={receiptsTable.error}
+                          onRetry={() => void receiptsTable.reload()}
                         />
                       ) : (
                         <EmptyRow colSpan={6} message="No paid receipts yet." />
@@ -2638,11 +2662,13 @@ function SecretaryFinancePageContent() {
                     )}
                   </TableBody>
                 </Table>
-                <PaginationBar
-                  meta={receiptMeta}
-                  loading={receiptPageLoading}
-                  onPrev={() => setReceiptPage((p) => Math.max(1, p - 1))}
-                  onNext={() => setReceiptPage((p) => Math.min(receiptMeta.pages, p + 1))}
+                <TablePaginationFooter
+                  meta={receiptsTable.meta}
+                  page={receiptsTable.page}
+                  pageSize={receiptsTable.pageSize}
+                  loading={receiptsTable.loading}
+                  onPageChange={receiptsTable.setPage}
+                  onPageSizeChange={receiptsTable.setPageSize}
                 />
               </div>
             </SectionCard>
@@ -2662,7 +2688,7 @@ function SecretaryFinancePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pagedPayments.map((payment) => (
+                    {paymentsTable.items.map((payment) => (
                       <TableRow key={payment.id} className="hover:bg-slate-50">
                         <TableCell className="font-mono text-xs font-semibold text-blue-700">
                           {String(payment.id).slice(0, 8).toUpperCase()}
@@ -2712,12 +2738,12 @@ function SecretaryFinancePageContent() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {pagedPayments.length === 0 && !paymentPageLoading && (
-                      paymentPageError ? (
+                    {paymentsTable.items.length === 0 && !paymentsTable.loading && (
+                      paymentsTable.error ? (
                         <ErrorRow
                           colSpan={7}
-                          message={paymentPageError}
-                          onRetry={() => void loadPagedPayments(paymentPage)}
+                          message={paymentsTable.error}
+                          onRetry={() => void paymentsTable.reload()}
                         />
                       ) : (
                         <EmptyRow colSpan={7} message="No payments yet." />
@@ -2725,11 +2751,13 @@ function SecretaryFinancePageContent() {
                     )}
                   </TableBody>
                 </Table>
-                <PaginationBar
-                  meta={paymentMeta}
-                  loading={paymentPageLoading}
-                  onPrev={() => setPaymentPage((p) => Math.max(1, p - 1))}
-                  onNext={() => setPaymentPage((p) => Math.min(paymentMeta.pages, p + 1))}
+                <TablePaginationFooter
+                  meta={paymentsTable.meta}
+                  page={paymentsTable.page}
+                  pageSize={paymentsTable.pageSize}
+                  loading={paymentsTable.loading}
+                  onPageChange={paymentsTable.setPage}
+                  onPageSizeChange={paymentsTable.setPageSize}
                 />
               </div>
             </SectionCard>

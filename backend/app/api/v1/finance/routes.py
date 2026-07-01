@@ -1056,23 +1056,46 @@ def delete_invoice(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/invoices", response_model=InvoicePageOut, dependencies=[Depends(require_permission("finance.invoices.view"))])
+@router.get("/invoices", dependencies=[Depends(require_permission("finance.invoices.view"))])
 def list_invoices(
     enrollment_id: UUID | None = Query(default=None),
     invoice_type: str | None = Query(default=None),
     status: str | None = Query(default=None),
     outstanding_only: bool = Query(default=False),
+    q: str | None = Query(default=None),
+    date_from: str | None = Query(default=None, description="YYYY-MM-DD inclusive"),
+    date_to: str | None = Query(default=None, description="YYYY-MM-DD inclusive"),
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
+    page_size: int = Query(default=20, ge=1, le=200),
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
     _=Depends(get_current_user),
 ):
-    return service.list_invoices(
+    """Paginated invoice listing shared by secretary + director.
+
+    Same filter set as /director/finance/invoices. Rows carry
+    student_name + admission_no from a batch enrollment lookup so the
+    frontend renders names without a client-side map. Used for both the
+    Invoices tab and the Receipts tab (status=PAID).
+    """
+    result = service.list_invoices(
         db, tenant_id=tenant.id, enrollment_id=enrollment_id,
         invoice_type=invoice_type, status=status,
-        outstanding_only=outstanding_only, page=page, page_size=page_size,
+        outstanding_only=outstanding_only,
+        q=q, date_from=date_from, date_to=date_to,
+        page=page, page_size=page_size,
     )
+    # Batch-resolve student labels for this page — same helper the
+    # director endpoint uses. Kept small dependency here for isolation.
+    from app.api.v1.director.routes import _batch_student_labels, _serialize_invoice_row
+    invoices = result["items"]
+    enrollment_ids = [inv.enrollment_id for inv in invoices if inv.enrollment_id]
+    labels = _batch_student_labels(db, tenant_id=tenant.id, enrollment_ids=enrollment_ids)
+    items = []
+    for inv in invoices:
+        name, adm = labels.get(str(inv.enrollment_id), ("", "")) if inv.enrollment_id else ("", "")
+        items.append(_serialize_invoice_row(inv, student_name=name, admission_no=adm))
+    return {"items": items, "meta": result["meta"]}
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceOut, dependencies=[Depends(require_permission("finance.invoices.view"))])
@@ -1355,6 +1378,7 @@ def list_payments(
     provider: str | None = Query(default=None),
     date_from: str | None = Query(default=None, description="YYYY-MM-DD inclusive"),
     date_to: str | None = Query(default=None, description="YYYY-MM-DD inclusive"),
+    settled_only: bool = Query(default=False, description="Receipts view: only payments against PAID invoices"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -1370,7 +1394,7 @@ def list_payments(
     result = service.list_payments(
         db, tenant_id=tenant.id, enrollment_id=enrollment_id,
         q=q, provider=provider, date_from=date_from, date_to=date_to,
-        page=page, page_size=page_size,
+        settled_only=settled_only, page=page, page_size=page_size,
     )
     items = []
     for row in result["items"]:

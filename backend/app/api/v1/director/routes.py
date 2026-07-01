@@ -475,6 +475,7 @@ def list_director_payments(
     date_from: Optional[str] = Query(None, description="YYYY-MM-DD inclusive"),
     date_to: Optional[str]   = Query(None, description="YYYY-MM-DD inclusive"),
     enrollment_id: Optional[UUID] = Query(None),
+    settled_only: bool = Query(False, description="Receipts view: only payments against PAID invoices"),
 ):
     """Server-paginated payments table shared by director + secretary.
 
@@ -496,6 +497,7 @@ def list_director_payments(
         date_from=date_from,
         date_to=date_to,
         enrollment_id=enrollment_id,
+        settled_only=settled_only,
     )
     # list_payments already returns dicts (not ORM); coerce UUIDs / decimals
     # to str for JSON.

@@ -784,6 +784,17 @@ function TenantFinancePageContent() {
     enabled: section === "payments",
   });
 
+  // Receipts tab = payments against PAID invoices. Same endpoint, filtered
+  // via settled_only=true. Separate hook so pagination state on the two
+  // tabs is independent + bookmarkable.
+  type ReceiptTableFilters = { q: string; enrollment_id: string; settled_only: string };
+  const receiptsTable = usePaginatedTable<Payment, ReceiptTableFilters>({
+    endpoint: "/director/finance/payments",
+    keyPrefix: "rcp",
+    initialFilters: { q: "", enrollment_id: "", settled_only: "true" },
+    enabled: section === "receipts",
+  });
+
   const [receiptFilters, setReceiptFilters] = usePersistedState<ReceiptFilterState>(
     "dir.finance.receiptFilters",
     {
@@ -1165,40 +1176,9 @@ function TenantFinancePageContent() {
       .sort((a, b) => String(b.id).localeCompare(String(a.id)));
   }, [paidInvoices, receiptFilters, enrollmentNameById]);
 
-  const filteredReceiptPayments = useMemo(() => {
-    const q = receiptFilters.q.trim().toLowerCase();
-    const enrollmentId = receiptFilters.enrollment_id;
-
-    return decoratedPayments
-      .filter((payment) => {
-        const paidLinkedInvoices = (payment.allocations || [])
-          .map((alloc) => invoiceById.get(String(alloc.invoice_id || "")))
-          .filter((inv): inv is Invoice => Boolean(inv && isInvoiceSettled(inv)));
-
-        if (paidLinkedInvoices.length === 0) return false;
-
-        if (
-          enrollmentId &&
-          !paidLinkedInvoices.some(
-            (inv) => String(inv.enrollment_id || "") === enrollmentId
-          )
-        ) {
-          return false;
-        }
-
-        if (!q) return true;
-
-        const textBlob = [
-          String(payment.id || "").toLowerCase(),
-          asString(payment.provider).toLowerCase(),
-          asString(payment.reference).toLowerCase(),
-          payment.student_names.join(" ").toLowerCase(),
-          ...paidLinkedInvoices.map((inv) => String(inv.id || "").toLowerCase()),
-        ].join(" ");
-        return textBlob.includes(q);
-      })
-      .sort((a, b) => String(b.id).localeCompare(String(a.id)));
-  }, [decoratedPayments, receiptFilters, invoiceById]);
+  // Client-side filteredReceiptPayments removed — receipts tab now uses
+  // receiptsTable (server-paginated /director/finance/payments with
+  // settled_only=true) via the shared hook.
 
   const schoolName =
     printProfile.school_header || tenantInfo?.tenant_name || "School Management System";
@@ -2373,19 +2353,19 @@ function TenantFinancePageContent() {
                 <div className="lg:col-span-6">
                   <Label className="text-xs text-slate-600">Search</Label>
                   <Input
-                    placeholder="Invoice id, payment id, student..."
-                    value={receiptFilters.q}
+                    placeholder="Student, admission, receipt no, reference…"
+                    value={receiptsTable.filters.q}
                     onChange={(e) =>
-                      setReceiptFilters((p) => ({ ...p, q: e.target.value }))
+                      receiptsTable.setFilters((p) => ({ ...p, q: e.target.value }))
                     }
                   />
                 </div>
                 <div className="lg:col-span-4">
                   <Label className="text-xs text-slate-600">Student</Label>
                   <Select
-                    value={receiptFilters.enrollment_id || "__all__"}
+                    value={receiptsTable.filters.enrollment_id || "__all__"}
                     onValueChange={(v) =>
-                      setReceiptFilters((p) => ({
+                      receiptsTable.setFilters((p) => ({
                         ...p,
                         enrollment_id: v === "__all__" ? "" : v,
                       }))
@@ -2409,7 +2389,9 @@ function TenantFinancePageContent() {
                     variant="outline"
                     className="w-full"
                     onClick={() =>
-                      setReceiptFilters({ q: "", enrollment_id: "" })
+                      receiptsTable.setFilters(() => ({
+                        q: "", enrollment_id: "", settled_only: "true",
+                      }))
                     }
                   >
                     Reset
@@ -2505,7 +2487,7 @@ function TenantFinancePageContent() {
               icon={CircleDollarSign}
             >
               <div className="mb-3 text-xs text-slate-500">
-                Results: <strong>{filteredReceiptPayments.length}</strong>
+                <TableRangeCaption meta={receiptsTable.meta} />
               </div>
               <div className="rounded-xl border border-slate-100 overflow-hidden">
                 <Table>
@@ -2521,7 +2503,7 @@ function TenantFinancePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredReceiptPayments.slice(0, 200).map((payment) => (
+                    {receiptsTable.items.map((payment) => (
                       <TableRow key={payment.id}>
                         <TableCell className="font-mono text-xs text-slate-700">
                           {payment.receipt_no || "—"}
@@ -2530,8 +2512,8 @@ function TenantFinancePageContent() {
                           {payment.id}
                         </TableCell>
                         <TableCell className="text-sm">
-                          {payment.student_names.length > 0
-                            ? payment.student_names.join(", ")
+                          {payment.student_label && payment.student_label.trim()
+                            ? payment.student_label
                             : "N/A"}
                         </TableCell>
                         <TableCell className="text-xs">{payment.provider}</TableCell>
@@ -2563,7 +2545,7 @@ function TenantFinancePageContent() {
                       </TableRow>
                     ))}
 
-                    {filteredReceiptPayments.length === 0 && (
+                    {receiptsTable.items.length === 0 && !receiptsTable.loading && (
                       <TableRow>
                         <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-400">
                           No payment receipts found.
@@ -2573,6 +2555,14 @@ function TenantFinancePageContent() {
                   </TableBody>
                 </Table>
               </div>
+              <TablePaginationFooter
+                meta={receiptsTable.meta}
+                page={receiptsTable.page}
+                pageSize={receiptsTable.pageSize}
+                loading={receiptsTable.loading}
+                onPageChange={receiptsTable.setPage}
+                onPageSizeChange={receiptsTable.setPageSize}
+              />
             </SectionCard>
           </div>
         )}
