@@ -19,10 +19,12 @@ import {
   AlertTriangle,
   Shield,
   CalendarCheck,
+  GraduationCap,
 } from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { CarryForwardDialog } from "@/components/finance/CarryForwardDialog";
+import { AwardsTab } from "@/components/students/AwardsTab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -321,7 +323,8 @@ type Tab =
   | "emergency"
   | "documents"
   | "attendance"
-  | "discipline";
+  | "discipline"
+  | "awards";
 
 type DisciplineRecord = {
   id: string;
@@ -862,6 +865,7 @@ export function StudentProfilePage({
     { id: "documents", label: "Documents", icon: <FileText className="h-3.5 w-3.5" /> },
     { id: "attendance", label: "Attendance", icon: <CalendarCheck className="h-3.5 w-3.5" /> },
     { id: "discipline", label: "Discipline", icon: <Shield className="h-3.5 w-3.5" /> },
+    { id: "awards", label: "Awards", icon: <GraduationCap className="h-3.5 w-3.5" /> },
   ];
 
   const hasSis = Boolean(studentId);
@@ -1553,6 +1557,13 @@ export function StudentProfilePage({
                       </Table>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* ── AWARDS TAB ── */}
+              {tab === "awards" && studentId && (
+                <div className="p-6">
+                  <AwardsTab studentId={studentId} />
                 </div>
               )}
 

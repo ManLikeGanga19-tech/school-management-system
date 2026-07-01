@@ -7,6 +7,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import type { AppNavItem } from "@/components/layout/AppShell";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
 import { BulkApplyScholarshipCard } from "@/components/finance/BulkApplyScholarshipCard";
+import { GrantScholarshipDialog } from "@/components/finance/GrantScholarshipDialog";
 import { usePermissions } from "@/lib/auth/usePermissions";
 import { useClientPaginatedList } from "@/lib/useClientPaginatedList";
 import {
@@ -106,6 +107,7 @@ function AllocationRow({
   saving,
   onEdit,
   onDelete,
+  onGrant,
 }: {
   scholarship: Scholarship;
   apiBase: string;
@@ -113,6 +115,7 @@ function AllocationRow({
   saving: boolean;
   onEdit: (s: Scholarship) => void;
   onDelete: (id: string) => void;
+  onGrant: (s: Scholarship) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [allocations, setAllocations] = useState<ScholarshipAllocation[]>([]);
@@ -186,6 +189,13 @@ function AllocationRow({
             <RowActionsMenu
               ariaLabel="Scholarship actions"
               actions={[
+                {
+                  key: "grant",
+                  label: "Grant to student",
+                  icon: <GraduationCap />,
+                  disabled: saving || !scholarship.is_active,
+                  onSelect: () => onGrant(scholarship),
+                },
                 {
                   key: "edit",
                   label: "Edit scholarship",
@@ -301,6 +311,9 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // M2C: student-level grant dialog target — the scholarship the user
+  // is currently granting to a student.
+  const [grantTarget, setGrantTarget] = useState<Scholarship | null>(null);
 
   const load = useCallback(
     async (silent = false) => {
@@ -548,6 +561,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
                     saving={saving}
                     onEdit={openEdit}
                     onDelete={setDeletingId}
+                    onGrant={setGrantTarget}
                   />
                 ))}
                 {scholarshipTable.items.length === 0 && (
@@ -762,6 +776,16 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* M2C: Grant to Student dialog. Auto-loads the tenant's
+          enrollments the first time it opens, then locally-filters
+          the pick list by search. */}
+      <GrantScholarshipDialog
+        open={grantTarget !== null}
+        scholarship={grantTarget}
+        onClose={() => setGrantTarget(null)}
+        onGranted={() => void load(true)}
+      />
     </AppShell>
   );
 }
