@@ -861,6 +861,22 @@ function SecretaryFinancePageContent() {
     enabled: section === "receipts",
   });
 
+  // Secretary invoices tab — same shared hook. Closes the previous
+  // 2000-cap silent truncation. Filters mirror the director's set.
+  type InvoicesTableFilters = {
+    q: string; enrollment_id: string; invoice_type: string;
+    status: string; outstanding_only: boolean;
+  };
+  const invoicesTable = usePaginatedTable<Invoice, InvoicesTableFilters>({
+    endpoint: "/finance/invoices",
+    keyPrefix: "inv",
+    initialFilters: {
+      q: "", enrollment_id: "", invoice_type: "",
+      status: "", outstanding_only: false,
+    },
+    enabled: section === "invoices",
+  });
+
   async function loadFinance(silent = false) {
     if (!silent) setLoading(true);
     try {
@@ -1056,9 +1072,9 @@ function SecretaryFinancePageContent() {
     }
   }, [invoiceFilters, setInvoicePage]);
 
-  // Load paginated tables whenever page or relevant filters change
-  useEffect(() => { void loadPagedInvoices(invoicePage, invoiceFilters); },
-    [invoicePage, invoiceFilters, loadPagedInvoices]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (loadPagedInvoices output is no longer rendered — invoicesTable via
+  // the shared hook drives the invoices tab now. Effect removed to avoid
+  // duplicate /finance/invoices round-trips.)
   useEffect(() => { void loadPagedPayments(paymentPage); },
     [paymentPage, loadPagedPayments]);
   useEffect(() => { void loadPagedReceipts(receiptPage); },
@@ -1076,6 +1092,16 @@ function SecretaryFinancePageContent() {
       purpose: purpose || prev.purpose,
       enrollment_id: enrollment_id || prev.enrollment_id,
       // When user comes from intake, most likely they want to see what's unpaid.
+      outstanding_only: purpose ? true : prev.outstanding_only,
+    }));
+
+    // Deep-link parity with the new server-paginated invoicesTable:
+    // seed its filters too so the table narrows on landing.
+    invoicesTable.setFilters((prev) => ({
+      ...prev,
+      enrollment_id: enrollment_id || prev.enrollment_id,
+      invoice_type:
+        purpose === "INTERVIEW_FEE" ? "INTERVIEW" : prev.invoice_type,
       outstanding_only: purpose ? true : prev.outstanding_only,
     }));
 
@@ -1316,75 +1342,10 @@ function SecretaryFinancePageContent() {
     return Array.from(set).sort();
   }, [data.invoices]);
 
-  const filteredInvoices = useMemo(() => {
-    const q = invoiceFilters.q.trim().toLowerCase();
-    const type = normalizeInvoiceType(invoiceFilters.type || "");
-    const status = normalizeInvoiceStatus(invoiceFilters.status || "");
-    const enrollment_id = (invoiceFilters.enrollment_id || "").trim();
-    const outstandingOnly = invoiceFilters.outstanding_only;
-
-    // Purpose can set reasonable defaults without forcing filters
-    const purpose = (invoiceFilters.purpose || "").trim().toUpperCase();
-    const purposeTypeHint =
-      purpose === "INTERVIEW_FEE" ? "INTERVIEW" : "";
-
-    return data.invoices
-      .filter((inv) => {
-        if (enrollment_id && String(inv.enrollment_id || "") !== enrollment_id)
-          return false;
-
-        if (outstandingOnly && toNumber(inv.balance_amount) <= 0) return false;
-
-        const invType = normalizeInvoiceType(inv.invoice_type || "");
-        const invStatus = normalizeInvoiceStatus(inv.status || "");
-
-        // explicit type filter wins
-        if (type && invType !== type) return false;
-        // purpose hint (only if user didn't explicitly choose a type)
-        if (!type && purposeTypeHint && invType !== purposeTypeHint) return false;
-
-        if (status && invStatus !== status) return false;
-
-        if (q) {
-          const student = (enrollmentNameById.get(String(inv.enrollment_id || "")) || "").toLowerCase();
-          const invId = String(inv.id || "").toLowerCase();
-          const invType2 = invType.toLowerCase();
-          const invStatus2 = invStatus.toLowerCase();
-
-          return (
-            student.includes(q) ||
-            invId.includes(q) ||
-            invType2.includes(q) ||
-            invStatus2.includes(q)
-          );
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        // Show outstanding first, then by type, then stable by id
-        const ab = toNumber(a.balance_amount);
-        const bb = toNumber(b.balance_amount);
-        if (ab === 0 && bb > 0) return 1;
-        if (ab > 0 && bb === 0) return -1;
-        const at = normalizeInvoiceType(a.invoice_type || "");
-        const bt = normalizeInvoiceType(b.invoice_type || "");
-        if (at !== bt) return at.localeCompare(bt);
-        return String(b.id).localeCompare(String(a.id));
-      });
-  }, [data.invoices, invoiceFilters, enrollmentNameById]);
-
-  const filteredInvoiceTotals = useMemo(() => {
-    return filteredInvoices.reduce(
-      (acc, inv) => {
-        acc.total += toNumber(inv.total_amount);
-        acc.paid += toNumber(inv.paid_amount);
-        acc.balance += toNumber(inv.balance_amount);
-        return acc;
-      },
-      { total: 0, paid: 0, balance: 0 }
-    );
-  }, [filteredInvoices]);
+  // (Client-side filteredInvoices + filteredInvoiceTotals were removed:
+  // invoices tab now reads from invoicesTable — server-paginated
+  // /finance/invoices via the shared hook — and per G2 the secretary
+  // never surfaces money aggregates.)
 
   const configuredClassCodes = useMemo(
     () => new Set(tenantClasses.map((row) => normalizeClassCode(row.code))),
@@ -2131,12 +2092,12 @@ function SecretaryFinancePageContent() {
               <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="grid gap-3 lg:grid-cols-12">
                   <div className="lg:col-span-4">
-                    <FormField label="Search" hint="Student name, invoice id, type, status">
+                    <FormField label="Search" hint="Student name, admission no, invoice no…">
                       <Input
-                        placeholder="e.g. Achieng, INTERVIEW, UNPAID…"
-                        value={invoiceFilters.q}
+                        placeholder="e.g. Achieng, ADM-0123, INV-…"
+                        value={invoicesTable.filters.q}
                         onChange={(e) =>
-                          setInvoiceFilters((p) => ({ ...p, q: e.target.value }))
+                          invoicesTable.setFilters((p) => ({ ...p, q: e.target.value }))
                         }
                       />
                     </FormField>
@@ -2146,8 +2107,8 @@ function SecretaryFinancePageContent() {
                     <FormField label="Student (Enrollment)">
                       <EnrollmentCombobox
                         options={enrollmentOptions}
-                        value={invoiceFilters.enrollment_id}
-                        onChange={(v) => setInvoiceFilters((p) => ({ ...p, enrollment_id: v }))}
+                        value={invoicesTable.filters.enrollment_id}
+                        onChange={(v) => invoicesTable.setFilters((p) => ({ ...p, enrollment_id: v }))}
                         placeholder="All students"
                         allLabel="All students"
                       />
@@ -2157,11 +2118,11 @@ function SecretaryFinancePageContent() {
                   <div className="lg:col-span-2">
                     <FormField label="Type">
                       <Select
-                        value={invoiceFilters.type || "__all__"}
+                        value={invoicesTable.filters.invoice_type || "__all__"}
                         onValueChange={(v) =>
-                          setInvoiceFilters((p) => ({
+                          invoicesTable.setFilters((p) => ({
                             ...p,
-                            type: v === "__all__" ? "" : v,
+                            invoice_type: v === "__all__" ? "" : v,
                           }))
                         }
                       >
@@ -2171,9 +2132,7 @@ function SecretaryFinancePageContent() {
                         <SelectContent>
                           <SelectItem value="__all__">All types</SelectItem>
                           {availableInvoiceTypes.map((t) => (
-                            <SelectItem key={t} value={t}>
-                              {t}
-                            </SelectItem>
+                            <SelectItem key={t} value={t}>{t}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -2183,9 +2142,9 @@ function SecretaryFinancePageContent() {
                   <div className="lg:col-span-2">
                     <FormField label="Status">
                       <Select
-                        value={invoiceFilters.status || "__all__"}
+                        value={invoicesTable.filters.status || "__all__"}
                         onValueChange={(v) =>
-                          setInvoiceFilters((p) => ({
+                          invoicesTable.setFilters((p) => ({
                             ...p,
                             status: v === "__all__" ? "" : v,
                           }))
@@ -2197,9 +2156,7 @@ function SecretaryFinancePageContent() {
                         <SelectContent>
                           <SelectItem value="__all__">All statuses</SelectItem>
                           {availableInvoiceStatuses.map((s) => (
-                            <SelectItem key={s} value={s}>
-                              {s}
-                            </SelectItem>
+                            <SelectItem key={s} value={s}>{s}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -2209,54 +2166,36 @@ function SecretaryFinancePageContent() {
                   <div className="lg:col-span-1 flex items-end">
                     <button
                       onClick={() =>
-                        setInvoiceFilters((p) => ({
+                        invoicesTable.setFilters((p) => ({
                           ...p,
                           outstanding_only: !p.outstanding_only,
                         }))
                       }
                       className={`w-full rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                        invoiceFilters.outstanding_only
+                        invoicesTable.filters.outstanding_only
                           ? "bg-amber-600 text-white hover:bg-amber-700"
                           : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
                       }`}
                     >
-                      {invoiceFilters.outstanding_only ? "Outstanding" : "All"}
+                      {invoicesTable.filters.outstanding_only ? "Outstanding" : "All"}
                     </button>
                   </div>
                 </div>
 
+                {/* Secretary RBAC (G2 policy): NO money aggregates surfaced
+                    here. Just the count + a reset. Money totals were the
+                    Outstanding/Paid/Balance pills that used to live here —
+                    they now show only on the director's finance dashboard. */}
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
-                      Results: <strong className="text-slate-800">{invoiceMeta.total}</strong>
-                    </span>
-                    <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
-                      Total: <strong className="text-slate-800">{formatKes(filteredInvoiceTotals.total)}</strong>
-                    </span>
-                    <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
-                      Paid: <strong className="text-emerald-700">{formatKes(filteredInvoiceTotals.paid)}</strong>
-                    </span>
-                    <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
-                      Balance: <strong className="text-red-600">{formatKes(filteredInvoiceTotals.balance)}</strong>
-                    </span>
-
-                    {invoiceFilters.purpose && (
-                      <span className="rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700 ring-1 ring-blue-200">
-                        Purpose: {invoiceFilters.purpose.toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-
+                  <span className="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">
+                    <TableRangeCaption meta={invoicesTable.meta} />
+                  </span>
                   <button
                     onClick={() =>
-                      setInvoiceFilters({
-                        enrollment_id: "",
-                        purpose: "",
-                        type: "",
-                        status: "",
-                        q: "",
-                        outstanding_only: false,
-                      })
+                      invoicesTable.setFilters(() => ({
+                        q: "", enrollment_id: "", invoice_type: "",
+                        status: "", outstanding_only: false,
+                      }))
                     }
                     className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
                   >
@@ -2279,16 +2218,23 @@ function SecretaryFinancePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pagedInvoices.map((invoice) => {
+                    {invoicesTable.items.map((invoice) => {
+                      const invAny = invoice as Invoice & { student_name?: string | null };
                       const enrollment = data.enrollments.find(
                         (r) => r.id === invoice.enrollment_id
                       );
+                      const studentName =
+                        invAny.student_name && invAny.student_name.trim()
+                          ? invAny.student_name
+                          : enrollment
+                          ? enrollmentName(enrollment.payload || {})
+                          : "N/A";
                       return (
                         <TableRow key={invoice.id} className="hover:bg-slate-50">
                           <TableCell className="text-sm font-medium">
-                            {enrollment ? enrollmentName(enrollment.payload || {}) : "N/A"}
+                            {studentName}
                             {invoice.enrollment_id &&
-                              invoice.enrollment_id === invoiceFilters.enrollment_id && (
+                              invoice.enrollment_id === invoicesTable.filters.enrollment_id && (
                                 <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 ring-1 ring-blue-200">
                                   Focus
                                 </span>
@@ -2371,12 +2317,12 @@ function SecretaryFinancePageContent() {
                       );
                     })}
 
-                    {pagedInvoices.length === 0 && !invoicePageLoading && (
-                      invoicePageError ? (
+                    {invoicesTable.items.length === 0 && !invoicesTable.loading && (
+                      invoicesTable.error ? (
                         <ErrorRow
                           colSpan={7}
-                          message={invoicePageError}
-                          onRetry={() => void loadPagedInvoices(invoicePage, invoiceFilters)}
+                          message={invoicesTable.error}
+                          onRetry={() => void invoicesTable.reload()}
                         />
                       ) : (
                         <EmptyRow colSpan={7} message="No invoices match the current filters." />
@@ -2385,11 +2331,13 @@ function SecretaryFinancePageContent() {
                   </TableBody>
                 </Table>
 
-                <PaginationBar
-                  meta={invoiceMeta}
-                  loading={invoicePageLoading}
-                  onPrev={() => setInvoicePage((p) => Math.max(1, p - 1))}
-                  onNext={() => setInvoicePage((p) => Math.min(invoiceMeta.pages, p + 1))}
+                <TablePaginationFooter
+                  meta={invoicesTable.meta}
+                  page={invoicesTable.page}
+                  pageSize={invoicesTable.pageSize}
+                  loading={invoicesTable.loading}
+                  onPageChange={invoicesTable.setPage}
+                  onPageSizeChange={invoicesTable.setPageSize}
                 />
               </div>
             </SectionCard>
