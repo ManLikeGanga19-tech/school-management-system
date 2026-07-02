@@ -1466,6 +1466,7 @@ def preview_student_payment_route(
             tenant_id=tenant.id,
             student_id=student_id,
             amount=payload.amount,
+            apply_available_credit=payload.apply_available_credit,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1495,6 +1496,7 @@ def record_student_payment_route(
             amount=payload.amount,
             provider=payload.provider,
             reference=payload.reference,
+            apply_available_credit=payload.apply_available_credit,
         )
         db.commit()
 

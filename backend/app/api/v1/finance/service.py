@@ -3710,18 +3710,56 @@ def _build_waterfall(
     tenant_id: UUID,
     student_id: UUID,
     amount: Decimal,
+    apply_available_credit: bool = False,
 ) -> dict:
     """Pure planner: computes the waterfall without mutating anything.
 
+    apply_available_credit: when True, the student's OPEN credit rows
+    (OVERPAYMENT_CREDIT / GOODWILL_CREDIT / OVERBILL_CORRECTION, negative
+    amounts) are consumed FIRST as an additional funding source. The
+    effective pool for the waterfall becomes (cash + credit_consumed).
+    This gives credits a real off-ramp instead of only being spendable at
+    next invoice generation.
+
     Returns a dict with:
       * steps: list of {type, ..., amount} rows describing the plan
-      * summary: dict of totals (cf_settled, invoices_paid, surplus_credit)
+      * summary: dict of totals (cf_settled, invoices_paid, surplus_credit,
+        credit_consumed)
       * cf_debits_remaining_after: total debit still open after this payment
       * invoices_remaining_after: total invoice balance still open after
     """
     amt = _quantize(amount)
-    remaining = amt
     steps: list[dict] = []
+
+    # ── Step 0 — optionally consume available OPEN credits as a source ──
+    credit_consumed_total = Decimal("0")
+    credit_consumed_rows: list[tuple[str, Decimal, Decimal]] = []  # (cf_id, amount_used, remaining_after)
+    if apply_available_credit:
+        credit_rows = _student_open_cf_credits(
+            db, tenant_id=tenant_id, student_id=student_id
+        )
+        for cr in credit_rows:
+            outstanding_credit = _quantize(
+                abs(Decimal(str(cr.amount)))
+                - Decimal(str(getattr(cr, "settled_amount", 0) or 0))
+            )
+            if outstanding_credit <= 0:
+                continue
+            steps.append({
+                "type": "credit_consumed",
+                "cf_id": str(cr.id),
+                "term_label": cr.term_label,
+                "category": cr.category,
+                "description": cr.description,
+                "original_amount": str(_quantize(Decimal(str(cr.amount)))),
+                "already_settled": str(_quantize(Decimal(str(getattr(cr, "settled_amount", 0) or 0)))),
+                "amount": str(outstanding_credit),
+                "fully_settles": True,
+            })
+            credit_consumed_rows.append((str(cr.id), outstanding_credit, Decimal("0")))
+            credit_consumed_total += outstanding_credit
+
+    remaining = amt + credit_consumed_total
 
     cf_debits = _student_open_cf_debits(db, tenant_id=tenant_id, student_id=student_id)
     cf_settled_total = Decimal("0")
@@ -3805,6 +3843,7 @@ def _build_waterfall(
             "cf_debits_settled": str(_quantize(cf_settled_total)),
             "invoices_paid": str(_quantize(invoices_paid_total)),
             "surplus_credit": str(surplus),
+            "credit_consumed": str(_quantize(credit_consumed_total)),
         },
         "cf_debits_remaining_after": str(_quantize(cf_remaining)),
         "invoices_remaining_after": str(_quantize(invoices_remaining)),
@@ -3817,14 +3856,12 @@ def preview_student_payment(
     tenant_id: UUID,
     student_id: UUID,
     amount: Decimal,
+    apply_available_credit: bool = False,
 ) -> dict:
     """Read-only waterfall preview. Same engine as record_student_payment,
     guaranteeing WYSIWYG for the operator."""
     if amount is None or Decimal(amount) <= 0:
         raise ValueError("Payment amount must be greater than zero")
-    # Validate student exists in this tenant — the DB queries would return
-    # empty otherwise and we'd silently show "surplus becomes credit for a
-    # non-existent student" which is not the outcome the operator wants.
     student = db.execute(
         select(Student).where(
             Student.id == student_id, Student.tenant_id == tenant_id
@@ -3833,13 +3870,21 @@ def preview_student_payment(
     if not student:
         raise ValueError("Student not found")
     plan = _build_waterfall(
-        db, tenant_id=tenant_id, student_id=student_id, amount=Decimal(amount)
+        db,
+        tenant_id=tenant_id,
+        student_id=student_id,
+        amount=Decimal(amount),
+        apply_available_credit=apply_available_credit,
     )
-    # Also surface the student's OPEN credit balance so the UI can offer the
-    # "apply available credit" checkbox in Phase N2. Read-only.
+    # Always surface the student's OPEN credit balance so the UI can show
+    # the "apply available credit" affordance and let the operator toggle
+    # it. This is a snapshot BEFORE the (optional) consumption above.
     credits = _student_open_cf_credits(db, tenant_id=tenant_id, student_id=student_id)
     credit_available = -sum(
-        (Decimal(str(r.amount)) for r in credits),
+        (
+            _quantize(Decimal(str(r.amount)) + Decimal(str(getattr(r, "settled_amount", 0) or 0)))
+            for r in credits
+        ),
         Decimal("0"),
     )
     plan["credit_available"] = str(_quantize(credit_available))
@@ -3896,6 +3941,7 @@ def record_student_payment(
     amount: Decimal,
     provider: str,
     reference: Optional[str] = None,
+    apply_available_credit: bool = False,
 ) -> dict:
     """Record a payment for a student using the Phase N waterfall.
 
@@ -3936,15 +3982,22 @@ def record_student_payment(
 
     # Plan first (deterministic + auditable — same engine as preview).
     plan = _build_waterfall(
-        db, tenant_id=tenant_id, student_id=student_id, amount=payment_amount
+        db,
+        tenant_id=tenant_id,
+        student_id=student_id,
+        amount=payment_amount,
+        apply_available_credit=apply_available_credit,
     )
 
-    # Split the plan into (cf, invoices, surplus).
+    # Split the plan into (credit_consumed, cf_debits, invoices, surplus).
+    credit_consumptions: list[tuple[UUID, Decimal]] = []
     cf_settlements: list[tuple[UUID, Decimal]] = []
     invoice_allocations: list[dict] = []
     surplus = Decimal(plan["summary"]["surplus_credit"])
     for step in plan["steps"]:
-        if step["type"] == "carry_forward_debit":
+        if step["type"] == "credit_consumed":
+            credit_consumptions.append((UUID(step["cf_id"]), Decimal(step["amount"])))
+        elif step["type"] == "carry_forward_debit":
             cf_settlements.append((UUID(step["cf_id"]), Decimal(step["amount"])))
         elif step["type"] == "invoice":
             invoice_allocations.append({
@@ -3971,8 +4024,59 @@ def record_student_payment(
         )
         db.flush()
 
-    # ── Settle CF debits (row-locked to defeat concurrent settlement) ─────
+    # ── Consume available OPEN credits first (adds to the pool) ─────────
     from app.models.student_carry_forward import StudentCarryForward
+    for cf_id, use_amount in credit_consumptions:
+        cr = db.execute(
+            select(StudentCarryForward)
+            .where(
+                StudentCarryForward.id == cf_id,
+                StudentCarryForward.tenant_id == tenant_id,
+                StudentCarryForward.status == "OPEN",
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if cr is None:
+            raise ValueError(
+                f"Credit balance {cf_id} was modified during payment recording — "
+                "please refresh and retry."
+            )
+        outstanding_credit = _quantize(
+            abs(Decimal(str(cr.amount)))
+            - Decimal(str(getattr(cr, "settled_amount", 0) or 0))
+        )
+        if use_amount > outstanding_credit:
+            raise ValueError(
+                f"Credit balance {cf_id} available changed during payment — "
+                "please refresh and retry."
+            )
+        cr.settled_amount = _quantize(
+            Decimal(str(getattr(cr, "settled_amount", 0) or 0)) + use_amount
+        )
+        if cr.settled_amount >= abs(Decimal(str(cr.amount))):
+            cr.status = "SETTLED"
+        db.flush()
+        log_event(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            action="finance.balance.credit_consumed_by_payment",
+            resource="student_carry_forward",
+            resource_id=cr.id,
+            payload={
+                "student_id": str(student_id),
+                "category": cr.category,
+                "original_amount": str(cr.amount),
+                "amount_consumed": str(use_amount),
+                "settled_amount_after": str(cr.settled_amount),
+                "fully_consumed": bool(cr.status == "SETTLED"),
+                "payment_id": str(pay.id),
+                "receipt_no": pay.receipt_no,
+            },
+            meta=None,
+        )
+
+    # ── Settle CF debits (row-locked to defeat concurrent settlement) ─────
     for cf_id, apply_amount in cf_settlements:
         cf = db.execute(
             select(StudentCarryForward)
@@ -4079,6 +4183,7 @@ def record_student_payment(
             "student_id": str(student_id),
             "amount": str(pay.amount),
             "provider": provider_code,
+            "credit_consumed": plan["summary"].get("credit_consumed", "0"),
             "cf_debits_settled": plan["summary"]["cf_debits_settled"],
             "invoices_paid": plan["summary"]["invoices_paid"],
             "surplus_credit": plan["summary"]["surplus_credit"],
@@ -4107,6 +4212,7 @@ def record_student_payment(
         "allocated_total": plan["summary"]["invoices_paid"],
         "surplus_credit": plan["summary"]["surplus_credit"],
         "cf_debits_settled": plan["summary"]["cf_debits_settled"],
+        "credit_consumed": plan["summary"].get("credit_consumed", "0"),
         "credit_balance_id": credit_balance_id,
         "waterfall_steps": plan["steps"],
         "allocations": alloc_out,

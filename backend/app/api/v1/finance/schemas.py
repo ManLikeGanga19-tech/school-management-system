@@ -333,13 +333,17 @@ class StudentPaymentSummaryOut(BaseModel):
 class StudentPaymentRecordRequest(BaseModel):
     """Body for POST /finance/students/{student_id}/payments.
 
-    Allocation is automatic: oldest unpaid school-fees invoice first, then
-    current term; surplus becomes an OVERPAYMENT_CREDIT carry-forward on the
-    student. provider/reference behave the same as on the manual endpoint.
+    Phase N waterfall:
+      1. If apply_available_credit=True — the student's OPEN credit rows
+         are consumed as an additional funding source.
+      2. Open carry-forward DEBITS (oldest first).
+      3. Open SCHOOL_FEES invoices (oldest first).
+      4. Any remainder → OVERPAYMENT_CREDIT (auto-applies at next generation).
     """
     amount: Decimal
     provider: str
     reference: Optional[str] = None
+    apply_available_credit: bool = False
 
 
 class StudentPaymentRecordAllocationOut(BaseModel):
@@ -358,10 +362,13 @@ class StudentPaymentRecordOut(BaseModel):
     surplus_credit: Decimal
     # Phase N — how much of the payment went to CF debits before invoices.
     cf_debits_settled: Optional[Decimal] = None
+    # Phase N2 — how much OPEN credit was consumed as extra funding.
+    credit_consumed: Optional[Decimal] = None
     credit_balance_id: Optional[UUID] = None
     allocations: List[StudentPaymentRecordAllocationOut] = Field(default_factory=list)
-    # The full waterfall echo (CF settlements + invoice allocations + surplus)
-    # so the UI can render the same breakdown the preview showed.
+    # The full waterfall echo (credit_consumed + CF settlements + invoice
+    # allocations + surplus) so the UI can render the same breakdown the
+    # preview showed.
     waterfall_steps: Optional[list[dict]] = None
 
 
@@ -372,6 +379,7 @@ class PaymentWaterfallPreviewRequest(BaseModel):
     the preview is provider-agnostic (we don't book anything, just plan).
     """
     amount: Decimal
+    apply_available_credit: bool = False
 
 
 class PaymentWaterfallStepOut(BaseModel):
@@ -403,6 +411,7 @@ class PaymentWaterfallSummaryOut(BaseModel):
     cf_debits_settled: Decimal
     invoices_paid: Decimal
     surplus_credit: Decimal
+    credit_consumed: Optional[Decimal] = None
 
 
 class PaymentWaterfallPreviewOut(BaseModel):

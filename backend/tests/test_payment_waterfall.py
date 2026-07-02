@@ -128,6 +128,33 @@ def _seed_cf_debit(
     return str(cid)
 
 
+def _seed_cf_credit(
+    db: Session,
+    *,
+    tenant_id,
+    student_id: str,
+    amount: Decimal,
+    category: str = "OVERPAYMENT_CREDIT",
+    term_label: str = "Prior overpayment",
+) -> str:
+    """Seed an OPEN credit CF row (negative amount)."""
+    cid = uuid4()
+    db.execute(
+        text(
+            "INSERT INTO core.student_carry_forward_balances "
+            "(id, tenant_id, student_id, term_label, amount, category, status, description) "
+            "VALUES (:id, :tid, :sid, :label, :amt, :cat, 'OPEN', :desc)"
+        ),
+        {
+            "id": str(cid), "tid": str(tenant_id), "sid": student_id,
+            "label": term_label, "amt": str(-abs(amount)), "cat": category,
+            "desc": f"seed credit {amount}",
+        },
+    )
+    db.commit()
+    return str(cid)
+
+
 class TestWaterfallPreview:
     def test_preview_cf_only(self, client: TestClient, db_session: Session):
         tenant = create_tenant(db_session)
@@ -428,3 +455,146 @@ class TestWaterfallRecord:
         assert [_sig(s) for s in preview["steps"]] == [
             _sig(s) for s in record["waterfall_steps"]
         ]
+
+
+class TestWaterfallApplyAvailableCredit:
+    """Phase N2 — the operator can opt to spend the student's OPEN credit
+    balance as additional funding for this payment. Ticking the flag
+    consumes credit rows (marks them SETTLED) and expands the effective
+    pool going into the CF/invoice waterfall."""
+
+    def test_preview_flag_default_off_shows_credit_available(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, _ = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_credit(db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("2500"))
+
+        r = client.post(
+            f"{BASE}/students/{sid}/payments/preview",
+            headers=headers, json={"amount": "1000"},
+        )
+        assert r.status_code == 200, r.text
+        plan = r.json()
+        # credit_available is surfaced regardless of the flag.
+        assert Decimal(plan["credit_available"]) == Decimal("2500")
+        # But without the flag, no credit_consumed step is planned.
+        assert Decimal(plan["summary"].get("credit_consumed") or "0") == Decimal("0")
+        types = [s["type"] for s in plan["steps"]]
+        assert "credit_consumed" not in types
+
+    def test_preview_flag_on_consumes_credit_before_waterfall(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_credit(db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("3000"))
+        _seed_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            term_number=2, academic_year=2026, total=Decimal("10000"),
+        )
+
+        r = client.post(
+            f"{BASE}/students/{sid}/payments/preview",
+            headers=headers,
+            json={"amount": "5000", "apply_available_credit": True},
+        )
+        assert r.status_code == 200, r.text
+        plan = r.json()
+        # Effective pool = 5000 cash + 3000 credit → 8000 to the invoice.
+        assert Decimal(plan["summary"]["credit_consumed"]) == Decimal("3000")
+        assert Decimal(plan["summary"]["invoices_paid"]) == Decimal("8000")
+        assert Decimal(plan["summary"]["surplus_credit"]) == Decimal("0")
+        types = [s["type"] for s in plan["steps"]]
+        assert types == ["credit_consumed", "invoice"]
+
+    def test_record_consumes_credit_marks_settled(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        cr_id = _seed_cf_credit(
+            db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("3000"),
+        )
+        inv_id = _seed_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            term_number=2, academic_year=2026, total=Decimal("10000"),
+        )
+
+        r = client.post(
+            f"{BASE}/students/{sid}/payments",
+            headers=headers,
+            json={
+                "amount": "5000",
+                "provider": "MPESA",
+                "reference": "MP-CR",
+                "apply_available_credit": True,
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert Decimal(body["credit_consumed"]) == Decimal("3000")
+        assert Decimal(body["allocated_total"]) == Decimal("8000")
+        # Payment row's amount stays the TRUE cash received (5000) — credit
+        # is captured separately in credit_consumed for accountancy.
+        assert Decimal(body["amount"]) == Decimal("5000")
+
+        cr = db_session.get(StudentCarryForward, cr_id)
+        db_session.refresh(cr)
+        assert cr.status == "SETTLED"
+        assert Decimal(str(cr.settled_amount)) == Decimal("3000.00")
+
+        inv = db_session.get(Invoice, inv_id)
+        db_session.refresh(inv)
+        assert Decimal(str(inv.paid_amount)) == Decimal("8000.00")
+
+    def test_record_flag_off_leaves_credit_untouched(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        cr_id = _seed_cf_credit(
+            db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("3000"),
+        )
+        _seed_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            term_number=2, academic_year=2026, total=Decimal("10000"),
+        )
+        r = client.post(
+            f"{BASE}/students/{sid}/payments",
+            headers=headers,
+            json={"amount": "5000", "provider": "MPESA"},
+        )
+        assert r.status_code == 200, r.text
+        cr = db_session.get(StudentCarryForward, cr_id)
+        db_session.refresh(cr)
+        assert cr.status == "OPEN"
+        assert Decimal(str(cr.settled_amount)) == Decimal("0.00")
+
+    def test_credit_consumed_audit_event_emitted(
+        self, client: TestClient, db_session: Session
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_credit(db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("2000"))
+        _seed_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            term_number=2, academic_year=2026, total=Decimal("5000"),
+        )
+        r = client.post(
+            f"{BASE}/students/{sid}/payments",
+            headers=headers,
+            json={"amount": "3000", "provider": "CASH", "apply_available_credit": True},
+        )
+        assert r.status_code == 200
+        cnt = db_session.execute(text(
+            "SELECT COUNT(*) FROM core.audit_logs "
+            "WHERE tenant_id = :tid "
+            "AND action = 'finance.balance.credit_consumed_by_payment'"
+        ), {"tid": str(tenant.id)}).scalar()
+        assert cnt == 1
