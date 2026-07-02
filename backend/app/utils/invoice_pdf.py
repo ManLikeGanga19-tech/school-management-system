@@ -392,6 +392,40 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
         total_row("Other Credits:", f"-{_fmt_amount(other_credits)}")
     total_row(f"Total ({currency}):", _fmt_amount(data.get("total_amount")), bold=True)
 
+    # ── Phase N4 — Prior balance block ────────────────────────────────────
+    # Everything the student owes OUTSIDE of this invoice — outstanding
+    # carry-forward debits (older adjustments) and available credit on
+    # account. Bundled CF is already reflected in the invoice's Total, so
+    # this section only shows what's still open elsewhere.
+    prior = data.get("prior_balance") or None
+    if prior:
+        try:
+            prior_debit = Decimal(str(prior.get("debit") or 0))
+            prior_credit = Decimal(str(prior.get("credit") or 0))
+            prior_net = Decimal(str(prior.get("net") or 0))
+        except (InvalidOperation, TypeError):
+            prior_debit = prior_credit = prior_net = Decimal("0")
+        if prior_debit > 0 or prior_credit > 0:
+            # Small heading + divider so the parent knows this is a separate
+            # note, not a component of THIS invoice's total.
+            stream_lines.append(f"{_TR:.3f} {_TG:.3f} {_TB:.3f} rg")
+            txt(col_amt_x - 90, y, "PRIOR BALANCE (not in this invoice):", size=8, bold=True)
+            stream_lines.append("0 0 0 rg")
+            y -= 12
+            if prior_debit > 0:
+                total_row("Previously owed:", _fmt_amount(prior_debit))
+            if prior_credit > 0:
+                # Parenthesised per accounting convention for credit balances.
+                total_row("Credit on account:", f"({_fmt_amount(prior_credit)})")
+            if prior_debit > 0 and prior_credit > 0:
+                # Only bother with the net line when both sides exist —
+                # otherwise it's just repeating the single line above.
+                total_row(
+                    "Net prior position:",
+                    _fmt_amount(prior_net) if prior_net >= 0 else f"({_fmt_amount(abs(prior_net))})",
+                    bold=True,
+                )
+
     try:
         paid = Decimal(str(data.get("paid_amount") or 0))
     except InvalidOperation:

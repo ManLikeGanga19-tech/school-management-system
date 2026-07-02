@@ -804,6 +804,53 @@ def generate_invoice_pdf(doc: dict[str, Any]) -> bytes:
     story.append(totals_tbl)
     story.append(Spacer(1, 4 * mm))
 
+    # ── Phase N4 — Prior balance block ─────────────────────────────────────
+    # The student's outstanding position OUTSIDE this invoice: older CF
+    # debits still owed, or available credit on account. Bundled CF is
+    # already inside this invoice's total, so this section only surfaces
+    # what's still open elsewhere. Parents get a clear picture without
+    # confusing them into thinking this invoice is bigger than it is.
+    prior = doc.get("prior_balance") or None
+    if prior:
+        prior_rows: list[list[str]] = []
+        try:
+            prior_debit_v = float(prior.get("debit") or 0)
+            prior_credit_v = float(prior.get("credit") or 0)
+            prior_net_v = float(prior.get("net") or 0)
+        except (TypeError, ValueError):
+            prior_debit_v = prior_credit_v = prior_net_v = 0.0
+        if prior_debit_v > 0:
+            prior_rows.append(["Previously owed:", _fmt(str(prior_debit_v), currency)])
+        if prior_credit_v > 0:
+            prior_rows.append([
+                "Credit on account:",
+                f"({_fmt(str(prior_credit_v), currency)})",
+            ])
+        if prior_debit_v > 0 and prior_credit_v > 0:
+            prior_rows.append([
+                "Net prior position:",
+                _fmt(str(prior_net_v), currency)
+                if prior_net_v >= 0
+                else f"({_fmt(str(abs(prior_net_v)), currency)})",
+            ])
+        if prior_rows:
+            story.append(Paragraph(
+                "<b>Prior balance</b> (not included in this invoice):",
+                _s("prior_hdr", size=8, color=colors.HexColor("#334155"),
+                   space_after=2),
+            ))
+            prior_tbl = Table(prior_rows, colWidths=totals_col)
+            prior_tbl.setStyle(TableStyle([
+                ("FONTNAME",    (0, 0), (-1, -1), "Helvetica"),
+                ("FONTSIZE",    (0, 0), (-1, -1), 8),
+                ("TEXTCOLOR",   (0, 0), (-1, -1), colors.HexColor("#475569")),
+                ("ALIGN",       (1, 0), (1, -1),  "RIGHT"),
+                ("TOPPADDING",  (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]))
+            story.append(prior_tbl)
+            story.append(Spacer(1, 4 * mm))
+
     # ── Status badge ───────────────────────────────────────────────────────
     if status == "PAID":
         badge_color = colors.HexColor("#166534")

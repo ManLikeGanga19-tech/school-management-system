@@ -4871,6 +4871,55 @@ def build_invoice_document(
         else None
     )
 
+    # ── Phase N4 — Prior balance block ────────────────────────────────────
+    # The student's OTHER open carry-forward, i.e. rows NOT bundled into
+    # this invoice. Two purposes on the printed invoice:
+    #   * Prior owed  (positive)  → "you have an older unpaid balance of KES X
+    #                                 in addition to this invoice"
+    #   * Credit held (negative)  → "you have KES Y credit on account that
+    #                                 auto-applies at next generation"
+    # Bundled CF rows are already reflected in this invoice's total, so
+    # excluding them here prevents double-counting.
+    prior_balance: dict[str, Any] | None = None
+    student_id_for_cf = getattr(enrollment, "student_id", None) if enrollment is not None else None
+    if student_id_for_cf is not None:
+        from app.models.student_carry_forward import StudentCarryForward
+        cf_rows = db.execute(
+            select(StudentCarryForward).where(
+                StudentCarryForward.tenant_id == tenant_id,
+                StudentCarryForward.student_id == student_id_for_cf,
+                StudentCarryForward.status == "OPEN",
+                # Exclude anything already bundled INTO this invoice (defensive:
+                # status=OPEN + invoice_id=this.id shouldn't coexist, but guard
+                # anyway so we never double-count).
+                sa_or(
+                    StudentCarryForward.invoice_id.is_(None),
+                    StudentCarryForward.invoice_id != inv.id,
+                ),
+            )
+        ).scalars().all()
+        prior_debit = Decimal("0")
+        prior_credit = Decimal("0")
+        for r in cf_rows:
+            amt = Decimal(str(r.amount or 0))
+            settled = Decimal(str(getattr(r, "settled_amount", 0) or 0))
+            if amt > 0:
+                # DEBIT outstanding = amount - settled_amount
+                out = amt - settled
+                if out > 0:
+                    prior_debit += out
+            elif amt < 0:
+                # CREDIT available = abs(amount) - settled_amount
+                avail = abs(amt) - settled
+                if avail > 0:
+                    prior_credit += avail
+        if prior_debit > 0 or prior_credit > 0:
+            prior_balance = {
+                "debit": str(prior_debit.quantize(Decimal("0.01"))),
+                "credit": str(prior_credit.quantize(Decimal("0.01"))),
+                "net": str((prior_debit - prior_credit).quantize(Decimal("0.01"))),
+            }
+
     return {
         "document_type": "INVOICE",
         "document_id": str(inv.id),
@@ -4891,6 +4940,7 @@ def build_invoice_document(
         "paid_amount": str(getattr(inv, "paid_amount", 0) or 0),
         "balance_amount": str(getattr(inv, "balance_amount", 0) or 0),
         "arrears_summary": arrears_summary,
+        "prior_balance": prior_balance,
         "created_at": (
             getattr(inv, "created_at").isoformat()
             if getattr(inv, "created_at", None) is not None

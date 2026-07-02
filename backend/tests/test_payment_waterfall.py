@@ -598,3 +598,101 @@ class TestWaterfallApplyAvailableCredit:
             "AND action = 'finance.balance.credit_consumed_by_payment'"
         ), {"tid": str(tenant.id)}).scalar()
         assert cnt == 1
+
+
+class TestInvoiceDocumentPriorBalance:
+    """Phase N4 — the invoice document (and its PDF) should surface the
+    student's prior balance (open CF debits and available credit) so parents
+    see their full financial position at a glance."""
+
+    def test_document_carries_prior_balance_debit(
+        self, client: TestClient, db_session: Session
+    ):
+        from app.api.v1.finance import service
+        tenant = create_tenant(db_session)
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_debit(
+            db_session, tenant_id=tenant.id, student_id=sid,
+            amount=Decimal("2500"),
+        )
+        inv_id = _seed_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            term_number=2, academic_year=2026, total=Decimal("10000"),
+        )
+        doc = service.build_invoice_document(
+            db_session, tenant_id=tenant.id, invoice_id=inv_id,
+        )
+        assert doc["prior_balance"] is not None
+        assert Decimal(doc["prior_balance"]["debit"]) == Decimal("2500.00")
+        assert Decimal(doc["prior_balance"]["credit"]) == Decimal("0.00")
+        assert Decimal(doc["prior_balance"]["net"]) == Decimal("2500.00")
+
+    def test_document_carries_prior_balance_credit(
+        self, client: TestClient, db_session: Session
+    ):
+        from app.api.v1.finance import service
+        tenant = create_tenant(db_session)
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_credit(
+            db_session, tenant_id=tenant.id, student_id=sid,
+            amount=Decimal("1500"),
+        )
+        inv_id = _seed_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            term_number=2, academic_year=2026, total=Decimal("10000"),
+        )
+        doc = service.build_invoice_document(
+            db_session, tenant_id=tenant.id, invoice_id=inv_id,
+        )
+        assert doc["prior_balance"] is not None
+        assert Decimal(doc["prior_balance"]["debit"]) == Decimal("0.00")
+        assert Decimal(doc["prior_balance"]["credit"]) == Decimal("1500.00")
+        assert Decimal(doc["prior_balance"]["net"]) == Decimal("-1500.00")
+
+    def test_document_absent_when_no_prior(
+        self, client: TestClient, db_session: Session
+    ):
+        from app.api.v1.finance import service
+        tenant = create_tenant(db_session)
+        _, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        inv_id = _seed_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            term_number=2, academic_year=2026, total=Decimal("10000"),
+        )
+        doc = service.build_invoice_document(
+            db_session, tenant_id=tenant.id, invoice_id=inv_id,
+        )
+        assert doc.get("prior_balance") is None
+
+    def test_pdf_contains_prior_balance_when_present(
+        self, client: TestClient, db_session: Session
+    ):
+        """Round-trip through the PDF generator — the file should carry
+        the 'PRIOR BALANCE' block when the student owes something outside
+        this invoice."""
+        from app.api.v1.finance import service
+        from app.utils.invoice_pdf import generate_invoice_pdf
+        tenant = create_tenant(db_session)
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_debit(
+            db_session, tenant_id=tenant.id, student_id=sid,
+            amount=Decimal("3000"),
+        )
+        inv_id = _seed_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            term_number=2, academic_year=2026, total=Decimal("5000"),
+        )
+        doc = service.build_invoice_document(
+            db_session, tenant_id=tenant.id, invoice_id=inv_id,
+        )
+        # Baseline: PDF without a prior-balance for the same invoice.
+        doc_no_prior = dict(doc)
+        doc_no_prior["prior_balance"] = None
+        pdf_without = generate_invoice_pdf(doc_no_prior)
+        pdf_with = generate_invoice_pdf(doc)
+        assert pdf_with.startswith(b"%PDF-")
+        assert pdf_without.startswith(b"%PDF-")
+        # Rendering the prior-balance block should measurably grow the PDF —
+        # cheap smoke test that the block actually reached the stream even
+        # though the ASCII text is compressed inside the PDF content stream.
+        assert len(pdf_with) > len(pdf_without)
