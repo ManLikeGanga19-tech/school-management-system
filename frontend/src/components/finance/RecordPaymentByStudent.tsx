@@ -125,6 +125,8 @@ type StudentRecordResult = {
   amount: string;
   allocated_total: string;
   surplus_credit: string;
+  cf_debits_settled?: string | null;
+  credit_consumed?: string | null;
   credit_balance_id: string | null;
   allocations: {
     invoice_id: string;
@@ -133,6 +135,42 @@ type StudentRecordResult = {
     academic_year: number | null;
     amount: string;
   }[];
+  waterfall_steps?: WaterfallStep[] | null;
+};
+
+// Phase N — waterfall preview shape.
+type WaterfallStep = {
+  type: "credit_consumed" | "carry_forward_debit" | "invoice" | "overpayment_credit";
+  amount: string;
+  cf_id?: string | null;
+  term_label?: string | null;
+  category?: string | null;
+  original_amount?: string | null;
+  already_settled?: string | null;
+  fully_settles?: boolean | null;
+  invoice_id?: string | null;
+  invoice_no?: string | null;
+  invoice_type?: string | null;
+  invoice_balance_before?: string | null;
+  fully_pays?: boolean | null;
+  academic_year?: number | null;
+  term_number?: number | null;
+  description?: string | null;
+  note?: string | null;
+};
+
+type WaterfallPreview = {
+  amount: string;
+  steps: WaterfallStep[];
+  summary: {
+    cf_debits_settled: string;
+    invoices_paid: string;
+    surplus_credit: string;
+    credit_consumed?: string | null;
+  };
+  cf_debits_remaining_after: string;
+  invoices_remaining_after: string;
+  credit_available: string;
 };
 
 type FamilyRecordResult = {
@@ -224,6 +262,12 @@ export function RecordPaymentByStudent() {
   // Family-mode extras
   const [familyMode, setFamilyMode] = useState<"auto" | "manual">("auto");
   const [perStudent, setPerStudent] = useState<Record<string, string>>({});
+
+  // Phase N — waterfall preview (student mode only).
+  const [preview, setPreview] = useState<WaterfallPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [applyAvailableCredit, setApplyAvailableCredit] = useState(false);
 
   // Tenant's current term identity (term_number + academic_year). Used to ask
   // the per-student payment summary endpoint for the right prior-vs-current
@@ -408,6 +452,49 @@ export function RecordPaymentByStudent() {
   const requiresCreditTarget =
     picked?.kind === "parent" && wouldHaveSurplus && familyChildren.length > 1;
 
+  // ── Waterfall preview (student mode only) ──────────────────────────────
+  // Debounced fetch: whenever amount / apply_available_credit / picked
+  // change, ask the server for the plan. Same engine as commit — WYSIWYG.
+  useEffect(() => {
+    if (!picked || picked.kind !== "student") {
+      setPreview(null);
+      setPreviewError(null);
+      return;
+    }
+    if (typedAmount <= 0) {
+      setPreview(null);
+      setPreviewError(null);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    const t = window.setTimeout(async () => {
+      try {
+        const plan = await api.post<WaterfallPreview>(
+          `/finance/students/${encodeURIComponent(picked.id)}/payments/preview`,
+          { amount: typedAmount, apply_available_credit: applyAvailableCredit },
+          { tenantRequired: true },
+        );
+        if (!cancelled) setPreview(plan);
+      } catch (err) {
+        if (!cancelled) {
+          const detail =
+            (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            (err as { message?: string })?.message;
+          setPreviewError(detail || "Could not compute the payment breakdown.");
+          setPreview(null);
+        }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [picked, typedAmount, applyAvailableCredit]);
+
   // ── Record ────────────────────────────────────────────────────────────────
   async function recordStudent() {
     if (!picked || picked.kind !== "student") return;
@@ -419,19 +506,31 @@ export function RecordPaymentByStudent() {
     try {
       const result = await api.post<StudentRecordResult>(
         `/finance/students/${encodeURIComponent(picked.id)}/payments`,
-        { amount: typedAmount, provider, reference: reference.trim() || null },
+        {
+          amount: typedAmount,
+          provider,
+          reference: reference.trim() || null,
+          apply_available_credit: applyAvailableCredit,
+        },
         { tenantRequired: true }
       );
       setLastStudentResult(result);
       setLastFamilyResult(null);
       const surplus = parseFloat(result.surplus_credit || "0");
+      const cfSettled = parseFloat(result.cf_debits_settled || "0");
+      const parts: string[] = [];
+      if (cfSettled > 0) parts.push(`${fmtKes(cfSettled)} cleared prior balance`);
+      if (parseFloat(result.allocated_total) > 0)
+        parts.push(`${fmtKes(result.allocated_total)} paid to invoices`);
+      if (surplus > 0) parts.push(`${fmtKes(surplus)} credited forward`);
       toast.success(
-        surplus > 0
-          ? `Recorded ${fmtKes(result.amount)}. ${fmtKes(result.allocated_total)} allocated, ${fmtKes(surplus)} credited forward.`
-          : `Recorded ${fmtKes(result.amount)}.`
+        `Recorded ${fmtKes(result.amount)}. ` +
+          (parts.length ? parts.join(" · ") : ""),
       );
       setAmount("");
       setReference("");
+      setApplyAvailableCredit(false);
+      setPreview(null);
       await loadSummary(picked);
     } catch (err: unknown) {
       const detail =
@@ -688,6 +787,26 @@ export function RecordPaymentByStudent() {
                     placeholder="0.00"
                   />
                 </div>
+                {/* Phase N2 — Apply-available-credit toggle. Visible whenever
+                    the student has an OPEN credit balance the operator could
+                    spend. Off by default: no surprise consumption. */}
+                {preview && parseFloat(preview.credit_available) > 0 && (
+                  <label className="flex items-start gap-2 rounded-md border border-emerald-100 bg-emerald-50/40 px-3 py-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={applyAvailableCredit}
+                      onChange={(e) => setApplyAvailableCredit(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-emerald-300 text-emerald-600"
+                    />
+                    <span className="text-emerald-900">
+                      Apply available credit of{" "}
+                      <strong>{fmtKes(preview.credit_available)}</strong>
+                      <span className="mt-0.5 block text-[11px] text-emerald-800/80">
+                        Consumed first, then cash flows into the waterfall.
+                      </span>
+                    </span>
+                  </label>
+                )}
                 <div>
                   <Label className="text-xs">Provider</Label>
                   <Select value={provider} onValueChange={setProvider}>
@@ -701,12 +820,103 @@ export function RecordPaymentByStudent() {
                   <Label className="text-xs">Reference (optional)</Label>
                   <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. M-PESA id" />
                 </div>
+                {/* Phase N — Waterfall preview: live breakdown of what the
+                    server WILL book if this payment is submitted. Preview and
+                    commit share one engine on the backend so what the operator
+                    sees here is exactly what happens. No silent surprises. */}
+                {previewLoading && (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                    Computing breakdown…
+                  </div>
+                )}
+                {!previewLoading && previewError && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
+                    {previewError}
+                  </div>
+                )}
+                {!previewLoading && preview && preview.steps.length > 0 && (
+                  <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs">
+                    <div className="mb-1.5 flex items-baseline justify-between">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Waterfall preview
+                      </span>
+                      <span className="font-mono text-[11px] text-slate-500">
+                        {fmtKes(preview.amount)}
+                      </span>
+                    </div>
+                    <ol className="space-y-1">
+                      {preview.steps.map((s, i) => (
+                        <li key={i} className="flex items-baseline justify-between gap-2">
+                          <span className="text-slate-700">
+                            {s.type === "credit_consumed" && (
+                              <>
+                                <span className="mr-1 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-emerald-800">
+                                  Credit
+                                </span>
+                                Available credit consumed
+                              </>
+                            )}
+                            {s.type === "carry_forward_debit" && (
+                              <>
+                                <span className="mr-1 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-800">
+                                  Prior
+                                </span>
+                                {s.term_label || "Prior balance"}
+                                {s.fully_settles === false && (
+                                  <span className="ml-1 text-[10px] text-slate-400">
+                                    (partial)
+                                  </span>
+                                )}
+                              </>
+                            )}
+                            {s.type === "invoice" && (
+                              <>
+                                <span className="mr-1 rounded bg-slate-200 px-1 py-0.5 text-[9px] font-semibold uppercase text-slate-700">
+                                  Invoice
+                                </span>
+                                Term {s.term_number ?? "—"}{" "}
+                                {s.academic_year ? s.academic_year : ""}
+                                {s.invoice_no && (
+                                  <span className="ml-1 font-mono text-[10px] text-slate-400">
+                                    {s.invoice_no}
+                                  </span>
+                                )}
+                                {s.fully_pays === false && (
+                                  <span className="ml-1 text-[10px] text-slate-400">
+                                    (partial)
+                                  </span>
+                                )}
+                              </>
+                            )}
+                            {s.type === "overpayment_credit" && (
+                              <>
+                                <span className="mr-1 rounded bg-blue-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-blue-800">
+                                  Credit fwd
+                                </span>
+                                Surplus → next invoice
+                              </>
+                            )}
+                          </span>
+                          <span className="font-mono text-slate-700 tabular-nums">
+                            {fmtKes(s.amount)}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                    <div className="mt-2 border-t border-slate-100 pt-1.5 text-[10px] text-slate-500">
+                      Prior balance remaining after: {fmtKes(preview.cf_debits_remaining_after)}
+                      {" · "}
+                      Invoice balance remaining: {fmtKes(preview.invoices_remaining_after)}
+                    </div>
+                  </div>
+                )}
                 <Button onClick={() => void recordStudent()} disabled={recording || !studentSummary} className="w-full">
                   {recording ? "Recording…" : "Record Payment"}
                 </Button>
                 <p className="text-[11px] text-slate-400">
-                  Allocation is automatic — oldest term first. Surplus becomes
-                  a credit on this student's next invoice.
+                  Prior balance first, then invoices oldest-first. Any surplus
+                  is credited forward to the next invoice — never lost, never
+                  fails.
                 </p>
               </div>
             </div>
@@ -717,11 +927,20 @@ export function RecordPaymentByStudent() {
                   Receipt {lastStudentResult.receipt_no || lastStudentResult.payment_id.slice(0, 8)}
                 </h3>
                 <p className="text-xs text-emerald-800">
-                  Recorded {fmtKes(lastStudentResult.amount)} ·{" "}
-                  {fmtKes(lastStudentResult.allocated_total)} allocated
-                  {parseFloat(lastStudentResult.surplus_credit) > 0 && <>
-                    , {fmtKes(lastStudentResult.surplus_credit)} credited forward
-                  </>}.
+                  Recorded {fmtKes(lastStudentResult.amount)}
+                  {parseFloat(lastStudentResult.credit_consumed || "0") > 0 && (
+                    <> · {fmtKes(lastStudentResult.credit_consumed || "0")} available credit consumed</>
+                  )}
+                  {parseFloat(lastStudentResult.cf_debits_settled || "0") > 0 && (
+                    <> · {fmtKes(lastStudentResult.cf_debits_settled || "0")} prior balance cleared</>
+                  )}
+                  {parseFloat(lastStudentResult.allocated_total) > 0 && (
+                    <> · {fmtKes(lastStudentResult.allocated_total)} to invoices</>
+                  )}
+                  {parseFloat(lastStudentResult.surplus_credit) > 0 && (
+                    <> · {fmtKes(lastStudentResult.surplus_credit)} credited forward</>
+                  )}
+                  .
                 </p>
                 <ul className="mt-2 space-y-0.5 text-[11px] text-emerald-900">
                   {lastStudentResult.allocations.map((a) => (
