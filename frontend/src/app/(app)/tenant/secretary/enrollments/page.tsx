@@ -513,6 +513,18 @@ function buildInterviewFeePayHref(enrollmentId: string): string {
   return `/tenant/secretary/finance?${qs.toString()}`;
 }
 
+// Phase P — deep-link to the consolidated Record-Payment page with the
+// applicant pre-selected, so the operator can pay their school-fees
+// invoice before hitting the ENROLLED gate. The record-payment page
+// reads applicant_id (an enrollment_id, not a student_id) and switches
+// straight into the Applicant panel.
+function buildApplicantPayHref(enrollmentId: string): string {
+  const qs = new URLSearchParams({
+    applicant_id: enrollmentId,
+  });
+  return `/tenant/secretary/finance?section=record-payment&${qs.toString()}`;
+}
+
 function formatAdmissionNumber(n: number): string {
   return `ADM-${String(n).padStart(4, "0")}`;
 }
@@ -3002,6 +3014,38 @@ function SecretaryEnrollmentsPageContent() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" className="w-64">
+                                {/* Phase P — deep-link to consolidated
+                                    Record Payment for APPROVED applicants
+                                    whose school-fees invoice needs to be
+                                    paid before ENROLL. Rendered above the
+                                    workflow-actions section so it's the
+                                    first thing the operator sees when
+                                    they're stuck on the fees gate. */}
+                                {statusUpper === "APPROVED" && (
+                                  <>
+                                    <DropdownMenuLabel className="text-xs">Payments</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        window.location.href = buildApplicantPayHref(row.id);
+                                      }}
+                                      className="flex items-start gap-2"
+                                    >
+                                      <div className="flex-1">
+                                        <div className="text-sm font-medium">
+                                          Record Fees Payment
+                                          <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                                            Unlocks Enroll
+                                          </span>
+                                        </div>
+                                        <div className="mt-0.5 text-xs text-slate-500">
+                                          Pay school fees so the enrollment can move to ENROLLED / ENROLLED_PARTIAL.
+                                        </div>
+                                      </div>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                  </>
+                                )}
                                 <DropdownMenuLabel className="text-xs">Workflow Actions</DropdownMenuLabel>
                                 <DropdownMenuSeparator />
                                 {(Object.keys(actionConfig) as ActionType[]).map((act) => {

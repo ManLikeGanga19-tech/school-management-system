@@ -921,9 +921,45 @@ def mark_enrolled(
     elif finance["fees"]["partial_ok"]:
         new_status = "ENROLLED_PARTIAL"
     else:
-        raise ValueError(
-            "School fees are not cleared and partial-enrollment policy is not satisfied."
+        # Build an actionable message: tell the operator what threshold they
+        # need to hit so the gate becomes actionable rather than a dead-end.
+        pol = finance["policy"]
+        fees = finance["fees"]
+        fees_policy = finance.get("fees_policy") or {}
+        parts: list[str] = []
+        parts.append("School fees are not cleared and partial-enrollment policy is not satisfied.")
+        # Total outstanding across all open school-fees invoices.
+        outstanding_raw = fees.get("total_outstanding")
+        if outstanding_raw and str(outstanding_raw).strip() not in ("", "0", "0.00"):
+            parts.append(f"Outstanding: KES {outstanding_raw}.")
+        if not pol.get("allow_partial_enrollment"):
+            parts.append(
+                "Partial enrollment is currently disabled — either pay the "
+                "school-fees invoice in full, or enable partial enrollment in "
+                "Finance Policy."
+            )
+        else:
+            min_pct = pol.get("min_percent_to_enroll")
+            min_amt = pol.get("min_amount_to_enroll")
+            hints: list[str] = []
+            if min_pct is not None:
+                hints.append(f"at least {min_pct}% of the invoice paid")
+            if min_amt is not None and str(min_amt).strip() not in ("", "0", "0.00"):
+                hints.append(f"at least KES {min_amt} paid")
+            if hints:
+                parts.append(
+                    f"Partial enrollment requires {' or '.join(hints)}."
+                )
+            # Fee-structure-driven policies carry a richer meta blob.
+            fs_mode = fees_policy.get("mode")
+            if fs_mode == "fee_structure" and fees_policy.get("min_amount_required"):
+                parts.append(
+                    f"Fee structure requires KES {fees_policy['min_amount_required']} paid to enroll."
+                )
+        parts.append(
+            "Record a school-fees payment for this applicant to proceed."
         )
+        raise ValueError(" ".join(parts))
 
     if not admission_number or not admission_number.strip():
         admission_number = _next_admission_number(db, tenant_id=tenant_id)

@@ -46,6 +46,44 @@ def _seed_prospective_enrollment(
     return str(eid)
 
 
+def _seed_school_fees_invoice(
+    db: Session, *, tenant_id, enrollment_id: str,
+    total: Decimal = Decimal("15000"),
+    term_number: int = 1,
+    academic_year: int = 2026,
+    status: str = "ISSUED",
+) -> str:
+    """Seed a SCHOOL_FEES invoice against a not-yet-ENROLLED enrollment,
+    reflecting the Phase F flow where the fees invoice is generated at
+    approval so the operator can record a partial payment before ENROLL."""
+    iid = uuid4()
+    db.execute(
+        text(
+            "INSERT INTO core.invoices "
+            "(id, tenant_id, invoice_no, invoice_type, status, enrollment_id, "
+            " term_number, academic_year, currency, total_amount, paid_amount, balance_amount) "
+            "VALUES (:id, :tid, :no, 'SCHOOL_FEES', :status, :eid, :tn, :yr, "
+            "        'KES', :total, 0, :total)"
+        ),
+        {
+            "id": str(iid), "tid": str(tenant_id),
+            "no": f"INV-{uuid4().hex[:6].upper()}",
+            "status": status, "eid": enrollment_id,
+            "tn": term_number, "yr": academic_year,
+            "total": str(total),
+        },
+    )
+    db.execute(
+        text(
+            "INSERT INTO core.invoice_lines (invoice_id, description, amount) "
+            "VALUES (:iid, 'Tuition', :amt)"
+        ),
+        {"iid": str(iid), "amt": str(total)},
+    )
+    db.commit()
+    return str(iid)
+
+
 def _seed_interview_invoice(
     db: Session, *, tenant_id, enrollment_id: str,
     total: Decimal = Decimal("2000"),
@@ -244,7 +282,7 @@ class TestEnrollmentPaymentRecord:
             json={"amount": "2000", "provider": "CASH"},
         )
         assert r.status_code == 400
-        assert "no unpaid interview invoice" in r.json()["detail"].lower()
+        assert "no unpaid invoices" in r.json()["detail"].lower()
 
     def test_rejects_zero_amount(
         self, client: TestClient, db_session: Session,
@@ -306,3 +344,123 @@ class TestEnrollmentPaymentRecord:
             "WHERE tenant_id = :tid AND action = 'payment.interview.recorded'"
         ), {"tid": str(tenant.id)}).scalar()
         assert cnt == 1
+
+
+class TestEnrollmentPaymentSchoolFees:
+    """Phase P — the by-enrollment payment endpoint also handles
+    SCHOOL_FEES invoices for pre-ENROLLED applicants, so operators
+    can satisfy the partial-enrollment gate before the SIS student
+    row exists."""
+
+    def test_summary_includes_school_fees_invoices(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        eid = _seed_prospective_enrollment(
+            db_session, tenant_id=tenant.id, status="APPROVED",
+        )
+        _seed_school_fees_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            total=Decimal("15000"),
+        )
+        r = client.get(
+            f"{BASE}/enrollments/{eid}/payment-summary",
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["eligible"] is True
+        assert len(body["interview_invoices"]) == 0
+        assert len(body["school_fees_invoices"]) == 1
+        assert Decimal(body["total_outstanding"]) == Decimal("15000.00")
+        assert body["partial_policy"] is not None
+
+    def test_record_pays_school_fees_invoice(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        eid = _seed_prospective_enrollment(
+            db_session, tenant_id=tenant.id, status="APPROVED",
+        )
+        iid = _seed_school_fees_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            total=Decimal("15000"),
+        )
+        r = client.post(
+            f"{BASE}/enrollments/{eid}/payments",
+            headers=headers,
+            json={"amount": "5000", "provider": "MPESA", "reference": "MP-P"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert Decimal(body["amount"]) == Decimal("5000")
+        assert Decimal(body["allocated_total"]) == Decimal("5000")
+        assert Decimal(body["surplus_absorbed"]) == Decimal("0")
+
+        inv = db_session.get(Invoice, iid)
+        db_session.refresh(inv)
+        assert Decimal(str(inv.paid_amount)) == Decimal("5000.00")
+        assert Decimal(str(inv.balance_amount)) == Decimal("10000.00")
+
+    def test_record_pays_interview_then_school_fees_oldest_first(
+        self, client: TestClient, db_session: Session,
+    ):
+        """If both an INTERVIEW and a SCHOOL_FEES invoice exist, the
+        payment allocates oldest-first — the interview invoice
+        (typically older) gets settled before the school-fees invoice."""
+        import time
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        eid = _seed_prospective_enrollment(
+            db_session, tenant_id=tenant.id, status="APPROVED",
+        )
+        interview_id = _seed_interview_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            total=Decimal("2000"),
+        )
+        time.sleep(0.01)
+        fees_id = _seed_school_fees_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            total=Decimal("15000"),
+        )
+        r = client.post(
+            f"{BASE}/enrollments/{eid}/payments",
+            headers=headers,
+            json={"amount": "5000", "provider": "MPESA"},
+        )
+        assert r.status_code == 200, r.text
+        interview = db_session.get(Invoice, interview_id)
+        db_session.refresh(interview)
+        assert interview.status == "PAID"
+        assert Decimal(str(interview.paid_amount)) == Decimal("2000.00")
+
+        fees = db_session.get(Invoice, fees_id)
+        db_session.refresh(fees)
+        assert Decimal(str(fees.paid_amount)) == Decimal("3000.00")
+        assert Decimal(str(fees.balance_amount)) == Decimal("12000.00")
+
+    def test_record_audit_action_when_only_school_fees_touched(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        eid = _seed_prospective_enrollment(
+            db_session, tenant_id=tenant.id, status="APPROVED",
+        )
+        _seed_school_fees_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            total=Decimal("15000"),
+        )
+        r = client.post(
+            f"{BASE}/enrollments/{eid}/payments",
+            headers=headers,
+            json={"amount": "5000", "provider": "MPESA"},
+        )
+        assert r.status_code == 200
+        actions = db_session.execute(text(
+            "SELECT action FROM core.audit_logs "
+            "WHERE tenant_id = :tid AND action LIKE 'payment.%.recorded'"
+        ), {"tid": str(tenant.id)}).scalars().all()
+        assert "payment.applicant_fees.recorded" in actions

@@ -199,9 +199,20 @@ type ApplicantInterviewInvoice = {
   invoice_no: string | null;
   invoice_type: string;
   status: string;
+  term_number: number | null;
+  academic_year: number | null;
   total_amount: string;
   paid_amount: string;
   balance_amount: string;
+};
+
+type ApplicantPartialPolicy = {
+  allow_partial_enrollment: boolean;
+  min_percent_to_enroll: number | null;
+  min_amount_to_enroll: string | null;
+  partial_ok: boolean | null;
+  paid_ok: boolean | null;
+  fees_policy: Record<string, unknown> | null;
 };
 
 type ApplicantSummary = {
@@ -212,8 +223,10 @@ type ApplicantSummary = {
   class_code: string | null;
   parent_name: string | null;
   interview_invoices: ApplicantInterviewInvoice[];
+  school_fees_invoices: ApplicantInterviewInvoice[];
   total_outstanding: string;
   eligible: boolean;
+  partial_policy: ApplicantPartialPolicy | null;
 };
 
 type ApplicantRecordResult = {
@@ -266,17 +279,86 @@ const PROVIDERS = [
   { code: "CHEQUE", label: "Cheque" },
 ];
 
+// Phase P — Actionable hint under the applicant's school-fees table.
+// Reads the tenant's partial-enrollment policy + the latest fees
+// invoice's balance, tells the operator exactly how much needs to be
+// paid for ENROLLED_PARTIAL to unlock. When the threshold is already
+// met, shows the green "ready to enroll" state instead.
+function ApplicantPartialHint({
+  policy,
+  feesInvoices,
+}: {
+  policy: ApplicantPartialPolicy;
+  feesInvoices: ApplicantInterviewInvoice[];
+}) {
+  const latest = feesInvoices[0];
+  if (!latest) return null;
+  if (policy.paid_ok) {
+    return (
+      <p className="mt-2 rounded-md bg-emerald-50 px-3 py-1.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-200">
+        School fees fully paid — this applicant can be enrolled.
+      </p>
+    );
+  }
+  if (policy.partial_ok) {
+    return (
+      <p className="mt-2 rounded-md bg-emerald-50 px-3 py-1.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-200">
+        Partial-enrollment threshold met — this applicant can be enrolled as ENROLLED_PARTIAL.
+      </p>
+    );
+  }
+  if (!policy.allow_partial_enrollment) {
+    return (
+      <p className="mt-2 rounded-md bg-amber-50 px-3 py-1.5 text-[11px] text-amber-900 ring-1 ring-amber-200">
+        Partial enrollment is disabled for this tenant. Pay the fees invoice
+        in full to enroll (or enable partial enrollment in Finance Policy).
+      </p>
+    );
+  }
+  // Compute how much still needs to be paid to hit the threshold.
+  const total = parseFloat(latest.total_amount || "0");
+  const paid = parseFloat(latest.paid_amount || "0");
+  const parts: string[] = [];
+  if (policy.min_percent_to_enroll != null) {
+    const required = (total * policy.min_percent_to_enroll) / 100;
+    const shortfall = Math.max(0, required - paid);
+    if (shortfall > 0) {
+      parts.push(
+        `at least ${fmtKes(shortfall)} more (${policy.min_percent_to_enroll}% of ${fmtKes(total)})`,
+      );
+    }
+  }
+  if (policy.min_amount_to_enroll != null) {
+    const min = parseFloat(policy.min_amount_to_enroll || "0");
+    const shortfall = Math.max(0, min - paid);
+    if (shortfall > 0) parts.push(`at least ${fmtKes(shortfall)} more`);
+  }
+  if (parts.length === 0) return null;
+  return (
+    <p className="mt-2 rounded-md bg-amber-50 px-3 py-1.5 text-[11px] text-amber-900 ring-1 ring-amber-200">
+      To enable partial enrollment, record {parts.join(" or ")}.
+    </p>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function RecordPaymentByStudent() {
   const searchParams = useSearchParams();
   const initialStudentId = searchParams?.get("student_id") || "";
   const initialParentId = searchParams?.get("parent_id") || "";
+  // Phase P — deep-link support for the Applicant flow. Read applicant_id
+  // (an enrollment_id, since prospective applicants have no student_id
+  // until ENROLLED) so the enrollments page can hand off directly to us
+  // with the correct panel pre-selected.
+  const initialApplicantId = searchParams?.get("applicant_id") || "";
   const initialPicked: PickedTarget | null = initialParentId
     ? { kind: "parent", id: initialParentId }
-    : initialStudentId
-      ? { kind: "student", id: initialStudentId }
-      : null;
+    : initialApplicantId
+      ? { kind: "applicant", id: initialApplicantId }
+      : initialStudentId
+        ? { kind: "student", id: initialStudentId }
+        : null;
 
   // Picker options come from /enrollments/ AND /parents/.
   const [optionsLoading, setOptionsLoading] = useState(true);
@@ -638,8 +720,8 @@ export function RecordPaymentByStudent() {
       const surplus = parseFloat(result.surplus_absorbed || "0");
       toast.success(
         surplus > 0
-          ? `Interview fee recorded (${fmtKes(result.amount)}). ${fmtKes(surplus)} overpayment will carry forward at enrollment.`
-          : `Interview fee recorded (${fmtKes(result.amount)}).`,
+          ? `Payment recorded (${fmtKes(result.amount)}). ${fmtKes(surplus)} overpayment will carry forward at enrollment.`
+          : `Payment recorded (${fmtKes(result.amount)}).`,
       );
       setAmount("");
       setReference("");
@@ -1100,7 +1182,7 @@ export function RecordPaymentByStudent() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Interview owed</p>
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Total owed</p>
                     <p className={`text-lg font-bold ${
                       parseFloat(applicantSummary.total_outstanding) > 0
                         ? "text-amber-800"
@@ -1111,32 +1193,65 @@ export function RecordPaymentByStudent() {
                   </div>
                 </div>
                 {applicantSummary.eligible ? (
-                  <div className="rounded-xl border border-white bg-white p-3">
-                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      Open interview invoices
-                    </p>
-                    <ul className="space-y-1">
-                      {applicantSummary.interview_invoices.map((inv) => (
-                        <li key={inv.invoice_id} className="flex items-center justify-between text-xs">
-                          <span className="font-mono text-slate-500">{inv.invoice_no || inv.invoice_id.slice(0, 8)}</span>
-                          <span className="text-slate-500">
-                            paid {fmtKes(inv.paid_amount)} of {fmtKes(inv.total_amount)}
-                          </span>
-                          <span className="font-semibold text-amber-800">{fmtKes(inv.balance_amount)}</span>
-                        </li>
-                      ))}
-                    </ul>
+                  <div className="space-y-2">
+                    {applicantSummary.interview_invoices.length > 0 && (
+                      <div className="rounded-xl border border-white bg-white p-3">
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          Open interview invoices
+                        </p>
+                        <ul className="space-y-1">
+                          {applicantSummary.interview_invoices.map((inv) => (
+                            <li key={inv.invoice_id} className="flex items-center justify-between text-xs">
+                              <span className="font-mono text-slate-500">{inv.invoice_no || inv.invoice_id.slice(0, 8)}</span>
+                              <span className="text-slate-500">
+                                paid {fmtKes(inv.paid_amount)} of {fmtKes(inv.total_amount)}
+                              </span>
+                              <span className="font-semibold text-amber-800">{fmtKes(inv.balance_amount)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {applicantSummary.school_fees_invoices.length > 0 && (
+                      <div className="rounded-xl border border-white bg-white p-3">
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          Open school-fees invoices
+                        </p>
+                        <ul className="space-y-1">
+                          {applicantSummary.school_fees_invoices.map((inv) => (
+                            <li key={inv.invoice_id} className="flex items-center justify-between text-xs">
+                              <span className="font-mono text-slate-500">
+                                {inv.invoice_no || inv.invoice_id.slice(0, 8)}
+                                {inv.term_number != null && (
+                                  <span className="ml-1 text-slate-400">Term {inv.term_number}</span>
+                                )}
+                              </span>
+                              <span className="text-slate-500">
+                                paid {fmtKes(inv.paid_amount)} of {fmtKes(inv.total_amount)}
+                              </span>
+                              <span className="font-semibold text-amber-800">{fmtKes(inv.balance_amount)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {applicantSummary.partial_policy && (
+                          <ApplicantPartialHint
+                            policy={applicantSummary.partial_policy}
+                            feesInvoices={applicantSummary.school_fees_invoices}
+                          />
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                     <div className="mb-1 flex items-center gap-1.5 font-semibold">
                       <AlertTriangle className="h-3.5 w-3.5" />
-                      No unpaid interview invoice
+                      No unpaid invoices for this applicant
                     </div>
                     <p>
-                      Create an interview invoice for this applicant on the
-                      Finance page first, then come back here to record the
-                      payment.
+                      Create an interview or school-fees invoice for this
+                      applicant on the Finance page first, then come back
+                      here to record the payment.
                     </p>
                   </div>
                 )}
@@ -1146,7 +1261,7 @@ export function RecordPaymentByStudent() {
           <div className="space-y-4 lg:col-span-2">
             <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
               <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <HandCoins className="h-4 w-4 text-amber-600" /> Record interview fee
+                <HandCoins className="h-4 w-4 text-amber-600" /> Record applicant payment
               </h3>
               <div className="space-y-3">
                 <div>
@@ -1177,12 +1292,13 @@ export function RecordPaymentByStudent() {
                   disabled={recording || !applicantSummary?.eligible}
                   className="w-full bg-amber-600 hover:bg-amber-700"
                 >
-                  {recording ? "Recording…" : "Record Interview Fee"}
+                  {recording ? "Recording…" : "Record Payment"}
                 </Button>
                 <p className="text-[11px] text-slate-400">
-                  No SIS student exists yet for this applicant. Any overpayment
-                  is absorbed on the interview invoice and carried forward as
-                  a credit when the student is approved and enrolled.
+                  Allocates oldest first — interview invoice then
+                  school-fees. Once the school-fees payment meets the
+                  partial-enrollment threshold, this applicant can be
+                  moved to ENROLLED from the Enrollments page.
                 </p>
               </div>
             </div>

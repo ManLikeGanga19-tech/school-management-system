@@ -4259,6 +4259,34 @@ def _open_interview_invoices_for_enrollment(
     ).scalars().all())
 
 
+def _open_enrollment_invoices_for_enrollment(
+    db: Session, *, tenant_id: UUID, enrollment_id: UUID,
+) -> list[Invoice]:
+    """All open invoices for this enrollment (INTERVIEW + SCHOOL_FEES),
+    oldest first. Powers the applicant record-payment surface, which
+    needs to pay both interview + school-fees invoices for pre-ENROLLED
+    applicants so the partial-enrollment gate can be satisfied without
+    the operator having to guess which flow to use."""
+    return list(db.execute(
+        select(Invoice)
+        .where(
+            Invoice.tenant_id == tenant_id,
+            Invoice.enrollment_id == enrollment_id,
+            Invoice.invoice_type.in_(("INTERVIEW", "SCHOOL_FEES")),
+            Invoice.status.notin_(("PAID", "CANCELLED", "DRAFT")),
+            Invoice.balance_amount > 0,
+        )
+        .order_by(
+            # INTERVIEW before SCHOOL_FEES within the same day is desirable
+            # (interview is the older gate), but oldest_first across types
+            # is the guiding principle. Falling back to created_at + id
+            # gives stable order.
+            Invoice.created_at.asc(),
+            Invoice.id.asc(),
+        )
+    ).scalars().all())
+
+
 def get_enrollment_payment_summary(
     db: Session,
     *,
@@ -4283,24 +4311,50 @@ def get_enrollment_payment_summary(
 
     identity = _resolve_student_identity(db, tenant_id=tenant_id, enrollment=enrollment)
 
-    invs = _open_interview_invoices_for_enrollment(
+    invs = _open_enrollment_invoices_for_enrollment(
         db, tenant_id=tenant_id, enrollment_id=enrollment_id,
     )
-    invoice_summaries = [
-        {
+
+    def _serialize(inv: Invoice) -> dict:
+        return {
             "invoice_id": str(inv.id),
             "invoice_no": inv.invoice_no,
             "invoice_type": inv.invoice_type,
             "status": inv.status,
+            "term_number": inv.term_number,
+            "academic_year": inv.academic_year,
             "total_amount": str(inv.total_amount or 0),
             "paid_amount": str(inv.paid_amount or 0),
             "balance_amount": str(inv.balance_amount or 0),
         }
-        for inv in invs
-    ]
+
+    interview_invoices = [_serialize(i) for i in invs if i.invoice_type == "INTERVIEW"]
+    school_fees_invoices = [_serialize(i) for i in invs if i.invoice_type == "SCHOOL_FEES"]
+
     total_outstanding = sum(
         (Decimal(i.balance_amount or 0) for i in invs), Decimal("0"),
     )
+
+    # Fee-policy meta so the UI can show the partial-enrollment threshold
+    # right next to the amount field ("Pay at least KES 5,000 to enable
+    # ENROLLED_PARTIAL"). Requires the tenant to have configured a policy.
+    partial_policy: dict | None = None
+    if school_fees_invoices:
+        try:
+            fs_summary = get_enrollment_finance_status(
+                db, tenant_id=tenant_id, enrollment_id=enrollment_id,
+            )
+            partial_policy = {
+                "allow_partial_enrollment": fs_summary["policy"]["allow_partial_enrollment"],
+                "min_percent_to_enroll": fs_summary["policy"]["min_percent_to_enroll"],
+                "min_amount_to_enroll": fs_summary["policy"]["min_amount_to_enroll"],
+                "partial_ok": fs_summary["fees"].get("partial_ok"),
+                "paid_ok": fs_summary["fees"].get("paid_ok"),
+                "fees_policy": fs_summary.get("fees_policy"),
+            }
+        except Exception:
+            # Best-effort — the panel still works without this hint.
+            partial_policy = None
 
     return {
         "enrollment_id": str(enrollment.id),
@@ -4309,9 +4363,11 @@ def get_enrollment_payment_summary(
         "admission_no": identity["admission_no"] or None,
         "class_code": identity["class_code"] or None,
         "parent_name": identity["parent_name"] or None,
-        "interview_invoices": invoice_summaries,
+        "interview_invoices": interview_invoices,
+        "school_fees_invoices": school_fees_invoices,
         "total_outstanding": str(total_outstanding.quantize(Decimal("0.01"))),
         "eligible": bool(invs),
+        "partial_policy": partial_policy,
     }
 
 
@@ -4362,13 +4418,14 @@ def record_enrollment_payment(
     if enrollment is None:
         raise ValueError("Enrollment not found")
 
-    invs = _open_interview_invoices_for_enrollment(
+    invs = _open_enrollment_invoices_for_enrollment(
         db, tenant_id=tenant_id, enrollment_id=enrollment_id,
     )
     if not invs:
         raise ValueError(
-            "No unpaid interview invoice for this applicant. "
-            "Create an interview invoice first, then record the payment."
+            "No unpaid invoices for this applicant. "
+            "Create an interview or school-fees invoice first, "
+            "then record the payment."
         )
 
     payment_amount = Decimal(amount).quantize(Decimal("0.01"))
@@ -4452,11 +4509,20 @@ def record_enrollment_payment(
     db.flush()
 
     # ── Audit ─────────────────────────────────────────────────────────────
+    # Audit action reflects which invoice types were touched so we don't
+    # lose the "interview" signal in reports that filter on action.
+    types_touched = {inv.invoice_type for inv, _ in invoice_allocations}
+    if types_touched == {"INTERVIEW"}:
+        audit_action = "payment.interview.recorded"
+    elif types_touched == {"SCHOOL_FEES"}:
+        audit_action = "payment.applicant_fees.recorded"
+    else:
+        audit_action = "payment.applicant.recorded"
     log_event(
         db,
         tenant_id=tenant_id,
         actor_user_id=actor_user_id,
-        action="payment.interview.recorded",
+        action=audit_action,
         resource="payment",
         resource_id=pay.id,
         payload={
@@ -4465,6 +4531,7 @@ def record_enrollment_payment(
             "provider": provider_code,
             "surplus_absorbed": str(surplus),
             "invoice_ids": [str(inv.id) for inv, _ in invoice_allocations],
+            "invoice_types": sorted(types_touched),
         },
         meta=None,
     )

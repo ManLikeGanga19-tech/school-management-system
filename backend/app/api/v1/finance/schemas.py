@@ -431,14 +431,29 @@ class EnrollmentInterviewInvoiceOut(BaseModel):
     invoice_no: Optional[str] = None
     invoice_type: str
     status: str
+    term_number: Optional[int] = None
+    academic_year: Optional[int] = None
     total_amount: Decimal
     paid_amount: Decimal
     balance_amount: Decimal
 
 
+class EnrollmentPartialPolicyOut(BaseModel):
+    """Snapshot of the partial-enrollment gate so the panel can render an
+    actionable "pay at least KES X to enable ENROLLED_PARTIAL" hint next
+    to the amount field."""
+    allow_partial_enrollment: bool
+    min_percent_to_enroll: Optional[int] = None
+    min_amount_to_enroll: Optional[Decimal] = None
+    partial_ok: Optional[bool] = None
+    paid_ok: Optional[bool] = None
+    fees_policy: Optional[dict] = None
+
+
 class EnrollmentPaymentSummaryOut(BaseModel):
-    """Applicant identity + open interview invoices. Powers the picker
-    entry and the record-payment panel for the by-enrollment surface."""
+    """Applicant identity + open invoices (INTERVIEW + SCHOOL_FEES).
+    Powers the picker entry and the record-payment panel for the
+    by-enrollment surface."""
     enrollment_id: UUID
     enrollment_status: str
     student_name: str
@@ -446,8 +461,10 @@ class EnrollmentPaymentSummaryOut(BaseModel):
     class_code: Optional[str] = None
     parent_name: Optional[str] = None
     interview_invoices: List[EnrollmentInterviewInvoiceOut] = Field(default_factory=list)
+    school_fees_invoices: List[EnrollmentInterviewInvoiceOut] = Field(default_factory=list)
     total_outstanding: Decimal
     eligible: bool
+    partial_policy: Optional[EnrollmentPartialPolicyOut] = None
 
 
 class EnrollmentPaymentRecordRequest(BaseModel):
