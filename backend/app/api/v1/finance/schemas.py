@@ -356,8 +356,62 @@ class StudentPaymentRecordOut(BaseModel):
     amount: Decimal
     allocated_total: Decimal
     surplus_credit: Decimal
+    # Phase N — how much of the payment went to CF debits before invoices.
+    cf_debits_settled: Optional[Decimal] = None
     credit_balance_id: Optional[UUID] = None
     allocations: List[StudentPaymentRecordAllocationOut] = Field(default_factory=list)
+    # The full waterfall echo (CF settlements + invoice allocations + surplus)
+    # so the UI can render the same breakdown the preview showed.
+    waterfall_steps: Optional[list[dict]] = None
+
+
+class PaymentWaterfallPreviewRequest(BaseModel):
+    """Body for POST /finance/students/{student_id}/payments/preview.
+
+    Same shape as StudentPaymentRecordRequest minus the provider/reference —
+    the preview is provider-agnostic (we don't book anything, just plan).
+    """
+    amount: Decimal
+
+
+class PaymentWaterfallStepOut(BaseModel):
+    """One step in the waterfall plan — CF settlement, invoice allocation, or
+    surplus credit. Fields present depend on ``type``."""
+    type: str  # carry_forward_debit | invoice | overpayment_credit
+    amount: Decimal
+    # carry_forward_debit fields
+    cf_id: Optional[UUID] = None
+    term_label: Optional[str] = None
+    category: Optional[str] = None
+    original_amount: Optional[Decimal] = None
+    already_settled: Optional[Decimal] = None
+    fully_settles: Optional[bool] = None
+    # invoice fields
+    invoice_id: Optional[UUID] = None
+    invoice_no: Optional[str] = None
+    invoice_type: Optional[str] = None
+    invoice_balance_before: Optional[Decimal] = None
+    fully_pays: Optional[bool] = None
+    # shared / label fields
+    academic_year: Optional[int] = None
+    term_number: Optional[int] = None
+    description: Optional[str] = None
+    note: Optional[str] = None
+
+
+class PaymentWaterfallSummaryOut(BaseModel):
+    cf_debits_settled: Decimal
+    invoices_paid: Decimal
+    surplus_credit: Decimal
+
+
+class PaymentWaterfallPreviewOut(BaseModel):
+    amount: Decimal
+    steps: List[PaymentWaterfallStepOut] = Field(default_factory=list)
+    summary: PaymentWaterfallSummaryOut
+    cf_debits_remaining_after: Decimal
+    invoices_remaining_after: Decimal
+    credit_available: Decimal
 
 
 # -------------------------

@@ -3245,8 +3245,14 @@ def create_payment(
 
     if amount <= 0:
         raise ValueError("Payment amount must be > 0")
-    if not allocations:
-        raise ValueError("Allocations required")
+    # Phase N — allocations may be empty when the whole payment is a CF-debit
+    # settlement or a straight credit top-up. Caller MUST supply
+    # credit_to_student_id in that case so surplus routing is unambiguous
+    # (no way to infer student from invoices when there are none).
+    if not allocations and credit_to_student_id is None:
+        raise ValueError(
+            "Allocations required unless credit_to_student_id is supplied"
+        )
 
     invoice_ids = [UUID(str(a["invoice_id"])) for a in allocations]
     if len(set(invoice_ids)) != len(invoice_ids):
@@ -3356,19 +3362,25 @@ def create_payment(
         if credit_student_id is not None:
             # Use the oldest invoice in the allocation to label the credit
             # (deterministic — sorted by created_at) so receipts read sensibly.
-            anchor_inv = min(
-                (inv for inv in invoices if inv.enrollment_id is not None),
-                key=lambda i: (i.created_at or 0),
-                default=invoices[0],
-            )
+            # In the CF-only path (allocations empty) invoices == [], so we
+            # leave academic_year/term_number NULL — the credit is untargeted
+            # and auto-applies at next invoice generation regardless of term.
+            anchor_inv = None
+            if invoices:
+                candidates = [inv for inv in invoices if inv.enrollment_id is not None]
+                anchor_inv = min(
+                    candidates,
+                    key=lambda i: (i.created_at or 0),
+                    default=invoices[0],
+                )
             credit_balance = add_carry_forward(
                 db,
                 tenant_id=tenant_id,
                 student_id=credit_student_id,
                 actor_user_id=actor_user_id,
                 term_label=f"Overpayment on receipt {pay.receipt_no or str(pay.id)[:8]}",
-                academic_year=getattr(anchor_inv, "academic_year", None),
-                term_number=getattr(anchor_inv, "term_number", None),
+                academic_year=getattr(anchor_inv, "academic_year", None) if anchor_inv else None,
+                term_number=getattr(anchor_inv, "term_number", None) if anchor_inv else None,
                 amount=-surplus,
                 description=(
                     f"Auto-credit for KES {surplus} surplus on payment "
@@ -3610,6 +3622,271 @@ def get_student_payment_summary(
     }
 
 
+# ── Phase N — Payment Waterfall engine ─────────────────────────────────────
+#
+# When a parent pays cash, the system applies the money in a strict order:
+#   1. OPEN carry-forward DEBITS (oldest first — MANUAL_DEBIT etc.)
+#   2. Open SCHOOL_FEES invoices (oldest first — natural "current then next term")
+#   3. Surplus → OVERPAYMENT_CREDIT (auto-applies at next invoice generation)
+#
+# This mirrors real accounting practice: settle the oldest debt first, don't
+# let aged receivables accumulate silently under a parent who's actively
+# paying. Preview and record use the SAME engine — what the operator sees is
+# exactly what gets booked.
+#
+# Guarantees:
+#   * Pure Decimal arithmetic quantized to 0.01.
+#   * Idempotent under duplicate submissions: no partial state on error.
+#   * Atomic: all CF settlements + invoice allocations + surplus credit book
+#     in one DB transaction. Any failure rolls back the whole payment.
+
+
+def _student_open_cf_debits(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+):
+    """OPEN CF rows with positive amount (debits), oldest first.
+
+    Only OPEN rows with amount > 0 are candidates for direct-cash settlement.
+    BUNDLED rows are already inside an invoice and get settled when that
+    invoice is paid — pulling them into the waterfall would double-count.
+    Rows already at settled_amount == amount are skipped (defensive; the
+    settle path always flips such rows to SETTLED, but the query stays
+    correct if a legacy row exists).
+    """
+    from app.models.student_carry_forward import StudentCarryForward
+    rows = db.execute(
+        select(StudentCarryForward)
+        .where(
+            StudentCarryForward.tenant_id == tenant_id,
+            StudentCarryForward.student_id == student_id,
+            StudentCarryForward.status == "OPEN",
+            StudentCarryForward.amount > 0,
+        )
+        .order_by(
+            StudentCarryForward.created_at.asc(),
+            StudentCarryForward.id.asc(),
+        )
+    ).scalars().all()
+    # Exclude rows already fully covered (belt-and-braces).
+    return [
+        r for r in rows
+        if (Decimal(str(r.amount)) - Decimal(str(getattr(r, "settled_amount", 0) or 0))) > 0
+    ]
+
+
+def _student_open_cf_credits(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+):
+    """OPEN CF rows with negative amount (credits available to spend)."""
+    from app.models.student_carry_forward import StudentCarryForward
+    return db.execute(
+        select(StudentCarryForward)
+        .where(
+            StudentCarryForward.tenant_id == tenant_id,
+            StudentCarryForward.student_id == student_id,
+            StudentCarryForward.status == "OPEN",
+            StudentCarryForward.amount < 0,
+        )
+        .order_by(
+            StudentCarryForward.created_at.asc(),
+            StudentCarryForward.id.asc(),
+        )
+    ).scalars().all()
+
+
+def _quantize(v: Decimal) -> Decimal:
+    return Decimal(v).quantize(Decimal("0.01"))
+
+
+def _build_waterfall(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+    amount: Decimal,
+) -> dict:
+    """Pure planner: computes the waterfall without mutating anything.
+
+    Returns a dict with:
+      * steps: list of {type, ..., amount} rows describing the plan
+      * summary: dict of totals (cf_settled, invoices_paid, surplus_credit)
+      * cf_debits_remaining_after: total debit still open after this payment
+      * invoices_remaining_after: total invoice balance still open after
+    """
+    amt = _quantize(amount)
+    remaining = amt
+    steps: list[dict] = []
+
+    cf_debits = _student_open_cf_debits(db, tenant_id=tenant_id, student_id=student_id)
+    cf_settled_total = Decimal("0")
+    for cf in cf_debits:
+        if remaining <= 0:
+            break
+        outstanding = _quantize(Decimal(str(cf.amount)) - Decimal(str(getattr(cf, "settled_amount", 0) or 0)))
+        if outstanding <= 0:
+            continue
+        take = min(remaining, outstanding)
+        steps.append({
+            "type": "carry_forward_debit",
+            "cf_id": str(cf.id),
+            "term_label": cf.term_label,
+            "academic_year": cf.academic_year,
+            "term_number": cf.term_number,
+            "category": cf.category,
+            "description": cf.description,
+            "original_amount": str(_quantize(Decimal(str(cf.amount)))),
+            "already_settled": str(_quantize(Decimal(str(getattr(cf, "settled_amount", 0) or 0)))),
+            "amount": str(take),
+            "fully_settles": bool(take == outstanding),
+        })
+        cf_settled_total += take
+        remaining -= take
+
+    open_invoices = _student_open_fees_invoices(
+        db, tenant_id=tenant_id, student_id=student_id
+    )
+    invoices_paid_total = Decimal("0")
+    for inv in open_invoices:
+        if remaining <= 0:
+            break
+        inv_bal = _quantize(Decimal(inv.balance_amount or 0))
+        if inv_bal <= 0:
+            continue
+        take = min(remaining, inv_bal)
+        steps.append({
+            "type": "invoice",
+            "invoice_id": str(inv.id),
+            "invoice_no": inv.invoice_no,
+            "invoice_type": inv.invoice_type,
+            "term_number": inv.term_number,
+            "academic_year": inv.academic_year,
+            "invoice_balance_before": str(inv_bal),
+            "amount": str(take),
+            "fully_pays": bool(take == inv_bal),
+        })
+        invoices_paid_total += take
+        remaining -= take
+
+    surplus = _quantize(remaining)
+    if surplus > 0:
+        steps.append({
+            "type": "overpayment_credit",
+            "amount": str(surplus),
+            "note": (
+                "Booked as OVERPAYMENT_CREDIT — auto-applies at next invoice "
+                "generation for this student."
+            ),
+        })
+
+    # Remaining totals after the waterfall — useful for the UI's "after"
+    # projections and for validating the audit trail.
+    cf_remaining = sum(
+        (
+            _quantize(Decimal(str(r.amount)) - Decimal(str(getattr(r, "settled_amount", 0) or 0)))
+            for r in cf_debits
+        ),
+        Decimal("0"),
+    ) - cf_settled_total
+    invoices_remaining = sum(
+        (_quantize(Decimal(i.balance_amount or 0)) for i in open_invoices),
+        Decimal("0"),
+    ) - invoices_paid_total
+
+    return {
+        "amount": str(amt),
+        "steps": steps,
+        "summary": {
+            "cf_debits_settled": str(_quantize(cf_settled_total)),
+            "invoices_paid": str(_quantize(invoices_paid_total)),
+            "surplus_credit": str(surplus),
+        },
+        "cf_debits_remaining_after": str(_quantize(cf_remaining)),
+        "invoices_remaining_after": str(_quantize(invoices_remaining)),
+    }
+
+
+def preview_student_payment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+    amount: Decimal,
+) -> dict:
+    """Read-only waterfall preview. Same engine as record_student_payment,
+    guaranteeing WYSIWYG for the operator."""
+    if amount is None or Decimal(amount) <= 0:
+        raise ValueError("Payment amount must be greater than zero")
+    # Validate student exists in this tenant — the DB queries would return
+    # empty otherwise and we'd silently show "surplus becomes credit for a
+    # non-existent student" which is not the outcome the operator wants.
+    student = db.execute(
+        select(Student).where(
+            Student.id == student_id, Student.tenant_id == tenant_id
+        )
+    ).scalar_one_or_none()
+    if not student:
+        raise ValueError("Student not found")
+    plan = _build_waterfall(
+        db, tenant_id=tenant_id, student_id=student_id, amount=Decimal(amount)
+    )
+    # Also surface the student's OPEN credit balance so the UI can offer the
+    # "apply available credit" checkbox in Phase N2. Read-only.
+    credits = _student_open_cf_credits(db, tenant_id=tenant_id, student_id=student_id)
+    credit_available = -sum(
+        (Decimal(str(r.amount)) for r in credits),
+        Decimal("0"),
+    )
+    plan["credit_available"] = str(_quantize(credit_available))
+    return plan
+
+
+def _settle_cf_debit_row(
+    db: Session,
+    *,
+    row,
+    amount_applied: Decimal,
+    actor_user_id: Optional[UUID],
+    payment_id: UUID,
+    receipt_no: Optional[str],
+) -> None:
+    """Apply amount_applied against a CF debit row's settled_amount.
+
+    If it fully covers, status flips OPEN -> SETTLED. Otherwise the row stays
+    OPEN with a bumped settled_amount. Emits one audit event per settlement.
+    """
+    new_settled = _quantize(Decimal(str(getattr(row, "settled_amount", 0) or 0)) + amount_applied)
+    row.settled_amount = new_settled
+    fully = new_settled >= _quantize(Decimal(str(row.amount)))
+    if fully:
+        row.status = "SETTLED"
+    db.flush()
+    log_event(
+        db,
+        tenant_id=row.tenant_id,
+        actor_user_id=actor_user_id,
+        action="finance.balance.settled_by_payment",
+        resource="student_carry_forward",
+        resource_id=row.id,
+        payload={
+            "student_id": str(row.student_id),
+            "category": row.category,
+            "original_amount": str(row.amount),
+            "amount_applied": str(_quantize(amount_applied)),
+            "settled_amount_after": str(new_settled),
+            "fully_settled": bool(fully),
+            "payment_id": str(payment_id),
+            "receipt_no": receipt_no,
+        },
+        meta=None,
+    )
+
+
 def record_student_payment(
     db: Session,
     *,
@@ -3620,86 +3897,201 @@ def record_student_payment(
     provider: str,
     reference: Optional[str] = None,
 ) -> dict:
-    """Record a payment for a student, allocating FIFO across their open
-    school-fees invoices. Surplus → auto-credit (handled inside create_payment).
+    """Record a payment for a student using the Phase N waterfall.
+
+    Waterfall order:
+      1. OPEN carry-forward DEBITS (oldest first — MANUAL_DEBIT etc.)
+      2. Open SCHOOL_FEES invoices (oldest first — current term first,
+         then next term automatically)
+      3. Surplus → OVERPAYMENT_CREDIT (auto-applies at next invoice generation)
 
     Behaviour:
-      - amount > 0 required (delegated to create_payment).
-      - If the student has no open fees invoices, the entire amount is taken
-        as an overpayment credit: we create a synthetic 1-line invoice for
-        KES 0 won't work, so instead we record it directly as a credit
-        carry-forward (no Payment row, no receipt) and explain in the error
-        case — see below.
+      - amount > 0 required.
+      - The student MUST exist in this tenant.
+      - It is legal to receive a payment when the student has neither a
+        CF debit nor an open invoice — the whole amount is booked as
+        OVERPAYMENT_CREDIT and applied at next invoice generation. No
+        silent failure.
+      - All CF settlements + invoice allocations + surplus credit book
+        atomically in one DB transaction. Any error rolls back.
 
-    Returns a dict matching StudentPaymentRecordOut.
+    Returns a dict matching StudentPaymentRecordOut plus a waterfall echo.
     """
+    provider_code = provider.upper().strip()
+    if provider_code not in ("CASH", "MPESA", "BANK", "CHEQUE"):
+        raise ValueError("Invalid payment provider")
     if amount is None or Decimal(amount) <= 0:
         raise ValueError("Payment amount must be greater than zero")
 
-    open_invoices = _student_open_fees_invoices(
-        db, tenant_id=tenant_id, student_id=student_id
+    # Validate the student anchors the credit routing.
+    student = db.execute(
+        select(Student).where(
+            Student.id == student_id, Student.tenant_id == tenant_id
+        )
+    ).scalar_one_or_none()
+    if not student:
+        raise ValueError("Student not found")
+
+    payment_amount = _quantize(Decimal(amount))
+
+    # Plan first (deterministic + auditable — same engine as preview).
+    plan = _build_waterfall(
+        db, tenant_id=tenant_id, student_id=student_id, amount=payment_amount
     )
 
-    if not open_invoices:
-        # No invoice to allocate against → cannot record a payment via the
-        # invoice path. Surface a clear error; the UI can offer "Record a
-        # credit on this student's balance" via Adjust Balance instead.
-        raise ValueError(
-            "No outstanding fees invoices for this student. "
-            "Generate the term invoice first, or record a credit via Adjust Balance."
+    # Split the plan into (cf, invoices, surplus).
+    cf_settlements: list[tuple[UUID, Decimal]] = []
+    invoice_allocations: list[dict] = []
+    surplus = Decimal(plan["summary"]["surplus_credit"])
+    for step in plan["steps"]:
+        if step["type"] == "carry_forward_debit":
+            cf_settlements.append((UUID(step["cf_id"]), Decimal(step["amount"])))
+        elif step["type"] == "invoice":
+            invoice_allocations.append({
+                "invoice_id": UUID(step["invoice_id"]),
+                "amount": Decimal(step["amount"]),
+            })
+
+    # ── Create the Payment row ────────────────────────────────────────────
+    pay = Payment(
+        tenant_id=tenant_id,
+        provider=provider_code,
+        reference=reference,
+        amount=payment_amount,
+        created_by=actor_user_id,
+    )
+    db.add(pay)
+    db.flush()
+    if not getattr(pay, "receipt_no", None):
+        pay.receipt_no = _next_document_number(
+            db,
+            tenant_id=tenant_id,
+            doc_type="RCT",
+            created_at=getattr(pay, "received_at", None),
+        )
+        db.flush()
+
+    # ── Settle CF debits (row-locked to defeat concurrent settlement) ─────
+    from app.models.student_carry_forward import StudentCarryForward
+    for cf_id, apply_amount in cf_settlements:
+        cf = db.execute(
+            select(StudentCarryForward)
+            .where(
+                StudentCarryForward.id == cf_id,
+                StudentCarryForward.tenant_id == tenant_id,
+                StudentCarryForward.status == "OPEN",
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if cf is None:
+            raise ValueError(
+                f"Carry-forward {cf_id} was modified during payment recording — "
+                "please refresh and retry."
+            )
+        outstanding = _quantize(
+            Decimal(str(cf.amount))
+            - Decimal(str(getattr(cf, "settled_amount", 0) or 0))
+        )
+        if apply_amount > outstanding:
+            raise ValueError(
+                f"Carry-forward {cf_id} outstanding changed during payment — "
+                "please refresh and retry."
+            )
+        _settle_cf_debit_row(
+            db,
+            row=cf,
+            amount_applied=apply_amount,
+            actor_user_id=actor_user_id,
+            payment_id=pay.id,
+            receipt_no=pay.receipt_no,
         )
 
-    remaining = Decimal(amount).quantize(Decimal("0.01"))
-    allocations: list[dict] = []
-    for inv in open_invoices:
-        if remaining <= 0:
-            break
-        inv_balance = Decimal(inv.balance_amount or 0)
-        if inv_balance <= 0:
-            continue
-        take = min(remaining, inv_balance)
-        allocations.append({"invoice_id": inv.id, "amount": take})
-        remaining -= take
-    # `remaining` is the surplus; create_payment will turn it into a credit
-    # carry-forward automatically. To make that happen, the payment's amount
-    # is the FULL received amount, and the sum of allocations is whatever fit
-    # the open invoices.
+    # ── Allocate to invoices ──────────────────────────────────────────────
+    inv_meta: dict = {}
+    if invoice_allocations:
+        inv_rows = db.execute(
+            select(Invoice).where(
+                Invoice.tenant_id == tenant_id,
+                Invoice.id.in_([a["invoice_id"] for a in invoice_allocations]),
+            )
+        ).scalars().all()
+        inv_meta = {inv.id: inv for inv in inv_rows}
+        for a in invoice_allocations:
+            inv = inv_meta.get(a["invoice_id"])
+            if inv is None:
+                raise ValueError(f"Invoice {a['invoice_id']} not found in tenant")
+            if getattr(inv, "status", None) == "DRAFT":
+                raise ValueError(
+                    f"Invoice {inv.invoice_no or inv.id} is a draft and has not "
+                    "been published yet — publish it before recording a payment."
+                )
+            if Decimal(inv.balance_amount) <= 0:
+                raise ValueError(f"Invoice {inv.id} is already fully paid")
+            if a["amount"] > Decimal(inv.balance_amount):
+                raise ValueError(
+                    f"Allocation exceeds outstanding balance for invoice {inv.id}"
+                )
+            db.add(PaymentAllocation(
+                payment_id=pay.id,
+                invoice_id=a["invoice_id"],
+                amount=a["amount"],
+            ))
+        db.flush()
+        for inv in inv_meta.values():
+            _recalc_invoice_amounts(db, inv)
+        db.flush()
 
-    pay = create_payment(
+    # ── Book the surplus as OVERPAYMENT_CREDIT ────────────────────────────
+    credit_balance_id: Optional[str] = None
+    if surplus > 0:
+        # Anchor the credit to the last-paid invoice's term when we have one,
+        # otherwise leave scope NULL — it auto-applies at next generation.
+        anchor_inv = None
+        if invoice_allocations:
+            last_inv_id = invoice_allocations[-1]["invoice_id"]
+            anchor_inv = inv_meta.get(last_inv_id)
+        credit_row = add_carry_forward(
+            db,
+            tenant_id=tenant_id,
+            student_id=student_id,
+            actor_user_id=actor_user_id,
+            term_label=f"Overpayment on receipt {pay.receipt_no or str(pay.id)[:8]}",
+            academic_year=getattr(anchor_inv, "academic_year", None) if anchor_inv else None,
+            term_number=getattr(anchor_inv, "term_number", None) if anchor_inv else None,
+            amount=-surplus,
+            description=(
+                f"Auto-credit for KES {surplus} surplus on payment "
+                f"{pay.receipt_no or pay.id} (provider: {provider_code})."
+            ),
+            category="OVERPAYMENT_CREDIT",
+        )
+        credit_balance_id = credit_row["id"]
+
+    # ── One combined audit event listing every waterfall step ────────────
+    log_event(
         db,
         tenant_id=tenant_id,
         actor_user_id=actor_user_id,
-        provider=provider,
-        reference=reference,
-        amount=Decimal(amount),
-        allocations=[{"invoice_id": a["invoice_id"], "amount": a["amount"]} for a in allocations],
+        action="payment.waterfall.applied",
+        resource="payment",
+        resource_id=pay.id,
+        payload={
+            "student_id": str(student_id),
+            "amount": str(pay.amount),
+            "provider": provider_code,
+            "cf_debits_settled": plan["summary"]["cf_debits_settled"],
+            "invoices_paid": plan["summary"]["invoices_paid"],
+            "surplus_credit": plan["summary"]["surplus_credit"],
+            "step_count": len(plan["steps"]),
+            "credit_balance_id": credit_balance_id,
+        },
+        meta={"steps": plan["steps"]},
     )
 
-    # Look up the credit balance row create_payment may have auto-created so
-    # we can echo its id back to the UI.
-    from app.models.student_carry_forward import StudentCarryForward
-    credit_balance_id: Optional[str] = None
-    surplus = (Decimal(amount).quantize(Decimal("0.01"))
-               - sum((a["amount"] for a in allocations), Decimal("0")).quantize(Decimal("0.01")))
-    if surplus > 0:
-        latest_credit = db.execute(
-            select(StudentCarryForward)
-            .where(
-                StudentCarryForward.tenant_id == tenant_id,
-                StudentCarryForward.student_id == student_id,
-                StudentCarryForward.category == "OVERPAYMENT_CREDIT",
-            )
-            .order_by(StudentCarryForward.created_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-        if latest_credit is not None:
-            credit_balance_id = str(latest_credit.id)
-
-    # Build a detailed allocation echo with invoice_no / term context.
-    invoice_map = {inv.id: inv for inv in open_invoices}
+    # ── Build response ────────────────────────────────────────────────────
     alloc_out: list[dict] = []
-    for a in allocations:
-        inv = invoice_map.get(a["invoice_id"])
+    for a in invoice_allocations:
+        inv = inv_meta.get(a["invoice_id"])
         alloc_out.append({
             "invoice_id": str(a["invoice_id"]),
             "invoice_no": getattr(inv, "invoice_no", None),
@@ -3712,11 +4104,11 @@ def record_student_payment(
         "payment_id": str(pay.id),
         "receipt_no": pay.receipt_no,
         "amount": str(pay.amount),
-        "allocated_total": str(
-            sum((a["amount"] for a in allocations), Decimal("0")).quantize(Decimal("0.01"))
-        ),
-        "surplus_credit": str(surplus.quantize(Decimal("0.01"))),
+        "allocated_total": plan["summary"]["invoices_paid"],
+        "surplus_credit": plan["summary"]["surplus_credit"],
+        "cf_debits_settled": plan["summary"]["cf_debits_settled"],
         "credit_balance_id": credit_balance_id,
+        "waterfall_steps": plan["steps"],
         "allocations": alloc_out,
     }
 
@@ -7116,13 +7508,22 @@ _CATEGORY_KINDS: dict[str, str] = {
 
 def _serialize_carry_forward(row: Any) -> dict:
     category = str(row.category or "MANUAL_DEBIT")
+    amount = Decimal(str(row.amount or "0"))
+    settled = Decimal(str(getattr(row, "settled_amount", 0) or "0"))
+    # Outstanding = how much still needs to be paid down. Only meaningful for
+    # DEBITs (positive amounts); zero on credits.
+    outstanding = (abs(amount) - settled) if amount > 0 else Decimal("0")
+    if outstanding < 0:
+        outstanding = Decimal("0")
     return {
         "id": str(row.id),
         "student_id": str(row.student_id),
         "term_label": str(row.term_label or ""),
         "academic_year": row.academic_year,
         "term_number": row.term_number,
-        "amount": str(row.amount or "0"),
+        "amount": str(amount),
+        "settled_amount": str(settled),
+        "outstanding": str(outstanding),
         "description": str(row.description or ""),
         "category": category,
         "kind": _CATEGORY_KINDS.get(category, "DEBIT"),

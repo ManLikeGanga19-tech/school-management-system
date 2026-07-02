@@ -48,6 +48,15 @@ class StudentCarryForward(Base):
     term_number = Column(SmallInteger(), nullable=True)
 
     amount = Column(Numeric(12, 2), nullable=False)
+    # How much of this row has been paid down by direct cash payments (Phase N
+    # waterfall). Zero for legacy rows; equals abs(amount) when fully settled.
+    # Only meaningful for DEBITs; credits are consumed at invoice generation.
+    settled_amount = Column(
+        Numeric(12, 2),
+        nullable=False,
+        server_default=text("0"),
+        default=0,
+    )
     description = Column(Text, nullable=True)
 
     category = Column(

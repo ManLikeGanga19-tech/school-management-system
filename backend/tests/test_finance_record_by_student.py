@@ -281,11 +281,14 @@ class TestRecordPaymentByStudent:
         assert resp.status_code == 400
         assert "greater than zero" in resp.json()["detail"].lower()
 
-    def test_blocks_when_no_outstanding_invoice(
+    def test_no_outstanding_invoice_books_as_credit(
         self, client: TestClient, db_session: Session
     ):
-        """No open SCHOOL_FEES invoice → the UI should fall back to Adjust
-        Balance for a credit. The endpoint refuses with a helpful 400."""
+        """Phase N — a payment without any outstanding invoice or CF debit
+        no longer fails. The whole amount is booked as OVERPAYMENT_CREDIT
+        and auto-applies at the next invoice generation for the student.
+        No silent failures — the response reflects the surplus explicitly.
+        """
         tenant = create_tenant(db_session, slug=f"rps2-{uuid4().hex[:6]}")
         sid, _ = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
         _, headers = make_actor(db_session, tenant=tenant, permissions=ALL_FINANCE)
@@ -295,10 +298,12 @@ class TestRecordPaymentByStudent:
             json={"amount": "500", "provider": "MPESA"},
             headers=headers,
         )
-        assert resp.status_code == 400
-        detail = resp.json()["detail"].lower()
-        assert "no outstanding" in detail
-        assert "adjust balance" in detail
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert Decimal(body["amount"]) == Decimal("500")
+        assert Decimal(body["allocated_total"]) == Decimal("0")
+        assert Decimal(body["surplus_credit"]) == Decimal("500")
+        assert body["credit_balance_id"]
 
     def test_exact_payment_clears_single_invoice(
         self, client: TestClient, db_session: Session

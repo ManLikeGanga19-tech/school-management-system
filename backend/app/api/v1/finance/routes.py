@@ -50,6 +50,7 @@ from app.api.v1.finance.schemas import (
     GenerateFeesInvoiceV2Request,
     PaymentCreate, PaymentOut, PaymentWithAllocationsOut, PaymentPageOut,
     StudentPaymentSummaryOut, StudentPaymentRecordRequest, StudentPaymentRecordOut,
+    PaymentWaterfallPreviewRequest, PaymentWaterfallPreviewOut,
     ParentPaymentSummaryOut, ParentPaymentRecordRequest, ParentPaymentRecordOut,
     BulkGenerateFeesInvoicesRequest, BulkGenerateFeesInvoicesOut,
     BulkPublishInvoicesRequest, BulkPublishInvoicesOut,
@@ -1440,6 +1441,34 @@ def get_student_payment_summary_route(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post(
+    "/students/{student_id}/payments/preview",
+    response_model=PaymentWaterfallPreviewOut,
+    dependencies=[Depends(require_permission("finance.payments.manage"))],
+)
+def preview_student_payment_route(
+    student_id: UUID,
+    payload: PaymentWaterfallPreviewRequest,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Preview the Phase N payment waterfall without booking anything.
+
+    Returns the exact same plan the record endpoint will book. Same engine
+    on both sides — WYSIWYG for the operator.
+    """
+    try:
+        return service.preview_student_payment(
+            db,
+            tenant_id=tenant.id,
+            student_id=student_id,
+            amount=payload.amount,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post(
