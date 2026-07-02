@@ -440,9 +440,19 @@ def upsert_structure_items(
             structure_id=structure_id,
             items=[i.model_dump() for i in items],
         )
+        # Phase Q — drift is fixed the moment it is born: reconcile every
+        # invoice generated from this structure in the SAME transaction, so
+        # the edit and its ripple effects commit (or roll back) together.
+        reconciliation = service.reconcile_structure_invoices(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            fee_structure_id=structure_id,
+        )
         db.commit()
-        return {"ok": True}
+        return {"ok": True, "reconciliation": reconciliation}
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -462,9 +472,20 @@ def add_structure_item(
             structure_id=structure_id,
             item=payload.model_dump(),
         )
+        # Phase Q — same-transaction reconcile. Response model stays
+        # FeeStructureItemOut for backward compatibility; the reconcile
+        # outcome is observable via invoice.reconciled audit events and
+        # the sweep endpoint.
+        service.reconcile_structure_invoices(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            fee_structure_id=structure_id,
+        )
         db.commit()
         return item
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -484,9 +505,83 @@ def remove_structure_item(
             structure_id=structure_id,
             fee_item_id=fee_item_id,
         )
+        # Phase Q — same-transaction reconcile (removed item → its line is
+        # removed from every affected invoice, totals recomputed).
+        reconciliation = service.reconcile_structure_invoices(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            fee_structure_id=structure_id,
+        )
         db.commit()
-        return {"ok": True}
+        return {"ok": True, "reconciliation": reconciliation}
     except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Phase Q — reconciliation endpoints ──────────────────────────────────────
+@router.post(
+    "/fee-structures/{structure_id}/reconcile",
+    dependencies=[Depends(require_permission("finance.fees.manage"))],
+)
+def reconcile_structure_route(
+    structure_id: UUID,
+    dry_run: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Reconcile (or preview with dry_run=true) every invoice generated from
+    this fee structure against its current amounts."""
+    try:
+        result = service.reconcile_structure_invoices(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            fee_structure_id=structure_id,
+            dry_run=dry_run,
+        )
+        if not dry_run:
+            db.commit()
+        else:
+            db.rollback()
+        return result
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/reconcile/sweep",
+    dependencies=[Depends(require_permission("finance.fees.manage"))],
+)
+def reconcile_sweep_route(
+    academic_year: int | None = Query(default=None, ge=2000, le=2100),
+    dry_run: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """The 'forever checking' arm: verify every structure-generated invoice
+    of the academic year (default: latest with invoices) against its current
+    fee structure and fix any drift. Idempotent — a clean ledger is a no-op.
+    Callable manually from the finance page or by an external cron."""
+    try:
+        result = service.sweep_reconcile_invoices(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            academic_year=academic_year,
+            dry_run=dry_run,
+        )
+        if not dry_run:
+            db.commit()
+        else:
+            db.rollback()
+        return result
+    except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 

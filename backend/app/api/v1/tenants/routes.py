@@ -13129,8 +13129,20 @@ def secretary_finance_action(
                 structure_id=structure_id,
                 item=normalized_item,
             )
+            # Phase Q — same-transaction reconcile of every invoice generated
+            # from this structure, so a mid-term amount edit ripples to the
+            # published invoices immediately (payments preserved).
+            reconciliation = finance_service.reconcile_structure_invoices(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                fee_structure_id=structure_id,
+            )
             db.commit()
-            data = _serialize_structure_item(row)
+            data = {
+                **_serialize_structure_item(row),
+                "reconciliation": reconciliation,
+            }
 
         elif action == "remove_structure_item":
             structure_id = _parse_uuid(payload.get("structure_id"), field="payload.structure_id")
@@ -13142,8 +13154,16 @@ def secretary_finance_action(
                 structure_id=structure_id,
                 fee_item_id=fee_item_id,
             )
+            # Phase Q — removing an item strips its line from every affected
+            # invoice in the same transaction.
+            reconciliation = finance_service.reconcile_structure_invoices(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                fee_structure_id=structure_id,
+            )
             db.commit()
-            data = {"ok": True}
+            data = {"ok": True, "reconciliation": reconciliation}
 
         elif action == "upsert_structure_items":
             structure_id = _parse_uuid(payload.get("structure_id"), field="payload.structure_id")
@@ -13186,8 +13206,17 @@ def secretary_finance_action(
                 structure_id=structure_id,
                 items=items,
             )
+            # Phase Q — same-transaction reconcile: the bulk term-amount
+            # editor is the main drift creator, so every save immediately
+            # corrects the published invoices generated from this structure.
+            reconciliation = finance_service.reconcile_structure_invoices(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                fee_structure_id=structure_id,
+            )
             db.commit()
-            data = {"ok": True}
+            data = {"ok": True, "reconciliation": reconciliation}
 
         elif action == "create_scholarship":
             # Pass max_recipients + description + covers_carry_forward so the

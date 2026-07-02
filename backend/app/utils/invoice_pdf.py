@@ -278,6 +278,21 @@ def generate_invoice_pdf(data: dict[str, Any]) -> bytes:
     stream_lines.append("0 0 0 rg")
     y -= banner_h + 8
 
+    # Phase Q — Revised marker: this invoice was corrected by the fee-structure
+    # reconciliation engine after publication. A parent holding an older
+    # printout must be able to tell the paper is superseded.
+    reconciled_count = int(data.get("reconciled_count") or 0)
+    if reconciled_count > 0:
+        rev_date = str(data.get("last_reconciled_at") or "")[:10]
+        rev_label = f"REVISED (rev {reconciled_count})"
+        if rev_date:
+            rev_label += f" on {rev_date}"
+        rev_label += " - amounts updated to the current fee structure"
+        stream_lines.append("0.75 0.35 0.05 rg")
+        txt(ML, y, rev_label, size=8, bold=True)
+        stream_lines.append("0 0 0 rg")
+        y -= 14
+
     # ── BILL TO BLOCK ─────────────────────────────────────────────────────────
     row_count = 3 if parent_name else 2
     block_h = 14.0 * row_count + 22

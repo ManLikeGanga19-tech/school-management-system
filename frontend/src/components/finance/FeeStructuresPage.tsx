@@ -198,17 +198,62 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
   async function postAction(action: string, payload: unknown, successMsg: string) {
     setSaving(true);
     try {
-      await api.post<unknown>(
+      const resp = await api.post<{ ok?: boolean; data?: Record<string, unknown> }>(
         "/tenants/secretary/finance/setup",
         { action, payload },
         { tenantRequired: true }
       );
-      toast.success(successMsg);
+      // Phase Q — structure edits auto-reconcile affected invoices in the
+      // same transaction; surface what happened so the director sees the
+      // ripple effect immediately (Decision 3B: automatic + preview).
+      const recon = (resp?.data as { reconciliation?: { checked?: number; reconciled?: number } } | undefined)
+        ?.reconciliation;
+      if (recon && (recon.reconciled ?? 0) > 0) {
+        toast.success(
+          `${successMsg} ${recon.reconciled} published invoice${recon.reconciled === 1 ? "" : "s"} automatically updated to match the new amounts.`,
+        );
+      } else {
+        toast.success(successMsg);
+      }
       await load(true);
     } catch (err: unknown) {
       toast.error(readApiError(err, "Action failed."));
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Phase Q — the "forever checking" arm: verify every invoice of the year
+  // against its current fee structure and fix drift (catches structure
+  // edits made before the auto-reconcile hooks existed).
+  const [sweeping, setSweeping] = useState(false);
+  async function runReconcileSweep() {
+    setSweeping(true);
+    try {
+      const result = await api.post<{
+        academic_year: number | null;
+        checked: number;
+        reconciled: number;
+        invoices: { invoice_no: string | null; old_total: string; new_total: string }[];
+      }>(
+        "/finance/reconcile/sweep",
+        {},
+        { tenantRequired: true },
+      );
+      if ((result?.reconciled ?? 0) > 0) {
+        toast.success(
+          `Reconciled ${result.reconciled} of ${result.checked} invoices — amounts now match the current fee structures.`,
+        );
+      } else {
+        toast.success(
+          `All ${result?.checked ?? 0} invoices already match their fee structures. Nothing to fix.`,
+        );
+      }
+      await load(true);
+    } catch (err: unknown) {
+      toast.error(readApiError(err, "Reconcile sweep failed."));
+    } finally {
+      setSweeping(false);
     }
   }
 
@@ -503,10 +548,22 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
               </div>
             </div>
             {canManage && (
-              <Button size="sm" onClick={openCreateStructure} disabled={saving}>
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                New Structure
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void runReconcileSweep()}
+                  disabled={saving || sweeping}
+                  title="Verify every invoice of the year against its current fee structure and fix any drift"
+                >
+                  <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${sweeping ? "animate-spin" : ""}`} />
+                  {sweeping ? "Reconciling…" : "Verify & Reconcile Invoices"}
+                </Button>
+                <Button size="sm" onClick={openCreateStructure} disabled={saving}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  New Structure
+                </Button>
+              </div>
             )}
           </div>
 

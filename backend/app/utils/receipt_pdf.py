@@ -734,6 +734,20 @@ def generate_invoice_pdf(doc: dict[str, Any]) -> bytes:
     created_at = _date_long(doc.get("created_at"))
     story.append(Paragraph(f"<b>Invoice No:</b> {invoice_no}", _s("ino", size=10, space_after=3)))
     story.append(Paragraph(f"<b>Date:</b> {created_at}", _s("idate", size=10, space_after=8)))
+
+    # Phase Q — Revised marker: the reconciliation engine corrected this
+    # invoice after publication; older printouts are superseded.
+    reconciled_count = int(doc.get("reconciled_count") or 0)
+    if reconciled_count > 0:
+        rev_date = str(doc.get("last_reconciled_at") or "")[:10]
+        rev_text = f"REVISED (rev {reconciled_count})"
+        if rev_date:
+            rev_text += f" on {rev_date}"
+        rev_text += " — amounts updated to the current fee structure"
+        story.append(Paragraph(
+            f"<b>{rev_text}</b>",
+            _s("revised", size=8, color=colors.HexColor("#b45309"), space_after=4),
+        ))
     story.append(Spacer(1, 2 * mm))
 
     # ── Bill To ────────────────────────────────────────────────────────────

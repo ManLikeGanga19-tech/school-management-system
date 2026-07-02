@@ -5279,6 +5279,12 @@ def build_invoice_document(
         "balance_amount": str(getattr(inv, "balance_amount", 0) or 0),
         "arrears_summary": arrears_summary,
         "prior_balance": prior_balance,
+        # Phase Q — revision stamp: set by the reconciliation engine whenever
+        # a fee-structure change corrected this invoice after publication.
+        # The PDF renders a "Revised" marker so a parent holding an older
+        # printout knows the document has been superseded.
+        "reconciled_count": int(inv_meta.get("reconciled_count") or 0),
+        "last_reconciled_at": inv_meta.get("last_reconciled_at"),
         "created_at": (
             getattr(inv, "created_at").isoformat()
             if getattr(inv, "created_at", None) is not None
@@ -7338,6 +7344,524 @@ def generate_school_fees_invoice_v2(
         meta=None,
     )
     return inv
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase Q — Fee-structure reconciliation engine
+#
+# When a fee structure is edited AFTER invoices were generated from it, those
+# invoices silently drift from the source of truth. This engine detects and
+# corrects the drift in place — preserving payments, scholarship discounts,
+# arrears roll-ups, and every other non-structure line.
+#
+# Triggers:
+#   1. Structure-edit hooks (add/update/remove item routes) — drift is fixed
+#      the moment it is born.
+#   2. POST /finance/reconcile/sweep — verifies every current-year invoice;
+#      catches historical drift (structure edits made before this engine
+#      existed) and anything else that slipped through.
+#
+# Guarantees:
+#   * Only structure-sourced lines (meta.fee_item_id) are touched. Scholarship
+#     discounts / arrears roll-ups / interview credits / applicant overpayment
+#     / manual lines are NEVER modified by the diff. Percentage + full-waiver
+#     scholarship lines are recomputed AFTER the diff so the discount stays
+#     proportional to the corrected subtotal.
+#   * paid_amount is derived from PaymentAllocations — payments survive.
+#   * total drops below paid → surplus booked as OVERPAYMENT_CREDIT (same
+#     pattern as Phase M scholarship overpayment).
+#   * Idempotent: an aligned invoice is a no-op (returns None).
+#   * Every correction writes ONE invoice.reconciled audit event with the full
+#     before/after diff.
+#   * dry_run=True computes the diff without mutating anything.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _structure_expected_lines(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    structure_id: UUID,
+    term_number: int,
+) -> dict[str, dict] | None:
+    """Expected per-fee-item billing for (structure, term).
+
+    Returns {fee_item_id_str: {name, code, freq, amount}} or None when the
+    structure no longer exists (deleted structures freeze their invoices —
+    we have no source of truth to reconcile against).
+    """
+    structure = db.execute(
+        select(FeeStructure).where(
+            FeeStructure.id == structure_id,
+            FeeStructure.tenant_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if structure is None:
+        return None
+    items = db.execute(
+        select(
+            FeeStructureItem.fee_item_id,
+            FeeStructureItem.term_1_amount,
+            FeeStructureItem.term_2_amount,
+            FeeStructureItem.term_3_amount,
+            FeeItem.name.label("fee_item_name"),
+            FeeItem.code.label("fee_item_code"),
+            FeeItem.charge_frequency,
+        )
+        .select_from(FeeStructureItem)
+        .join(FeeItem, FeeItem.id == FeeStructureItem.fee_item_id)
+        .where(
+            FeeStructureItem.structure_id == structure.id,
+            FeeItem.tenant_id == tenant_id,
+        )
+    ).all()
+    expected: dict[str, dict] = {}
+    for it in items:
+        freq = it.charge_frequency or "PER_TERM"
+        if freq in ("ONCE_PER_YEAR", "ONCE_EVER"):
+            amount = Decimal(it.term_1_amount or 0)
+        else:
+            amount = Decimal(_get_term_amount(it, term_number) or 0)
+        expected[str(it.fee_item_id)] = {
+            "name": it.fee_item_name,
+            "code": it.fee_item_code,
+            "freq": freq,
+            "amount": amount.quantize(Decimal("0.01")),
+            "class_code": structure.class_code,
+        }
+    return expected
+
+
+def reconcile_invoice_against_structure(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    invoice: Invoice,
+    dry_run: bool = False,
+) -> Optional[dict]:
+    """Detect + fix drift between one invoice and its source fee structure.
+
+    Returns None when the invoice is aligned (or out of scope); otherwise a
+    summary dict {invoice_id, invoice_no, changes[], old_total, new_total,
+    overpayment_credited, applied} describing what changed (or would change,
+    when dry_run=True).
+    """
+    if invoice.invoice_type != "SCHOOL_FEES":
+        return None
+    if invoice.status == "CANCELLED":
+        return None
+    meta = invoice.meta or {}
+    structure_id = _uuid_from_any(meta.get("fee_structure_id"))
+    if structure_id is None or invoice.term_number is None:
+        return None
+
+    expected = _structure_expected_lines(
+        db,
+        tenant_id=tenant_id,
+        structure_id=structure_id,
+        term_number=int(invoice.term_number),
+    )
+    if expected is None:
+        return None  # structure deleted — invoice frozen
+
+    lines = db.execute(
+        select(InvoiceLine)
+        .where(InvoiceLine.invoice_id == invoice.id)
+        .order_by(InvoiceLine.id.asc())
+    ).scalars().all()
+
+    # Structure-sourced lines on the invoice, keyed by fee_item_id.
+    structure_lines: dict[str, InvoiceLine] = {}
+    for ln in lines:
+        ln_meta = ln.meta or {}
+        fid = ln_meta.get("fee_item_id")
+        if fid:
+            structure_lines[str(fid)] = ln
+
+    enrollment_id = invoice.enrollment_id
+    academic_year = invoice.academic_year
+
+    changes: list[dict] = []
+
+    # 1. Amount drift + removed items.
+    for fid, ln in structure_lines.items():
+        current_amount = Decimal(str(ln.amount or 0)).quantize(Decimal("0.01"))
+        exp = expected.get(fid)
+        if exp is None:
+            changes.append({
+                "kind": "remove_line",
+                "fee_item_id": fid,
+                "description": ln.description,
+                "old_amount": str(current_amount),
+                "new_amount": "0",
+            })
+        elif exp["amount"] != current_amount:
+            changes.append({
+                "kind": "update_amount",
+                "fee_item_id": fid,
+                "description": ln.description,
+                "old_amount": str(current_amount),
+                "new_amount": str(exp["amount"]),
+            })
+
+    # 2. Added items — same charge-frequency skip logic as generation so a
+    #    ONCE_PER_YEAR item added mid-year doesn't double-bill a student who
+    #    already paid it on another invoice.
+    for fid, exp in expected.items():
+        if fid in structure_lines:
+            continue
+        if exp["amount"] <= 0:
+            continue
+        freq = exp["freq"]
+        if freq == "ONCE_PER_YEAR":
+            if int(invoice.term_number) != 1:
+                continue
+            if enrollment_id is not None and academic_year is not None and _once_per_year_already_invoiced(
+                db, tenant_id=tenant_id, enrollment_id=enrollment_id,
+                academic_year=int(academic_year), fee_item_id=UUID(fid),
+            ):
+                continue
+        elif freq == "ONCE_EVER":
+            if enrollment_id is not None and _once_ever_already_invoiced(
+                db, tenant_id=tenant_id, enrollment_id=enrollment_id,
+                fee_item_id=UUID(fid),
+            ):
+                continue
+        changes.append({
+            "kind": "add_line",
+            "fee_item_id": fid,
+            "description": f"{exp['name']} ({exp['class_code']})",
+            "old_amount": "0",
+            "new_amount": str(exp["amount"]),
+            "fee_item_code": exp["code"],
+            "charge_frequency": freq,
+        })
+
+    if not changes:
+        return None  # aligned — idempotent no-op
+
+    old_total = Decimal(str(invoice.total_amount or 0))
+
+    summary: dict = {
+        "invoice_id": str(invoice.id),
+        "invoice_no": invoice.invoice_no,
+        "enrollment_id": str(enrollment_id) if enrollment_id else None,
+        "term_number": invoice.term_number,
+        "academic_year": academic_year,
+        "changes": changes,
+        "old_total": str(old_total),
+        "applied": not dry_run,
+    }
+
+    if dry_run:
+        # Estimate the new total without mutating: old total + sum of deltas.
+        # Scholarship recompute effects are not estimated (they depend on the
+        # corrected subtotal); the dry run is a drift report, not a quote.
+        delta = sum(
+            (Decimal(c["new_amount"]) - Decimal(c["old_amount"]) for c in changes),
+            Decimal("0"),
+        )
+        summary["new_total"] = str((old_total + delta).quantize(Decimal("0.01")))
+        summary["overpayment_credited"] = None
+        return summary
+
+    # ── Apply the diff ────────────────────────────────────────────────────
+    for change in changes:
+        fid = change["fee_item_id"]
+        if change["kind"] == "update_amount":
+            ln = structure_lines[fid]
+            ln.amount = Decimal(change["new_amount"])
+        elif change["kind"] == "remove_line":
+            db.delete(structure_lines[fid])
+        elif change["kind"] == "add_line":
+            db.add(InvoiceLine(
+                invoice_id=invoice.id,
+                description=change["description"],
+                amount=Decimal(change["new_amount"]),
+                meta={
+                    "fee_item_id": fid,
+                    "fee_item_code": change.get("fee_item_code"),
+                    "charge_frequency": change.get("charge_frequency"),
+                    "added_by_reconcile": True,
+                },
+            ))
+    db.flush()
+
+    # ── Recompute proportional scholarship discounts ─────────────────────
+    # PERCENTAGE and FULL_WAIVER discounts are functions of the subtotal —
+    # they must track the corrected amounts. FIXED discounts stay as-is
+    # (their amount is the rule of record), only re-capped at the new
+    # subtotal so a shrunken invoice can't go negative.
+    scholarship_adjustments: list[dict] = []
+    remaining_lines = db.execute(
+        select(InvoiceLine).where(InvoiceLine.invoice_id == invoice.id)
+    ).scalars().all()
+    sch_lines = [
+        ln for ln in remaining_lines
+        if (ln.meta or {}).get("scholarship_allocation_id")
+    ]
+    if sch_lines:
+        # Subtotal of everything EXCEPT scholarship discount lines — the base
+        # each discount is recomputed from (mirrors apply-time semantics
+        # where the discount was computed off the pre-discount total).
+        base_subtotal = sum(
+            (
+                Decimal(str(ln.amount or 0))
+                for ln in remaining_lines
+                if not (ln.meta or {}).get("scholarship_allocation_id")
+            ),
+            Decimal("0"),
+        )
+        if base_subtotal < 0:
+            base_subtotal = Decimal("0")
+        # Arrears portion (bundled CF) — FULL_WAIVER without covers_carry_forward
+        # only waives the current-term portion.
+        from app.models.student_carry_forward import StudentCarryForward
+        arrears_raw = db.execute(
+            select(sa_func.coalesce(sa_func.sum(StudentCarryForward.amount), 0))
+            .where(
+                StudentCarryForward.invoice_id == invoice.id,
+                StudentCarryForward.status.in_(("BUNDLED", "SETTLED")),
+            )
+        ).scalar() or Decimal("0")
+        arrears_d = max(Decimal(str(arrears_raw)), Decimal("0"))
+
+        # Running tally so stacked discounts never exceed the base subtotal.
+        discount_budget = base_subtotal
+        for ln in sch_lines:
+            ln_meta = ln.meta or {}
+            alloc_id = _uuid_from_any(ln_meta.get("scholarship_allocation_id"))
+            sch_type = str(ln_meta.get("scholarship_type") or "")
+            old_discount = -Decimal(str(ln.amount or 0))
+            allocation = db.get(ScholarshipAllocation, alloc_id) if alloc_id else None
+            scholarship = (
+                db.get(Scholarship, allocation.scholarship_id) if allocation else None
+            )
+            if sch_type == "PERCENTAGE" and scholarship is not None:
+                new_discount = (
+                    base_subtotal * Decimal(scholarship.value or 0) / Decimal("100")
+                ).quantize(Decimal("0.01"))
+            elif sch_type == "FULL_WAIVER":
+                covers_cf = bool(ln_meta.get("covers_carry_forward"))
+                new_discount = base_subtotal if covers_cf else max(
+                    base_subtotal - arrears_d, Decimal("0")
+                )
+            else:  # FIXED — keep, but never let stacked discounts exceed base
+                new_discount = old_discount
+            new_discount = min(new_discount, discount_budget)
+            if new_discount < 0:
+                new_discount = Decimal("0")
+            discount_budget -= new_discount
+            if new_discount != old_discount:
+                ln.amount = -new_discount
+                if allocation is not None:
+                    allocation.amount = new_discount
+                scholarship_adjustments.append({
+                    "scholarship_allocation_id": str(alloc_id) if alloc_id else None,
+                    "scholarship_type": sch_type,
+                    "old_discount": str(old_discount),
+                    "new_discount": str(new_discount),
+                })
+        db.flush()
+
+    original_status = invoice.status
+    _recalc_invoice_amounts(db, invoice)
+    db.flush()
+
+    # ── Overpayment: corrected total fell below what was already paid ─────
+    overpayment_credited: Optional[str] = None
+    if original_status != "DRAFT":
+        total_after = Decimal(str(invoice.total_amount or 0))
+        paid_after = Decimal(str(invoice.paid_amount or 0))
+        surplus = paid_after - total_after
+        if surplus > 0:
+            student_id = None
+            if enrollment_id is not None:
+                student_id = db.execute(
+                    select(Enrollment.student_id).where(
+                        Enrollment.id == enrollment_id,
+                        Enrollment.tenant_id == tenant_id,
+                    )
+                ).scalar_one_or_none()
+            if student_id is not None:
+                from app.models.student_carry_forward import StudentCarryForward
+                credit_row = StudentCarryForward(
+                    tenant_id=tenant_id,
+                    student_id=student_id,
+                    term_label=(
+                        f"Overpayment credit from INV "
+                        f"{invoice.invoice_no or str(invoice.id)[:8]}"
+                    ),
+                    academic_year=invoice.academic_year,
+                    term_number=invoice.term_number,
+                    amount=(-surplus).quantize(Decimal("0.01")),
+                    category="OVERPAYMENT_CREDIT",
+                    status="OPEN",
+                    description=(
+                        f"Fee-structure reconciliation reduced invoice "
+                        f"{invoice.invoice_no or invoice.id} total below the "
+                        f"{paid_after} already paid; surplus of {surplus} "
+                        f"credited to student."
+                    ),
+                    recorded_by=actor_user_id,
+                )
+                db.add(credit_row)
+                db.flush()
+                invoice.paid_amount = total_after
+                invoice.balance_amount = Decimal("0")
+                invoice.status = "PAID"
+                db.flush()
+                overpayment_credited = str(surplus.quantize(Decimal("0.01")))
+            # No linked SIS student (pre-ENROLL applicant): leave the negative
+            # balance visible rather than orphaning money — the enrollment
+            # flow's INTERVIEW_CREDIT machinery reads paid_amount directly.
+
+    # ── Revision stamp for the PDF "Revised" marker ────────────────────────
+    prev_count = int((invoice.meta or {}).get("reconciled_count") or 0)
+    invoice.meta = {
+        **(invoice.meta or {}),
+        "reconciled_count": prev_count + 1,
+        "last_reconciled_at": datetime.now(timezone.utc).isoformat(),
+    }
+    db.flush()
+
+    summary["new_total"] = str(invoice.total_amount or 0)
+    summary["new_status"] = invoice.status
+    summary["overpayment_credited"] = overpayment_credited
+    if scholarship_adjustments:
+        summary["scholarship_adjustments"] = scholarship_adjustments
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="invoice.reconciled",
+        resource="invoice",
+        resource_id=invoice.id,
+        payload={
+            "invoice_no": invoice.invoice_no,
+            "old_total": summary["old_total"],
+            "new_total": summary["new_total"],
+            "change_count": len(changes),
+            "overpayment_credited": overpayment_credited,
+            "fee_structure_id": str(structure_id),
+        },
+        meta={"changes": changes, "scholarship_adjustments": scholarship_adjustments},
+    )
+    return summary
+
+
+def reconcile_structure_invoices(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    fee_structure_id: UUID,
+    dry_run: bool = False,
+) -> dict:
+    """Reconcile every non-CANCELLED invoice generated from one structure.
+
+    Called by the structure-edit hooks (drift fixed the moment it's born)
+    and by the per-structure manual endpoint.
+    """
+    invoices = db.execute(
+        select(Invoice).where(
+            Invoice.tenant_id == tenant_id,
+            Invoice.invoice_type == "SCHOOL_FEES",
+            Invoice.status != "CANCELLED",
+            Invoice.meta["fee_structure_id"].astext == str(fee_structure_id),
+        )
+    ).scalars().all()
+    results: list[dict] = []
+    for inv in invoices:
+        summary = reconcile_invoice_against_structure(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            invoice=inv,
+            dry_run=dry_run,
+        )
+        if summary is not None:
+            results.append(summary)
+    return {
+        "checked": len(invoices),
+        "reconciled": len(results),
+        "dry_run": dry_run,
+        "invoices": results,
+    }
+
+
+def sweep_reconcile_invoices(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    academic_year: Optional[int] = None,
+    dry_run: bool = False,
+) -> dict:
+    """Verify every structure-generated invoice of an academic year against
+    its current fee structure and fix drift. The 'forever checking' arm —
+    catches historical drift from structure edits made before the
+    edit-hooks existed, plus anything else that slipped through.
+
+    academic_year defaults to the most recent year that has any invoice.
+    """
+    if academic_year is None:
+        academic_year = db.execute(
+            select(sa_func.max(Invoice.academic_year)).where(
+                Invoice.tenant_id == tenant_id,
+                Invoice.invoice_type == "SCHOOL_FEES",
+            )
+        ).scalar_one_or_none()
+    if academic_year is None:
+        return {"checked": 0, "reconciled": 0, "dry_run": dry_run, "invoices": [],
+                "academic_year": None}
+
+    invoices = db.execute(
+        select(Invoice).where(
+            Invoice.tenant_id == tenant_id,
+            Invoice.invoice_type == "SCHOOL_FEES",
+            Invoice.status != "CANCELLED",
+            Invoice.academic_year == int(academic_year),
+            Invoice.meta["fee_structure_id"].astext.isnot(None),
+        )
+    ).scalars().all()
+
+    results: list[dict] = []
+    for inv in invoices:
+        summary = reconcile_invoice_against_structure(
+            db,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            invoice=inv,
+            dry_run=dry_run,
+        )
+        if summary is not None:
+            results.append(summary)
+
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="finance.reconcile.sweep",
+        resource="tenant",
+        resource_id=tenant_id,
+        payload={
+            "academic_year": int(academic_year),
+            "checked": len(invoices),
+            "reconciled": len(results),
+            "dry_run": dry_run,
+        },
+        meta=None,
+    )
+    return {
+        "academic_year": int(academic_year),
+        "checked": len(invoices),
+        "reconciled": len(results),
+        "dry_run": dry_run,
+        "invoices": results,
+    }
 
 
 def publish_invoice(
