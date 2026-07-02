@@ -188,8 +188,45 @@ type FamilyRecordResult = {
 type EnrollmentLite = {
   id: string;
   student_id: string | null;
+  status?: string | null;
   payload?: Record<string, unknown>;
   admission_number?: string | null;
+};
+
+// Phase O — by-enrollment (applicant) shape.
+type ApplicantInterviewInvoice = {
+  invoice_id: string;
+  invoice_no: string | null;
+  invoice_type: string;
+  status: string;
+  total_amount: string;
+  paid_amount: string;
+  balance_amount: string;
+};
+
+type ApplicantSummary = {
+  enrollment_id: string;
+  enrollment_status: string;
+  student_name: string;
+  admission_no: string | null;
+  class_code: string | null;
+  parent_name: string | null;
+  interview_invoices: ApplicantInterviewInvoice[];
+  total_outstanding: string;
+  eligible: boolean;
+};
+
+type ApplicantRecordResult = {
+  payment_id: string;
+  receipt_no: string | null;
+  amount: string;
+  allocated_total: string;
+  surplus_absorbed: string;
+  allocations: {
+    invoice_id: string;
+    invoice_no: string | null;
+    amount: string;
+  }[];
 };
 
 type ParentLite = {
@@ -250,6 +287,9 @@ export function RecordPaymentByStudent() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [studentSummary, setStudentSummary] = useState<StudentSummary | null>(null);
   const [parentSummary, setParentSummary] = useState<ParentSummary | null>(null);
+  // Phase O — applicant (interview-fee) mode.
+  const [applicantSummary, setApplicantSummary] = useState<ApplicantSummary | null>(null);
+  const [lastApplicantResult, setLastApplicantResult] = useState<ApplicantRecordResult | null>(null);
 
   // Form
   const [amount, setAmount] = useState("");
@@ -316,6 +356,30 @@ export function RecordPaymentByStudent() {
         });
       }
 
+      // Phase O — prospective applicants: enrollments without a SIS student
+      // yet (student_id is null until approval). They're addressable by
+      // enrollment_id via the by-enrollment payment endpoints. The summary
+      // endpoint decides whether they actually have an unpaid interview
+      // invoice; we surface them here so the operator can search by name.
+      for (const row of enrollmentRows) {
+        if (row.student_id) continue;
+        const name = studentNameFromPayload(row.payload);
+        const classCode =
+          (row.payload?.["class_code"] as string | undefined) ||
+          (row.payload?.["admission_class"] as string | undefined) ||
+          "";
+        const statusLabel = String(row.status || "").toLowerCase();
+        opts.push({
+          kind: "applicant",
+          id: row.id,
+          label: name,
+          sublabel: [
+            statusLabel && `Applicant · ${statusLabel}`,
+            classCode,
+          ].filter(Boolean).join(" · ") || undefined,
+        });
+      }
+
       // Parents: only those with linked children (child_count > 0) — a parent
       // with no children in this tenant can't have a payment recorded.
       const parentRows = Array.isArray(parentsRaw) ? (parentsRaw as ParentLite[]) : [];
@@ -361,13 +425,24 @@ export function RecordPaymentByStudent() {
         );
         setStudentSummary(data);
         setParentSummary(null);
-      } else {
+        setApplicantSummary(null);
+      } else if (target.kind === "parent") {
         const data = await api.get<ParentSummary>(
           `/finance/parents/${encodeURIComponent(target.id)}/payment-summary`,
           { tenantRequired: true }
         );
         setParentSummary(data);
         setStudentSummary(null);
+        setApplicantSummary(null);
+      } else {
+        // Phase O — applicant (interview-fee) mode.
+        const data = await api.get<ApplicantSummary>(
+          `/finance/enrollments/${encodeURIComponent(target.id)}/payment-summary`,
+          { tenantRequired: true }
+        );
+        setApplicantSummary(data);
+        setStudentSummary(null);
+        setParentSummary(null);
       }
     } catch (err: unknown) {
       const detail =
@@ -376,6 +451,7 @@ export function RecordPaymentByStudent() {
       toast.error(detail || "Failed to load summary.");
       setStudentSummary(null);
       setParentSummary(null);
+      setApplicantSummary(null);
     } finally {
       setSummaryLoading(false);
     }
@@ -407,12 +483,14 @@ export function RecordPaymentByStudent() {
       setReference("");
       setLastStudentResult(null);
       setLastFamilyResult(null);
+      setLastApplicantResult(null);
       setPerStudent({});
       setCreditToStudentId("");
       setFamilyMode("auto");
     } else {
       setStudentSummary(null);
       setParentSummary(null);
+      setApplicantSummary(null);
     }
   }, [picked, loadSummary]);
 
@@ -537,6 +615,40 @@ export function RecordPaymentByStudent() {
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
         (err as { message?: string })?.message;
       toast.error(detail || "Failed to record payment.");
+    } finally {
+      setRecording(false);
+    }
+  }
+
+  // Phase O — Applicant (interview-fee) record path.
+  async function recordApplicant() {
+    if (!picked || picked.kind !== "applicant") return;
+    if (typedAmount <= 0) {
+      toast.error("Enter an amount greater than zero.");
+      return;
+    }
+    setRecording(true);
+    try {
+      const result = await api.post<ApplicantRecordResult>(
+        `/finance/enrollments/${encodeURIComponent(picked.id)}/payments`,
+        { amount: typedAmount, provider, reference: reference.trim() || null },
+        { tenantRequired: true },
+      );
+      setLastApplicantResult(result);
+      const surplus = parseFloat(result.surplus_absorbed || "0");
+      toast.success(
+        surplus > 0
+          ? `Interview fee recorded (${fmtKes(result.amount)}). ${fmtKes(surplus)} overpayment will carry forward at enrollment.`
+          : `Interview fee recorded (${fmtKes(result.amount)}).`,
+      );
+      setAmount("");
+      setReference("");
+      await loadSummary(picked);
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        (err as { message?: string })?.message;
+      toast.error(detail || "Failed to record interview payment.");
     } finally {
       setRecording(false);
     }
@@ -953,6 +1065,149 @@ export function RecordPaymentByStudent() {
                 <div className="mt-3">
                   <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
                     onClick={() => void openReceiptPdf(lastStudentResult.payment_id)}>
+                    <Printer className="h-3 w-3" /> Print receipt
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Applicant (interview-fee) panel — Phase O ──────────────────── */}
+      {picked?.kind === "applicant" && (
+        <div className="grid gap-4 lg:grid-cols-5">
+          <div className="space-y-4 lg:col-span-3">
+            {summaryLoading || !applicantSummary ? (
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <p className="py-6 text-center text-sm text-slate-400">Loading applicant summary…</p>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-5">
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <div>
+                    <div className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">
+                      Applicant · {applicantSummary.enrollment_status.toLowerCase()}
+                    </div>
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      {applicantSummary.student_name}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {[
+                        applicantSummary.class_code,
+                        applicantSummary.parent_name && `Guardian: ${applicantSummary.parent_name}`,
+                      ].filter(Boolean).join(" · ") || "—"}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Interview owed</p>
+                    <p className={`text-lg font-bold ${
+                      parseFloat(applicantSummary.total_outstanding) > 0
+                        ? "text-amber-800"
+                        : "text-slate-700"
+                    }`}>
+                      {fmtKes(applicantSummary.total_outstanding)}
+                    </p>
+                  </div>
+                </div>
+                {applicantSummary.eligible ? (
+                  <div className="rounded-xl border border-white bg-white p-3">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      Open interview invoices
+                    </p>
+                    <ul className="space-y-1">
+                      {applicantSummary.interview_invoices.map((inv) => (
+                        <li key={inv.invoice_id} className="flex items-center justify-between text-xs">
+                          <span className="font-mono text-slate-500">{inv.invoice_no || inv.invoice_id.slice(0, 8)}</span>
+                          <span className="text-slate-500">
+                            paid {fmtKes(inv.paid_amount)} of {fmtKes(inv.total_amount)}
+                          </span>
+                          <span className="font-semibold text-amber-800">{fmtKes(inv.balance_amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                    <div className="mb-1 flex items-center gap-1.5 font-semibold">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      No unpaid interview invoice
+                    </div>
+                    <p>
+                      Create an interview invoice for this applicant on the
+                      Finance page first, then come back here to record the
+                      payment.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="space-y-4 lg:col-span-2">
+            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <HandCoins className="h-4 w-4 text-amber-600" /> Record interview fee
+              </h3>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Amount received (KES)</Label>
+                  <Input
+                    type="number" min="0.01" step="0.01"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="0.00"
+                    disabled={!applicantSummary?.eligible}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Provider</Label>
+                  <Select value={provider} onValueChange={setProvider}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PROVIDERS.map((p) => <SelectItem key={p.code} value={p.code}>{p.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Reference (optional)</Label>
+                  <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. M-PESA id" />
+                </div>
+                <Button
+                  onClick={() => void recordApplicant()}
+                  disabled={recording || !applicantSummary?.eligible}
+                  className="w-full bg-amber-600 hover:bg-amber-700"
+                >
+                  {recording ? "Recording…" : "Record Interview Fee"}
+                </Button>
+                <p className="text-[11px] text-slate-400">
+                  No SIS student exists yet for this applicant. Any overpayment
+                  is absorbed on the interview invoice and carried forward as
+                  a credit when the student is approved and enrolled.
+                </p>
+              </div>
+            </div>
+            {lastApplicantResult && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                  <ReceiptText className="h-4 w-4" />
+                  Receipt {lastApplicantResult.receipt_no || lastApplicantResult.payment_id.slice(0, 8)}
+                </h3>
+                <p className="text-xs text-emerald-800">
+                  Recorded {fmtKes(lastApplicantResult.amount)}
+                  {parseFloat(lastApplicantResult.surplus_absorbed) > 0 && (
+                    <> · {fmtKes(lastApplicantResult.surplus_absorbed)} overpayment carried forward</>
+                  )}.
+                </p>
+                <ul className="mt-2 space-y-0.5 text-[11px] text-emerald-900">
+                  {lastApplicantResult.allocations.map((a) => (
+                    <li key={a.invoice_id}>
+                      • <span className="font-mono">{a.invoice_no || a.invoice_id.slice(0, 8)}</span>: {fmtKes(a.amount)}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3">
+                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
+                    onClick={() => void openReceiptPdf(lastApplicantResult.payment_id)}>
                     <Printer className="h-3 w-3" /> Print receipt
                   </Button>
                 </div>

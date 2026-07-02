@@ -424,6 +424,61 @@ class PaymentWaterfallPreviewOut(BaseModel):
 
 
 # -------------------------
+# Phase O — By-enrollment (applicant / interview-fee) payment view
+# -------------------------
+class EnrollmentInterviewInvoiceOut(BaseModel):
+    invoice_id: UUID
+    invoice_no: Optional[str] = None
+    invoice_type: str
+    status: str
+    total_amount: Decimal
+    paid_amount: Decimal
+    balance_amount: Decimal
+
+
+class EnrollmentPaymentSummaryOut(BaseModel):
+    """Applicant identity + open interview invoices. Powers the picker
+    entry and the record-payment panel for the by-enrollment surface."""
+    enrollment_id: UUID
+    enrollment_status: str
+    student_name: str
+    admission_no: Optional[str] = None
+    class_code: Optional[str] = None
+    parent_name: Optional[str] = None
+    interview_invoices: List[EnrollmentInterviewInvoiceOut] = Field(default_factory=list)
+    total_outstanding: Decimal
+    eligible: bool
+
+
+class EnrollmentPaymentRecordRequest(BaseModel):
+    """Body for POST /finance/enrollments/{enrollment_id}/payments.
+
+    Applicant path — no waterfall, no CF, no apply-credit. Interview fees
+    are paid oldest-first against open INTERVIEW invoices. Overpayment
+    is absorbed as a line on the oldest interview invoice so the full
+    cash amount carries forward as INTERVIEW_CREDIT at enrollment.
+    """
+    amount: Decimal
+    provider: str
+    reference: Optional[str] = None
+
+
+class EnrollmentPaymentRecordAllocationOut(BaseModel):
+    invoice_id: UUID
+    invoice_no: Optional[str] = None
+    amount: Decimal
+
+
+class EnrollmentPaymentRecordOut(BaseModel):
+    payment_id: UUID
+    receipt_no: Optional[str] = None
+    amount: Decimal
+    allocated_total: Decimal
+    surplus_absorbed: Decimal
+    allocations: List[EnrollmentPaymentRecordAllocationOut] = Field(default_factory=list)
+
+
+# -------------------------
 # Family Record Payment (multi-student, single receipt)
 # -------------------------
 class ParentPaymentSummaryOut(BaseModel):

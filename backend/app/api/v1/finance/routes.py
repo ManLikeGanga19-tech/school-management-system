@@ -51,6 +51,7 @@ from app.api.v1.finance.schemas import (
     PaymentCreate, PaymentOut, PaymentWithAllocationsOut, PaymentPageOut,
     StudentPaymentSummaryOut, StudentPaymentRecordRequest, StudentPaymentRecordOut,
     PaymentWaterfallPreviewRequest, PaymentWaterfallPreviewOut,
+    EnrollmentPaymentSummaryOut, EnrollmentPaymentRecordRequest, EnrollmentPaymentRecordOut,
     ParentPaymentSummaryOut, ParentPaymentRecordRequest, ParentPaymentRecordOut,
     BulkGenerateFeesInvoicesRequest, BulkGenerateFeesInvoicesOut,
     BulkPublishInvoicesRequest, BulkPublishInvoicesOut,
@@ -1519,6 +1520,69 @@ def record_student_payment_route(
                 # Notification failure must not roll back a recorded payment.
                 pass
 
+        return result
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Phase O — By-enrollment (applicant) payment surface ─────────────────
+@router.get(
+    "/enrollments/{enrollment_id}/payment-summary",
+    response_model=EnrollmentPaymentSummaryOut,
+    dependencies=[Depends(require_permission("finance.payments.view"))],
+)
+def get_enrollment_payment_summary_route(
+    enrollment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Applicant identity + open interview invoices for the by-enrollment
+    record-payment view. Prospective applicants (DRAFT / SUBMITTED
+    enrollments without a SIS student yet) are addressed by
+    enrollment_id here since they have no student_id to route through
+    the by-student endpoint."""
+    try:
+        return service.get_enrollment_payment_summary(
+            db, tenant_id=tenant.id, enrollment_id=enrollment_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post(
+    "/enrollments/{enrollment_id}/payments",
+    response_model=EnrollmentPaymentRecordOut,
+    dependencies=[Depends(require_permission("finance.payments.manage"))],
+)
+def record_enrollment_payment_route(
+    enrollment_id: UUID,
+    payload: EnrollmentPaymentRecordRequest,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Record an interview-fee payment against a prospective applicant.
+
+    Simpler than the by-student waterfall — no CF, no available-credit
+    consumption, no term FIFO across school-fees invoices. Just pays open
+    INTERVIEW invoices oldest-first and absorbs any overpayment as an
+    applicant-overpayment line on the oldest invoice so the full amount
+    carries forward via the existing INTERVIEW_CREDIT machinery at
+    enrollment approval.
+    """
+    try:
+        result = service.record_enrollment_payment(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            enrollment_id=enrollment_id,
+            amount=payload.amount,
+            provider=payload.provider,
+            reference=payload.reference,
+        )
+        db.commit()
         return result
     except ValueError as e:
         db.rollback()

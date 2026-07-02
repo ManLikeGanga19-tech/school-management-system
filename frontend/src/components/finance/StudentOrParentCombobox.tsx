@@ -16,13 +16,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Popover } from "radix-ui";
-import { Check, ChevronsUpDown, Search, User, Users } from "lucide-react";
+import { Check, ChevronsUpDown, GraduationCap, Search, User, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export type PickedKind = "student" | "parent";
+// Phase O — applicant = prospective enrollment (interview stage), no SIS
+// student yet, addressed by enrollment_id via a separate endpoint family.
+export type PickedKind = "student" | "parent" | "applicant";
 
 export type PickedTarget = {
   kind: PickedKind;
@@ -97,6 +99,8 @@ export function StudentOrParentCombobox({
               <Users className="h-3.5 w-3.5 shrink-0 text-slate-400" />
             ) : selected?.kind === "student" ? (
               <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+            ) : selected?.kind === "applicant" ? (
+              <GraduationCap className="h-3.5 w-3.5 shrink-0 text-slate-400" />
             ) : null}
             <span className="truncate">{displayLabel}</span>
           </span>
@@ -150,12 +154,19 @@ export function StudentOrParentCombobox({
                   />
                   {opt.kind === "parent" ? (
                     <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-purple-500" />
+                  ) : opt.kind === "applicant" ? (
+                    <GraduationCap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                   ) : (
                     <User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
                   )}
                   <span className="flex flex-col items-start text-left">
-                    <span className={cn("font-medium", isSelected && "text-blue-700")}>
+                    <span className={cn("font-medium flex items-center gap-1.5", isSelected && "text-blue-700")}>
                       {opt.label}
+                      {opt.kind === "applicant" && (
+                        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-800 ring-1 ring-amber-200">
+                          Applicant
+                        </span>
+                      )}
                     </span>
                     {opt.sublabel && (
                       <span className="text-xs text-slate-400">{opt.sublabel}</span>

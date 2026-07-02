@@ -4219,6 +4219,277 @@ def record_student_payment(
     }
 
 
+# ── Phase O — By-enrollment (applicant / interview-fee) payment view ─────
+#
+# Pre-enrollment payment flow: prospective applicants pay an INTERVIEW fee
+# BEFORE the SIS student record exists. That means we can't route them
+# through the by-student surface (student_id is null on the enrollment
+# until approval). Instead we address them by enrollment_id.
+#
+# The flow is deliberately simpler than the by-student waterfall:
+#   * No carry-forward — an applicant has no financial history in the SIS.
+#   * No available credit — same reason.
+#   * No FIFO across term invoices — only INTERVIEW invoices exist here.
+#   * No surplus → OVERPAYMENT_CREDIT — there's no student to credit.
+#     Instead, an overpayment is booked as a "Applicant overpayment"
+#     line on the interview invoice itself so the invoice PAID amount
+#     always reflects the full cash received. The existing enrollment
+#     credit machinery (INTERVIEW_CREDIT line at fee generation time)
+#     picks this up automatically at enrollment approval.
+
+
+def _open_interview_invoices_for_enrollment(
+    db: Session, *, tenant_id: UUID, enrollment_id: UUID,
+) -> list[Invoice]:
+    """Open (non-CANCELLED, non-PAID with balance > 0) INTERVIEW invoices
+    for this enrollment, oldest first."""
+    return list(db.execute(
+        select(Invoice)
+        .where(
+            Invoice.tenant_id == tenant_id,
+            Invoice.enrollment_id == enrollment_id,
+            Invoice.invoice_type == "INTERVIEW",
+            Invoice.status.notin_(("PAID", "CANCELLED")),
+            Invoice.balance_amount > 0,
+        )
+        .order_by(
+            Invoice.created_at.asc(),
+            Invoice.id.asc(),
+        )
+    ).scalars().all())
+
+
+def get_enrollment_payment_summary(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    enrollment_id: UUID,
+) -> dict:
+    """Snapshot for the by-enrollment record-payment view.
+
+    Returns applicant identity + list of open INTERVIEW invoices + total
+    outstanding. Includes an ``eligible`` flag: false when the enrollment
+    has no unpaid interview invoice at all (so the UI can hide it from
+    the picker or show a "no interview invoice yet" hint).
+    """
+    enrollment = db.execute(
+        select(Enrollment).where(
+            Enrollment.id == enrollment_id,
+            Enrollment.tenant_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if enrollment is None:
+        raise ValueError("Enrollment not found")
+
+    identity = _resolve_student_identity(db, tenant_id=tenant_id, enrollment=enrollment)
+
+    invs = _open_interview_invoices_for_enrollment(
+        db, tenant_id=tenant_id, enrollment_id=enrollment_id,
+    )
+    invoice_summaries = [
+        {
+            "invoice_id": str(inv.id),
+            "invoice_no": inv.invoice_no,
+            "invoice_type": inv.invoice_type,
+            "status": inv.status,
+            "total_amount": str(inv.total_amount or 0),
+            "paid_amount": str(inv.paid_amount or 0),
+            "balance_amount": str(inv.balance_amount or 0),
+        }
+        for inv in invs
+    ]
+    total_outstanding = sum(
+        (Decimal(i.balance_amount or 0) for i in invs), Decimal("0"),
+    )
+
+    return {
+        "enrollment_id": str(enrollment.id),
+        "enrollment_status": str(enrollment.status or ""),
+        "student_name": identity["student_name"],
+        "admission_no": identity["admission_no"] or None,
+        "class_code": identity["class_code"] or None,
+        "parent_name": identity["parent_name"] or None,
+        "interview_invoices": invoice_summaries,
+        "total_outstanding": str(total_outstanding.quantize(Decimal("0.01"))),
+        "eligible": bool(invs),
+    }
+
+
+def record_enrollment_payment(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID],
+    enrollment_id: UUID,
+    amount: Decimal,
+    provider: str,
+    reference: Optional[str] = None,
+) -> dict:
+    """Record an interview-fee payment scoped to an enrollment (applicant).
+
+    Behaviour:
+      * Requires at least one OPEN INTERVIEW invoice for the enrollment.
+        Rejects with a clear 400 otherwise — the operator must create the
+        interview invoice first (via the "Create Interview Invoice"
+        section on the finance page).
+      * Allocates the amount oldest-first across open INTERVIEW invoices.
+      * If amount > total balance of all open interview invoices: the
+        surplus is booked as a NEW line on the oldest interview invoice
+        (line description "Applicant overpayment"). Invoice total_amount
+        grows to match the cash received, so paid_amount == total_amount
+        and the invoice moves to PAID. The enrollment-approval flow
+        already carries the full paid_amount forward as an
+        INTERVIEW_CREDIT line on the school-fees invoice — no changes
+        needed there.
+
+    Atomic + auditable. Guardrails:
+      * Provider must be one of CASH/MPESA/BANK/CHEQUE.
+      * amount > 0 required.
+      * enrollment_id must exist in this tenant.
+    """
+    provider_code = provider.upper().strip()
+    if provider_code not in ("CASH", "MPESA", "BANK", "CHEQUE"):
+        raise ValueError("Invalid payment provider")
+    if amount is None or Decimal(amount) <= 0:
+        raise ValueError("Payment amount must be greater than zero")
+
+    enrollment = db.execute(
+        select(Enrollment).where(
+            Enrollment.id == enrollment_id,
+            Enrollment.tenant_id == tenant_id,
+        )
+    ).scalar_one_or_none()
+    if enrollment is None:
+        raise ValueError("Enrollment not found")
+
+    invs = _open_interview_invoices_for_enrollment(
+        db, tenant_id=tenant_id, enrollment_id=enrollment_id,
+    )
+    if not invs:
+        raise ValueError(
+            "No unpaid interview invoice for this applicant. "
+            "Create an interview invoice first, then record the payment."
+        )
+
+    payment_amount = Decimal(amount).quantize(Decimal("0.01"))
+    remaining = payment_amount
+    invoice_allocations: list[tuple[Invoice, Decimal]] = []
+
+    for inv in invs:
+        if remaining <= 0:
+            break
+        bal = Decimal(inv.balance_amount or 0).quantize(Decimal("0.01"))
+        if bal <= 0:
+            continue
+        take = min(remaining, bal)
+        invoice_allocations.append((inv, take))
+        remaining -= take
+
+    # Any leftover is a surplus. Convert it into a "Applicant overpayment"
+    # line on the OLDEST interview invoice so the invoice's total grows to
+    # match the cash received. This is what the enrollment credit machinery
+    # (see line reading `interview_inv.paid_amount`) needs to carry the
+    # full amount forward at enrollment approval — no new mechanism.
+    surplus = remaining.quantize(Decimal("0.01"))
+    if surplus > 0:
+        target_inv = invs[0]
+        db.add(InvoiceLine(
+            invoice_id=target_inv.id,
+            description="Applicant overpayment (carried forward at enrollment)",
+            amount=surplus,
+            meta={"line_type": "APPLICANT_OVERPAYMENT"},
+        ))
+        db.flush()
+        _recalc_invoice_amounts(db, target_inv)
+        db.flush()
+        # Refresh the balance so the allocation loop below (extending the
+        # existing plan) picks up the new outstanding on the target invoice.
+        target_new_balance = Decimal(target_inv.balance_amount or 0).quantize(Decimal("0.01"))
+        # If we already allocated the max old balance to this invoice, we
+        # need to top up its allocation by the surplus. Otherwise the
+        # invoice would be partial-paid rather than paid.
+        for i, (existing_inv, existing_amount) in enumerate(invoice_allocations):
+            if existing_inv.id == target_inv.id:
+                invoice_allocations[i] = (existing_inv, existing_amount + surplus)
+                break
+        else:
+            invoice_allocations.append((target_inv, target_new_balance))
+
+    # ── Create Payment row ────────────────────────────────────────────────
+    pay = Payment(
+        tenant_id=tenant_id,
+        provider=provider_code,
+        reference=reference,
+        amount=payment_amount,
+        created_by=actor_user_id,
+    )
+    db.add(pay)
+    db.flush()
+    if not getattr(pay, "receipt_no", None):
+        pay.receipt_no = _next_document_number(
+            db,
+            tenant_id=tenant_id,
+            doc_type="RCT",
+            created_at=getattr(pay, "received_at", None),
+        )
+        db.flush()
+
+    # ── Allocations ───────────────────────────────────────────────────────
+    for inv, alloc_amount in invoice_allocations:
+        if getattr(inv, "status", None) == "DRAFT":
+            raise ValueError(
+                f"Interview invoice {inv.invoice_no or inv.id} is a draft — "
+                "publish it before recording a payment."
+            )
+        db.add(PaymentAllocation(
+            payment_id=pay.id,
+            invoice_id=inv.id,
+            amount=alloc_amount,
+        ))
+    db.flush()
+    for inv, _ in invoice_allocations:
+        _recalc_invoice_amounts(db, inv)
+    db.flush()
+
+    # ── Audit ─────────────────────────────────────────────────────────────
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="payment.interview.recorded",
+        resource="payment",
+        resource_id=pay.id,
+        payload={
+            "enrollment_id": str(enrollment_id),
+            "amount": str(pay.amount),
+            "provider": provider_code,
+            "surplus_absorbed": str(surplus),
+            "invoice_ids": [str(inv.id) for inv, _ in invoice_allocations],
+        },
+        meta=None,
+    )
+
+    # ── Response ──────────────────────────────────────────────────────────
+    alloc_out = [
+        {
+            "invoice_id": str(inv.id),
+            "invoice_no": inv.invoice_no,
+            "amount": str(a),
+        }
+        for inv, a in invoice_allocations
+    ]
+    return {
+        "payment_id": str(pay.id),
+        "receipt_no": pay.receipt_no,
+        "amount": str(pay.amount),
+        "allocated_total": str(
+            sum((a for _, a in invoice_allocations), Decimal("0")).quantize(Decimal("0.01"))
+        ),
+        "surplus_absorbed": str(surplus),
+        "allocations": alloc_out,
+    }
+
+
 # ── By-family (parent) payment view ─────────────────────────────────────────
 #
 # Three helpers powering the family-aware "Record Payment" surface:
