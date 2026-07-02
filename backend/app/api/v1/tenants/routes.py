@@ -1747,7 +1747,7 @@ def _list_tenant_enrollments_for_finance(
         db,
         table_candidates=ENROLLMENT_TABLE_CANDIDATES,
         sql_template="""
-            SELECT id, status, payload
+            SELECT id, status, payload, student_id, admission_number
             FROM {table}
             WHERE tenant_id = :tenant_id
             ORDER BY id DESC
@@ -1764,6 +1764,10 @@ def _list_tenant_enrollments_for_finance(
             "id": str(row.get("id") or ""),
             "status": str(row.get("status") or ""),
             "payload": _safe_payload_obj(row.get("payload")),
+            "student_id": str(row.get("student_id")) if row.get("student_id") else None,
+            "admission_number": (
+                str(row.get("admission_number")) if row.get("admission_number") else None
+            ),
         }
         for row in rows
         if row.get("id") is not None

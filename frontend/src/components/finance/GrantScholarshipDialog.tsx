@@ -90,6 +90,10 @@ export function GrantScholarshipDialog({
     }
   }, [open, scholarship?.id]);
 
+  // Track whether enrollments exist but none are linked to SIS students —
+  // gives us a clearer empty-state message than "no students match".
+  const [unlinkedCount, setUnlinkedCount] = useState(0);
+
   // Lazily load enrollments the first time the dialog opens.
   useEffect(() => {
     if (!open || students.length > 0) return;
@@ -106,20 +110,29 @@ export function GrantScholarshipDialog({
         const obj = raw as { enrollments?: unknown[] } | null;
         const rawList = Array.isArray(obj?.enrollments) ? obj?.enrollments : [];
         const opts: StudentOption[] = [];
+        let unlinked = 0;
         for (const row of rawList as Array<Record<string, unknown>>) {
-          const sid = String(row.student_id ?? "");
-          if (!sid) continue;
+          const sid = row.student_id != null ? String(row.student_id) : "";
+          if (!sid) {
+            unlinked += 1;
+            continue;
+          }
           const payload = (row.payload ?? {}) as Record<string, unknown>;
           const name =
             String(payload.student_name ?? payload.full_name ?? payload.name ?? "") ||
             "Unknown student";
-          const adm = String(payload.admission_no ?? row.admission_number ?? "");
+          const adm = String(
+            payload.admission_no ?? payload.admission_number ?? row.admission_number ?? "",
+          );
           if (!opts.some((o) => o.student_id === sid)) {
             opts.push({ student_id: sid, admission_no: adm, name });
           }
         }
         opts.sort((a, b) => a.name.localeCompare(b.name));
-        if (!cancelled) setStudents(opts);
+        if (!cancelled) {
+          setStudents(opts);
+          setUnlinkedCount(unlinked);
+        }
       } catch (e) {
         if (!cancelled) toast.error(e instanceof Error ? e.message : "Failed to load students");
       } finally {
@@ -235,7 +248,17 @@ export function GrantScholarshipDialog({
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="py-4 text-center text-xs text-slate-400">
-                  No students match this search.
+                  {students.length === 0 && unlinkedCount > 0 ? (
+                    <>
+                      {unlinkedCount} enrollment{unlinkedCount === 1 ? "" : "s"} found,
+                      but none are linked to a SIS student yet. Link them
+                      first to grant scholarships.
+                    </>
+                  ) : students.length === 0 ? (
+                    <>No enrolled students yet.</>
+                  ) : (
+                    <>No students match this search.</>
+                  )}
                 </div>
               ) : (
                 <ul className="divide-y divide-slate-100">
