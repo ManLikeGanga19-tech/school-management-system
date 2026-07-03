@@ -23,7 +23,7 @@ from app.models.enrollment import Enrollment
 from app.models.scholarship import Scholarship
 from app.models.scholarship_allocation import ScholarshipAllocation
 from app.models.invoice import Invoice, InvoiceLine
-from app.models.payment import Payment, PaymentAllocation, _new_verify_code
+from app.models.payment import Payment, PaymentAllocation, PaymentCFAllocation, _new_verify_code
 from app.models.student import Student
 from app.models.parent import Parent, ParentEnrollmentLink
 from app.models.tenant import Tenant
@@ -3312,7 +3312,23 @@ def create_payment(
                     "credit_to_student_id is not part of this payment"
                 )
 
-    pay = Payment(tenant_id=tenant_id, provider=provider_code, reference=reference, amount=amount, created_by=actor_user_id)
+    # Phase R — link the payer student directly when unambiguous: exactly
+    # one student behind the allocations, or an explicit credit target.
+    # Multi-student family payments stay NULL (no single payer student).
+    direct_student_id: Optional[UUID] = None
+    if len(students_in_payment) == 1:
+        direct_student_id = next(iter(students_in_payment))
+    elif credit_to_student_id is not None and not students_in_payment:
+        direct_student_id = UUID(str(credit_to_student_id))
+
+    pay = Payment(
+        tenant_id=tenant_id,
+        provider=provider_code,
+        reference=reference,
+        amount=amount,
+        student_id=direct_student_id,
+        created_by=actor_user_id,
+    )
     db.add(pay)
     db.flush()
     if not getattr(pay, "receipt_no", None):
@@ -4006,11 +4022,15 @@ def record_student_payment(
             })
 
     # ── Create the Payment row ────────────────────────────────────────────
+    # Phase R — student_id links the payment to the payer directly, so
+    # zero-allocation payments (CF-only settlements, no-dues credits)
+    # still identify who they were for on every surface.
     pay = Payment(
         tenant_id=tenant_id,
         provider=provider_code,
         reference=reference,
         amount=payment_amount,
+        student_id=student_id,
         created_by=actor_user_id,
     )
     db.add(pay)
@@ -4055,6 +4075,14 @@ def record_student_payment(
         )
         if cr.settled_amount >= abs(Decimal(str(cr.amount))):
             cr.status = "SETTLED"
+        # Phase R — first-class ledger row for the consumption (kind
+        # CREDIT_CONSUMED: informational funding, not cash).
+        db.add(PaymentCFAllocation(
+            payment_id=pay.id,
+            carry_forward_id=cr.id,
+            amount=use_amount,
+            kind="CREDIT_CONSUMED",
+        ))
         db.flush()
         log_event(
             db,
@@ -4109,6 +4137,16 @@ def record_student_payment(
             payment_id=pay.id,
             receipt_no=pay.receipt_no,
         )
+        # Phase R — first-class ledger row for the settlement (kind
+        # SETTLEMENT: cash applied to a CF debit; counts toward the cash
+        # reconciliation alongside invoice allocations + surplus).
+        db.add(PaymentCFAllocation(
+            payment_id=pay.id,
+            carry_forward_id=cf.id,
+            amount=apply_amount,
+            kind="SETTLEMENT",
+        ))
+        db.flush()
 
     # ── Allocate to invoices ──────────────────────────────────────────────
     inv_meta: dict = {}
@@ -4981,14 +5019,22 @@ def list_payments(
         base_q = base_q.where(Payment.provider == provider.upper().strip())
 
     if settled_only:
-        # Receipts view: only payments where at least one allocated invoice
-        # is fully settled (PAID). Subselect keeps the query on the payments
-        # table without inflating row count.
+        # Receipts view: payments where at least one allocated invoice is
+        # fully settled (PAID), OR — Phase R — the payment settled a
+        # carry-forward debit (CF-only payments are fully settled cash
+        # receipts by definition; they'd otherwise never appear here).
         base_q = base_q.where(
-            Payment.id.in_(
-                select(PaymentAllocation.payment_id)
-                .join(Invoice, Invoice.id == PaymentAllocation.invoice_id)
-                .where(Invoice.tenant_id == tenant_id, Invoice.status == "PAID")
+            sa_or(
+                Payment.id.in_(
+                    select(PaymentAllocation.payment_id)
+                    .join(Invoice, Invoice.id == PaymentAllocation.invoice_id)
+                    .where(Invoice.tenant_id == tenant_id, Invoice.status == "PAID")
+                ),
+                Payment.id.in_(
+                    select(PaymentCFAllocation.payment_id).where(
+                        PaymentCFAllocation.kind == "SETTLEMENT"
+                    )
+                ),
             )
         )
 
@@ -5006,12 +5052,18 @@ def list_payments(
         # Left-join the payment's allocations → invoice → enrollment → student
         # so q can match any student on any allocation. Left joins keep
         # unallocated payments visible when q hits receipt_no or reference.
+        # Phase R — a second Student alias joined on Payment.student_id lets
+        # q also match zero-allocation payments (CF-only settlements) by
+        # the payer student's name / admission number.
+        from sqlalchemy.orm import aliased
+        DirectStudent = aliased(Student)
         base_q = (
             base_q
             .outerjoin(PaymentAllocation, PaymentAllocation.payment_id == Payment.id)
             .outerjoin(Invoice, Invoice.id == PaymentAllocation.invoice_id)
             .outerjoin(Enrollment, Enrollment.id == Invoice.enrollment_id)
             .outerjoin(Student, Student.id == Enrollment.student_id)
+            .outerjoin(DirectStudent, DirectStudent.id == Payment.student_id)
             .where(
                 sa_or(
                     Payment.receipt_no.ilike(like),
@@ -5022,6 +5074,11 @@ def list_payments(
                     Student.admission_no.ilike(like),
                     Enrollment.admission_number.ilike(like),
                     Enrollment.payload["student_name"].astext.ilike(like),
+                    sa_func.concat(
+                        DirectStudent.first_name, " ",
+                        sa_func.coalesce(DirectStudent.last_name, ""),
+                    ).ilike(like),
+                    DirectStudent.admission_no.ilike(like),
                 )
             )
             # Dedup: a payment split across N invoices would appear N times
@@ -5068,6 +5125,60 @@ def list_payments(
         for r in rows:
             student_labels_by_payment.setdefault(str(r["payment_id"]), []).append(str(r["student_name"]))
 
+    # Phase R — label fallback for zero-allocation payments (CF-only
+    # settlements, no-dues credits): resolve directly via
+    # Payment.student_id in one batch query.
+    direct_sids = {
+        str(p.student_id) for p in payment_rows
+        if getattr(p, "student_id", None) is not None
+        and str(p.id) not in student_labels_by_payment
+    }
+    direct_name_by_sid: dict[str, str] = {}
+    if direct_sids:
+        srows = db.execute(
+            sa_text(
+                """
+                SELECT id,
+                       COALESCE(
+                           NULLIF(TRIM(first_name || ' ' || COALESCE(last_name, '')), ''),
+                           'Unknown student'
+                       ) AS student_name
+                FROM core.students
+                WHERE tenant_id = :tid AND id = ANY(:ids)
+                """
+            ),
+            {"tid": str(tenant_id), "ids": list(direct_sids)},
+        ).mappings().all()
+        direct_name_by_sid = {str(r["id"]): str(r["student_name"]) for r in srows}
+
+    # Phase R — batch CF allocations (settlements + consumed credits) with
+    # their CF term labels so the payments table can render "Prior balance"
+    # rows without extra round-trips.
+    cf_allocs_by_payment: dict[str, list[dict]] = {}
+    if payment_ids:
+        cf_rows = db.execute(
+            sa_text(
+                """
+                SELECT pca.payment_id, pca.amount, pca.kind,
+                       cf.term_label, cf.category
+                FROM core.payment_cf_allocations pca
+                JOIN core.student_carry_forward_balances cf
+                  ON cf.id = pca.carry_forward_id
+                WHERE pca.payment_id = ANY(:ids)
+                  AND cf.tenant_id = :tid
+                ORDER BY pca.created_at ASC
+                """
+            ),
+            {"tid": str(tenant_id), "ids": [str(pid) for pid in payment_ids]},
+        ).mappings().all()
+        for r in cf_rows:
+            cf_allocs_by_payment.setdefault(str(r["payment_id"]), []).append({
+                "amount": str(r["amount"]),
+                "kind": str(r["kind"]),
+                "term_label": str(r["term_label"] or ""),
+                "category": str(r["category"] or ""),
+            })
+
     items: list[dict] = []
     for payment in payment_rows:
         alloc_query = (
@@ -5087,6 +5198,8 @@ def list_payments(
                 seen.add(n)
                 dedup.append(n)
         student_label = ", ".join(dedup) if dedup else ""
+        if not student_label and getattr(payment, "student_id", None) is not None:
+            student_label = direct_name_by_sid.get(str(payment.student_id), "")
 
         items.append({
             "id": payment.id,
@@ -5098,6 +5211,7 @@ def list_payments(
             "received_at": payment.received_at.isoformat() if getattr(payment, "received_at", None) else None,
             "student_label": student_label,
             "allocations": [{"invoice_id": r.invoice_id, "amount": r.amount} for r in allocations],
+            "cf_allocations": cf_allocs_by_payment.get(str(payment.id), []),
         })
 
     return {"items": items, "meta": {"total": total, "page": page, "page_size": page_size, "pages": pages}}
@@ -5395,16 +5509,81 @@ def build_payment_receipt_document(
             "lines": invoice_lines_map.get(str(row.invoice_id), []),
         })
 
-    # Surplus credit: amount paid minus the sum of allocations. The payment
-    # service auto-creates an OVERPAYMENT_CREDIT carry-forward for this surplus;
-    # the receipt notes it so the parent sees the split: "Allocated X to
-    # invoices, Y credited to next term."
+    # ── Phase R — CF allocations (the other half of the ledger) ──────────
+    # SETTLEMENT rows: cash from this payment applied to prior-balance
+    # debits — itemised on the receipt as "Prior balance settled".
+    # CREDIT_CONSUMED rows: available credit spent as extra funding —
+    # informational (not cash).
+    from app.models.student_carry_forward import StudentCarryForward as _SCF
+    cf_alloc_rows = db.execute(
+        select(
+            PaymentCFAllocation.amount,
+            PaymentCFAllocation.kind,
+            _SCF.term_label,
+            _SCF.category,
+        )
+        .select_from(PaymentCFAllocation)
+        .join(_SCF, _SCF.id == PaymentCFAllocation.carry_forward_id)
+        .where(
+            PaymentCFAllocation.payment_id == payment.id,
+            _SCF.tenant_id == tenant_id,
+        )
+        .order_by(PaymentCFAllocation.created_at.asc())
+    ).all()
+    cf_settlements = [
+        {
+            "amount": str(r.amount or 0),
+            "term_label": str(r.term_label or ""),
+            "category": str(r.category or ""),
+        }
+        for r in cf_alloc_rows if r.kind == "SETTLEMENT"
+    ]
+    credit_consumed = [
+        {
+            "amount": str(r.amount or 0),
+            "term_label": str(r.term_label or ""),
+            "category": str(r.category or ""),
+        }
+        for r in cf_alloc_rows if r.kind == "CREDIT_CONSUMED"
+    ]
+    cf_settled_total = sum(
+        (Decimal(str(r.amount or 0)) for r in cf_alloc_rows if r.kind == "SETTLEMENT"),
+        Decimal("0"),
+    )
+
+    # Surplus credit: cash received minus invoice allocations minus CF
+    # settlements. (Before Phase R the CF-settled portion was silently
+    # misreported as "credited forward" — now the arithmetic is honest.)
     alloc_total = sum(
         (Decimal(str(row.amount or 0)) for row in alloc_rows), Decimal("0")
     )
-    surplus_credit = Decimal(str(getattr(payment, "amount", 0) or 0)) - alloc_total
+    surplus_credit = (
+        Decimal(str(getattr(payment, "amount", 0) or 0))
+        - alloc_total
+        - cf_settled_total
+    )
     if surplus_credit < 0:
         surplus_credit = Decimal("0")
+
+    # ── Phase R — payer identity fallback ─────────────────────────────────
+    # Zero-allocation payments (CF-only settlement, no-dues credit) have no
+    # enrollment chain to resolve through; Payment.student_id names the
+    # payer directly so the receipt header is never "Unknown student".
+    payer_student: dict | None = None
+    if getattr(payment, "student_id", None) is not None:
+        from app.models.student import Student as _PStudent
+        stu = db.get(_PStudent, payment.student_id)
+        if stu is not None:
+            payer_student = {
+                "student_id": str(stu.id),
+                "student_name": " ".join(
+                    part for part in (
+                        str(getattr(stu, a, "") or "").strip()
+                        for a in ("first_name", "other_names", "last_name")
+                    ) if part
+                ) or "Student",
+                "admission_no": getattr(stu, "admission_no", None),
+            }
 
     # ── Per-student grouping for the receipt ──────────────────────────────
     # A single Payment may now cover multiple children (one M-PESA transaction
@@ -5515,6 +5694,10 @@ def build_payment_receipt_document(
         "allocations": allocations,
         "students": students_out,
         "allocated_total": str(alloc_total),
+        "cf_settlements": cf_settlements,
+        "cf_settled_total": str(cf_settled_total),
+        "credit_consumed": credit_consumed,
+        "payer_student": payer_student,
         "surplus_credit": str(surplus_credit),
         "surplus_credit_student": surplus_credit_student,
         "checksum": checksum,

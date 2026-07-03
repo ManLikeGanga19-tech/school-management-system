@@ -160,6 +160,13 @@ def _primary_student(doc: dict[str, Any]) -> str:
             name = str(alloc.get("student_name") or "").strip()
             if name and name.lower() != "unknown student":
                 return name
+    # Phase R — zero-allocation payments (CF-only settlement, no-dues
+    # credit) resolve via the direct payer link instead.
+    payer = doc.get("payer_student")
+    if isinstance(payer, dict):
+        name = str(payer.get("student_name") or "").strip()
+        if name:
+            return name
     return "Unknown"
 
 
@@ -371,7 +378,28 @@ def _generate_a4_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
         for inv, amt in g["rows"]:
             label = f"    Payment for Invoice {inv}" if inv else "    Payment received"
             tbl_data.append([label, _fmt(amt, currency)])
-    if not groups:
+
+    # Phase R — Prior balance settled: cash from this payment applied to
+    # carry-forward debits. Itemised with the CF's own term label so the
+    # parent sees exactly which old balance was cleared.
+    cf_settlements = [
+        c for c in (doc.get("cf_settlements") or []) if isinstance(c, dict)
+    ]
+    if cf_settlements:
+        hr = len(tbl_data)
+        header_rows.append(hr)
+        payer = doc.get("payer_student") or {}
+        payer_caption = str(payer.get("student_name") or "").strip()
+        caption = "Prior balance settled"
+        if payer_caption and not groups:
+            adm = str(payer.get("admission_no") or "").strip()
+            caption = f"{payer_caption}{f' ({adm})' if adm else ''} — prior balance settled"
+        tbl_data.append([caption, ""])
+        for c in cf_settlements:
+            label = str(c.get("term_label") or "Prior balance").strip()
+            tbl_data.append([f"    {label}", _fmt(c.get("amount"), currency)])
+
+    if not groups and not cf_settlements:
         tbl_data.append(["—", "—"])
 
     col_w = [usable_w * 0.72, usable_w * 0.28]
@@ -423,6 +451,31 @@ def _generate_a4_receipt(doc: dict[str, Any], verify_url: str) -> bytes:
         f"<b>Total Amount Paid: {total_str}</b>",
         _s("total", size=14, bold=True, space_after=10),
     ))
+
+    # Phase R — honest split notes: available credit applied as funding
+    # (not cash) and surplus credited forward to the next invoice.
+    credit_consumed = [
+        c for c in (doc.get("credit_consumed") or []) if isinstance(c, dict)
+    ]
+    if credit_consumed:
+        consumed_total = sum(
+            (float(c.get("amount") or 0) for c in credit_consumed), 0.0
+        )
+        story.append(Paragraph(
+            f"Available credit applied: {_fmt(str(consumed_total), currency)} "
+            "(from the student's credit balance, in addition to the amount paid)",
+            _s("credit_note", size=8, color=colors.HexColor("#166534"), space_after=4),
+        ))
+    try:
+        surplus_val = float(doc.get("surplus_credit") or 0)
+    except (TypeError, ValueError):
+        surplus_val = 0.0
+    if surplus_val > 0:
+        story.append(Paragraph(
+            f"Credited forward: {_fmt(str(surplus_val), currency)} — "
+            "auto-applies to the student's next invoice.",
+            _s("surplus_note", size=8, color=colors.HexColor("#1d4ed8"), space_after=4),
+        ))
     story.append(Spacer(1, 4 * mm))
 
     # ── Footer message (tenant-configured) ─────────────────────────────────

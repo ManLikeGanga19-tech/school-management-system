@@ -1819,6 +1819,10 @@ def list_payments(
                 }
                 for a in (row.get("allocations") or [])
             ],
+            # Phase R — CF settlements + consumed credits, so the payments
+            # table can render "Prior balance" rows for zero-allocation
+            # payments instead of "0 invoices".
+            "cf_allocations": row.get("cf_allocations") or [],
         })
     return {"items": items, "meta": result["meta"]}
 

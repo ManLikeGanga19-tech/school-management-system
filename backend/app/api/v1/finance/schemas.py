@@ -293,8 +293,23 @@ class PaymentAllocationOut(BaseModel):
     amount: Decimal
 
 
+class PaymentCFAllocationOut(BaseModel):
+    """Phase R — carry-forward touch on a payment: SETTLEMENT (cash applied
+    to a prior-balance debit) or CREDIT_CONSUMED (available credit spent)."""
+    amount: Decimal
+    kind: str
+    term_label: Optional[str] = None
+    category: Optional[str] = None
+
+
 class PaymentWithAllocationsOut(PaymentOut):
     allocations: List[PaymentAllocationOut] = Field(default_factory=list)
+    # Phase R — resolved payer label ("Jane Doe" / "Jane, Ali" for family
+    # payments) + received timestamp, so the payments table renders without
+    # a client-side enrollment map. Optional for backward compatibility.
+    student_label: Optional[str] = None
+    received_at: Optional[str] = None
+    cf_allocations: List[PaymentCFAllocationOut] = Field(default_factory=list)
 
 
 # -------------------------

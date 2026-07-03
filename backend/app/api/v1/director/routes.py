@@ -518,5 +518,8 @@ def list_director_payments(
                 }
                 for a in (row.get("allocations") or [])
             ],
+            # Phase R — CF settlements + consumed credits for the director's
+            # payments table (same shape as the secretary route).
+            "cf_allocations": row.get("cf_allocations") or [],
         })
     return {"items": items, "meta": result["meta"]}

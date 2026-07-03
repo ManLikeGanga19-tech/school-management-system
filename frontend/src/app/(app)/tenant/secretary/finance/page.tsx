@@ -151,7 +151,22 @@ type Payment = {
   reference: string | null;
   amount: string | number;
   allocations: { invoice_id: string; amount: string | number }[];
+  // Phase R — carry-forward touches (SETTLEMENT = prior balance paid down,
+  // CREDIT_CONSUMED = available credit spent as funding).
+  cf_allocations?: { amount: string; kind: string; term_label?: string | null }[];
 };
+
+// Phase R — allocation summary for the payments table: names CF
+// settlements instead of showing "0 invoices" for prior-balance payments.
+function paymentAllocationSummary(payment: Payment): string {
+  const invCount = Array.isArray(payment.allocations) ? payment.allocations.length : 0;
+  const cfSettled = (payment.cf_allocations || []).filter((c) => c.kind === "SETTLEMENT").length;
+  const parts: string[] = [];
+  if (invCount > 0) parts.push(`${invCount} invoice${invCount !== 1 ? "s" : ""}`);
+  if (cfSettled > 0) parts.push("prior balance");
+  if (parts.length === 0) return "credit forward";
+  return parts.join(" + ");
+}
 
 type FinanceResponse = {
   policy: FinancePolicy | null;
@@ -2443,8 +2458,7 @@ function SecretaryFinancePageContent() {
                           {formatAmount(payment.amount)}
                         </TableCell>
                         <TableCell className="text-sm text-slate-500">
-                          {Array.isArray(payment.allocations) ? payment.allocations.length : 0}{" "}
-                          invoice{payment.allocations?.length !== 1 ? "s" : ""}
+                          {paymentAllocationSummary(payment)}
                         </TableCell>
                         <TableCell className="text-right">
                           <RowActionsMenu
@@ -2681,8 +2695,7 @@ function SecretaryFinancePageContent() {
                           {formatAmount(payment.amount)}
                         </TableCell>
                         <TableCell className="text-sm text-slate-500">
-                          {Array.isArray(payment.allocations) ? payment.allocations.length : 0}{" "}
-                          invoice{payment.allocations?.length !== 1 ? "s" : ""}
+                          {paymentAllocationSummary(payment)}
                         </TableCell>
                         <TableCell className="text-right">
                           <RowActionsMenu

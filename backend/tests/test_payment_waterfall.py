@@ -696,3 +696,202 @@ class TestInvoiceDocumentPriorBalance:
         # cheap smoke test that the block actually reached the stream even
         # though the ASCII text is compressed inside the PDF content stream.
         assert len(pdf_with) > len(pdf_without)
+
+
+class TestPaymentLedgerCompleteness:
+    """Phase R — Payment.student_id + payment_cf_allocations close the
+    '(N/A) student, 0 invoices' gap for zero-allocation payments."""
+
+    def test_cf_only_payment_links_student_and_writes_ledger_row(
+        self, client: TestClient, db_session: Session,
+    ):
+        from app.models.payment import Payment, PaymentCFAllocation
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, _ = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        cf_id = _seed_cf_debit(
+            db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("4000"),
+        )
+        r = client.post(
+            f"{BASE}/students/{sid}/payments",
+            headers=headers,
+            json={"amount": "4000", "provider": "CASH"},
+        )
+        assert r.status_code == 200, r.text
+        payment_id = r.json()["payment_id"]
+
+        pay = db_session.get(Payment, payment_id)
+        db_session.refresh(pay)
+        assert str(pay.student_id) == sid
+
+        cf_allocs = db_session.execute(
+            select(PaymentCFAllocation).where(
+                PaymentCFAllocation.payment_id == payment_id,
+            )
+        ).scalars().all()
+        assert len(cf_allocs) == 1
+        assert str(cf_allocs[0].carry_forward_id) == cf_id
+        assert cf_allocs[0].kind == "SETTLEMENT"
+        assert Decimal(str(cf_allocs[0].amount)) == Decimal("4000.00")
+
+    def test_credit_consumption_writes_ledger_row(
+        self, client: TestClient, db_session: Session,
+    ):
+        from app.models.payment import PaymentCFAllocation
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        cr_id = _seed_cf_credit(
+            db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("2000"),
+        )
+        _seed_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            term_number=2, academic_year=2026, total=Decimal("10000"),
+        )
+        r = client.post(
+            f"{BASE}/students/{sid}/payments",
+            headers=headers,
+            json={"amount": "3000", "provider": "MPESA", "apply_available_credit": True},
+        )
+        assert r.status_code == 200, r.text
+        payment_id = r.json()["payment_id"]
+        rows = db_session.execute(
+            select(PaymentCFAllocation).where(
+                PaymentCFAllocation.payment_id == payment_id,
+                PaymentCFAllocation.kind == "CREDIT_CONSUMED",
+            )
+        ).scalars().all()
+        assert len(rows) == 1
+        assert str(rows[0].carry_forward_id) == cr_id
+        assert Decimal(str(rows[0].amount)) == Decimal("2000.00")
+
+    def test_list_payments_labels_cf_only_payment(
+        self, client: TestClient, db_session: Session,
+    ):
+        """The exact reported bug: CF-only payment no longer shows as
+        '(N/A) student, 0 invoices' — the label resolves via
+        Payment.student_id and cf_allocations itemise the settlement."""
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, _ = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_debit(
+            db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("4000"),
+        )
+        r = client.post(
+            f"{BASE}/students/{sid}/payments",
+            headers=headers,
+            json={"amount": "4000", "provider": "CASH"},
+        )
+        assert r.status_code == 200
+        payment_id = r.json()["payment_id"]
+
+        lst = client.get(f"{BASE}/payments", headers=headers).json()
+        item = next(i for i in lst["items"] if str(i["id"]) == payment_id)
+        assert item["student_label"] == "Test Waterfall"
+        assert len(item["cf_allocations"]) == 1
+        assert item["cf_allocations"][0]["kind"] == "SETTLEMENT"
+
+    def test_receipts_view_includes_cf_only_payment(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, _ = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_debit(
+            db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("4000"),
+        )
+        r = client.post(
+            f"{BASE}/students/{sid}/payments",
+            headers=headers,
+            json={"amount": "4000", "provider": "CASH"},
+        )
+        payment_id = r.json()["payment_id"]
+        lst = client.get(
+            f"{BASE}/payments?settled_only=true", headers=headers,
+        ).json()
+        assert any(str(i["id"]) == payment_id for i in lst["items"])
+
+    def test_search_finds_cf_only_payment_by_student_name(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, _ = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_debit(
+            db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("4000"),
+        )
+        r = client.post(
+            f"{BASE}/students/{sid}/payments",
+            headers=headers,
+            json={"amount": "4000", "provider": "CASH"},
+        )
+        payment_id = r.json()["payment_id"]
+        lst = client.get(
+            f"{BASE}/payments?q=Waterfall", headers=headers,
+        ).json()
+        assert any(str(i["id"]) == payment_id for i in lst["items"])
+
+    def test_receipt_document_itemises_cf_settlement(
+        self, client: TestClient, db_session: Session,
+    ):
+        """Receipt for a CF-only payment names the payer and itemises the
+        prior-balance settlement; surplus is 0 (previously the whole
+        amount misreported as 'credited forward')."""
+        from app.api.v1.finance import service
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, _ = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_debit(
+            db_session, tenant_id=tenant.id, student_id=sid,
+            amount=Decimal("4000"), term_label="Term 1 2025 arrears",
+        )
+        r = client.post(
+            f"{BASE}/students/{sid}/payments",
+            headers=headers,
+            json={"amount": "4000", "provider": "CASH"},
+        )
+        payment_id = r.json()["payment_id"]
+
+        doc = service.build_payment_receipt_document(
+            db_session, tenant_id=tenant.id, payment_id=payment_id,
+        )
+        assert doc["payer_student"] is not None
+        assert doc["payer_student"]["student_name"] == "Test Waterfall"
+        assert len(doc["cf_settlements"]) == 1
+        assert doc["cf_settlements"][0]["term_label"] == "Term 1 2025 arrears"
+        assert Decimal(doc["cf_settled_total"]) == Decimal("4000.00")
+        assert Decimal(doc["surplus_credit"]) == Decimal("0")
+
+        # PDF renders without error and carries the settlement section.
+        from app.utils.receipt_pdf import generate_receipt_pdf
+        pdf = generate_receipt_pdf(doc, force_a4=True)
+        assert pdf.startswith(b"%PDF-")
+
+    def test_mixed_payment_surplus_math_is_honest(
+        self, client: TestClient, db_session: Session,
+    ):
+        """CF + invoice + surplus: receipt surplus excludes the CF-settled
+        portion (amount - invoices - cf_settlements)."""
+        from app.api.v1.finance import service
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=PAY_PERMS)
+        sid, eid = _seed_student_and_enrollment(db_session, tenant_id=tenant.id)
+        _seed_cf_debit(
+            db_session, tenant_id=tenant.id, student_id=sid, amount=Decimal("2000"),
+        )
+        _seed_invoice(
+            db_session, tenant_id=tenant.id, enrollment_id=eid,
+            term_number=2, academic_year=2026, total=Decimal("5000"),
+        )
+        r = client.post(
+            f"{BASE}/students/{sid}/payments",
+            headers=headers,
+            json={"amount": "8000", "provider": "MPESA"},
+        )
+        payment_id = r.json()["payment_id"]
+        doc = service.build_payment_receipt_document(
+            db_session, tenant_id=tenant.id, payment_id=payment_id,
+        )
+        assert Decimal(doc["cf_settled_total"]) == Decimal("2000.00")
+        assert Decimal(doc["allocated_total"]) == Decimal("5000.00")
+        assert Decimal(doc["surplus_credit"]) == Decimal("1000.00")
