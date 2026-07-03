@@ -6081,12 +6081,12 @@ def tenant_students_data_quality_export(
     tenant=Depends(get_tenant),
     user=Depends(get_current_user),
 ):
-    """Printable Guardian Information Update Forms — one branded A4 page per
-    flagged student, with wide handwriting fields, prefilled current values,
-    and the specific issues that triggered the form. The school prints the
-    batch, sends each page home, and keys the corrections back in.
+    """Printable Guardian Information Update Sheet — ONE landscape table,
+    a row per flagged student (sorted by class, class shown as a column),
+    with wide blank columns for handwriting. The secretary prints it, walks
+    class to class collecting corrections, then keys them back in.
 
-    Pass enrollment_id to print a single student's form."""
+    Pass enrollment_id to print a single student's row."""
     from datetime import datetime as _dt, timezone as _tz
     from app.api.v1.students.data_quality import scan_guardian_data_quality
     from app.api.v1.finance.service import get_tenant_print_profile
@@ -6127,7 +6127,7 @@ def tenant_students_data_quality_export(
         media_type="application/pdf",
         headers={
             "Content-Disposition": (
-                'inline; filename="guardian-update-forms.pdf"'
+                'inline; filename="guardian-update-sheet.pdf"'
             ),
         },
     )

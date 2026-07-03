@@ -1,18 +1,20 @@
-"""Phase T4 — Guardian Information Update Form (printable PDF).
+"""Phase U — Guardian Information Update Sheet (printable PDF).
 
-One A4 page per flagged student. The school prints the batch, hands each
-student their page, the guardian fills it in by hand at home or at the
-office, and the secretary keys the corrections back into the system.
+ONE tabular worksheet — rows are the flagged students, columns are the
+details to collect. The secretary prints it and walks class to class
+filling in corrections by hand, then keys them back into the system.
 
 Design constraints:
-  * Branded with the tenant print profile (same header block as invoices
-    and receipts — school name, motto, P.O. Box, contacts).
-  * WIDE handwriting fields: full-width answer boxes with generous row
-    height (11mm+) so a parent can comfortably write with a pen.
-  * The student's current (on-file) values are shown next to each field
-    so the guardian can confirm or correct — never a blank mystery form.
-  * Flags what specifically is wrong on THIS student's record, in plain
-    language, so the office knows why the form went home.
+  * Branded with the tenant print profile (same header structure as
+    invoices and receipts).
+  * Landscape A4 — maximizes handwriting width per row.
+  * Rows sorted by CLASS then student name, so the sheet follows the
+    secretary's walking order; the class is its own column.
+  * Tall rows (13mm) + two wide blank columns ("Corrected Guardian
+    Name", "Corrected Phone(s)") for pen writing.
+  * Current on-file values shown compactly so the secretary sees what
+    is wrong without cross-referencing the system.
+  * Table header repeats on every page.
 """
 from __future__ import annotations
 
@@ -21,30 +23,34 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-_ISSUE_EXPLANATIONS = {
-    "NAME_MISSING": "Guardian name is missing on our records",
-    "NAME_IS_PHONE": "Guardian name field contains a phone number",
-    "PHONE_MULTI": "Two phone numbers are stored in one field",
-    "PHONE_INVALID": "Guardian phone number is invalid or incomplete",
-    "PARENT_UNLINKED": "Guardian record is not linked to this student",
+_ISSUE_SHORT = {
+    "NAME_MISSING": "name missing",
+    "NAME_IS_PHONE": "name = phone no.",
+    "PHONE_MULTI": "2 phone nos.",
+    "PHONE_INVALID": "bad phone",
+    "PARENT_UNLINKED": "parent not linked",
 }
 
 
 def generate_guardian_correction_forms_pdf(doc: dict[str, Any]) -> bytes:
     """doc = {profile: dict, students: list[dict], generated_at: str}
     where each student row matches the data-quality scan output."""
-    from reportlab.lib.pagesizes import A4  # type: ignore
+    from reportlab.lib.pagesizes import A4, landscape  # type: ignore
     from reportlab.lib.units import mm  # type: ignore
     from reportlab.lib import colors  # type: ignore
     from reportlab.platypus import (  # type: ignore
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        HRFlowable, PageBreak,
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
     )
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # type: ignore
     from reportlab.lib.enums import TA_CENTER, TA_LEFT  # type: ignore
 
     profile = doc.get("profile") or {}
     students = [s for s in (doc.get("students") or []) if isinstance(s, dict)]
+    # Walking order: class, then student name.
+    students.sort(key=lambda s: (
+        str(s.get("class_code") or "~"),  # unknown class sorts last
+        str(s.get("student_name") or "").lower(),
+    ))
 
     styles = getSampleStyleSheet()
 
@@ -57,17 +63,17 @@ def generate_guardian_correction_forms_pdf(doc: dict[str, Any]) -> bytes:
             name, parent=styles["Normal"], fontSize=size,
             fontName="Helvetica-Bold" if bold else "Helvetica",
             alignment=align, textColor=color, spaceAfter=space_after,
-            leading=leading or size + 3,
+            leading=leading or size + 2,
         )
 
     buf = io.BytesIO()
-    page_w, page_h = A4
-    lm = rm = 14 * mm
+    page_w, page_h = landscape(A4)
+    lm = rm = 10 * mm
     usable_w = page_w - lm - rm
 
     doc_pdf = SimpleDocTemplate(
-        buf, pagesize=A4,
-        topMargin=10 * mm, bottomMargin=12 * mm,
+        buf, pagesize=landscape(A4),
+        topMargin=8 * mm, bottomMargin=10 * mm,
         leftMargin=lm, rightMargin=rm,
     )
 
@@ -95,177 +101,140 @@ def generate_guardian_correction_forms_pdf(doc: dict[str, Any]) -> bytes:
 
     story: list = []
 
-    # ── Answer-box helper: label column + WIDE ruled writing area ─────────
-    # 12mm row height gives a comfortable pen-writing lane; the answer cell
-    # is ~70% of the usable width.
-    def answer_table(rows: list[tuple[str, str]]) -> Table:
-        data = []
-        for label, current in rows:
-            current_label = (
-                Paragraph(
-                    f"<font size=7 color='#64748b'>currently: {current}</font>",
-                    _s(f"cur_{label}", size=7),
-                )
-                if current
-                else Paragraph("", _s(f"cur_{label}", size=7))
-            )
-            data.append([
-                Paragraph(f"<b>{label}</b>", _s(f"lbl_{label}", size=9)),
-                current_label,
-                "",  # the handwriting lane
-            ])
-        tbl = Table(
-            data,
-            colWidths=[usable_w * 0.22, usable_w * 0.20, usable_w * 0.58],
-            rowHeights=[12 * mm] * len(data),
-        )
-        tbl.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            # Ruled line under each handwriting lane only.
-            ("LINEBELOW", (2, 0), (2, -1), 0.7, colors.HexColor("#334155")),
-            ("TOPPADDING", (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ]))
-        return tbl
-
-    for idx, s in enumerate(students):
-        if idx > 0:
-            story.append(PageBreak())
-
-        # ── Branded header (school document structure) ────────────────
+    # ── Branded header (school document structure) ────────────────────────
+    story.append(Paragraph(
+        school_name, _s("school", size=14, bold=True, align=TA_CENTER, space_after=1),
+    ))
+    if motto:
         story.append(Paragraph(
-            school_name, _s("school", size=15, bold=True, align=TA_CENTER, space_after=1),
+            f"<i>{motto}</i>",
+            _s("motto", size=8, align=TA_CENTER,
+               color=colors.HexColor("#64748b"), space_after=1),
         ))
-        if motto:
-            story.append(Paragraph(
-                f"<i>{motto}</i>",
-                _s("motto", size=8, align=TA_CENTER,
-                   color=colors.HexColor("#64748b"), space_after=1),
-            ))
-        if contact_line:
-            story.append(Paragraph(
-                contact_line,
-                _s("contact", size=8, align=TA_CENTER,
-                   color=colors.HexColor("#475569"), space_after=4),
-            ))
-        story.append(HRFlowable(width="100%", thickness=1.2,
-                                color=colors.HexColor("#173f49")))
-        story.append(Spacer(1, 4 * mm))
+    if contact_line:
         story.append(Paragraph(
-            "GUARDIAN INFORMATION UPDATE FORM",
-            _s("title", size=13, bold=True, align=TA_CENTER, space_after=2),
+            contact_line,
+            _s("contact", size=8, align=TA_CENTER,
+               color=colors.HexColor("#475569"), space_after=3),
         ))
-        story.append(Paragraph(
-            "Please confirm or correct the guardian details below and return "
-            "this form to the school office.",
-            _s("subtitle", size=9, align=TA_CENTER,
-               color=colors.HexColor("#475569"), space_after=6),
-        ))
-
-        # ── Student identity (prefilled) ───────────────────────────────
-        ident_rows = [
-            ["Student Name:", str(s.get("student_name") or "—"),
-             "Admission No:", str(s.get("admission_number") or "—")],
-            ["Class:", str(s.get("class_code") or "—"),
-             "Date:", generated_label],
-        ]
-        ident_tbl = Table(
-            ident_rows,
-            colWidths=[usable_w * 0.16, usable_w * 0.44, usable_w * 0.16, usable_w * 0.24],
-        )
-        ident_tbl.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-            ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f1f5f9")),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        story.append(ident_tbl)
-        story.append(Spacer(1, 3 * mm))
-
-        # ── Why this form was issued ───────────────────────────────────
-        issues = [str(i) for i in (s.get("issues") or [])]
-        reasons = [
-            _ISSUE_EXPLANATIONS.get(code, code.replace("_", " ").title())
-            for code in issues
-        ]
-        if reasons:
-            story.append(Paragraph(
-                "<b>Reason for this form:</b> " + "; ".join(reasons) + ".",
-                _s("reasons", size=8.5, color=colors.HexColor("#92400e"),
-                   space_after=5),
-            ))
-
-        # ── Guardian details (wide handwriting fields) ─────────────────
-        story.append(Paragraph(
-            "GUARDIAN / PARENT DETAILS (please write clearly in block letters)",
-            _s("sect1", size=9.5, bold=True, space_after=3,
-               color=colors.HexColor("#173f49")),
-        ))
-        g_name = str(s.get("guardian_name") or "")
-        g_phone = str(s.get("guardian_phone") or "")
-        story.append(answer_table([
-            ("Full Name", g_name),
-            ("Relationship to Student", ""),
-            ("Primary Phone (07.. / 01..)", g_phone),
-            ("Alternate Phone", ""),
-            ("Email Address", ""),
-            ("National ID / Passport No.", ""),
-            ("Occupation", ""),
-        ]))
-        story.append(Spacer(1, 2 * mm))
-        story.append(Paragraph(
-            "HOME ADDRESS",
-            _s("sect2", size=9.5, bold=True, space_after=3,
-               color=colors.HexColor("#173f49")),
-        ))
-        story.append(answer_table([
-            ("Physical Address", ""),
-            ("Town / County", ""),
-        ]))
-        story.append(Spacer(1, 4 * mm))
-
-        # ── Declaration + signatures ───────────────────────────────────
-        story.append(Paragraph(
-            "I confirm that the information provided above is true and "
-            "correct, and should replace the details currently held by the "
-            "school for this student.",
-            _s("decl", size=8.5, color=colors.HexColor("#475569"), space_after=5),
-        ))
-        sig_rows = [
-            ["Guardian Signature:", "", "Date:", ""],
-            ["Received by (Office):", "", "Date:", ""],
-        ]
-        sig_tbl = Table(
-            sig_rows,
-            colWidths=[usable_w * 0.22, usable_w * 0.38, usable_w * 0.10, usable_w * 0.30],
-            rowHeights=[12 * mm, 12 * mm],
-        )
-        sig_tbl.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-            ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LINEBELOW", (1, 0), (1, -1), 0.7, colors.HexColor("#334155")),
-            ("LINEBELOW", (3, 0), (3, -1), 0.7, colors.HexColor("#334155")),
-        ]))
-        story.append(sig_tbl)
-        story.append(Spacer(1, 3 * mm))
-        story.append(Paragraph(
-            f"Generated by the school management system on {generated_label}. "
-            "For office use: enter the corrections on the student's profile "
-            "after verification.",
-            _s("foot", size=7, align=TA_CENTER,
-               color=colors.HexColor("#94a3b8")),
-        ))
+    story.append(HRFlowable(width="100%", thickness=1.2,
+                            color=colors.HexColor("#173f49")))
+    story.append(Spacer(1, 2 * mm))
+    story.append(Paragraph(
+        "GUARDIAN INFORMATION UPDATE SHEET",
+        _s("title", size=12, bold=True, align=TA_CENTER, space_after=1),
+    ))
+    story.append(Paragraph(
+        f"Generated {generated_label} · {len(students)} student"
+        f"{'s' if len(students) != 1 else ''} · sorted by class — "
+        "write corrections clearly in the blank columns, then enter them on "
+        "each student's profile.",
+        _s("subtitle", size=8, align=TA_CENTER,
+           color=colors.HexColor("#475569"), space_after=4),
+    ))
 
     if not students:
+        story.append(Spacer(1, 6 * mm))
         story.append(Paragraph(
             "No students currently have guardian data issues.",
             _s("empty", size=11, align=TA_CENTER),
         ))
+        doc_pdf.build(story)
+        return buf.getvalue()
+
+    # ── The worksheet ──────────────────────────────────────────────────────
+    cell = _s("cell", size=8, leading=9)
+    cell_dim = _s("cell_dim", size=7.5, color=colors.HexColor("#64748b"), leading=8.5)
+    cell_issue = _s("cell_issue", size=7.5, color=colors.HexColor("#b45309"), leading=8.5)
+
+    header = [
+        "#", "Student", "Class", "Adm No.",
+        "On-file Guardian", "Issues",
+        "Corrected Guardian Name", "Corrected Phone(s)",
+    ]
+    rows: list[list] = [header]
+    for i, s in enumerate(students, start=1):
+        on_file_bits = []
+        if s.get("guardian_name"):
+            on_file_bits.append(str(s["guardian_name"]))
+        if s.get("guardian_phone"):
+            on_file_bits.append(str(s["guardian_phone"]))
+        on_file = "<br/>".join(on_file_bits) if on_file_bits else "—"
+        issues = ", ".join(
+            _ISSUE_SHORT.get(str(c), str(c).lower().replace("_", " "))
+            for c in (s.get("issues") or [])
+        )
+        rows.append([
+            str(i),
+            Paragraph(str(s.get("student_name") or "—"), cell),
+            Paragraph(str(s.get("class_code") or "—"), cell),
+            Paragraph(str(s.get("admission_number") or "—"), cell_dim),
+            Paragraph(on_file, cell_dim),
+            Paragraph(issues, cell_issue),
+            "",  # handwriting: corrected guardian name
+            "",  # handwriting: corrected phone(s)
+        ])
+
+    col_w = [
+        usable_w * 0.030,  # #
+        usable_w * 0.150,  # Student
+        usable_w * 0.065,  # Class
+        usable_w * 0.075,  # Adm No
+        usable_w * 0.145,  # On-file guardian
+        usable_w * 0.115,  # Issues
+        usable_w * 0.235,  # Corrected guardian name (wide, blank)
+        usable_w * 0.185,  # Corrected phone(s)     (wide, blank)
+    ]
+    # Tall rows for handwriting; compact header.
+    row_heights = [8 * mm] + [13 * mm] * len(students)
+
+    tbl = Table(rows, colWidths=col_w, rowHeights=row_heights, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        # Header
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#173f49")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 7.5),
+        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        # Body
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 1), (-1, -1), 8),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 1), (0, -1), "CENTER"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94a3b8")),
+        # Zebra striping on the read-only columns keeps rows traceable
+        # across the wide page.
+        ("ROWBACKGROUNDS", (0, 1), (5, -1),
+         [colors.white, colors.HexColor("#f8fafc")]),
+        # Handwriting columns stay pure white for pen clarity.
+        ("BACKGROUND", (6, 1), (-1, -1), colors.white),
+        ("TOPPADDING", (0, 1), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(tbl)
+
+    # ── Footer: completion sign-off ────────────────────────────────────────
+    story.append(Spacer(1, 5 * mm))
+    sig_tbl = Table(
+        [["Completed by:", "", "Signature:", "", "Date:", ""]],
+        colWidths=[
+            usable_w * 0.10, usable_w * 0.28,
+            usable_w * 0.08, usable_w * 0.24,
+            usable_w * 0.06, usable_w * 0.24,
+        ],
+        rowHeights=[10 * mm],
+    )
+    sig_tbl.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LINEBELOW", (1, 0), (1, 0), 0.7, colors.HexColor("#334155")),
+        ("LINEBELOW", (3, 0), (3, 0), 0.7, colors.HexColor("#334155")),
+        ("LINEBELOW", (5, 0), (5, 0), 0.7, colors.HexColor("#334155")),
+    ]))
+    story.append(sig_tbl)
 
     doc_pdf.build(story)
     return buf.getvalue()

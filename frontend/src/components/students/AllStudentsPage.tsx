@@ -385,11 +385,11 @@ export function AllStudentsPage({
                   variant="outline"
                   className="h-8 gap-1.5 text-xs"
                   disabled={dqPrinting}
-                  title="Print branded Guardian Information Update Forms — one page per flagged student, with wide handwriting fields"
+                  title="Print one branded table — a row per flagged student, sorted by class, with wide blank columns to fill in by hand while walking the classes"
                   onClick={() => void printDqForms()}
                 >
                   <Printer className="h-3.5 w-3.5" />
-                  {dqPrinting ? "Generating…" : `Print All Forms (${dq.flagged})`}
+                  {dqPrinting ? "Generating…" : `Print Update Sheet (${dq.flagged})`}
                 </Button>
               </div>
               <div className="overflow-x-auto">
@@ -446,11 +446,11 @@ export function AllStudentsPage({
                             <Button
                               size="sm" variant="outline" className="h-7 gap-1 text-[11px]"
                               disabled={dqPrinting}
-                              title="Print this student's Guardian Information Update Form"
+                              title="Print a one-row update sheet for just this student"
                               onClick={() => void printDqForms(s.enrollment_id)}
                             >
                               <Printer className="h-3 w-3" />
-                              Form
+                              Sheet
                             </Button>
                             {s.issues.includes("PHONE_MULTI") && (
                               <Button
