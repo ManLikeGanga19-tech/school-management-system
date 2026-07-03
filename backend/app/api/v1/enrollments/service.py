@@ -670,6 +670,77 @@ def get_enrollment(
     return row
 
 
+def _sync_guardian_to_parent(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    enrollment: Enrollment,
+    guardian_name: str | None,
+    guardian_phone: str | None,
+    guardian_email: str | None,
+) -> str | None:
+    """Phase T1 write-through: push guardian edits made on the enrollment
+    payload to the linked parent record (Parents module = source of truth).
+
+    Best-effort by design — a parent-side conflict must never block the
+    enrollment save. Returns a short note for the audit event:
+      'synced'                 — parent record updated
+      'skipped_no_parent'      — no linked parent yet (nothing to sync)
+      'skipped_phone_conflict' — new phone belongs to a DIFFERENT parent
+                                 record; phone left untouched to avoid a
+                                 silent merge (name/email still synced)
+    """
+    from sqlalchemy import text as _sa_text
+
+    link = db.execute(
+        _sa_text(
+            "SELECT parent_id FROM core.parent_enrollment_links "
+            "WHERE tenant_id = :tid AND enrollment_id = :eid "
+            "ORDER BY is_primary DESC, created_at ASC LIMIT 1"
+        ),
+        {"tid": str(tenant_id), "eid": str(enrollment.id)},
+    ).scalar_one_or_none()
+    if link is None:
+        return "skipped_no_parent"
+
+    sets: list[str] = []
+    params: dict = {"pid": str(link)}
+    note = "synced"
+
+    if guardian_name:
+        parts = guardian_name.split()
+        params["first_name"] = parts[0]
+        params["last_name"] = " ".join(parts[1:]) if len(parts) > 1 else ""
+        sets += ["first_name = :first_name", "last_name = :last_name"]
+    if guardian_email:
+        params["email"] = guardian_email
+        sets.append("email = :email")
+    if guardian_phone:
+        clash = db.execute(
+            _sa_text(
+                "SELECT 1 FROM core.parents "
+                "WHERE tenant_id = :tid AND phone = :phone AND id <> :pid LIMIT 1"
+            ),
+            {"tid": str(tenant_id), "phone": guardian_phone, "pid": str(link)},
+        ).first()
+        if clash:
+            # Another parent already owns this phone — merging from a generic
+            # enrollment edit would be too aggressive. Skip the phone, sync
+            # the rest, and surface the skip in the audit note.
+            note = "skipped_phone_conflict"
+        else:
+            params["phone"] = guardian_phone
+            sets.append("phone = :phone")
+
+    if not sets:
+        return note
+    db.execute(
+        _sa_text(f"UPDATE core.parents SET {', '.join(sets)} WHERE id = :pid"),
+        params,
+    )
+    return note
+
+
 def update_enrollment(
     db: Session,
     *,
@@ -714,9 +785,26 @@ def update_enrollment(
                     "A director must unlock this record before further changes can be made."
                 )
 
+    guardian_sync_note: str | None = None
     if payload is not None:
         current = dict(enrollment.payload or {})
+        # Phase T1 — write-through (Decision D1A): guardian edits made on the
+        # enrollment (Overview tab) also update the linked parent record so
+        # the Parents module and the payload snapshot never drift apart.
+        guardian_changed = any(
+            k in payload and str(payload.get(k) or "").strip() != str(current.get(k) or "").strip()
+            for k in ("guardian_name", "guardian_phone", "guardian_email")
+        )
         enrollment.payload = {**current, **payload}
+        if guardian_changed:
+            guardian_sync_note = _sync_guardian_to_parent(
+                db,
+                tenant_id=tenant_id,
+                enrollment=enrollment,
+                guardian_name=str(payload.get("guardian_name") or "").strip() or None,
+                guardian_phone=str(payload.get("guardian_phone") or "").strip() or None,
+                guardian_email=str(payload.get("guardian_email") or "").strip() or None,
+            )
 
     # Only increment the secretary counter — directors are never counted.
     # getattr guards against the columns not existing in DB yet.
@@ -742,6 +830,7 @@ def update_enrollment(
             "status": enrollment.status,
             "secretary_edit_count": getattr(enrollment, "secretary_edit_count", 0),
             "secretary_edit_locked": getattr(enrollment, "secretary_edit_locked", False),
+            "guardian_sync": guardian_sync_note,
         },
         meta=None,
     )

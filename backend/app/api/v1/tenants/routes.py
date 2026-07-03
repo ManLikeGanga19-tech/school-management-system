@@ -6054,6 +6054,53 @@ def _maybe_seed_guardian_from_payload(
             )
 
 
+# ── Phase T3 — Guardian data-quality checker ────────────────────────────────
+@router.get(
+    "/students/data-quality",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_students_data_quality(
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Scan active-pipeline enrollments for inaccurate guardian data:
+    missing/phone-shaped names, invalid or doubled phone numbers, and
+    parents that exist in the Parents module but aren't linked."""
+    from app.api.v1.students.data_quality import scan_guardian_data_quality
+    return scan_guardian_data_quality(db, tenant_id=tenant.id)
+
+
+@router.post(
+    "/students/data-quality/fix",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_students_data_quality_fix(
+    body: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Apply one safe one-click fix (SPLIT_MULTI_PHONE | NORMALIZE_PHONE |
+    LINK_PARENT) to one enrollment. Audited."""
+    from app.api.v1.students.data_quality import apply_data_quality_fix
+    enrollment_id = _parse_uuid(body.get("enrollment_id"), field="enrollment_id")
+    action = str(body.get("action") or "").strip().upper()
+    try:
+        result = apply_data_quality_fix(
+            db,
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            enrollment_id=enrollment_id,
+            action=action,
+        )
+        db.commit()
+        return result
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get(
     "/students/{enrollment_id}/profile",
     dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],

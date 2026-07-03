@@ -3,7 +3,18 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePersistedState } from "@/lib/usePersistedState";
-import { Eye, RefreshCw, Search } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  Link2,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  SplitSquareHorizontal,
+  Wand2,
+} from "lucide-react";
 
 import { AppShell, type AppNavItem } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
@@ -44,6 +55,40 @@ type AllStudentsPageProps = {
 
 const PAGE_SIZE = 12;
 
+// ── Phase T3 — Guardian data-quality checker ────────────────────────────────
+
+type DataQualityIssueRow = {
+  enrollment_id: string;
+  enrollment_status: string;
+  student_id: string | null;
+  student_name: string;
+  admission_number: string | null;
+  class_code: string | null;
+  guardian_name: string | null;
+  guardian_phone: string | null;
+  issues: string[];
+  suggested: {
+    split_phones?: string[];
+    normalized_phone?: string;
+    matched_parent?: { parent_id: string; parent_name: string };
+  } | null;
+};
+
+type DataQualityReport = {
+  checked: number;
+  flagged: number;
+  issue_counts: Record<string, number>;
+  students: DataQualityIssueRow[];
+};
+
+const ISSUE_LABELS: Record<string, { label: string; tone: string }> = {
+  NAME_MISSING: { label: "Name missing", tone: "bg-red-50 text-red-700 ring-red-200" },
+  NAME_IS_PHONE: { label: "Name is a phone no.", tone: "bg-red-50 text-red-700 ring-red-200" },
+  PHONE_MULTI: { label: "Two phone numbers", tone: "bg-amber-50 text-amber-700 ring-amber-200" },
+  PHONE_INVALID: { label: "Invalid phone", tone: "bg-amber-50 text-amber-700 ring-amber-200" },
+  PARENT_UNLINKED: { label: "Parent not linked", tone: "bg-blue-50 text-blue-700 ring-blue-200" },
+};
+
 export function AllStudentsPage({
   appTitle,
   nav,
@@ -58,6 +103,28 @@ export function AllStudentsPage({
   const [termFilter, setTermFilter] = usePersistedState("students.all.term", "__all__");
   const [medicalFilter, setMedicalFilter] = usePersistedState("students.all.medical", "__all__");
   const [page, setPage] = usePersistedState("students.all.page", 1);
+
+  // Phase T3 — data-quality report state.
+  const [dq, setDq] = useState<DataQualityReport | null>(null);
+  const [dqLoading, setDqLoading] = useState(false);
+  const [dqOpen, setDqOpen] = useState(false);
+  const [dqFixing, setDqFixing] = useState<string | null>(null);
+
+  const loadDq = useCallback(async () => {
+    setDqLoading(true);
+    try {
+      const report = await api.get<DataQualityReport>(
+        "/tenants/students/data-quality",
+        { tenantRequired: true, noRedirect: true },
+      );
+      setDq(report);
+    } catch {
+      // Non-critical panel — stay silent, keep the page usable.
+      setDq(null);
+    } finally {
+      setDqLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,7 +147,34 @@ export function AllStudentsPage({
 
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadDq();
+  }, [load, loadDq]);
+
+  async function runDqFix(enrollmentId: string, action: string) {
+    setDqFixing(`${enrollmentId}:${action}`);
+    try {
+      await api.post<unknown>(
+        "/tenants/students/data-quality/fix",
+        { enrollment_id: enrollmentId, action },
+        { tenantRequired: true },
+      );
+      toast.success(
+        action === "SPLIT_MULTI_PHONE"
+          ? "Phone numbers split into primary + alternate."
+          : action === "NORMALIZE_PHONE"
+            ? "Phone number normalized."
+            : "Parent linked to this student.",
+      );
+      await Promise.all([loadDq(), load()]);
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        (err as { message?: string })?.message;
+      toast.error(detail || "Fix failed.");
+    } finally {
+      setDqFixing(null);
+    }
+  }
 
   const statusOptions = useMemo(() => {
     const options = new Set<string>();
@@ -202,6 +296,164 @@ export function AllStudentsPage({
             <div className="text-xs uppercase tracking-wide text-slate-500">Filtered Results</div>
             <div className="mt-1 text-2xl font-bold text-blue-700">{filtered.length}</div>
           </div>
+        </div>
+
+        {/* ── Phase T3 — Guardian data-quality panel ── */}
+        <div className="dashboard-surface rounded-[1.6rem]">
+          <button
+            className="flex w-full items-center justify-between px-6 py-4 text-left"
+            onClick={() => setDqOpen((v) => !v)}
+          >
+            <div className="flex items-center gap-3">
+              {dq && dq.flagged > 0 ? (
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+              ) : (
+                <ShieldCheck className="h-4 w-4 text-emerald-500" />
+              )}
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Guardian Data Quality
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {dqLoading
+                    ? "Checking guardian records…"
+                    : dq
+                      ? dq.flagged > 0
+                        ? `${dq.flagged} of ${dq.checked} students have guardian data issues`
+                        : `All ${dq.checked} students have clean guardian records`
+                      : "Check unavailable"}
+                </p>
+              </div>
+              {dq && dq.flagged > 0 && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800 ring-1 ring-amber-200">
+                  {dq.flagged}
+                </span>
+              )}
+            </div>
+            {dqOpen ? (
+              <ChevronUp className="h-4 w-4 text-slate-400" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-slate-400" />
+            )}
+          </button>
+          {dqOpen && dq && dq.flagged > 0 && (
+            <div className="border-t border-slate-100 px-6 py-4">
+              <div className="mb-3 flex flex-wrap gap-2">
+                {Object.entries(dq.issue_counts).map(([code, count]) => {
+                  const meta = ISSUE_LABELS[code] ?? {
+                    label: code, tone: "bg-slate-50 text-slate-600 ring-slate-200",
+                  };
+                  return (
+                    <span
+                      key={code}
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${meta.tone}`}
+                    >
+                      {meta.label}: {count}
+                    </span>
+                  );
+                })}
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="text-xs">Student</TableHead>
+                      <TableHead className="text-xs">Guardian name</TableHead>
+                      <TableHead className="text-xs">Guardian phone</TableHead>
+                      <TableHead className="text-xs">Issues</TableHead>
+                      <TableHead className="text-right text-xs">Fix</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dq.students.map((s) => (
+                      <TableRow key={s.enrollment_id} className="hover:bg-slate-50">
+                        <TableCell>
+                          <Link
+                            href={`${profileBasePath}/${encodeURIComponent(s.enrollment_id)}`}
+                            className="text-sm font-medium text-blue-700 hover:underline"
+                          >
+                            {s.student_name}
+                          </Link>
+                          <div className="text-[11px] text-slate-400">
+                            {[s.admission_number, s.class_code, s.enrollment_status.toLowerCase()]
+                              .filter(Boolean).join(" · ")}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-600">
+                          {s.guardian_name || <span className="text-red-500">—</span>}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-slate-600">
+                          {s.guardian_phone || <span className="text-red-500">—</span>}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {s.issues.map((code) => {
+                              const meta = ISSUE_LABELS[code] ?? {
+                                label: code, tone: "bg-slate-50 text-slate-600 ring-slate-200",
+                              };
+                              return (
+                                <span
+                                  key={code}
+                                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${meta.tone}`}
+                                >
+                                  {meta.label}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1.5">
+                            {s.issues.includes("PHONE_MULTI") && (
+                              <Button
+                                size="sm" variant="outline" className="h-7 gap-1 text-[11px]"
+                                disabled={dqFixing !== null}
+                                title={s.suggested?.split_phones
+                                  ? `Split into ${s.suggested.split_phones.join(" + ")}`
+                                  : "Split the two numbers into primary + alternate"}
+                                onClick={() => void runDqFix(s.enrollment_id, "SPLIT_MULTI_PHONE")}
+                              >
+                                <SplitSquareHorizontal className="h-3 w-3" />
+                                {dqFixing === `${s.enrollment_id}:SPLIT_MULTI_PHONE` ? "…" : "Split"}
+                              </Button>
+                            )}
+                            {s.issues.includes("PHONE_INVALID") && s.suggested?.normalized_phone && (
+                              <Button
+                                size="sm" variant="outline" className="h-7 gap-1 text-[11px]"
+                                disabled={dqFixing !== null}
+                                title={`Normalize to ${s.suggested.normalized_phone}`}
+                                onClick={() => void runDqFix(s.enrollment_id, "NORMALIZE_PHONE")}
+                              >
+                                <Wand2 className="h-3 w-3" />
+                                {dqFixing === `${s.enrollment_id}:NORMALIZE_PHONE` ? "…" : "Normalize"}
+                              </Button>
+                            )}
+                            {s.issues.includes("PARENT_UNLINKED") && (
+                              <Button
+                                size="sm" variant="outline" className="h-7 gap-1 text-[11px]"
+                                disabled={dqFixing !== null}
+                                title={s.suggested?.matched_parent
+                                  ? `Link to ${s.suggested.matched_parent.parent_name}`
+                                  : "Link the matching parent record"}
+                                onClick={() => void runDqFix(s.enrollment_id, "LINK_PARENT")}
+                              >
+                                <Link2 className="h-3 w-3" />
+                                {dqFixing === `${s.enrollment_id}:LINK_PARENT` ? "…" : "Link parent"}
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-400">
+                Name issues (missing / phone-shaped) need a human — open the
+                student's profile to correct them. Every fix is audited.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="dashboard-surface rounded-[1.6rem]">

@@ -701,6 +701,9 @@ export function StudentProfilePage({
       else await loadSis();
       setEditingGuardianId(null);
       toast.success("Guardian updated.");
+      // Phase T1 — the backend write-through also updated the enrollment
+      // payload's guardian snapshot; refresh so the Overview tab agrees.
+      await loadProfile();
     } catch {
       toast.error("Failed to update guardian.");
     } finally {
@@ -1000,6 +1003,10 @@ export function StudentProfilePage({
                             </div>
                           ))}
                         </div>
+                        <p className="text-[11px] text-slate-400">
+                          Guardian changes also update the linked parent record
+                          in the Parents module, so both stay in sync.
+                        </p>
                         <div className="flex gap-2">
                           <Button size="sm" onClick={() => void saveEnroll()} disabled={savingEnroll}>
                             <Save className="mr-1.5 h-3.5 w-3.5" />{savingEnroll ? "Saving…" : "Save"}
@@ -1016,6 +1023,16 @@ export function StudentProfilePage({
                         <FieldRow label="Class" value={enrollment.class_code} />
                         <FieldRow label="Term" value={enrollment.term_code} />
                         <FieldRow label="Status" value={enrollment.status} />
+                        {/* Phase T2 — the read view mirrors EVERY field the
+                            Edit form can change, so a save is always visible
+                            right here (previously guardian/intake edits
+                            saved fine but were displayed nowhere on this
+                            tab, which read as "the update didn't work"). */}
+                        <FieldRow label="Guardian Name" value={str(enrollment.payload?.guardian_name ?? "")} />
+                        <FieldRow label="Guardian Phone" value={str(enrollment.payload?.guardian_phone ?? "")} />
+                        <FieldRow label="Guardian Email" value={str(enrollment.payload?.guardian_email ?? "")} />
+                        <FieldRow label="Previous School" value={str(enrollment.payload?.previous_school ?? "")} />
+                        <FieldRow label="Intake Date" value={str(enrollment.payload?.intake_date ?? "")} />
                       </div>
                     )}
                   </div>

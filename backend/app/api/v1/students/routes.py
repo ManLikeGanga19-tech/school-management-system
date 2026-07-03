@@ -203,6 +203,16 @@ def update_student_biodata(
     updates.append("updated_at = :updated_at")
     params["updated_at"] = _now_utc()
 
+    # Detect a name change BEFORE the update so we can propagate it to the
+    # enrollment payloads afterwards (Phase T1 — the profile header, Overview
+    # tab, and All Students list all read payload.student_name; without this
+    # sync a rename "succeeds" but never shows anywhere).
+    name_fields = ("first_name", "last_name", "other_names")
+    renaming_student = any(
+        f in data and data[f] is not None and str(data[f]).strip() != str(existing.get(f) or "").strip()
+        for f in name_fields
+    )
+
     db.execute(
         sa.text(
             f"UPDATE core.students SET {', '.join(updates)} "
@@ -210,6 +220,47 @@ def update_student_biodata(
         ),
         params,
     )
+
+    if renaming_student:
+        # Rebuild the display name from the POST-update student row so
+        # untouched name parts are preserved.
+        fresh = _require_student(db, student_id=student_id, tenant_id=tenant.id)
+        new_full_name = " ".join(
+            part for part in (
+                str(fresh.get(f) or "").strip() for f in ("first_name", "other_names", "last_name")
+            ) if part
+        )
+        if new_full_name:
+            renamed_rows = db.execute(
+                sa.text(
+                    "UPDATE core.enrollments "
+                    "SET payload = COALESCE(payload, CAST('{}' AS jsonb)) "
+                    "              || jsonb_build_object('student_name', CAST(:name AS text)), "
+                    "    updated_at = :updated_at "
+                    "WHERE tenant_id = :tenant_id AND student_id = :student_id "
+                    "RETURNING id"
+                ),
+                {
+                    "name": new_full_name,
+                    "updated_at": params["updated_at"],
+                    "tenant_id": str(tenant.id),
+                    "student_id": str(student_id),
+                },
+            ).all()
+            log_event(
+                db,
+                tenant_id=tenant.id,
+                actor_user_id=user.id,
+                action="student.name.sync",
+                resource="student",
+                resource_id=student_id,
+                payload={
+                    "new_name": new_full_name,
+                    "enrollment_count": len(renamed_rows),
+                    "enrollment_ids": [str(r[0]) for r in renamed_rows],
+                },
+                meta=None,
+            )
 
     affected_enrollment_ids: list[str] = []
     if rename_admission:
@@ -457,6 +508,40 @@ def update_guardian_contacts(
 
     if not row:
         raise HTTPException(status_code=404, detail="Guardian not found after update")
+
+    # Phase T1 — write-through: the Parents module is the source of truth
+    # for guardian contact info (Decision D1A). Keep the enrollment payload's
+    # guardian_* snapshot in sync so the Overview tab, intake views, and the
+    # data-quality checker all agree with what was just edited here.
+    guardian_full_name = " ".join(
+        part for part in (
+            str(row.get("first_name") or "").strip(),
+            str(row.get("last_name") or "").strip(),
+        ) if part
+    )
+    sync_fields: dict = {}
+    if guardian_full_name:
+        sync_fields["guardian_name"] = guardian_full_name
+    if row.get("phone"):
+        sync_fields["guardian_phone"] = str(row["phone"])
+    if row.get("email"):
+        sync_fields["guardian_email"] = str(row["email"])
+    if sync_fields:
+        import json as _json
+        db.execute(
+            sa.text(
+                "UPDATE core.enrollments "
+                "SET payload = COALESCE(payload, CAST('{}' AS jsonb)) "
+                "              || CAST(:patch AS jsonb) "
+                "WHERE tenant_id = :tenant_id AND student_id = :student_id"
+            ),
+            {
+                "patch": _json.dumps(sync_fields),
+                "tenant_id": str(tenant.id),
+                "student_id": str(student_id),
+            },
+        )
+        db.commit()
 
     return GuardianOut(
         id=_str(row["id"]) or "",
