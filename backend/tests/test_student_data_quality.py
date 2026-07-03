@@ -367,3 +367,71 @@ class TestDataQualityFixes:
             json={"enrollment_id": eid, "action": "MAKE_IT_BETTER"},
         )
         assert r.status_code == 400
+
+
+class TestGuardianFormExport:
+    """Phase U — printable Guardian Information Update Forms."""
+
+    def test_export_pdf_batch(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=DQ_PERMS)
+        _seed_enrollment(db_session, tenant_id=tenant.id, guardian_name="N/A")
+        _seed_enrollment(
+            db_session, tenant_id=tenant.id,
+            guardian_phone="0712345678/0723456789",
+        )
+        r = client.get(
+            "/api/v1/tenants/students/data-quality/export.pdf",
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"].startswith("application/pdf")
+        assert r.content.startswith(b"%PDF-")
+        assert len(r.content) > 2_000  # two branded pages, not a stub
+
+        cnt = db_session.execute(text(
+            "SELECT COUNT(*) FROM core.audit_logs "
+            "WHERE tenant_id = :tid AND action = 'students.data_quality.export'"
+        ), {"tid": str(tenant.id)}).scalar()
+        assert cnt == 1
+
+    def test_export_pdf_single_student(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=DQ_PERMS)
+        eid, _ = _seed_enrollment(
+            db_session, tenant_id=tenant.id, guardian_name="N/A",
+        )
+        _seed_enrollment(db_session, tenant_id=tenant.id, guardian_name="0733999888")
+        r = client.get(
+            f"/api/v1/tenants/students/data-quality/export.pdf?enrollment_id={eid}",
+            headers=headers,
+        )
+        assert r.status_code == 200
+        assert r.content.startswith(b"%PDF-")
+
+    def test_export_404_for_clean_student(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=DQ_PERMS)
+        eid, _ = _seed_enrollment(db_session, tenant_id=tenant.id)  # clean
+        r = client.get(
+            f"/api/v1/tenants/students/data-quality/export.pdf?enrollment_id={eid}",
+            headers=headers,
+        )
+        assert r.status_code == 404
+
+    def test_export_requires_permission(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=[])
+        r = client.get(
+            "/api/v1/tenants/students/data-quality/export.pdf",
+            headers=headers,
+        )
+        assert r.status_code == 403

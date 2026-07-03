@@ -6071,6 +6071,68 @@ def tenant_students_data_quality(
     return scan_guardian_data_quality(db, tenant_id=tenant.id)
 
 
+@router.get(
+    "/students/data-quality/export.pdf",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_students_data_quality_export(
+    enrollment_id: UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Printable Guardian Information Update Forms — one branded A4 page per
+    flagged student, with wide handwriting fields, prefilled current values,
+    and the specific issues that triggered the form. The school prints the
+    batch, sends each page home, and keys the corrections back in.
+
+    Pass enrollment_id to print a single student's form."""
+    from datetime import datetime as _dt, timezone as _tz
+    from app.api.v1.students.data_quality import scan_guardian_data_quality
+    from app.api.v1.finance.service import get_tenant_print_profile
+    from app.utils.guardian_form_pdf import generate_guardian_correction_forms_pdf
+    from app.core.audit import log_event
+
+    report = scan_guardian_data_quality(db, tenant_id=tenant.id)
+    students = report["students"]
+    if enrollment_id is not None:
+        students = [s for s in students if s["enrollment_id"] == str(enrollment_id)]
+        if not students:
+            raise HTTPException(
+                status_code=404,
+                detail="This student has no guardian data issues to print a form for.",
+            )
+
+    pdf_bytes = generate_guardian_correction_forms_pdf({
+        "profile": get_tenant_print_profile(db, tenant_id=tenant.id),
+        "students": students,
+        "generated_at": _dt.now(_tz.utc).isoformat(),
+    })
+
+    log_event(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user.id,
+        action="students.data_quality.export",
+        resource="tenant",
+        resource_id=tenant.id,
+        payload={"form_count": len(students),
+                 "single_enrollment": str(enrollment_id) if enrollment_id else None},
+        meta=None,
+    )
+    db.commit()
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                'inline; filename="guardian-update-forms.pdf"'
+            ),
+        },
+    )
+
+
 @router.post(
     "/students/data-quality/fix",
     dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],

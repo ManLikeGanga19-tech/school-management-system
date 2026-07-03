@@ -9,6 +9,7 @@ import {
   ChevronUp,
   Eye,
   Link2,
+  Printer,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -35,7 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/sonner";
-import { api } from "@/lib/api";
+import { api, apiFetchRaw } from "@/lib/api";
 import {
   admissionNumber,
   normalizeEnrollmentRows,
@@ -149,6 +150,31 @@ export function AllStudentsPage({
     void load();
     void loadDq();
   }, [load, loadDq]);
+
+  // Phase U — printable Guardian Information Update Forms. One branded A4
+  // page per flagged student with wide handwriting fields; the school
+  // prints the batch (or one student's form) and sends it home.
+  const [dqPrinting, setDqPrinting] = useState(false);
+  async function printDqForms(enrollmentId?: string) {
+    setDqPrinting(true);
+    try {
+      const qs = enrollmentId
+        ? `?enrollment_id=${encodeURIComponent(enrollmentId)}`
+        : "";
+      const res = await apiFetchRaw(
+        `/tenants/students/data-quality/export.pdf${qs}`,
+        { method: "GET", tenantRequired: true },
+      );
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const tab = window.open(url, "_blank");
+      if (!tab) toast.error("Pop-up blocked — allow pop-ups to print the forms.");
+    } catch {
+      toast.error("Failed to generate the correction forms PDF.");
+    } finally {
+      setDqPrinting(false);
+    }
+  }
 
   async function runDqFix(enrollmentId: string, action: string) {
     setDqFixing(`${enrollmentId}:${action}`);
@@ -338,20 +364,33 @@ export function AllStudentsPage({
           </button>
           {dqOpen && dq && dq.flagged > 0 && (
             <div className="border-t border-slate-100 px-6 py-4">
-              <div className="mb-3 flex flex-wrap gap-2">
-                {Object.entries(dq.issue_counts).map(([code, count]) => {
-                  const meta = ISSUE_LABELS[code] ?? {
-                    label: code, tone: "bg-slate-50 text-slate-600 ring-slate-200",
-                  };
-                  return (
-                    <span
-                      key={code}
-                      className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${meta.tone}`}
-                    >
-                      {meta.label}: {count}
-                    </span>
-                  );
-                })}
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(dq.issue_counts).map(([code, count]) => {
+                    const meta = ISSUE_LABELS[code] ?? {
+                      label: code, tone: "bg-slate-50 text-slate-600 ring-slate-200",
+                    };
+                    return (
+                      <span
+                        key={code}
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${meta.tone}`}
+                      >
+                        {meta.label}: {count}
+                      </span>
+                    );
+                  })}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  disabled={dqPrinting}
+                  title="Print branded Guardian Information Update Forms — one page per flagged student, with wide handwriting fields"
+                  onClick={() => void printDqForms()}
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  {dqPrinting ? "Generating…" : `Print All Forms (${dq.flagged})`}
+                </Button>
               </div>
               <div className="overflow-x-auto">
                 <Table>
@@ -404,6 +443,15 @@ export function AllStudentsPage({
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1.5">
+                            <Button
+                              size="sm" variant="outline" className="h-7 gap-1 text-[11px]"
+                              disabled={dqPrinting}
+                              title="Print this student's Guardian Information Update Form"
+                              onClick={() => void printDqForms(s.enrollment_id)}
+                            >
+                              <Printer className="h-3 w-3" />
+                              Form
+                            </Button>
                             {s.issues.includes("PHONE_MULTI") && (
                               <Button
                                 size="sm" variant="outline" className="h-7 gap-1 text-[11px]"
