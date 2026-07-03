@@ -1856,6 +1856,27 @@ def _validate_allocation_capacity(
                 )
 
 
+def _cf_effective_amount(row: Any) -> Decimal:
+    """Signed effective value of a carry-forward row, net of direct-payment
+    settlement (Phase N/R ``settled_amount``).
+
+        debit  (amount > 0):  amount − settled_amount   (what's still owed)
+        credit (amount < 0):  amount + settled_amount   (what's still available,
+                                                          stays ≤ 0)
+
+    Every consumer that aggregates CF value MUST use this instead of raw
+    ``amount`` — summing the original amount double-counts the portion a
+    parent already paid down in cash (the double-billing path).
+    """
+    amount = Decimal(str(row.amount or 0))
+    settled = Decimal(str(getattr(row, "settled_amount", 0) or 0))
+    if amount > 0:
+        effective = amount - settled
+        return effective if effective > 0 else Decimal("0")
+    effective = amount + settled
+    return effective if effective < 0 else Decimal("0")
+
+
 def compute_full_waiver_discount(
     db: Session, *, invoice: "Invoice", covers_carry_forward: bool
 ) -> Decimal:
@@ -1874,14 +1895,15 @@ def compute_full_waiver_discount(
         return total
 
     from app.models.student_carry_forward import StudentCarryForward
-    arrears = db.execute(
-        select(sa_func.coalesce(sa_func.sum(StudentCarryForward.amount), 0))
-        .where(
+    cf_rows = db.execute(
+        select(StudentCarryForward).where(
             StudentCarryForward.invoice_id == invoice.id,
             StudentCarryForward.status.in_(("BUNDLED", "SETTLED")),
         )
-    ).scalar() or Decimal("0")
-    arrears_d = Decimal(str(arrears))
+    ).scalars().all()
+    # Effective (net of direct-payment settlement) — raw amounts would
+    # overstate the arrears portion for partially-settled rows.
+    arrears_d = sum((_cf_effective_amount(r) for r in cf_rows), Decimal("0"))
     if arrears_d < 0:
         # Net-credit carry-forward already reduces the invoice; waiver only
         # touches the positive current-term portion.
@@ -2801,8 +2823,11 @@ def _recalc_invoice_amounts(db: Session, invoice: Invoice) -> None:
     ).scalars().all()
 
     if bundled:
+        # Effective outstanding, not raw amount — a CF row partially paid
+        # down in cash BEFORE being bundled only contributed its remainder
+        # to the invoice's arrears line.
         arrears_total = sum(
-            (Decimal(str(cf.amount)) for cf in bundled), Decimal("0")
+            (_cf_effective_amount(cf) for cf in bundled), Decimal("0")
         )
         paid_d = Decimal(paid or 0)
         if arrears_total > 0:
@@ -3531,12 +3556,15 @@ def get_student_payment_summary(
             StudentCarryForward.status == "OPEN",
         )
     ).scalars().all()
+    # Effective outstanding (net of settled_amount) — a partially-settled
+    # debit shows only its remainder on the Brought-forward tile, and a
+    # partially-consumed credit shows only what's still spendable.
     pending_debit = sum(
-        (Decimal(str(r.amount)) for r in cf_rows if Decimal(str(r.amount)) > 0),
+        (_cf_effective_amount(r) for r in cf_rows if Decimal(str(r.amount)) > 0),
         Decimal("0"),
     )
     pending_credit = sum(
-        (Decimal(str(r.amount)) for r in cf_rows if Decimal(str(r.amount)) < 0),
+        (_cf_effective_amount(r) for r in cf_rows if Decimal(str(r.amount)) < 0),
         Decimal("0"),
     )
     pending_net = pending_debit + pending_credit
@@ -6432,15 +6460,17 @@ def get_enrollment_finance_status(db: Session, *, tenant_id: UUID, enrollment_id
     pending_cf_total = Decimal("0")
     if student_id:
         from app.models.student_carry_forward import StudentCarryForward
-        cf_amounts = db.execute(
-            select(StudentCarryForward.amount).where(
+        cf_rows_gate = db.execute(
+            select(StudentCarryForward).where(
                 StudentCarryForward.tenant_id == tenant_id,
                 StudentCarryForward.student_id == student_id,
                 StudentCarryForward.status == "OPEN",
             )
         ).scalars().all()
+        # Effective outstanding — the enroll / transfer-out gates must not
+        # block a student for CF value that was already paid down in cash.
         pending_cf_total = sum(
-            (Decimal(str(a or 0)) for a in cf_amounts), Decimal("0")
+            (_cf_effective_amount(r) for r in cf_rows_gate), Decimal("0")
         )
 
     total_outstanding = sum(
@@ -7369,8 +7399,21 @@ def generate_school_fees_invoice_v2(
             )
         ).scalars().all()
         if cf_rows:
+            # DOUBLE-BILLING GUARD: bundle only the EFFECTIVE outstanding of
+            # each row (amount − settled_amount for debits). A parent who
+            # paid part of their arrears in cash (Phase N waterfall) must
+            # not be billed the already-paid portion again on the next
+            # invoice. Rows fully covered by direct payment are settled
+            # here rather than bundled (defensive — the waterfall already
+            # flips them, but a raced row must never re-bill at zero).
+            bundlable: list = []
+            for cf in cf_rows:
+                if _cf_effective_amount(cf) == 0:
+                    cf.status = "SETTLED"
+                else:
+                    bundlable.append(cf)
             arrears_total = sum(
-                (Decimal(str(cf.amount)) for cf in cf_rows), Decimal("0")
+                (_cf_effective_amount(cf) for cf in bundlable), Decimal("0")
             )
             if arrears_total != 0:
                 description = (
@@ -7382,10 +7425,12 @@ def generate_school_fees_invoice_v2(
                     {
                         "id": str(cf.id),
                         "term_label": cf.term_label,
-                        "amount": str(cf.amount),
+                        "original_amount": str(cf.amount),
+                        "already_settled": str(getattr(cf, "settled_amount", 0) or 0),
+                        "amount": str(_cf_effective_amount(cf)),
                         "category": cf.category,
                     }
-                    for cf in cf_rows
+                    for cf in bundlable
                 ]
                 db.add(InvoiceLine(
                     invoice_id=inv.id,
@@ -7393,11 +7438,11 @@ def generate_school_fees_invoice_v2(
                     amount=arrears_total,
                     meta={
                         "line_type": "CARRY_FORWARD_ROLLUP",
-                        "carry_forward_ids": [str(cf.id) for cf in cf_rows],
+                        "carry_forward_ids": [str(cf.id) for cf in bundlable],
                         "breakdown": breakdown,
                     },
                 ))
-            for cf in cf_rows:
+            for cf in bundlable:
                 cf.status = "BUNDLED"
                 cf.invoice_id = inv.id
             db.flush()
@@ -7799,16 +7844,20 @@ def reconcile_invoice_against_structure(
         if base_subtotal < 0:
             base_subtotal = Decimal("0")
         # Arrears portion (bundled CF) — FULL_WAIVER without covers_carry_forward
-        # only waives the current-term portion.
+        # only waives the current-term portion. Effective outstanding, not
+        # raw amount — partially-settled rows contributed only their
+        # remainder to the invoice.
         from app.models.student_carry_forward import StudentCarryForward
-        arrears_raw = db.execute(
-            select(sa_func.coalesce(sa_func.sum(StudentCarryForward.amount), 0))
-            .where(
+        arrears_rows = db.execute(
+            select(StudentCarryForward).where(
                 StudentCarryForward.invoice_id == invoice.id,
                 StudentCarryForward.status.in_(("BUNDLED", "SETTLED")),
             )
-        ).scalar() or Decimal("0")
-        arrears_d = max(Decimal(str(arrears_raw)), Decimal("0"))
+        ).scalars().all()
+        arrears_d = max(
+            sum((_cf_effective_amount(r) for r in arrears_rows), Decimal("0")),
+            Decimal("0"),
+        )
 
         # Running tally so stacked discounts never exceed the base subtotal.
         discount_budget = base_subtotal
