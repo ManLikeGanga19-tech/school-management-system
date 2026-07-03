@@ -435,3 +435,152 @@ class TestGuardianFormExport:
             headers=headers,
         )
         assert r.status_code == 403
+
+
+class TestClassResolution:
+    """Phase V — canonical class/grade resolution. The intake form writes
+    admission_class; documents used to read only class_code and printed a
+    blank class. One chain everywhere now."""
+
+    def _seed_admission_class_enrollment(
+        self, db: Session, *, tenant_id, with_student: bool = True,
+        payload_extra: dict | None = None,
+    ) -> tuple[str, str | None]:
+        sid = None
+        if with_student:
+            sid = str(uuid4())
+            db.execute(text(
+                "INSERT INTO core.students "
+                "(id, tenant_id, admission_no, first_name, last_name, status, admission_year) "
+                "VALUES (:id, :tid, :adm, 'Class', 'Resolve', 'ACTIVE', 2026)"
+            ), {"id": sid, "tid": str(tenant_id), "adm": f"CR-{uuid4().hex[:6].upper()}"})
+        eid = str(uuid4())
+        payload = {
+            "student_name": "Class Resolve",
+            "admission_class": "PP2",     # ← intake form key, NO class_code
+            "guardian_name": "N/A",       # flag it so the scan returns it
+            **(payload_extra or {}),
+        }
+        db.execute(text(
+            "INSERT INTO core.enrollments (id, tenant_id, student_id, status, payload) "
+            "VALUES (:id, :tid, :sid, 'ENROLLED', CAST(:pl AS jsonb))"
+        ), {"id": eid, "tid": str(tenant_id), "sid": sid, "pl": json.dumps(payload)})
+        db.commit()
+        return eid, sid
+
+    def test_scan_resolves_admission_class(
+        self, client: TestClient, db_session: Session,
+    ):
+        """The guardian update sheet's Class column must show the intake
+        form's admission_class."""
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=DQ_PERMS)
+        eid, _ = self._seed_admission_class_enrollment(db_session, tenant_id=tenant.id)
+        r = client.get("/api/v1/tenants/students/data-quality", headers=headers)
+        row = next(s for s in r.json()["students"] if s["enrollment_id"] == eid)
+        assert row["class_code"] == "PP2"
+
+    def test_scan_falls_back_to_sis_class_assignment(
+        self, client: TestClient, db_session: Session,
+    ):
+        """No class in the payload at all → the SIS class assignment fills
+        the column."""
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=DQ_PERMS)
+        eid, sid = self._seed_admission_class_enrollment(
+            db_session, tenant_id=tenant.id,
+        )
+        # Strip every class key from the payload, then assign a SIS class.
+        db_session.execute(text(
+            "UPDATE core.enrollments SET payload = payload - 'admission_class' "
+            "WHERE id = :eid"
+        ), {"eid": eid})
+        class_id, term_id = str(uuid4()), str(uuid4())
+        db_session.execute(text(
+            "INSERT INTO core.tenant_classes (id, tenant_id, code, name) "
+            "VALUES (:id, :tid, 'GRADE_3', 'Grade 3')"
+        ), {"id": class_id, "tid": str(tenant.id)})
+        db_session.execute(text(
+            "INSERT INTO core.tenant_terms (id, tenant_id, code, name, is_active) "
+            "VALUES (:id, :tid, 'T1-2026', 'Term 1 2026', TRUE)"
+        ), {"id": term_id, "tid": str(tenant.id)})
+        db_session.execute(text(
+            "INSERT INTO core.student_class_enrollments (tenant_id, student_id, class_id, term_id) "
+            "VALUES (:tid, :sid, :cid, :tmid)"
+        ), {"tid": str(tenant.id), "sid": sid, "cid": class_id, "tmid": term_id})
+        db_session.commit()
+
+        r = client.get("/api/v1/tenants/students/data-quality", headers=headers)
+        row = next(s for s in r.json()["students"] if s["enrollment_id"] == eid)
+        assert row["class_code"] == "GRADE_3"
+
+    def test_invoice_document_resolves_admission_class(
+        self, client: TestClient, db_session: Session,
+    ):
+        """The invoice PDF's Class line (via _resolve_student_identity) must
+        pick up admission_class — the finance-module blank."""
+        from app.api.v1.finance import service
+        tenant = create_tenant(db_session)
+        eid, _ = self._seed_admission_class_enrollment(db_session, tenant_id=tenant.id)
+        iid = str(uuid4())
+        db_session.execute(text(
+            "INSERT INTO core.invoices "
+            "(id, tenant_id, invoice_no, invoice_type, status, enrollment_id, "
+            " currency, total_amount, paid_amount, balance_amount) "
+            "VALUES (:id, :tid, :no, 'SCHOOL_FEES', 'ISSUED', :eid, 'KES', 5000, 0, 5000)"
+        ), {"id": iid, "tid": str(tenant.id), "no": f"INV-{uuid4().hex[:6].upper()}",
+            "eid": eid})
+        db_session.execute(text(
+            "INSERT INTO core.invoice_lines (invoice_id, description, amount) "
+            "VALUES (:iid, 'Tuition', 5000)"
+        ), {"iid": iid})
+        db_session.commit()
+
+        doc = service.build_invoice_document(
+            db_session, tenant_id=tenant.id, invoice_id=iid,
+        )
+        assert doc["class_code"] == "PP2"
+
+    def test_enrollment_create_mirrors_class_code(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIO_PERMS)
+        r = client.post(
+            "/api/v1/enrollments/",
+            headers=headers,
+            json={"payload": {
+                "student_name": "Mirror Test",
+                "admission_class": "GRADE_2",
+            }},
+        )
+        assert r.status_code in (200, 201), r.text
+        pl = _payload(db_session, r.json()["id"])
+        assert pl["class_code"] == "GRADE_2"
+        assert pl["admission_class"] == "GRADE_2"
+
+    def test_enrollment_update_remirrors_alias_edit(
+        self, client: TestClient, db_session: Session,
+    ):
+        """Editing admission_class later must move class_code with it — a
+        stale mirror can never win over a fresh intake correction."""
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIO_PERMS)
+        r = client.post(
+            "/api/v1/enrollments/",
+            headers=headers,
+            json={"payload": {
+                "student_name": "Mirror Test",
+                "admission_class": "GRADE_2",
+            }},
+        )
+        eid = r.json()["id"]
+        r2 = client.patch(
+            f"/api/v1/enrollments/{eid}",
+            headers=headers,
+            json={"payload": {"admission_class": "GRADE_4"}},
+        )
+        assert r2.status_code == 200, r2.text
+        pl = _payload(db_session, eid)
+        assert pl["admission_class"] == "GRADE_4"
+        assert pl["class_code"] == "GRADE_4"

@@ -116,6 +116,20 @@ def scan_guardian_data_quality(
                 ) or "Guardian",
             }
 
+    # Phase V — canonical class resolution: payload chain first, then a
+    # batched SIS-assignment fallback so the update sheet's Class column is
+    # never blank when the school has the class on record anywhere.
+    from app.utils.class_resolution import class_from_payload, sis_class_map
+    sis_fallback = sis_class_map(
+        db,
+        tenant_id=tenant_id,
+        student_ids=[
+            str(r["student_id"]) for r in rows
+            if r["student_id"] is not None
+            and not class_from_payload(r["payload"] if isinstance(r["payload"], dict) else None)
+        ],
+    )
+
     flagged: list[dict] = []
     for row in rows:
         payload = row["payload"] if isinstance(row["payload"], dict) else {}
@@ -173,7 +187,10 @@ def scan_guardian_data_quality(
                 str(row["admission_number"] or "")
                 or str(payload.get("admission_number") or "")
             ) or None,
-            "class_code": str(payload.get("class_code") or "") or None,
+            "class_code": (
+                class_from_payload(payload)
+                or (sis_fallback.get(str(row["student_id"])) if row["student_id"] else "")
+            ) or None,
             "guardian_name": g_name or None,
             "guardian_phone": g_phone_raw or None,
             "issues": issues,

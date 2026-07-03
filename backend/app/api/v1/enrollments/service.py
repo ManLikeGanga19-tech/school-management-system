@@ -396,6 +396,13 @@ def create_enrollment(
         str(payload.get("enrollment_source", "")).upper() == "EXISTING_STUDENT"
     )
     clean_payload = _clean_create_payload(payload)
+    # Phase V — write-side drift stopper: the intake form writes the class
+    # as admission_class; mirror it into class_code so every consumer
+    # (including naive payload readers) sees the canonical key.
+    from app.utils.class_resolution import mirror_class_code
+    mirrored = mirror_class_code(clean_payload)
+    if mirrored is not None:
+        clean_payload = mirrored
 
     # Existing students skip the interview/approval pipeline — they are already
     # enrolled; we just need to register them and attach the right fee structure.
@@ -795,7 +802,28 @@ def update_enrollment(
             k in payload and str(payload.get(k) or "").strip() != str(current.get(k) or "").strip()
             for k in ("guardian_name", "guardian_phone", "guardian_email")
         )
-        enrollment.payload = {**current, **payload}
+        merged = {**current, **payload}
+        # Phase V — keep class_code mirrored when edits arrive under an
+        # alias key (admission_class etc.). Two cases:
+        #   * The update itself carries a class under an alias and does NOT
+        #     explicitly set class_code → re-mirror from the update, so an
+        #     admission_class correction can never lose to a stale mirror.
+        #   * Otherwise → mirror only when class_code is missing entirely.
+        from app.utils.class_resolution import (
+            PAYLOAD_CLASS_KEYS, class_from_payload, mirror_class_code,
+        )
+        alias_keys = tuple(k for k in PAYLOAD_CLASS_KEYS if k != "class_code")
+        update_sets_class_code = bool(str(payload.get("class_code") or "").strip())
+        update_alias_value = class_from_payload(
+            {k: payload[k] for k in alias_keys if k in payload}
+        )
+        if update_alias_value and not update_sets_class_code:
+            merged["class_code"] = update_alias_value
+        else:
+            mirrored = mirror_class_code(merged)
+            if mirrored is not None:
+                merged = mirrored
+        enrollment.payload = merged
         if guardian_changed:
             guardian_sync_note = _sync_guardian_to_parent(
                 db,

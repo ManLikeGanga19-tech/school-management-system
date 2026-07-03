@@ -260,11 +260,16 @@ def _resolve_student_identity(
 
     student_name = _extract_student_name(payload)
     admission_no = str(payload.get("admission_no") or payload.get("admissionNo") or "")
-    class_code = str(
-        payload.get("class_code")
-        or payload.get("classCode")
-        or payload.get("class")
-        or ""
+    # Phase V — canonical class chain (class_code → classCode → class →
+    # admission_class → grade → SIS assignment). The old 3-key subset
+    # missed admission_class — the key the intake form actually writes —
+    # so invoices and receipts printed a blank Class for most students.
+    from app.utils.class_resolution import resolve_student_class
+    class_code = resolve_student_class(
+        db,
+        tenant_id=tenant_id,
+        payload=payload,
+        student_id=getattr(enrollment, "student_id", None) if enrollment is not None else None,
     )
     # Prefer the registered Parent record's full name (first + last) over the
     # free-text guardian name typed into the enrollment payload — the receipt's
