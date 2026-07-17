@@ -148,18 +148,53 @@ type IntakeDraft = {
   guardian_email: string;
   previous_school: string;
   assessment_no: string;
-  nemis_no: string;
+  uli: string;
   has_medical_conditions: boolean;
   medical_conditions_details: string;
   has_medication_in_school: boolean;
   medication_in_school_details: string;
   notes: string;
+  // Phase W — KEMIS 2026 capture-sheet learner details
+  kemis: {
+    kcpe_kjsea_year: string;
+    nationality: string;
+    county_of_birth: string;
+    sub_county_of_birth: string;
+    location_of_birth: string;
+    birth_certificate_no: string;
+    religion: string;
+    learner_interests: string;
+    orphan_status: string;
+    sne_disability: string;
+    disability_type: string;
+  };
+  mother: KemisParentDraft;
+  father: KemisParentDraft;
+  kemis_guardian: KemisParentDraft & { relationship: string };
   documents: {
     birth_certificate: boolean;
     passport_photo: boolean;
     previous_report_card: boolean;
     transfer_letter: boolean;
+    parent_id_copy: boolean;
   };
+};
+
+type KemisParentDraft = {
+  first_name: string;
+  middle_name: string;
+  last_name: string;
+  id_type: string;
+  national_id: string;
+  country_of_residence: string;
+  phone: string;
+  email: string;
+};
+
+const EMPTY_KEMIS_PARENT: KemisParentDraft = {
+  first_name: "", middle_name: "", last_name: "",
+  id_type: "", national_id: "", country_of_residence: "",
+  phone: "", email: "",
 };
 
 type ExistingStudentDraft = {
@@ -174,7 +209,7 @@ type ExistingStudentDraft = {
   guardian_email: string;
   previous_school: string;
   assessment_no: string;
-  nemis_no: string;
+  uli: string;
   has_medical_conditions: boolean;
   medical_conditions_details: string;
   has_medication_in_school: boolean;
@@ -194,7 +229,7 @@ type UpdateDraft = {
   guardian_email: string;
   previous_school: string;
   assessment_no: string;
-  nemis_no: string;
+  uli: string;
   has_medical_conditions: boolean;
   medical_conditions_details: string;
   has_medication_in_school: boolean;
@@ -220,17 +255,27 @@ const INITIAL_DRAFT: IntakeDraft = {
   guardian_email: "",
   previous_school: "",
   assessment_no: "",
-  nemis_no: "",
+  uli: "",
   has_medical_conditions: false,
   medical_conditions_details: "",
   has_medication_in_school: false,
   medication_in_school_details: "",
   notes: "",
+  kemis: {
+    kcpe_kjsea_year: "", nationality: "", county_of_birth: "",
+    sub_county_of_birth: "", location_of_birth: "",
+    birth_certificate_no: "", religion: "", learner_interests: "",
+    orphan_status: "", sne_disability: "", disability_type: "",
+  },
+  mother: { ...EMPTY_KEMIS_PARENT },
+  father: { ...EMPTY_KEMIS_PARENT },
+  kemis_guardian: { ...EMPTY_KEMIS_PARENT, relationship: "" },
   documents: {
     birth_certificate: false,
     passport_photo: false,
     previous_report_card: false,
     transfer_letter: false,
+    parent_id_copy: false,
   },
 };
 
@@ -246,7 +291,7 @@ const INITIAL_EXISTING_STUDENT_DRAFT: ExistingStudentDraft = {
   guardian_email: "",
   previous_school: "",
   assessment_no: "",
-  nemis_no: "",
+  uli: "",
   has_medical_conditions: false,
   medical_conditions_details: "",
   has_medication_in_school: false,
@@ -266,7 +311,7 @@ const INITIAL_UPDATE_DRAFT: UpdateDraft = {
   guardian_email: "",
   previous_school: "",
   assessment_no: "",
-  nemis_no: "",
+  uli: "",
   has_medical_conditions: false,
   medical_conditions_details: "",
   has_medication_in_school: false,
@@ -314,6 +359,12 @@ const requirementChecklist: Array<{
       label: "Transfer Letter",
       description: "Required for transfer students only",
       required: false,
+    },
+    {
+      key: "parent_id_copy",
+      label: "Parent/Guardian ID Copies",
+      description: "Copies of the parents' (or guardian's) national IDs — KEMIS requirement",
+      required: true,
     },
   ];
 
@@ -1116,7 +1167,7 @@ function StudentDetailDialog({
     { label: "Guardian Email", value: (p as any)?.guardian_email || "—" },
     { label: "Previous School", value: (p as any)?.previous_school || "—" },
     { label: "Assessment No.", value: (p as any)?.assessment_no || "—" },
-    { label: "NEMIS No.", value: (p as any)?.nemis_no || "—" },
+    { label: "KEMIS ULI", value: (p as any)?.uli || "—" },
     {
       label: "Enrollment Source",
       value: (p as any)?.enrollment_source || "INTAKE",
@@ -1288,7 +1339,7 @@ function UpdateEnrollmentDialog({
         guardian_email: String((p as any)?.guardian_email ?? ""),
         previous_school: String((p as any)?.previous_school ?? ""),
         assessment_no: String((p as any)?.assessment_no ?? ""),
-        nemis_no: String((p as any)?.nemis_no ?? ""),
+        uli: String((p as any)?.uli ?? ""),
         has_medical_conditions: payloadBoolean(p, [
           "has_medical_conditions",
           "has_underlying_medical_conditions",
@@ -1475,11 +1526,11 @@ function UpdateEnrollmentDialog({
               />
             </FormField>
 
-            <FormField label="NEMIS Number">
+            <FormField label="KEMIS ULI (optional)">
               <Input
-                value={draft.nemis_no}
+                value={draft.uli}
                 onChange={(e) =>
-                  setDraft((p) => ({ ...p, nemis_no: e.target.value }))
+                  setDraft((p) => ({ ...p, uli: e.target.value }))
                 }
               />
             </FormField>
@@ -2113,7 +2164,7 @@ function SecretaryEnrollmentsPageContent() {
       guardian_email: draft.guardian_email.trim() || null,
       previous_school: draft.previous_school.trim() || null,
       assessment_no: draft.assessment_no.trim() || null,
-      nemis_no: draft.nemis_no.trim() || null,
+      uli: draft.uli.trim() || null,
       has_medical_conditions: draft.has_medical_conditions,
       medical_conditions_details: draft.has_medical_conditions
         ? draft.medical_conditions_details.trim() || null
@@ -2123,6 +2174,22 @@ function SecretaryEnrollmentsPageContent() {
         ? draft.medication_in_school_details.trim() || null
         : null,
       notes: draft.notes.trim() || null,
+      // Phase W — KEMIS learner details (flat keys align with SIS columns)
+      kcpe_kjsea_year: draft.kemis.kcpe_kjsea_year.trim() || null,
+      nationality: draft.kemis.nationality.trim() || null,
+      county_of_birth: draft.kemis.county_of_birth.trim() || null,
+      sub_county_of_birth: draft.kemis.sub_county_of_birth.trim() || null,
+      location_of_birth: draft.kemis.location_of_birth.trim() || null,
+      birth_certificate_no: draft.kemis.birth_certificate_no.trim() || null,
+      religion: draft.kemis.religion.trim() || null,
+      learner_interests: draft.kemis.learner_interests.trim() || null,
+      orphan_status: draft.kemis.orphan_status.trim() || null,
+      sne_disability: draft.kemis.sne_disability.trim() || null,
+      disability_type: draft.kemis.disability_type.trim() || null,
+      // Phase W — structured parent sections → Parents module records
+      mother: draft.mother,
+      father: draft.father,
+      guardian: draft.kemis_guardian,
       documents: draft.documents,
       currency: "KES",
       // Tag the onboarding path so finance can distinguish wizard intakes
@@ -2186,7 +2253,7 @@ function SecretaryEnrollmentsPageContent() {
             guardian_email: existingStudentDraft.guardian_email.trim() || null,
             previous_school: existingStudentDraft.previous_school.trim() || null,
             assessment_no: existingStudentDraft.assessment_no.trim() || null,
-            nemis_no: existingStudentDraft.nemis_no.trim() || null,
+            uli: existingStudentDraft.uli.trim() || null,
             has_medical_conditions: existingStudentDraft.has_medical_conditions,
             medical_conditions_details: existingStudentDraft.has_medical_conditions
               ? existingStudentDraft.medical_conditions_details.trim() || null
@@ -2335,7 +2402,7 @@ function SecretaryEnrollmentsPageContent() {
             guardian_email: d.guardian_email.trim() || null,
             previous_school: d.previous_school.trim() || null,
             assessment_no: d.assessment_no.trim() || null,
-            nemis_no: d.nemis_no.trim() || null,
+            uli: d.uli.trim() || null,
             has_medical_conditions: d.has_medical_conditions,
             medical_conditions_details: d.has_medical_conditions
               ? d.medical_conditions_details.trim() || null
@@ -2786,18 +2853,75 @@ function SecretaryEnrollmentsPageContent() {
                     {step === 3 && (
                       <div className="space-y-5">
                         <div className="rounded-xl border border-amber-50 bg-amber-50/60 px-4 py-2.5 text-sm text-amber-800">
-                          <AlertTriangle className="inline h-3.5 w-3.5 mr-1 align-text-bottom" />Assessment No. and NEMIS No. are required later during final enrollment. You can add them now if available.
+                          <AlertTriangle className="inline h-3.5 w-3.5 mr-1 align-text-bottom" />Assessment No. is required at final enrollment. The KEMIS ULI is issued by KEMIS after registration — add it once received.
                         </div>
                         <div className="grid gap-4 md:grid-cols-2">
                           <FormField label="Assessment Number" hint="Required for final enrollment action">
                             <Input placeholder="Leave blank if not yet assigned" value={draft.assessment_no}
                               onChange={(e) => setDraft((p) => ({ ...p, assessment_no: e.target.value }))} />
                           </FormField>
-                          <FormField label="NEMIS Number" hint="National Education Management Information System ID">
-                            <Input placeholder="Leave blank if not yet assigned" value={draft.nemis_no}
-                              onChange={(e) => setDraft((p) => ({ ...p, nemis_no: e.target.value }))} />
+                          <FormField label="KEMIS ULI" hint="Unique Learner Identifier — issued by KEMIS after registration">
+                            <Input placeholder="Leave blank if not yet assigned" value={draft.uli}
+                              onChange={(e) => setDraft((p) => ({ ...p, uli: e.target.value }))} />
                           </FormField>
                         </div>
+                        {/* ── Phase W — KEMIS Learner Details ── */}
+                        <div>
+                          <Label className="mb-2 block text-sm font-medium text-slate-700">KEMIS Learner Details</Label>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            {([
+                              ["kcpe_kjsea_year", "KCPE/KJSEA Year"],
+                              ["nationality", "Nationality / Country of Birth"],
+                              ["county_of_birth", "County of Birth"],
+                              ["sub_county_of_birth", "Sub-County of Birth"],
+                              ["location_of_birth", "Location of Birth"],
+                              ["birth_certificate_no", "Birth Certificate Entry No."],
+                              ["religion", "Religion"],
+                              ["learner_interests", "Learner Interests (Music/Sports/…)"],
+                              ["orphan_status", "Orphan (Yes/No/Partial)"],
+                              ["sne_disability", "SNE / Disability"],
+                              ["disability_type", "Disability Type"],
+                            ] as const).map(([k, label]) => (
+                              <FormField key={k} label={label}>
+                                <Input value={draft.kemis[k]}
+                                  onChange={(e) => setDraft((p) => ({ ...p, kemis: { ...p.kemis, [k]: e.target.value } }))} />
+                              </FormField>
+                            ))}
+                          </div>
+                        </div>
+                        {/* ── Phase W — KEMIS Parent Sections (B/C/D) ── */}
+                        {([
+                          ["mother", "(B) Mother's Details"],
+                          ["father", "(C) Father's Details"],
+                          ["kemis_guardian", "(D) Guardian's Details (if no parents)"],
+                        ] as const).map(([pk, title]) => (
+                          <div key={pk} className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+                            <Label className="mb-2 block text-sm font-semibold text-slate-700">{title}</Label>
+                            <div className="grid gap-3 md:grid-cols-4">
+                              {([
+                                ["first_name", "First Name"],
+                                ["middle_name", "Middle Name"],
+                                ["last_name", "Last Name"],
+                                ["id_type", "Type of ID"],
+                                ["national_id", "National ID No."],
+                                ["country_of_residence", "Country of Residence"],
+                                ["phone", "Mobile No."],
+                                ["email", "Email"],
+                              ] as const).map(([f, label]) => (
+                                <FormField key={f} label={label}>
+                                  <Input value={(draft[pk] as Record<string, string>)[f] ?? ""}
+                                    onChange={(e) => setDraft((p) => ({ ...p, [pk]: { ...(p[pk] as Record<string, string>), [f]: e.target.value } }))} />
+                                </FormField>
+                              ))}
+                              {pk === "kemis_guardian" && (
+                                <FormField label="Relationship">
+                                  <Input value={draft.kemis_guardian.relationship}
+                                    onChange={(e) => setDraft((p) => ({ ...p, kemis_guardian: { ...p.kemis_guardian, relationship: e.target.value } }))} />
+                                </FormField>
+                              )}
+                            </div>
+                          </div>
+                        ))}
                         <FormField label="Additional Notes" hint="Admission desk notes, special considerations, etc.">
                           <Textarea placeholder="Any notes from the admission desk…" value={draft.notes}
                             onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))}
@@ -2864,7 +2988,7 @@ function SecretaryEnrollmentsPageContent() {
                             {draft.guardian_email && <div><span className="text-slate-400">Email:</span> <span className="font-medium">{draft.guardian_email}</span></div>}
                             {draft.previous_school && <div><span className="text-slate-400">Prev. School:</span> <span className="font-medium">{draft.previous_school}</span></div>}
                             {draft.assessment_no && <div><span className="text-slate-400">Assessment No.:</span> <span className="font-mono font-medium">{draft.assessment_no}</span></div>}
-                            {draft.nemis_no && <div><span className="text-slate-400">NEMIS No.:</span> <span className="font-mono font-medium">{draft.nemis_no}</span></div>}
+                            {draft.uli && <div><span className="text-slate-400">KEMIS ULI:</span> <span className="font-mono font-medium">{draft.uli}</span></div>}
                           </div>
                         </div>
                         <div className="rounded-xl border border-slate-100 overflow-hidden">
@@ -3251,9 +3375,9 @@ function SecretaryEnrollmentsPageContent() {
                     <Input placeholder="Optional" value={existingStudentDraft.assessment_no}
                       onChange={(e) => setExistingStudentDraft((p) => ({ ...p, assessment_no: e.target.value }))} />
                   </FormField>
-                  <FormField label="NEMIS Number">
-                    <Input placeholder="Optional" value={existingStudentDraft.nemis_no}
-                      onChange={(e) => setExistingStudentDraft((p) => ({ ...p, nemis_no: e.target.value }))} />
+                  <FormField label="KEMIS ULI (optional)">
+                    <Input placeholder="Optional" value={existingStudentDraft.uli}
+                      onChange={(e) => setExistingStudentDraft((p) => ({ ...p, uli: e.target.value }))} />
                   </FormField>
                   <FormField label="Underlying Medical Conditions">
                     <Select

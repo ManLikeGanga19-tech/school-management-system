@@ -27,6 +27,9 @@ class Parent(Base):
 
     # Contact fields
     first_name = Column(String(120))
+    # KEMIS 2026 (Phase W): sections B/C/D capture full three-part names +
+    # country of residence for mother/father/guardian.
+    middle_name = Column(String(120))
     last_name = Column(String(120))
     phone = Column(String(50))
     phone_alt = Column(String(50))
@@ -35,6 +38,7 @@ class Parent(Base):
     national_id = Column(String(100))
     occupation = Column(String(120))
     address = Column(Text)
+    country_of_residence = Column(String(120))
 
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
     archived_at = Column(DateTime(timezone=True))

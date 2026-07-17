@@ -6164,6 +6164,123 @@ def tenant_students_data_quality_fix(
 
 
 @router.get(
+    "/students/{enrollment_id}/kemis-sheet.pdf",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def tenant_student_kemis_sheet(
+    enrollment_id: UUID,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Phase W (D6) — prefilled KEMIS Students' Data Capture Sheet for one
+    student: the system fills what it knows (SIS + payload + linked
+    parents by relationship); unknown fields print as dotted blanks."""
+    from datetime import datetime as _dt, timezone as _tz
+    from app.api.v1.finance.service import get_tenant_print_profile
+    from app.utils.kemis_sheet_pdf import generate_kemis_sheet_pdf
+    from app.utils.class_resolution import resolve_student_class
+    from app.core.audit import log_event
+
+    enrollment = db.execute(
+        sa.text("SELECT id, student_id, admission_number, payload FROM core.enrollments "
+                "WHERE id = :eid AND tenant_id = :tid"),
+        {"eid": str(enrollment_id), "tid": str(tenant.id)},
+    ).mappings().first()
+    if enrollment is None:
+        raise HTTPException(status_code=404, detail="Enrollment not found")
+    payload = enrollment["payload"] if isinstance(enrollment["payload"], dict) else {}
+
+    sis: dict = {}
+    if enrollment["student_id"]:
+        row = db.execute(
+            sa.text("SELECT * FROM core.students WHERE id = :sid AND tenant_id = :tid"),
+            {"sid": str(enrollment["student_id"]), "tid": str(tenant.id)},
+        ).mappings().first()
+        sis = dict(row) if row else {}
+
+    def pick(*keys):
+        for k in keys:
+            v = sis.get(k)
+            if v not in (None, ""):
+                return v
+        for k in keys:
+            v = payload.get(k)
+            if v not in (None, ""):
+                return v
+        return None
+
+    class_code = resolve_student_class(
+        db, tenant_id=tenant.id, payload=payload,
+        student_id=enrollment["student_id"],
+    )
+    stream = str(pick("stream") or "")
+    student_doc = {
+        "admission_no": str(enrollment["admission_number"] or pick("admission_no", "admission_number") or ""),
+        "class_display": " ".join(b for b in (class_code, stream) if b),
+        "uli": pick("uli"),
+        "assessment_no": payload.get("assessment_no"),
+        "legacy_nemis": pick("legacy_nemis_upi", "legacy_nemis_no"),
+        "kcpe_kjsea_year": pick("kcpe_kjsea_year"),
+        "first_name": pick("first_name") or str(payload.get("student_name") or "").split(" ")[0],
+        "other_names": pick("other_names"),
+        "last_name": pick("last_name") or " ".join(str(payload.get("student_name") or "").split(" ")[1:]),
+        "nationality": pick("nationality"),
+        "county": pick("county", "county_of_birth"),
+        "sub_county": pick("sub_county", "sub_county_of_birth"),
+        "location_of_birth": pick("location_of_birth"),
+        "birth_certificate_no": pick("birth_certificate_no"),
+        "date_of_birth": str(pick("date_of_birth", "dob") or ""),
+        "medical_condition": pick("medical_condition", "medical_conditions_details"),
+        "religion": pick("religion"),
+        "learner_interests": pick("learner_interests"),
+        "gender": pick("gender"),
+        "orphan_status": pick("orphan_status"),
+        "sne_disability": pick("sne_disability"),
+        "disability_type": pick("disability_type"),
+    }
+
+    # Linked parents by KEMIS relationship (payload sections as fallback).
+    parent_rows = db.execute(
+        sa.text(
+            "SELECT p.first_name, p.middle_name, p.last_name, p.id_type, "
+            "       p.national_id, p.country_of_residence, p.phone, p.email, "
+            "       pel.relationship "
+            "FROM core.parent_enrollment_links pel "
+            "JOIN core.parents p ON p.id = pel.parent_id "
+            "WHERE pel.tenant_id = :tid AND pel.enrollment_id = :eid"
+        ),
+        {"tid": str(tenant.id), "eid": str(enrollment_id)},
+    ).mappings().all()
+    parents_doc: dict = {}
+    for r in parent_rows:
+        rel = str(r["relationship"] or "").upper()
+        slot = "mother" if rel == "MOTHER" else "father" if rel == "FATHER" else "guardian"
+        if slot not in parents_doc:
+            parents_doc[slot] = {**dict(r), "relationship": rel.title()}
+    for slot in ("mother", "father", "guardian"):
+        if slot not in parents_doc and isinstance(payload.get(slot if slot != "guardian" else "guardian"), dict):
+            parents_doc[slot] = payload.get(slot) or {}
+
+    pdf = generate_kemis_sheet_pdf({
+        "profile": get_tenant_print_profile(db, tenant_id=tenant.id),
+        "student": student_doc,
+        "parents": parents_doc,
+        "generated_at": _dt.now(_tz.utc).isoformat(),
+    })
+    log_event(
+        db, tenant_id=tenant.id, actor_user_id=user.id,
+        action="students.kemis_sheet.export", resource="enrollment",
+        resource_id=enrollment_id, payload=None, meta=None,
+    )
+    db.commit()
+    return Response(
+        content=pdf, media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="kemis-data-capture-sheet.pdf"'},
+    )
+
+
+@router.get(
     "/students/{enrollment_id}/profile",
     dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
 )

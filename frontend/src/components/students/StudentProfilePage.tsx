@@ -53,7 +53,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/sonner";
-import { api } from "@/lib/api";
+import { api, apiFetchRaw } from "@/lib/api";
 import { asArray } from "@/lib/utils/asArray";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -141,7 +141,15 @@ type SisStudent = {
   home_address: string | null;
   county: string | null;
   sub_county: string | null;
-  upi: string | null;
+  uli: string | null;
+  kcpe_kjsea_year: number | null;
+  location_of_birth: string | null;
+  medical_condition: string | null;
+  learner_interests: string | null;
+  orphan_status: string | null;
+  sne_disability: string | null;
+  disability_type: string | null;
+  stream: string | null;
   birth_certificate_no: string | null;
   previous_school: string | null;
   previous_class: string | null;
@@ -259,7 +267,15 @@ function normalizeSisStudent(obj: Record<string, unknown>): SisStudent {
     home_address: strOrNull(obj.home_address),
     county: strOrNull(obj.county),
     sub_county: strOrNull(obj.sub_county),
-    upi: strOrNull(obj.upi),
+    uli: strOrNull(obj.uli),
+    kcpe_kjsea_year: typeof obj.kcpe_kjsea_year === "number" ? obj.kcpe_kjsea_year : null,
+    location_of_birth: strOrNull(obj.location_of_birth),
+    medical_condition: strOrNull(obj.medical_condition),
+    learner_interests: strOrNull(obj.learner_interests),
+    orphan_status: strOrNull(obj.orphan_status),
+    sne_disability: strOrNull(obj.sne_disability),
+    disability_type: strOrNull(obj.disability_type),
+    stream: strOrNull(obj.stream),
     birth_certificate_no: strOrNull(obj.birth_certificate_no),
     previous_school: strOrNull(obj.previous_school),
     previous_class: strOrNull(obj.previous_class),
@@ -903,6 +919,27 @@ export function StudentProfilePage({
                   Back
                 </Link>
               </Button>
+              <Button
+                variant="outline"
+                className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const res = await apiFetchRaw(
+                        `/tenants/students/${encodeURIComponent(enrollmentId)}/kemis-sheet.pdf`,
+                        { method: "GET", tenantRequired: true },
+                      );
+                      const url = URL.createObjectURL(await res.blob());
+                      if (!window.open(url, "_blank")) toast.error("Pop-up blocked.");
+                    } catch {
+                      toast.error("Failed to generate the KEMIS sheet.");
+                    }
+                  })();
+                }}
+              >
+                <FileText className="h-3.5 w-3.5" />
+                KEMIS Sheet
+              </Button>
               <Button variant="outline" className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={() => void loadProfile()}>
                 <RefreshCw className="h-3.5 w-3.5" />
                 Refresh
@@ -1207,7 +1244,15 @@ export function StudentProfilePage({
                           { key: "religion", label: "Religion" },
                           { key: "county", label: "County" },
                           { key: "sub_county", label: "Sub County" },
-                          { key: "upi", label: "NEMIS UPI" },
+                          { key: "uli", label: "KEMIS ULI" },
+                          { key: "stream", label: "Stream" },
+                          { key: "kcpe_kjsea_year", label: "KCPE/KJSEA Year" },
+                          { key: "location_of_birth", label: "Location of Birth" },
+                          { key: "medical_condition", label: "Medical Condition" },
+                          { key: "learner_interests", label: "Learner Interests" },
+                          { key: "orphan_status", label: "Orphan Status" },
+                          { key: "sne_disability", label: "SNE/Disability" },
+                          { key: "disability_type", label: "Disability Type" },
                           { key: "birth_certificate_no", label: "Birth Cert No." },
                           { key: "previous_school", label: "Previous School" },
                           { key: "previous_class", label: "Previous Class" },
@@ -1254,7 +1299,15 @@ export function StudentProfilePage({
                         <FieldRow label="Religion" value={sisStudent.religion} />
                         <FieldRow label="County" value={sisStudent.county} />
                         <FieldRow label="Sub County" value={sisStudent.sub_county} />
-                        <FieldRow label="NEMIS UPI" value={sisStudent.upi} />
+                        <FieldRow label="KEMIS ULI" value={sisStudent.uli} />
+                        <FieldRow label="Stream" value={sisStudent.stream} />
+                        <FieldRow label="KCPE/KJSEA Year" value={sisStudent.kcpe_kjsea_year != null ? String(sisStudent.kcpe_kjsea_year) : null} />
+                        <FieldRow label="Location of Birth" value={sisStudent.location_of_birth} />
+                        <FieldRow label="Medical Condition" value={sisStudent.medical_condition} />
+                        <FieldRow label="Learner Interests" value={sisStudent.learner_interests} />
+                        <FieldRow label="Orphan Status" value={sisStudent.orphan_status} />
+                        <FieldRow label="SNE/Disability" value={sisStudent.sne_disability} />
+                        <FieldRow label="Disability Type" value={sisStudent.disability_type} />
                         <FieldRow label="Birth Cert No." value={sisStudent.birth_certificate_no} />
                         <FieldRow label="Previous School" value={sisStudent.previous_school} />
                         <FieldRow label="Previous Class" value={sisStudent.previous_class} />

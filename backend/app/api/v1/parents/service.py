@@ -1389,6 +1389,111 @@ def export_parents_csv(db: Session, *, tenant_id: UUID) -> str:
 # Auto-link on enrollment (called from enrollment service)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def sync_kemis_parents_from_payload(
+    db: Session, *, tenant_id: UUID, enrollment_id: UUID, payload: Dict,
+) -> int:
+    """Phase W (KEMIS 2026) — create/link structured Mother / Father /
+    Guardian records from the intake payload's KEMIS sections.
+
+    Expects payload keys ``mother`` / ``father`` / ``guardian``, each an
+    object with (any of): first_name, middle_name, last_name, id_type,
+    national_id, country_of_residence, phone, email, relationship.
+
+    Behaviour:
+      * A section with no name AND no phone is skipped (blank form section).
+      * Parents are de-duplicated by (tenant, phone) — an existing record
+        is updated with any newly-supplied fields, never blanked.
+      * Each synced parent is linked to the enrollment with the KEMIS
+        relationship (MOTHER / FATHER / GUARDIAN). The first present
+        section becomes the primary link (mother, else father, else
+        guardian).
+      * Returns how many parent records were created/updated. No commit —
+        the caller owns the transaction.
+    """
+    guardian_section = payload.get("guardian")
+    guardian_rel = "GUARDIAN"
+    if isinstance(guardian_section, dict):
+        rel_raw = str(guardian_section.get("relationship") or "").strip().upper()
+        if rel_raw:
+            guardian_rel = rel_raw[:80]
+    sections = (
+        ("mother", "MOTHER"),
+        ("father", "FATHER"),
+        ("guardian", guardian_rel),
+    )
+    synced = 0
+    primary_assigned = False
+    for key, relationship in sections:
+        section = payload.get(key)
+        if not isinstance(section, dict):
+            continue
+        first = str(section.get("first_name") or "").strip()
+        last = str(section.get("last_name") or "").strip()
+        phone = str(section.get("phone") or section.get("mobile") or "").strip()
+        if not (first or last) and not phone:
+            continue  # blank form section
+
+        fields = {
+            "first_name": first or None,
+            "middle_name": str(section.get("middle_name") or "").strip() or None,
+            "last_name": last or None,
+            "email": str(section.get("email") or "").strip() or None,
+            "id_type": str(section.get("id_type") or "").strip().upper() or None,
+            "national_id": str(section.get("national_id") or "").strip() or None,
+            "country_of_residence": str(section.get("country_of_residence") or "").strip() or None,
+        }
+
+        parent_id: Optional[str] = None
+        if phone:
+            existing = db.execute(
+                sa.text(
+                    "SELECT id FROM core.parents "
+                    "WHERE tenant_id = :tid AND phone = :phone LIMIT 1"
+                ),
+                {"tid": str(tenant_id), "phone": phone},
+            ).scalar_one_or_none()
+            if existing is not None:
+                parent_id = str(existing)
+                sets = {k: v for k, v in fields.items() if v is not None}
+                if sets:
+                    db.execute(
+                        sa.text(
+                            "UPDATE core.parents SET "
+                            + ", ".join(f"{k} = :{k}" for k in sets)
+                            + " WHERE id = :pid"
+                        ),
+                        {**sets, "pid": parent_id},
+                    )
+        if parent_id is None:
+            row = db.execute(
+                sa.text(
+                    "INSERT INTO core.parents "
+                    "(tenant_id, first_name, middle_name, last_name, phone, email, "
+                    " id_type, national_id, country_of_residence) "
+                    "VALUES (:tid, :first_name, :middle_name, :last_name, :phone, "
+                    "        :email, :id_type, :national_id, :country_of_residence) "
+                    "RETURNING id"
+                ),
+                {"tid": str(tenant_id), "phone": phone or None, **fields},
+            ).scalar_one()
+            parent_id = str(row)
+
+        db.execute(
+            sa.text(
+                "INSERT INTO core.parent_enrollment_links "
+                "(tenant_id, parent_id, enrollment_id, relationship, is_primary) "
+                "VALUES (:tid, :pid, :eid, :rel, :prim) "
+                "ON CONFLICT (parent_id, enrollment_id) "
+                "DO UPDATE SET relationship = EXCLUDED.relationship"
+            ),
+            {"tid": str(tenant_id), "pid": parent_id, "eid": str(enrollment_id),
+             "rel": relationship, "prim": not primary_assigned},
+        )
+        primary_assigned = True
+        synced += 1
+    return synced
+
+
 def auto_link_on_enroll(db: Session, *, tenant_id: UUID, enrollment_id: UUID, payload: Dict) -> None:
     """If a parent record already exists with the guardian's phone, link them.
     Called inside mark_enrolled() — no commit, no log (enrollment service handles that).

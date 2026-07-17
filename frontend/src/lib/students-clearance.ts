@@ -7,7 +7,7 @@ export type StudentClearanceRow = {
   class_code: string;
   term_code: string;
   status: string;
-  nemis_no: string;
+  uli: string;
   assessment_no: string;
   fees_status: string;
   fees_balance: string;
@@ -78,7 +78,7 @@ export function normalizeStudentClearanceRows(input: unknown): StudentClearanceR
       class_code: asString(obj.class_code) || "N/A",
       term_code: asString(obj.term_code) || "N/A",
       status: asString(obj.status).toUpperCase() || "UNKNOWN",
-      nemis_no: asString(obj.nemis_no) || "N/A",
+      uli: asString(obj.uli) || asString(obj.nemis_no) || "N/A",
       assessment_no: asString(obj.assessment_no) || "N/A",
       fees_status: asString(obj.fees_status).toUpperCase() || "UNKNOWN",
       fees_balance: asString(obj.fees_balance) || "0",

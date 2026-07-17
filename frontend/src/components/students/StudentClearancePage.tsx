@@ -263,7 +263,7 @@ export function StudentClearancePage({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   className="pl-8"
-                  placeholder="Search student, ADM, class, term, NEMIS, assessment"
+                  placeholder="Search student, ADM, class, term, ULI, assessment"
                 />
               </div>
 
@@ -342,7 +342,7 @@ export function StudentClearancePage({
                       </TableCell>
 
                       <TableCell className="min-w-[170px]">
-                        <div className="text-xs text-slate-600">NEMIS: {row.nemis_no}</div>
+                        <div className="text-xs text-slate-600">ULI: {row.uli}</div>
                         <div className="text-xs text-slate-600">Assessment: {row.assessment_no}</div>
                       </TableCell>
 

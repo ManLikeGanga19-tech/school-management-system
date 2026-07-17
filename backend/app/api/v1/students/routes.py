@@ -71,8 +71,11 @@ def _require_student(db: Session, *, student_id: UUID, tenant_id: UUID) -> dict:
             SELECT id, tenant_id, admission_no, first_name, last_name, other_names,
                    gender, CAST(date_of_birth AS TEXT) AS date_of_birth, status,
                    phone, email, nationality, religion, home_address,
-                   county, sub_county, upi, birth_certificate_no,
+                   county, sub_county, birth_certificate_no,
                    previous_school, previous_class,
+                   uli, kcpe_kjsea_year, location_of_birth, medical_condition,
+                   learner_interests, orphan_status, sne_disability,
+                   disability_type, stream,
                    CAST(created_at AS TEXT) AS created_at,
                    CAST(updated_at AS TEXT) AS updated_at
             FROM core.students
@@ -105,10 +108,18 @@ def _student_out(row: dict) -> StudentOut:
         home_address=_str(row.get("home_address")),
         county=_str(row.get("county")),
         sub_county=_str(row.get("sub_county")),
-        upi=_str(row.get("upi")),
         birth_certificate_no=_str(row.get("birth_certificate_no")),
         previous_school=_str(row.get("previous_school")),
         previous_class=_str(row.get("previous_class")),
+        uli=_str(row.get("uli")),
+        kcpe_kjsea_year=row.get("kcpe_kjsea_year"),
+        location_of_birth=_str(row.get("location_of_birth")),
+        medical_condition=_str(row.get("medical_condition")),
+        learner_interests=_str(row.get("learner_interests")),
+        orphan_status=_str(row.get("orphan_status")),
+        sne_disability=_str(row.get("sne_disability")),
+        disability_type=_str(row.get("disability_type")),
+        stream=_str(row.get("stream")),
         created_at=_str(row.get("created_at")),
         updated_at=_str(row.get("updated_at")),
     )
@@ -187,6 +198,24 @@ def update_student_biodata(
                     f"Admission number '{new_adm}' is already used on another "
                     "student's enrollment record."
                 ),
+            )
+
+    # Phase W — ULI is a government-issued unique identifier: enforce the
+    # per-tenant uniqueness with a friendly 409 before the partial unique
+    # index throws a raw violation.
+    new_uli = str(data.get("uli") or "").strip()
+    if new_uli:
+        uli_clash = db.execute(
+            sa.text(
+                "SELECT 1 FROM core.students "
+                "WHERE tenant_id = :tid AND uli = :uli AND id <> :id LIMIT 1"
+            ),
+            {"tid": str(tenant.id), "uli": new_uli, "id": str(student_id)},
+        ).first()
+        if uli_clash:
+            raise HTTPException(
+                status_code=409,
+                detail=f"ULI '{new_uli}' is already assigned to another student.",
             )
 
     updates: list[str] = []
@@ -338,9 +367,9 @@ def list_guardians(
         sa.text(
             """
             SELECT p.id, ps.relationship,
-                   p.first_name, p.last_name, p.phone, p.phone_alt,
+                   p.first_name, p.middle_name, p.last_name, p.phone, p.phone_alt,
                    p.email, p.id_type, p.national_id, p.occupation,
-                   p.address, p.is_active
+                   p.address, p.country_of_residence, p.is_active
             FROM core.parent_students ps
             JOIN core.parents p ON p.id = ps.parent_id
             WHERE ps.student_id = :student_id
@@ -356,6 +385,7 @@ def list_guardians(
             id=_str(r["id"]) or "",
             relationship=str(r.get("relationship") or "GUARDIAN"),
             first_name=_str(r.get("first_name")),
+            middle_name=_str(r.get("middle_name")),
             last_name=_str(r.get("last_name")),
             phone=_str(r.get("phone")),
             phone_alt=_str(r.get("phone_alt")),
@@ -364,6 +394,7 @@ def list_guardians(
             national_id=_str(r.get("national_id")),
             occupation=_str(r.get("occupation")),
             address=_str(r.get("address")),
+            country_of_residence=_str(r.get("country_of_residence")),
             is_active=bool(r.get("is_active", True)),
         )
         for r in rows
@@ -492,9 +523,9 @@ def update_guardian_contacts(
         sa.text(
             """
             SELECT p.id, ps.relationship,
-                   p.first_name, p.last_name, p.phone, p.phone_alt,
+                   p.first_name, p.middle_name, p.last_name, p.phone, p.phone_alt,
                    p.email, p.id_type, p.national_id, p.occupation,
-                   p.address, p.is_active
+                   p.address, p.country_of_residence, p.is_active
             FROM core.parent_students ps
             JOIN core.parents p ON p.id = ps.parent_id
             WHERE ps.parent_id = :parent_id AND ps.student_id = :student_id
@@ -547,6 +578,7 @@ def update_guardian_contacts(
         id=_str(row["id"]) or "",
         relationship=str(row.get("relationship") or "GUARDIAN"),
         first_name=_str(row.get("first_name")),
+        middle_name=_str(row.get("middle_name")),
         last_name=_str(row.get("last_name")),
         phone=_str(row.get("phone")),
         phone_alt=_str(row.get("phone_alt")),
@@ -555,6 +587,7 @@ def update_guardian_contacts(
         national_id=_str(row.get("national_id")),
         occupation=_str(row.get("occupation")),
         address=_str(row.get("address")),
+        country_of_residence=_str(row.get("country_of_residence")),
         is_active=bool(row.get("is_active", True)),
     )
 

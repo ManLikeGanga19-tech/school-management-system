@@ -212,8 +212,15 @@ class TestDataQualityScan:
         e_unlinked, _ = _seed_enrollment(
             db_session, tenant_id=tenant.id, guardian_phone="0745000111",
         )
-        # 6. clean row
-        e_clean, _ = _seed_enrollment(db_session, tenant_id=tenant.id)
+        # 6. clean row — complete SIS details so the Phase W student-detail
+        # checks (ULI / DoB / birth cert / gender) pass too.
+        e_clean, s_clean = _seed_enrollment(db_session, tenant_id=tenant.id)
+        db_session.execute(text(
+            "UPDATE core.students SET uli = 'ULI-CLEAN-1', "
+            "birth_certificate_no = 'BC-1', date_of_birth = '2018-01-01', "
+            "gender = 'F' WHERE id = :sid"
+        ), {"sid": s_clean})
+        db_session.commit()
 
         r = client.get("/api/v1/tenants/students/data-quality", headers=headers)
         assert r.status_code == 200, r.text
@@ -418,7 +425,13 @@ class TestGuardianFormExport:
     ):
         tenant = create_tenant(db_session)
         _, headers = make_actor(db_session, tenant=tenant, permissions=DQ_PERMS)
-        eid, _ = _seed_enrollment(db_session, tenant_id=tenant.id)  # clean
+        eid, sid = _seed_enrollment(db_session, tenant_id=tenant.id)  # clean
+        db_session.execute(text(
+            "UPDATE core.students SET uli = 'ULI-CLEAN-2', "
+            "birth_certificate_no = 'BC-2', date_of_birth = '2018-01-01', "
+            "gender = 'M' WHERE id = :sid"
+        ), {"sid": sid})
+        db_session.commit()
         r = client.get(
             f"/api/v1/tenants/students/data-quality/export.pdf?enrollment_id={eid}",
             headers=headers,
@@ -584,3 +597,125 @@ class TestClassResolution:
         pl = _payload(db_session, eid)
         assert pl["admission_class"] == "GRADE_4"
         assert pl["class_code"] == "GRADE_4"
+
+
+class TestKemisUli:
+    """Phase W — KEMIS 2026: ULI replaces NEMIS; new capture fields."""
+
+    def test_uli_missing_flagged_and_clears(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIO_PERMS)
+        eid, sid = _seed_enrollment(db_session, tenant_id=tenant.id)
+        r = client.get("/api/v1/tenants/students/data-quality", headers=headers)
+        row = next(s for s in r.json()["students"] if s["enrollment_id"] == eid)
+        assert "ULI_MISSING" in row["issues"]
+
+        # Set the ULI via biodata PATCH -> flag clears on re-scan.
+        r2 = client.patch(
+            f"/api/v1/students/{sid}/biodata",
+            headers=headers, json={"uli": "KEMIS-ULI-0001"},
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["uli"] == "KEMIS-ULI-0001"
+        r3 = client.get("/api/v1/tenants/students/data-quality", headers=headers)
+        row3 = next((s for s in r3.json()["students"] if s["enrollment_id"] == eid), None)
+        assert row3 is None or "ULI_MISSING" not in row3["issues"]
+
+    def test_uli_uniqueness_409(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIO_PERMS)
+        _, sid_a = _seed_enrollment(db_session, tenant_id=tenant.id)
+        _, sid_b = _seed_enrollment(db_session, tenant_id=tenant.id)
+        assert client.patch(
+            f"/api/v1/students/{sid_a}/biodata",
+            headers=headers, json={"uli": "ULI-DUP-1"},
+        ).status_code == 200
+        r = client.patch(
+            f"/api/v1/students/{sid_b}/biodata",
+            headers=headers, json={"uli": "ULI-DUP-1"},
+        )
+        assert r.status_code == 409
+
+    def test_kemis_biodata_fields_roundtrip(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIO_PERMS)
+        _, sid = _seed_enrollment(db_session, tenant_id=tenant.id)
+        r = client.patch(
+            f"/api/v1/students/{sid}/biodata",
+            headers=headers,
+            json={
+                "kcpe_kjsea_year": 2025,
+                "location_of_birth": "Kibra",
+                "medical_condition": "Asthma",
+                "learner_interests": "Music, Science",
+                "orphan_status": "No",
+                "sne_disability": "None",
+                "stream": "North",
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["kcpe_kjsea_year"] == 2025
+        assert body["location_of_birth"] == "Kibra"
+        assert body["learner_interests"] == "Music, Science"
+        assert body["stream"] == "North"
+
+    def test_intake_kemis_parent_sections_create_linked_parents(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=BIO_PERMS)
+        r = client.post(
+            "/api/v1/enrollments/",
+            headers=headers,
+            json={"payload": {
+                "student_name": "Kemis Child",
+                "admission_class": "GRADE_1",
+                "mother": {
+                    "first_name": "Mary", "middle_name": "Wanjiru",
+                    "last_name": "Kamau", "phone": "0711000111",
+                    "id_type": "national_id", "national_id": "12345678",
+                    "country_of_residence": "Kenya",
+                },
+                "father": {
+                    "first_name": "John", "last_name": "Kamau",
+                    "phone": "0722000222", "email": "john@x.co.ke",
+                },
+                "guardian": {"first_name": "", "last_name": "", "phone": ""},
+            }},
+        )
+        assert r.status_code in (200, 201), r.text
+        eid = r.json()["id"]
+        links = db_session.execute(text(
+            "SELECT p.first_name, p.middle_name, p.country_of_residence, "
+            "       pel.relationship, pel.is_primary "
+            "FROM core.parent_enrollment_links pel "
+            "JOIN core.parents p ON p.id = pel.parent_id "
+            "WHERE pel.enrollment_id = :eid ORDER BY pel.relationship"
+        ), {"eid": eid}).mappings().all()
+        rels = {l["relationship"] for l in links}
+        assert rels == {"MOTHER", "FATHER"}   # blank guardian section skipped
+        mother = next(l for l in links if l["relationship"] == "MOTHER")
+        assert mother["middle_name"] == "Wanjiru"
+        assert mother["country_of_residence"] == "Kenya"
+        assert mother["is_primary"] is True
+
+    def test_kemis_sheet_pdf_exports(
+        self, client: TestClient, db_session: Session,
+    ):
+        tenant = create_tenant(db_session)
+        _, headers = make_actor(db_session, tenant=tenant, permissions=DQ_PERMS)
+        eid, _ = _seed_enrollment(db_session, tenant_id=tenant.id)
+        r = client.get(
+            f"/api/v1/tenants/students/{eid}/kemis-sheet.pdf",
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.content.startswith(b"%PDF-")
+        assert len(r.content) > 2_000

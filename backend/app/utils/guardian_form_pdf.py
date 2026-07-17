@@ -29,6 +29,11 @@ _ISSUE_SHORT = {
     "PHONE_MULTI": "2 phone nos.",
     "PHONE_INVALID": "bad phone",
     "PARENT_UNLINKED": "parent not linked",
+    # Phase W — KEMIS student-detail checks
+    "ULI_MISSING": "no ULI",
+    "DOB_MISSING": "no DoB",
+    "BIRTH_CERT_MISSING": "no birth cert no.",
+    "GENDER_MISSING": "no gender",
 }
 
 
@@ -121,7 +126,7 @@ def generate_guardian_correction_forms_pdf(doc: dict[str, Any]) -> bytes:
                             color=colors.HexColor("#173f49")))
     story.append(Spacer(1, 2 * mm))
     story.append(Paragraph(
-        "GUARDIAN INFORMATION UPDATE SHEET",
+        "STUDENT & GUARDIAN DATA UPDATE SHEET",
         _s("title", size=12, bold=True, align=TA_CENTER, space_after=1),
     ))
     story.append(Paragraph(
@@ -136,7 +141,7 @@ def generate_guardian_correction_forms_pdf(doc: dict[str, Any]) -> bytes:
     if not students:
         story.append(Spacer(1, 6 * mm))
         story.append(Paragraph(
-            "No students currently have guardian data issues.",
+            "No students currently have data-quality issues.",
             _s("empty", size=11, align=TA_CENTER),
         ))
         doc_pdf.build(story)
@@ -151,6 +156,7 @@ def generate_guardian_correction_forms_pdf(doc: dict[str, Any]) -> bytes:
         "#", "Student", "Class", "Adm No.",
         "On-file Guardian", "Issues",
         "Corrected Guardian Name", "Corrected Phone(s)",
+        "Other Corrections (ULI / DoB / Birth Cert)",
     ]
     rows: list[list] = [header]
     for i, s in enumerate(students, start=1):
@@ -173,17 +179,19 @@ def generate_guardian_correction_forms_pdf(doc: dict[str, Any]) -> bytes:
             Paragraph(issues, cell_issue),
             "",  # handwriting: corrected guardian name
             "",  # handwriting: corrected phone(s)
+            "",  # handwriting: other corrections (ULI / DoB / birth cert)
         ])
 
     col_w = [
         usable_w * 0.030,  # #
-        usable_w * 0.150,  # Student
-        usable_w * 0.065,  # Class
-        usable_w * 0.075,  # Adm No
-        usable_w * 0.145,  # On-file guardian
-        usable_w * 0.115,  # Issues
-        usable_w * 0.235,  # Corrected guardian name (wide, blank)
-        usable_w * 0.185,  # Corrected phone(s)     (wide, blank)
+        usable_w * 0.135,  # Student
+        usable_w * 0.060,  # Class
+        usable_w * 0.070,  # Adm No
+        usable_w * 0.130,  # On-file guardian
+        usable_w * 0.105,  # Issues
+        usable_w * 0.175,  # Corrected guardian name (blank)
+        usable_w * 0.140,  # Corrected phone(s)      (blank)
+        usable_w * 0.155,  # Other corrections       (blank)
     ]
     # Tall rows for handwriting; compact header.
     row_heights = [8 * mm] + [13 * mm] * len(students)

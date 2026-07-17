@@ -88,6 +88,11 @@ const ISSUE_LABELS: Record<string, { label: string; tone: string }> = {
   PHONE_MULTI: { label: "Two phone numbers", tone: "bg-amber-50 text-amber-700 ring-amber-200" },
   PHONE_INVALID: { label: "Invalid phone", tone: "bg-amber-50 text-amber-700 ring-amber-200" },
   PARENT_UNLINKED: { label: "Parent not linked", tone: "bg-blue-50 text-blue-700 ring-blue-200" },
+  // Phase W — KEMIS student-detail checks
+  ULI_MISSING: { label: "ULI missing", tone: "bg-purple-50 text-purple-700 ring-purple-200" },
+  DOB_MISSING: { label: "DoB missing", tone: "bg-amber-50 text-amber-700 ring-amber-200" },
+  BIRTH_CERT_MISSING: { label: "Birth cert no. missing", tone: "bg-amber-50 text-amber-700 ring-amber-200" },
+  GENDER_MISSING: { label: "Gender missing", tone: "bg-amber-50 text-amber-700 ring-amber-200" },
 };
 
 export function AllStudentsPage({
@@ -338,15 +343,15 @@ export function AllStudentsPage({
               )}
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">
-                  Guardian Data Quality
+                  Student Data Quality
                 </h2>
                 <p className="text-xs text-slate-500">
                   {dqLoading
                     ? "Checking guardian records…"
                     : dq
                       ? dq.flagged > 0
-                        ? `${dq.flagged} of ${dq.checked} students have guardian data issues`
-                        : `All ${dq.checked} students have clean guardian records`
+                        ? `${dq.flagged} of ${dq.checked} students have data-quality issues`
+                        : `All ${dq.checked} students have clean records`
                       : "Check unavailable"}
                 </p>
               </div>
@@ -497,8 +502,8 @@ export function AllStudentsPage({
                 </Table>
               </div>
               <p className="mt-2 text-[11px] text-slate-400">
-                Name issues (missing / phone-shaped) need a human — open the
-                student's profile to correct them. Every fix is audited.
+                Name / ULI / DoB issues need a human — open the student's
+                profile to correct them. Every fix is audited.
               </p>
             </div>
           )}

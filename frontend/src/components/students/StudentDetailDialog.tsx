@@ -51,7 +51,7 @@ export function StudentDetailDialog({
     { label: "Guardian Email", value: payloadString(payload, ["guardian_email"]) || "—" },
     { label: "Previous School", value: payloadString(payload, ["previous_school"]) || "—" },
     { label: "Assessment No.", value: payloadString(payload, ["assessment_no"]) || "—" },
-    { label: "NEMIS No.", value: payloadString(payload, ["nemis_no"]) || "—" },
+    { label: "KEMIS ULI", value: payloadString(payload, ["uli", "legacy_nemis_no"]) || "—" },
     {
       label: "Has Medical Condition",
       value: payloadBoolean(payload, [

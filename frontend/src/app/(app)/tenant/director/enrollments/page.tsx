@@ -143,7 +143,7 @@ type UpdateDraft = {
   guardian_email: string;
   previous_school: string;
   assessment_no: string;
-  nemis_no: string;
+  uli: string;
   has_medical_conditions: boolean;
   medical_conditions_details: string;
   has_medication_in_school: boolean;
@@ -157,7 +157,7 @@ const INITIAL_UPDATE_DRAFT: UpdateDraft = {
   student_name: "", admission_class: "", admission_term: "", intake_date: "",
   date_of_birth: "", gender: "", guardian_name: "",
   guardian_phone: "", guardian_email: "", previous_school: "",
-  assessment_no: "", nemis_no: "",
+  assessment_no: "", uli: "",
   has_medical_conditions: false, medical_conditions_details: "",
   has_medication_in_school: false, medication_in_school_details: "",
   notes: "",
@@ -183,7 +183,7 @@ const actionConfig: Record<ActionType, {
   submit:           { label: "Submit",           description: "Move DRAFT → SUBMITTED for office review.",          icon: Send,           iconColor: "text-blue-600"    },
   approve:          { label: "Approve",          description: "Verify documents and move to APPROVED.",             icon: CheckCircle,    iconColor: "text-emerald-600" },
   reject:           { label: "Reject",           description: "Reject this intake. A written reason is required.",  icon: XCircle,        iconColor: "text-red-500"     },
-  enroll:           { label: "Mark Enrolled",    description: "Final enrollment. Requires Assessment + NEMIS No.",  icon: GraduationCap,  iconColor: "text-emerald-600" },
+  enroll:           { label: "Mark Enrolled",    description: "Final enrollment. Requires Assessment No. (ULI optional)",  icon: GraduationCap,  iconColor: "text-emerald-600" },
   transfer_request: { label: "Transfer Request", description: "Mark student as having a pending transfer request.", icon: ArrowRightLeft, iconColor: "text-amber-600"   },
   transfer_approve: { label: "Transfer Approve", description: "Complete transfer. Director-level authorization.",   icon: ShieldCheck,    iconColor: "text-purple-600"  },
 };
@@ -464,7 +464,7 @@ function StudentDetailDialog({ row, open, onClose }: {
     { label: "Guardian Email",    value: (p as any)?.guardian_email || "—" },
     { label: "Previous School",   value: (p as any)?.previous_school || "—" },
     { label: "Assessment No.",    value: (p as any)?.assessment_no || "—" },
-    { label: "NEMIS No.",         value: (p as any)?.nemis_no || "—" },
+    { label: "KEMIS ULI",         value: (p as any)?.uli || "—" },
     { label: "Enrollment Source", value: (p as any)?.enrollment_source || "INTAKE" },
     {
       label: "Has Medical Condition",
@@ -581,7 +581,7 @@ function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, t
         guardian_email:  String((p as any)?.guardian_email  ?? ""),
         previous_school: String((p as any)?.previous_school ?? ""),
         assessment_no:   String((p as any)?.assessment_no   ?? ""),
-        nemis_no:        String((p as any)?.nemis_no        ?? ""),
+        uli:             String((p as any)?.uli             ?? ""),
         has_medical_conditions: payloadBoolean(p, [
           "has_medical_conditions",
           "has_underlying_medical_conditions",
@@ -670,8 +670,8 @@ function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, t
             <FormField label="Assessment Number" hint="Required for final enroll action">
               <Input value={draft.assessment_no} onChange={(e) => setDraft((p) => ({ ...p, assessment_no: e.target.value }))} />
             </FormField>
-            <FormField label="NEMIS Number">
-              <Input value={draft.nemis_no} onChange={(e) => setDraft((p) => ({ ...p, nemis_no: e.target.value }))} />
+            <FormField label="KEMIS ULI (optional — issued by KEMIS)">
+              <Input value={draft.uli} onChange={(e) => setDraft((p) => ({ ...p, uli: e.target.value }))} />
             </FormField>
             <FormField label="Underlying Medical Condition">
               <Select
@@ -1314,7 +1314,7 @@ function TenantEnrollmentsPageContent() {
             guardian_email:  d.guardian_email.trim() || null,
             previous_school: d.previous_school.trim() || null,
             assessment_no:   d.assessment_no.trim() || null,
-            nemis_no:        d.nemis_no.trim() || null,
+            uli:             d.uli.trim() || null,
             has_medical_conditions: d.has_medical_conditions,
             medical_conditions_details: d.has_medical_conditions
               ? d.medical_conditions_details.trim() || null

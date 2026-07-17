@@ -23,10 +23,19 @@ class StudentBiodataUpdate(BaseModel):
     home_address:         Optional[str] = Field(default=None)
     county:               Optional[str] = Field(default=None, max_length=80)
     sub_county:           Optional[str] = Field(default=None, max_length=80)
-    upi:                  Optional[str] = Field(default=None, max_length=100)
     birth_certificate_no: Optional[str] = Field(default=None, max_length=100)
     previous_school:      Optional[str] = Field(default=None, max_length=200)
     previous_class:       Optional[str] = Field(default=None, max_length=80)
+    # ── KEMIS 2026 (Phase W) — ULI replaces the NEMIS UPI entirely ──────
+    uli:                  Optional[str] = Field(default=None, max_length=50)
+    kcpe_kjsea_year:      Optional[int] = Field(default=None, ge=1980, le=2100)
+    location_of_birth:    Optional[str] = Field(default=None, max_length=160)
+    medical_condition:    Optional[str] = Field(default=None, max_length=300)
+    learner_interests:    Optional[str] = Field(default=None, max_length=300)
+    orphan_status:        Optional[str] = Field(default=None, max_length=40)
+    sne_disability:       Optional[str] = Field(default=None, max_length=160)
+    disability_type:      Optional[str] = Field(default=None, max_length=160)
+    stream:               Optional[str] = Field(default=None, max_length=80)
 
 
 class StudentOut(BaseModel):
@@ -46,10 +55,19 @@ class StudentOut(BaseModel):
     home_address:         Optional[str]
     county:               Optional[str]
     sub_county:           Optional[str]
-    upi:                  Optional[str]
     birth_certificate_no: Optional[str]
     previous_school:      Optional[str]
     previous_class:       Optional[str]
+    # KEMIS 2026 (Phase W)
+    uli:                  Optional[str] = None
+    kcpe_kjsea_year:      Optional[int] = None
+    location_of_birth:    Optional[str] = None
+    medical_condition:    Optional[str] = None
+    learner_interests:    Optional[str] = None
+    orphan_status:        Optional[str] = None
+    sne_disability:       Optional[str] = None
+    disability_type:      Optional[str] = None
+    stream:               Optional[str] = None
     created_at:           Optional[str]
     updated_at:           Optional[str]
 
@@ -58,19 +76,23 @@ class StudentOut(BaseModel):
 
 class GuardianContactUpdate(BaseModel):
     first_name: Optional[str] = Field(default=None, max_length=120)
+    middle_name: Optional[str] = Field(default=None, max_length=120)
     last_name:  Optional[str] = Field(default=None, max_length=120)
     phone:      Optional[str] = Field(default=None, max_length=50)
     phone_alt:  Optional[str] = Field(default=None, max_length=50)
     email:      Optional[str] = Field(default=None, max_length=200)
     id_type:    Optional[str] = Field(default=None, max_length=30)
+    national_id: Optional[str] = Field(default=None, max_length=100)
     address:    Optional[str] = Field(default=None)
     occupation: Optional[str] = Field(default=None, max_length=120)
+    country_of_residence: Optional[str] = Field(default=None, max_length=120)
 
 
 class GuardianOut(BaseModel):
     id:           str
     relationship: str
     first_name:   Optional[str]
+    middle_name:  Optional[str] = None
     last_name:    Optional[str]
     phone:        Optional[str]
     phone_alt:    Optional[str]
@@ -79,6 +101,7 @@ class GuardianOut(BaseModel):
     national_id:  Optional[str]
     occupation:   Optional[str]
     address:      Optional[str]
+    country_of_residence: Optional[str] = None
     is_active:    bool
 
 
@@ -121,7 +144,11 @@ class EmergencyContactOut(BaseModel):
 # ── Student documents ─────────────────────────────────────────────────────────
 
 _VALID_DOC_TYPES = {
-    "BIRTH_CERTIFICATE", "TRANSFER_LETTER", "NEMIS_REPORT",
+    "BIRTH_CERTIFICATE", "TRANSFER_LETTER",
+    # KEMIS 2026 (Phase W): KEMIS_REPORT replaces NEMIS_REPORT in pickers;
+    # the legacy value stays valid so old uploads keep rendering. PARENT_ID
+    # covers the capture sheet's "attach copies of parents' IDs" note.
+    "KEMIS_REPORT", "NEMIS_REPORT", "PARENT_ID",
     "ID_COPY", "MEDICAL_CERT", "OTHER",
 }
 

@@ -27,10 +27,24 @@ class Student(Base):
     home_address = Column(Text)
     county = Column(String(80))
     sub_county = Column(String(80))
-    upi = Column(String(100))
+    # Retired NEMIS UPI — kept for audit only, never surfaced (Phase W, D1A).
+    legacy_nemis_upi = Column(String(100))
     birth_certificate_no = Column(String(100))
     previous_school = Column(String(200))
     previous_class = Column(String(80))
+
+    # ── KEMIS 2026 (Phase W) — Students' Data Capture Sheet fields ─────
+    # ULI (Unique Learner Identifier) replaces the NEMIS number. Nullable:
+    # KEMIS issues it after registration, so new admissions lack one.
+    uli = Column(String(50))
+    kcpe_kjsea_year = Column(SmallInteger())
+    location_of_birth = Column(String(160))
+    medical_condition = Column(String(300))
+    learner_interests = Column(String(300))
+    orphan_status = Column(String(40))
+    sne_disability = Column(String(160))
+    disability_type = Column(String(160))
+    stream = Column(String(80))
 
     admission_year = Column(SmallInteger(), nullable=False, server_default=text("EXTRACT(YEAR FROM now())::smallint"))
     status = Column(String(30), nullable=False, server_default=text("'ACTIVE'"))

@@ -85,8 +85,14 @@ def scan_guardian_data_quality(
             SELECT e.id, e.status, e.student_id, e.admission_number, e.payload,
                    (SELECT COUNT(*) FROM core.parent_enrollment_links pel
                      WHERE pel.enrollment_id = e.id AND pel.tenant_id = e.tenant_id
-                   ) AS link_count
+                   ) AS link_count,
+                   s.uli AS sis_uli,
+                   s.date_of_birth AS sis_dob,
+                   s.birth_certificate_no AS sis_birth_cert,
+                   s.gender AS sis_gender
             FROM core.enrollments e
+            LEFT JOIN core.students s
+                   ON s.id = e.student_id AND s.tenant_id = e.tenant_id
             WHERE e.tenant_id = :tid
               AND e.status = ANY(:statuses)
             ORDER BY e.created_at DESC
@@ -172,6 +178,19 @@ def scan_guardian_data_quality(
         ):
             issues.append("PARENT_UNLINKED")
             suggested["matched_parent"] = parents_by_phone[primary_phone]
+
+        # ── Phase W — KEMIS student-detail checks (SIS-linked only) ───
+        # A student without a SIS record can't carry these fields yet;
+        # they get flagged once enrolled.
+        if row["student_id"] is not None:
+            if not str(row["sis_uli"] or "").strip():
+                issues.append("ULI_MISSING")
+            if row["sis_dob"] is None and not str(payload.get("date_of_birth") or payload.get("dob") or "").strip():
+                issues.append("DOB_MISSING")
+            if not str(row["sis_birth_cert"] or "").strip():
+                issues.append("BIRTH_CERT_MISSING")
+            if not str(row["sis_gender"] or "").strip() and not str(payload.get("gender") or "").strip():
+                issues.append("GENDER_MISSING")
 
         if not issues:
             continue

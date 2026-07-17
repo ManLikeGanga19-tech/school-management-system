@@ -418,6 +418,28 @@ def create_enrollment(
     db.add(row)
     db.flush()
 
+    # Phase W (KEMIS 2026) — structured Mother / Father / Guardian sections
+    # from the capture sheet become real Parents-module records, linked to
+    # this enrollment with their KEMIS relationship. Best-effort: a parent
+    # sync failure must never block the intake itself; it's audited so the
+    # office can re-run it from the profile.
+    if any(isinstance(clean_payload.get(k), dict) for k in ("mother", "father", "guardian")):
+        try:
+            from app.api.v1.parents.service import sync_kemis_parents_from_payload
+            sync_kemis_parents_from_payload(
+                db, tenant_id=tenant_id, enrollment_id=row.id, payload=clean_payload,
+            )
+        except Exception as exc:
+            try:
+                log_event(
+                    db, tenant_id=tenant_id, actor_user_id=actor_user_id,
+                    action="enrollment.kemis_parent_sync_failed",
+                    resource="enrollment", resource_id=row.id,
+                    payload={"reason": str(exc)[:300]}, meta=None,
+                )
+            except Exception:
+                pass
+
     # For existing students: assign an admission number and create the SIS
     # student record immediately so the profile and carry-forward features work.
     if is_existing_student:
@@ -824,6 +846,17 @@ def update_enrollment(
             if mirrored is not None:
                 merged = mirrored
         enrollment.payload = merged
+        # Phase W — KEMIS parent sections edited on the enrollment sync to
+        # the Parents module the same way they do at intake.
+        if any(isinstance(payload.get(k), dict) for k in ("mother", "father", "guardian")):
+            try:
+                from app.api.v1.parents.service import sync_kemis_parents_from_payload
+                sync_kemis_parents_from_payload(
+                    db, tenant_id=tenant_id, enrollment_id=enrollment.id,
+                    payload=merged,
+                )
+            except Exception:
+                pass  # best-effort; the intake-time audit pattern applies
         if guardian_changed:
             guardian_sync_note = _sync_guardian_to_parent(
                 db,
@@ -1013,7 +1046,7 @@ def mark_enrolled(
       - ENROLLED         when school fees invoice is fully paid
       - ENROLLED_PARTIAL when tenant policy allows partial and threshold is met
 
-    Requires assessment_no + nemis_no in payload.
+    Requires assessment_no in payload (KEMIS ULI is optional — issued later).
     Auto-generates admission_number if not supplied.
     """
     if enrollment.status not in ("APPROVED", "SUBMITTED"):
@@ -1022,7 +1055,11 @@ def mark_enrolled(
             f"(current: {enrollment.status})"
         )
 
-    _require_payload_fields(enrollment, ["assessment_no", "nemis_no"])
+    # Phase W (KEMIS 2026) — the ULI replaces the NEMIS number and is issued
+    # BY KEMIS after registration, so it cannot be a hard enrollment gate
+    # (Decision D2A). Only the KNEC assessment number stays required; the
+    # data-quality checker flags students still awaiting their ULI.
+    _require_payload_fields(enrollment, ["assessment_no"])
 
     finance = finance_service.get_enrollment_finance_status(
         db, tenant_id=tenant_id, enrollment_id=enrollment.id
