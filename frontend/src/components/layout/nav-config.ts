@@ -496,6 +496,7 @@ export const secretaryNav: AppNavItem[] = [
 
 export const principalNav: AppNavItem[] = [
   { href: "/tenant/principal/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
+  { href: "/tenant/principal/roll-call", label: "Roll Call", icon: "CalendarCheck" },
   {
     href: principalStudentsHref("all"),
     label: "Students",

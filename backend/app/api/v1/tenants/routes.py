@@ -6054,6 +6054,80 @@ def _maybe_seed_guardian_from_payload(
             )
 
 
+# ── Phase X — Principal Roll Call ───────────────────────────────────────────
+@router.get(
+    "/principal/roll-call",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def principal_rollcall_board(
+    date: str | None = Query(default=None, description="YYYY-MM-DD, default today"),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """The principal's daily roll-call board: every class × marked?/counts,
+    the day's absentee digest, and the chronic-absence radar."""
+    from datetime import date as _date
+    from app.api.v1.attendance.rollcall import build_rollcall_board
+    try:
+        on_date = _date.fromisoformat(date) if date else _date.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date — use YYYY-MM-DD")
+    return build_rollcall_board(db, tenant_id=tenant.id, on_date=on_date)
+
+
+@router.post(
+    "/principal/roll-call/finalize",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def principal_rollcall_finalize(
+    body: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Finalize every marked MORNING session of the day in one action."""
+    from datetime import date as _date
+    from app.api.v1.attendance.rollcall import finalize_rollcall_day
+    try:
+        on_date = _date.fromisoformat(str(body.get("date") or "")) if body.get("date") else _date.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date — use YYYY-MM-DD")
+    result = finalize_rollcall_day(
+        db, tenant_id=tenant.id, actor_user_id=user.id, on_date=on_date,
+    )
+    db.commit()
+    return result
+
+
+@router.post(
+    "/principal/roll-call/notify-absentees",
+    dependencies=[Depends(_require_any_permission("admin.dashboard.view_tenant", "enrollment.manage"))],
+)
+def principal_rollcall_notify(
+    body: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """One-click absentee SMS to guardians (at most once per day)."""
+    from datetime import date as _date
+    from app.api.v1.attendance.rollcall import notify_absentee_guardians
+    try:
+        on_date = _date.fromisoformat(str(body.get("date") or "")) if body.get("date") else _date.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date — use YYYY-MM-DD")
+    try:
+        result = notify_absentee_guardians(
+            db, tenant_id=tenant.id, actor_user_id=user.id, on_date=on_date,
+        )
+        db.commit()
+        return result
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ── Phase T3 — Guardian data-quality checker ────────────────────────────────
 @router.get(
     "/students/data-quality",
