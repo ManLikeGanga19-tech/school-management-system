@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getApiBase } from "@/lib/api";
 import { useParams } from "next/navigation";
 import {
   CheckCircle2,
@@ -72,10 +73,11 @@ export default function VerifyDocumentPage() {
       return;
     }
 
-    const apiBase =
-      typeof window !== "undefined"
-        ? `${window.location.protocol}//${window.location.host}/api/v1`
-        : "/api/v1";
+    // Canonical base (NEXT_PUBLIC_API_BASE_URL first) — in production the
+    // API lives on api.<domain>, NOT on the frontend host; the old
+    // same-origin guess 404'd every verification and made genuine
+    // documents look forged.
+    const apiBase = getApiBase();
 
     fetch(`${apiBase}/public/verify/${encodeURIComponent(code)}`)
       .then(async (res) => {

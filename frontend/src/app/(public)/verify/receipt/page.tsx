@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import { getApiBase } from "@/lib/api";
 import { useSearchParams } from "next/navigation";
 import { CheckCircle2, XCircle, Loader2, ShieldCheck } from "lucide-react";
 
@@ -58,10 +59,9 @@ function VerifyReceiptContent() {
       return;
     }
 
-    const apiBase =
-      typeof window !== "undefined"
-        ? `${window.location.protocol}//${window.location.host}/api/v1`
-        : "/api/v1";
+    // Canonical base — the API lives on api.<domain> in production; the
+    // old same-origin guess 404'd and flagged genuine receipts as forged.
+    const apiBase = getApiBase();
 
     fetch(
       `${apiBase}/public/verify/receipt?token=${encodeURIComponent(token)}&slug=${encodeURIComponent(slug)}`,

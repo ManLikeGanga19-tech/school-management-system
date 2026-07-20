@@ -89,6 +89,15 @@ function resolveApiBase(): string {
 
 const API_BASE = resolveApiBase();
 
+/** Canonical API base for pages that fetch outside the api.* helpers
+ * (e.g. the public document-verification surfaces). Always prefer this
+ * over hand-building `window.location.host + '/api/v1'` — in production
+ * the API lives on its own host (api.<domain>), so same-origin guesses
+ * silently hit the frontend and every request 404s. */
+export function getApiBase(): string {
+  return API_BASE;
+}
+
 function joinUrl(base: string, path: string) {
   // Absolute URL passthrough
   if (/^https?:\/\//i.test(path)) return path;

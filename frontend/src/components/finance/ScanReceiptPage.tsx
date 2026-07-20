@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { getApiBase } from "@/lib/api";
 import {
   CheckCircle2,
   XCircle,
@@ -63,18 +64,32 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 /**
- * Pull the opaque verify_code out of a scanned QR. Genuine document QRs encode
- * a `/v/{code}` URL on this system; anything else is rejected so the scanner
- * only acts on QRs issued by this system.
+ * Classify a scanned QR into one of the document formats this system has
+ * ever printed:
+ *   * current:  `/v/{code}` URL (or a bare opaque code) → live DB lookup
+ *   * legacy:   `/verify/receipt?token=…&slug=…` JWT URL (receipts printed
+ *               before the verify_code column existed)
+ * Anything else is rejected so the scanner only acts on QRs issued by
+ * this system.
  */
-function extractCode(rawText: string): string | null {
+type ScannedQr =
+  | { kind: "code"; code: string }
+  | { kind: "legacy_token"; token: string; slug: string };
+
+function extractCode(rawText: string): ScannedQr | null {
   const text = rawText.trim();
   try {
     const url = new URL(text);
     const m = url.pathname.match(/\/v\/([A-Za-z0-9_-]{8,32})\/?$/);
-    if (m) return m[1];
+    if (m) return { kind: "code", code: m[1] };
+    // Legacy receipt QR: /verify/receipt?token=<jwt>&slug=<tenant>
+    if (/\/verify\/receipt\/?$/.test(url.pathname)) {
+      const token = url.searchParams.get("token") || "";
+      const slug = url.searchParams.get("slug") || "";
+      if (token && slug) return { kind: "legacy_token", token, slug };
+    }
   } catch {
-    if (/^[A-Za-z0-9_-]{8,32}$/.test(text)) return text;
+    if (/^[A-Za-z0-9_-]{8,32}$/.test(text)) return { kind: "code", code: text };
   }
   return null;
 }
@@ -141,8 +156,8 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
     async (rawText: string) => {
       stopScanner();
 
-      const code = extractCode(rawText);
-      if (!code) {
+      const scanned = extractCode(rawText);
+      if (!scanned) {
         setErrorMsg("This QR code is not a recognised document from this system.");
         setState("invalid");
         return;
@@ -150,19 +165,51 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
 
       setState("verifying");
       try {
-        const apiBase = `${window.location.protocol}//${window.location.host}/api/v1`;
-        const res = await fetch(
-          `${apiBase}/public/verify/${encodeURIComponent(code)}`
-        );
-        if (!res.ok) {
-          const body = await res
-            .json()
-            .catch(() => ({ detail: "Verification failed." }));
-          throw new Error(body.detail || "Verification failed.");
+        // Canonical base (NEXT_PUBLIC_API_BASE_URL first) — in production
+        // the API lives on api.<domain>, NOT on the frontend host. The old
+        // same-origin guess 404'd every request, so genuine documents
+        // rendered as "forged" without ever being checked.
+        const apiBase = getApiBase();
+        if (scanned.kind === "code") {
+          const res = await fetch(
+            `${apiBase}/public/verify/${encodeURIComponent(scanned.code)}`
+          );
+          if (!res.ok) {
+            const body = await res
+              .json()
+              .catch(() => ({ detail: "Verification failed." }));
+            throw new Error(body.detail || "Verification failed.");
+          }
+          const data: VerifyResult = await res.json();
+          setResult(data);
+          setState("valid");
+        } else {
+          // Legacy JWT receipt QR — verify against the tenant-scoped
+          // endpoint and map its response into the standard result shape.
+          const res = await fetch(
+            `${apiBase}/public/verify/receipt?token=${encodeURIComponent(scanned.token)}&slug=${encodeURIComponent(scanned.slug)}`
+          );
+          if (!res.ok) {
+            const body = await res
+              .json()
+              .catch(() => ({ detail: "Verification failed." }));
+            throw new Error(body.detail || "Verification failed.");
+          }
+          const legacy = await res.json();
+          setResult({
+            valid: Boolean(legacy.valid),
+            document_type: "RECEIPT",
+            document_no: String(legacy.receipt_no || ""),
+            school_name: String(legacy.tenant_name || "School"),
+            student_name: String(legacy.student_name || ""),
+            currency: "KES",
+            amount: String(legacy.amount || ""),
+            issued_at: legacy.received_at || legacy.issued_at || null,
+            provider: legacy.provider || null,
+            message: String(legacy.message || "Receipt is valid."),
+          });
+          setState("valid");
         }
-        const data: VerifyResult = await res.json();
-        setResult(data);
-        setState("valid");
       } catch (err: unknown) {
         setErrorMsg(
           err instanceof Error ? err.message : "Could not verify this document."
