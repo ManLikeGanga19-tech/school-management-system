@@ -146,9 +146,29 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
     setIsMobile(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
   }, []);
 
+  // One-shot guard: zxing's continuous decode can deliver the same QR
+  // several times before stop() takes effect — only the first result may
+  // trigger verification.
+  const handledRef = useRef(false);
+
   const stopScanner = useCallback(() => {
-    controlsRef.current?.stop();
+    // stop() only halts DECODING — the MediaStream tracks must be stopped
+    // explicitly or the camera stays claimed and the next start fails with
+    // "device in use" (the "can't scan again after the first scan" bug).
+    try {
+      controlsRef.current?.stop();
+    } catch {
+      /* already stopped */
+    }
     controlsRef.current = null;
+    const video = videoRef.current;
+    const stream = video?.srcObject as MediaStream | null;
+    if (stream) {
+      for (const track of stream.getTracks()) {
+        try { track.stop(); } catch { /* already stopped */ }
+      }
+    }
+    if (video) video.srcObject = null;
     setScanning(false);
   }, []);
 
@@ -172,7 +192,8 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
         const apiBase = getApiBase();
         if (scanned.kind === "code") {
           const res = await fetch(
-            `${apiBase}/public/verify/${encodeURIComponent(scanned.code)}`
+            `${apiBase}/public/verify/${encodeURIComponent(scanned.code)}`,
+            { cache: "no-store" }
           );
           if (!res.ok) {
             const body = await res
@@ -187,7 +208,8 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
           // Legacy JWT receipt QR — verify against the tenant-scoped
           // endpoint and map its response into the standard result shape.
           const res = await fetch(
-            `${apiBase}/public/verify/receipt?token=${encodeURIComponent(scanned.token)}&slug=${encodeURIComponent(scanned.slug)}`
+            `${apiBase}/public/verify/receipt?token=${encodeURIComponent(scanned.token)}&slug=${encodeURIComponent(scanned.slug)}`,
+            { cache: "no-store" }
           );
           if (!res.ok) {
             const body = await res
@@ -221,6 +243,10 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
   );
 
   const startScanner = useCallback(async () => {
+    // Always tear down any previous run first — a half-released camera is
+    // exactly what made the second scan fail before.
+    stopScanner();
+    handledRef.current = false;
     setState("scanning");
     setScanning(true);
     setResult(null);
@@ -232,18 +258,6 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
       const reader = new BrowserQRCodeReader();
       readerRef.current = reader;
 
-      const devices = await BrowserQRCodeReader.listVideoInputDevices();
-      const device =
-        devices.find((d) => /back|rear|environment/i.test(d.label)) ??
-        devices[devices.length - 1];
-
-      if (!device) {
-        setErrorMsg("No camera found on this device.");
-        setState("invalid");
-        setScanning(false);
-        return;
-      }
-
       if (!videoRef.current) {
         setErrorMsg("Video element not ready.");
         setState("invalid");
@@ -251,11 +265,19 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
         return;
       }
 
-      const controls = await reader.decodeFromVideoDevice(
-        device.deviceId,
+      // Constraint-based selection: `facingMode: environment` asks the
+      // browser for the back camera directly. This is far more reliable
+      // than enumerating devices — device labels are EMPTY until camera
+      // permission is granted, so label-matching picked the wrong camera
+      // (often the front one) on first use.
+      const controls = await reader.decodeFromConstraints(
+        { video: { facingMode: { ideal: "environment" } } },
         videoRef.current,
         (res, error) => {
-          if (res) {
+          if (res && !handledRef.current) {
+            // One-shot: continuous decode can deliver the same QR several
+            // times before stop() lands — only the first may verify.
+            handledRef.current = true;
             void verifyScanned(res.getText());
           }
           void error; // suppress continuous not-found errors
@@ -264,23 +286,40 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
       controlsRef.current = controls;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Camera access denied.";
+      const lower = msg.toLowerCase();
       setErrorMsg(
-        msg.toLowerCase().includes("permission")
+        lower.includes("permission") || lower.includes("notallowed")
           ? "Camera permission denied. Please allow camera access and try again."
-          : msg
+          : lower.includes("notreadable") || lower.includes("in use")
+            ? "The camera is busy in another app or tab. Close it and try again."
+            : lower.includes("notfound")
+              ? "No camera found on this device."
+              : msg
       );
       setState("invalid");
       setScanning(false);
     }
-  }, [verifyScanned]);
+  }, [verifyScanned, stopScanner]);
 
   useEffect(() => () => stopScanner(), [stopScanner]);
 
   const reset = () => {
     stopScanner();
+    handledRef.current = false;
     setState("idle");
     setResult(null);
     setErrorMsg("");
+  };
+
+  // "Scan Another" / "Try Again": release the camera fully, then restart it
+  // in one tap — the tenant should never have to reload the page to keep
+  // scanning at a busy gate.
+  const scanAgain = () => {
+    stopScanner();
+    handledRef.current = false;
+    setResult(null);
+    setErrorMsg("");
+    void startScanner();
   };
 
   const isReceipt = result?.document_type === "RECEIPT";
@@ -404,7 +443,7 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
                   Verified live against {result.school_name}&rsquo;s records.
                 </span>
               </div>
-              <Button variant="outline" onClick={reset} className="w-full gap-2 mt-1">
+              <Button variant="outline" onClick={scanAgain} className="w-full gap-2 mt-1">
                 <RefreshCw className="h-4 w-4" />
                 Scan Another
               </Button>
@@ -426,7 +465,7 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
                 The document may be forged or tampered with. Report suspicious
                 documents to the school administration.
               </p>
-              <Button variant="outline" onClick={reset} className="w-full gap-2">
+              <Button variant="outline" onClick={scanAgain} className="w-full gap-2">
                 <RefreshCw className="h-4 w-4" />
                 Try Again
               </Button>
