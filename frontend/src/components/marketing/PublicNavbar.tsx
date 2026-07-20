@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { ShuleHQMark } from "@/components/brand/ShuleHQLogo";
 import { useMemo, useState } from "react";
-import { ChevronDown, LogOut, Menu, School, X } from "lucide-react";
+import { ChevronDown, LogOut, Menu, X } from "lucide-react";
 
 import { useProspectSession } from "@/components/marketing/ProspectSessionProvider";
 import { Button } from "@/components/ui/button";
@@ -65,9 +66,7 @@ export function PublicNavbar({
     <>
       <header className="hero-rise flex items-center justify-between rounded-[2rem] border border-white/60 bg-white/70 px-4 py-4 shadow-[0_20px_80px_rgba(15,23,42,0.08)] backdrop-blur sm:px-5">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-          <Link href="/" className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg">
-            <School className="size-5" />
-          </Link>
+          <Link href="/" className="flex shrink-0 items-center justify-center"><ShuleHQMark size={44} /></Link>
           <div className="min-w-0">
             <Link href="/" className="block truncate text-base font-semibold tracking-tight sm:text-lg">
               ShuleHQ
@@ -150,9 +149,7 @@ export function PublicNavbar({
           <div className="flex h-full flex-col">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-2xl bg-slate-950 text-white">
-                  <School className="size-5" />
-                </div>
+                <ShuleHQMark size={40} />
                 <div>
                   <p className="text-sm font-semibold text-slate-950">ShuleHQ</p>
                   <p className="text-xs text-slate-500">Public onboarding</p>

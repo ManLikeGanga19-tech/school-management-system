@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { ShuleHQMark } from "@/components/brand/ShuleHQLogo";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShieldCheck, Menu, X } from "lucide-react";

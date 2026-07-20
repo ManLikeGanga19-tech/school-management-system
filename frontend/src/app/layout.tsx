@@ -1,12 +1,24 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 
+// Brand identity — favicon/apple-icon are served by the app-router file
+// conventions (src/app/icon.svg, favicon.ico, apple-icon.png); the PWA
+// manifest by src/app/manifest.ts. Keep titles consistent with the mark.
 export const metadata: Metadata = {
-  title: "School Management System",
-  description: "Enterprise multi-tenant school ERP (SaaS)",
+  title: {
+    default: "ShuleHQ — School Management System",
+    template: "%s · ShuleHQ",
+  },
+  description:
+    "Enterprise school management for Kenyan schools — enrollment, finance, attendance, exams, and KEMIS-ready student records.",
+  applicationName: "ShuleHQ",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#173F49",
 };
 
 export default async function RootLayout({
