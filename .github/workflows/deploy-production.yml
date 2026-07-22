@@ -24,6 +24,7 @@ env:
   BACKEND_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-backend
   FRONTEND_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-frontend
   NGINX_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-nginx
+  CADDY_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-caddy
   PROD_DOMAIN: shulehq.co.ke
 
 jobs:
@@ -87,6 +88,15 @@ jobs:
             "https://api.github.com/repos/${{ github.repository }}/contents/docker-compose.prod.yml?ref=${DEPLOY_REF}" \
             -o docker-compose.prod.yml
           test -s docker-compose.prod.yml
+          # Caddy bind-mounts ./Caddyfile — it must be shipped alongside the
+          # compose file, or Docker auto-creates an empty dir and Caddy starts
+          # with no config (no TLS, no routing).
+          curl -fsSL \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/Caddyfile?ref=${DEPLOY_REF}" \
+            -o Caddyfile
+          test -s Caddyfile
 
       - name: Fetch release images on runner
         shell: bash
@@ -105,7 +115,8 @@ jobs:
             echo "Checking release images for tag: ${candidate}"
             if docker manifest inspect "${BACKEND_IMAGE}:${candidate}" >/dev/null 2>&1 \
               && docker manifest inspect "${FRONTEND_IMAGE}:${candidate}" >/dev/null 2>&1 \
-              && docker manifest inspect "${NGINX_IMAGE}:${candidate}" >/dev/null 2>&1; then
+              && docker manifest inspect "${NGINX_IMAGE}:${candidate}" >/dev/null 2>&1 \
+              && docker manifest inspect "${CADDY_IMAGE}:${candidate}" >/dev/null 2>&1; then
               RESOLVED_TAG="${candidate}"
               break
             fi
@@ -123,10 +134,11 @@ jobs:
             "${BACKEND_IMAGE}:${RESOLVED_TAG}"
             "${FRONTEND_IMAGE}:${RESOLVED_TAG}"
             "${NGINX_IMAGE}:${RESOLVED_TAG}"
+            "${CADDY_IMAGE}:${RESOLVED_TAG}"
           )
-          docker pull "${IMAGES[0]}"
-          docker pull "${IMAGES[1]}"
-          docker pull "${IMAGES[2]}"
+          for image in "${IMAGES[@]}"; do
+            docker pull "${image}"
+          done
           docker save "${IMAGES[@]}" | gzip -1 > .release-images.tgz
           ls -lh .release-images.tgz
 
@@ -138,7 +150,7 @@ jobs:
             PRODUCTION_DEPLOY_PATH="/opt/school-erp-production"
             echo "PRODUCTION_DEPLOY_PATH not provided. Falling back to ${PRODUCTION_DEPLOY_PATH}"
           fi
-          printf "%s\n" "${PRODUCTION_ENV_FILE}" | sed '/^\(APP_ENV\|PROD_DOMAIN\|IMAGE_TAG\|BACKEND_IMAGE\|FRONTEND_IMAGE\|NGINX_IMAGE\|NGINX_HTTP_PORT\|NEXT_PUBLIC_API_BASE_URL\|BACKEND_BASE_URL\|COOKIE_SECURE\)=/d' > .deploy.env
+          printf "%s\n" "${PRODUCTION_ENV_FILE}" | sed '/^\(APP_ENV\|PROD_DOMAIN\|IMAGE_TAG\|BACKEND_IMAGE\|FRONTEND_IMAGE\|NGINX_IMAGE\|CADDY_IMAGE\|NGINX_HTTP_PORT\|NEXT_PUBLIC_API_BASE_URL\|BACKEND_BASE_URL\|COOKIE_SECURE\)=/d' > .deploy.env
           {
             echo ""
             echo "APP_ENV=prod"
@@ -147,6 +159,7 @@ jobs:
             echo "BACKEND_IMAGE=${BACKEND_IMAGE}:${RESOLVED_IMAGE_TAG}"
             echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}:${RESOLVED_IMAGE_TAG}"
             echo "NGINX_IMAGE=${NGINX_IMAGE}:${RESOLVED_IMAGE_TAG}"
+            echo "CADDY_IMAGE=${CADDY_IMAGE}:${RESOLVED_IMAGE_TAG}"
             echo "NGINX_HTTP_PORT=127.0.0.1:8081"
             echo "NEXT_PUBLIC_API_BASE_URL=/api/v1"
             echo "BACKEND_BASE_URL=http://nginx/api/v1"
@@ -408,7 +421,7 @@ jobs:
           set -euo pipefail
           DEPLOY_PATH="${PRODUCTION_DEPLOY_PATH:-/opt/school-erp-production}"
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}" "mkdir -p '${DEPLOY_PATH}'"
-          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes docker-compose.prod.yml .deploy.env .release-images.tgz "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}:${DEPLOY_PATH}/"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes docker-compose.prod.yml Caddyfile .deploy.env .release-images.tgz "${PRODUCTION_SSH_USER}@${PRODUCTION_SSH_HOST}:${DEPLOY_PATH}/"
 
       - name: Verify remote deploy bundle
         shell: bash
@@ -419,6 +432,7 @@ jobs:
             set -euo pipefail
             ls -la '${DEPLOY_PATH}'
             test -f '${DEPLOY_PATH}/docker-compose.prod.yml'
+            test -f '${DEPLOY_PATH}/Caddyfile'
             test -f '${DEPLOY_PATH}/.deploy.env'
             test -f '${DEPLOY_PATH}/.release-images.tgz'
           "
