@@ -5,27 +5,19 @@
 # (which routes by path: /api/v1 → backend, else → frontend). The Host header
 # is preserved so the frontend resolves tenant / admin / public context.
 #
-#   Fixed hosts        → automatic TLS (HTTP-01), zero config.
-#   *.shulehq.co.ke    → on-demand TLS, gated by the backend ask endpoint, so
-#                        each tenant subdomain gets its own cert on first hit
-#                        and only for KNOWN active tenants (no wildcard cert,
-#                        no DNS-provider API token, abuse-safe).
+# TLS: a single WILDCARD certificate for shulehq.co.ke + *.shulehq.co.ke,
+# issued via the ACME DNS-01 challenge using the Cloudflare plugin. One cert
+# covers the apex, api, admin, www, AND every tenant subdomain — so onboarding
+# unlimited schools from the admin dashboard never touches Let's Encrypt's
+# 50-certs/week/domain limit. Requires the custom Caddy image
+# (deploy/caddy/Dockerfile) + a Cloudflare API token (CF_API_TOKEN) scoped to
+# Zone:DNS:Edit for shulehq.co.ke.
 #
-# Wildcard alternative (not used): replace the *.shulehq.co.ke block's
-# `tls { on_demand }` with `tls { dns <provider> {env.DNS_TOKEN} }` and build
-# a Caddy image bundling that DNS plugin.
+# Marketing sites live on separate registered domains → ordinary HTTP-01.
 # ═══════════════════════════════════════════════════════════════════════════
 
 {
 	email {$ACME_EMAIL}
-
-	# On-demand TLS: before issuing a cert for an unlisted hostname, Caddy
-	# asks the backend whether it's allowed. 2xx = issue, anything else = deny.
-	on_demand_tls {
-		ask http://backend:8000/api/v1/public/tls-authorize
-		interval 2m
-		burst 5
-	}
 }
 
 # Shared proxy behaviour → internal nginx (path-based routing lives there).
@@ -47,15 +39,20 @@
 	}
 }
 
-# ── Fixed hosts — automatic TLS ──────────────────────────────────────────────
-shulehq.co.ke, www.shulehq.co.ke, api.shulehq.co.ke, admin.shulehq.co.ke {
-	import to_app
-}
-
-# ── Tenant subdomains — on-demand TLS (per-name, gated by the ask endpoint) ──
-*.shulehq.co.ke {
+# ── Apex + every subdomain (api, admin, www, and all tenants) ────────────────
+# One wildcard cert via Cloudflare DNS-01. The apex must be listed explicitly
+# because a wildcard (*.shulehq.co.ke) does not itself match the bare apex.
+shulehq.co.ke, *.shulehq.co.ke {
 	tls {
-		on_demand
+		dns cloudflare {env.CF_API_TOKEN}
+		resolvers 1.1.1.1 8.8.8.8
 	}
 	import to_app
 }
+
+# ── Marketing sites (separate registered domains) — automatic HTTP-01 ────────
+# Add each marketing domain here, comma-separated, when they move to the VPS:
+# example-marketing-1.com, www.example-marketing-1.com {
+#     root * /srv/marketing/site1
+#     file_server
+# }

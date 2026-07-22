@@ -15,6 +15,9 @@ change. Set them under **Settings → Environments → `production` → Secrets*
 | `GHCR_USERNAME` | your GitHub username | to pull images (or the workflow uses `github.token`) |
 | `GHCR_TOKEN` | a PAT with `read:packages` | only if `github.token` can't pull |
 
+The production env (`PRODUCTION_ENV_FILE`) must include **`CF_API_TOKEN`** —
+the Cloudflare token for wildcard TLS (see below).
+
 ## Generate the CI SSH key (locally)
 
 ```bash

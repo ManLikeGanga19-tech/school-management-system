@@ -16,6 +16,7 @@ env:
   BACKEND_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-backend
   FRONTEND_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-frontend
   NGINX_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-nginx
+  CADDY_IMAGE: ghcr.io/manlikeganga19-tech/school-management-system-caddy
 
 jobs:
   backend-tests:
@@ -156,17 +157,20 @@ jobs:
           backend_tags="${BACKEND_IMAGE}:${SHORT_SHA},${BACKEND_IMAGE}:sha-${SHORT_SHA},${BACKEND_IMAGE}:${BRANCH_TAG}"
           frontend_tags="${FRONTEND_IMAGE}:${SHORT_SHA},${FRONTEND_IMAGE}:sha-${SHORT_SHA},${FRONTEND_IMAGE}:${BRANCH_TAG}"
           nginx_tags="${NGINX_IMAGE}:${SHORT_SHA},${NGINX_IMAGE}:sha-${SHORT_SHA},${NGINX_IMAGE}:${BRANCH_TAG}"
+          caddy_tags="${CADDY_IMAGE}:${SHORT_SHA},${CADDY_IMAGE}:sha-${SHORT_SHA},${CADDY_IMAGE}:${BRANCH_TAG}"
 
           if [ -n "${extra_tag}" ]; then
             backend_tags="${backend_tags},${BACKEND_IMAGE}:${extra_tag#,}"
             frontend_tags="${frontend_tags},${FRONTEND_IMAGE}:${extra_tag#,}"
             nginx_tags="${nginx_tags},${NGINX_IMAGE}:${extra_tag#,}"
+            caddy_tags="${caddy_tags},${CADDY_IMAGE}:${extra_tag#,}"
           fi
 
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "backend_tags=${backend_tags}" >> "$GITHUB_OUTPUT"
           echo "frontend_tags=${frontend_tags}" >> "$GITHUB_OUTPUT"
           echo "nginx_tags=${nginx_tags}" >> "$GITHUB_OUTPUT"
+          echo "caddy_tags=${caddy_tags}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push backend image
         uses: docker/build-push-action@v6
@@ -199,6 +203,16 @@ jobs:
           tags: ${{ steps.tags.outputs.nginx_tags }}
           cache-from: type=gha,scope=nginx-image
           cache-to: type=gha,scope=nginx-image,mode=max
+
+      - name: Build and push caddy image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./deploy/caddy
+          file: ./deploy/caddy/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.caddy_tags }}
+          cache-from: type=gha,scope=caddy-image
+          cache-to: type=gha,scope=caddy-image,mode=max
 
   deploy-staging:
     name: Deploy to Staging

@@ -57,32 +57,38 @@ networks. UFW blocks everything except 22/80/443.
 
 ---
 
-## 2. TLS strategy — the one real design decision
+## 2. TLS strategy — WILDCARD via Cloudflare DNS-01 (chosen)
 
-Fixed hostnames and dynamic tenant subdomains are handled differently:
+A **single wildcard certificate** for `shulehq.co.ke` + `*.shulehq.co.ke`
+covers the apex, `api`, `admin`, `www`, **and every tenant subdomain**. Issued
+via the ACME **DNS-01** challenge using the Cloudflare plugin.
 
-| Hostnames | Strategy | Why |
-|---|---|---|
-| `shulehq.co.ke`, `www`, `api.`, `admin.`, the 5 marketing domains | **Automatic TLS (HTTP-01)** | Known, finite set — Caddy issues + renews with zero config |
-| `<tenant>.shulehq.co.ke` (unbounded, grows as schools onboard) | **On-demand TLS, gated by an ask endpoint** | A cert is minted the first time each tenant subdomain is hit; no wildcard, no DNS-provider API token, scales to unlimited tenants automatically |
+**Why wildcard (not per-tenant on-demand):** tenants are created from the admin
+dashboard and the SaaS is built to grow. Let's Encrypt caps issuance at
+**50 certificates / week / registered domain** — per-tenant certs would hit
+that ceiling during rapid onboarding and block new schools' HTTPS. One
+wildcard cert sidesteps the limit entirely and every new
+`<tenant>.shulehq.co.ke` is served immediately with no per-name issuance and
+no cold-start handshake delay.
 
-**Why on-demand over a wildcard cert:**
-- **No external dependency** — a wildcard needs a DNS-provider API token + a
-  custom Caddy build with a DNS plugin. On-demand uses stock Caddy and only
-  needs the subdomain's A record pointing at the VPS (which you set anyway).
-- **Abuse-safe** — Caddy asks the backend
-  `GET /api/v1/public/tls-authorize?domain=<host>` before issuing; the backend
-  returns 200 only for the apex/www/api/admin/marketing hosts or a host whose
-  subdomain matches an **active tenant**. An attacker pointing `evil.com` at
-  the IP gets no cert (and no Let's Encrypt rate-limit burn).
+**Requirements (all wired):**
+- **Custom Caddy image** — `deploy/caddy/Dockerfile` builds Caddy with
+  `caddy-dns/cloudflare` (stock Caddy has no DNS plugins). CI builds/pushes it
+  to GHCR like the nginx image.
+- **Cloudflare API token** — `CF_API_TOKEN`, scoped `Zone:DNS:Edit` +
+  `Zone:Zone:Read` for `shulehq.co.ke`. Used only for the DNS-01 challenge.
+- DNS for `shulehq.co.ke` managed by **Cloudflare**.
 
-> **Alternative (if ever preferred):** a wildcard `*.shulehq.co.ke` via DNS-01.
-> Requires a DNS-provider API token + a Caddy image built with that provider's
-> plugin. The Caddyfile notes where this swaps in. Not needed for launch.
+Marketing sites live on **separate registered domains** → ordinary automatic
+HTTP-01 (added to the Caddyfile as they move to the VPS).
 
-DNS records to create (all → the VPS IPv4):
-`shulehq.co.ke`, `www`, `api`, `admin`, each marketing domain, and a
-**wildcard `*.shulehq.co.ke`** A record so any tenant subdomain resolves.
+> The backend `/public/tls-authorize` endpoint (built for the on-demand option)
+> remains in place but is **not used** by the wildcard config — harmless and
+> available if on-demand is ever reintroduced for non-Cloudflare domains.
+
+DNS records to create in Cloudflare (all → the VPS IPv4, proxy OFF/grey-cloud
+so Caddy terminates TLS): `shulehq.co.ke`, `www`, `api`, `admin`, and the
+**wildcard `*.shulehq.co.ke`**.
 
 ---
 

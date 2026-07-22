@@ -176,10 +176,15 @@ services:
     # the internal nginx (which routes by path). Automatic TLS for the fixed
     # hosts; on-demand TLS for tenant subdomains, gated by the backend's
     # /public/tls-authorize ask endpoint. Certs persist in caddy_data.
-    image: caddy:2-alpine
+    # Custom image (deploy/caddy/Dockerfile) — stock Caddy has no DNS
+    # plugins; this one bundles caddy-dns/cloudflare for wildcard DNS-01.
+    image: ${CADDY_IMAGE:-ghcr.io/manlikeganga19-tech/school-management-system-caddy:${IMAGE_TAG:-main}}
     container_name: sms-caddy
     environment:
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in production .env}
+      # Cloudflare API token, scoped Zone:DNS:Edit for shulehq.co.ke —
+      # used only for the ACME DNS-01 wildcard challenge.
+      CF_API_TOKEN: ${CF_API_TOKEN:?CF_API_TOKEN must be set for wildcard TLS}
     ports:
       - "80:80"
       - "443:443"
