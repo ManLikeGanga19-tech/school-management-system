@@ -25,18 +25,22 @@ set -euo pipefail
 # ── CONFIG ───────────────────────────────────────────────────────────────────
 DEPLOY_USER="deploy"
 DEPLOY_PATH="/opt/shulehq"
-# Paste the PUBLIC key whose PRIVATE half is the GitHub secret
-# PRODUCTION_SSH_PRIVATE_KEY. The CI logs in as ${DEPLOY_USER} with it.
-CI_PUBLIC_KEY="ssh-ed25519 AAAA...REPLACE_ME... ci@shulehq"
+# CI key — PUBLIC half of the key whose PRIVATE half is the GitHub secret
+# PRODUCTION_SSH_PRIVATE_KEY (contents of shulehq_ci_key.pub). CI logs in as
+# ${DEPLOY_USER} with it.
+CI_PUBLIC_KEY="ssh-ed25519 AAAA...REPLACE_ME_CI... ci@shulehq"
+# YOUR admin key — PUBLIC half of your personal key (contents of
+# shulehq_admin_key.pub), so you can SSH in as ${DEPLOY_USER} too. Both keys
+# are authorized for the deploy user.
+ADMIN_PUBLIC_KEY="ssh-ed25519 AAAA...REPLACE_ME_ADMIN... admin@shulehq"
 SWAP_GB="4"
 # ─────────────────────────────────────────────────────────────────────────────
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root."; exit 1; }
-if [ "$CI_PUBLIC_KEY" = "ssh-ed25519 AAAA...REPLACE_ME... ci@shulehq" ]; then
-  echo "ERROR: set CI_PUBLIC_KEY in the CONFIG block first."; exit 1
-fi
+case "$CI_PUBLIC_KEY" in *REPLACE_ME_CI*) echo "ERROR: set CI_PUBLIC_KEY in CONFIG first."; exit 1;; esac
+case "$ADMIN_PUBLIC_KEY" in *REPLACE_ME_ADMIN*) echo "ERROR: set ADMIN_PUBLIC_KEY in CONFIG first."; exit 1;; esac
 
 log "System update"
 export DEBIAN_FRONTEND=noninteractive
@@ -51,7 +55,8 @@ if ! id "$DEPLOY_USER" >/dev/null 2>&1; then
   adduser --disabled-password --gecos "" "$DEPLOY_USER"
 fi
 install -d -m 700 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "/home/${DEPLOY_USER}/.ssh"
-echo "$CI_PUBLIC_KEY" > "/home/${DEPLOY_USER}/.ssh/authorized_keys"
+# Both keys authorized: CI (automation) + your personal admin key (interactive).
+printf '%s\n%s\n' "$CI_PUBLIC_KEY" "$ADMIN_PUBLIC_KEY" > "/home/${DEPLOY_USER}/.ssh/authorized_keys"
 chmod 600 "/home/${DEPLOY_USER}/.ssh/authorized_keys"
 chown -R "$DEPLOY_USER:$DEPLOY_USER" "/home/${DEPLOY_USER}/.ssh"
 
