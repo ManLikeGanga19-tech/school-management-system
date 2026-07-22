@@ -28,11 +28,11 @@ DEPLOY_PATH="/opt/shulehq"
 # CI key — PUBLIC half of the key whose PRIVATE half is the GitHub secret
 # PRODUCTION_SSH_PRIVATE_KEY (contents of shulehq_ci_key.pub). CI logs in as
 # ${DEPLOY_USER} with it.
-CI_PUBLIC_KEY="ssh-ed25519 AAAA...REPLACE_ME_CI... ci@shulehq"
+CI_PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDjv/WDKkfHJsp7aiV1/AkZ7mXICCzfry+mygtvurzMb Daniel"
 # YOUR admin key — PUBLIC half of your personal key (contents of
 # shulehq_admin_key.pub), so you can SSH in as ${DEPLOY_USER} too. Both keys
 # are authorized for the deploy user.
-ADMIN_PUBLIC_KEY="ssh-ed25519 AAAA...REPLACE_ME_ADMIN... admin@shulehq"
+ADMIN_PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIAICiTD+YJw0rgx6Rohbbt/wtgO+4Wv4X0pSpdFfoi+ Daniel"
 SWAP_GB="4"
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -110,6 +110,15 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 systemctl enable --now docker
 usermod -aG docker "$DEPLOY_USER"
+
+# Passwordless sudo for the deploy user. Note: docker-group membership is
+# already root-equivalent (a container can mount the host FS), so NOPASSWD
+# sudo adds no material privilege here — it just restores normal admin access
+# now that root SSH login is disabled. The user was created with
+# --disabled-password, so sudo would otherwise be unusable.
+echo "${DEPLOY_USER} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${DEPLOY_USER}"
+chmod 440 "/etc/sudoers.d/${DEPLOY_USER}"
+visudo -cf "/etc/sudoers.d/${DEPLOY_USER}" >/dev/null
 
 log "Swap: ${SWAP_GB}G"
 if ! swapon --show | grep -q /swapfile; then
