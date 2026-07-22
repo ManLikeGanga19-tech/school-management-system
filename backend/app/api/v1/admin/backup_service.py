@@ -99,6 +99,10 @@ def _current_alembic_head(db: Session) -> str:
     try:
         return str(db.execute(sa.text("SELECT version_num FROM alembic_version")).scalar() or "")
     except Exception:
+        # A failed query (e.g. no alembic_version table) leaves the session's
+        # transaction aborted. Roll back so the caller's session stays usable —
+        # otherwise the subsequent SUCCESS/FAILED ledger writes would also fail.
+        db.rollback()
         return ""
 
 
@@ -139,6 +143,9 @@ def create_backup_artifact(
     backup_id = str(row)
 
     def _fail(msg: str) -> None:
+        # The failure may have aborted the session's transaction; roll back
+        # first so recording the FAILED status always succeeds.
+        db.rollback()
         db.execute(
             sa.text("UPDATE core.backups SET status='FAILED', error=:e, "
                     "duration_ms=:d WHERE id=:id"),

@@ -191,7 +191,7 @@ class TestUpdateBiodata:
             "home_address": "123 Nairobi St",
             "county": "Nairobi",
             "sub_county": "Westlands",
-            "upi": "UPI-12345",
+            "uli": "ULI-12345",
             "birth_certificate_no": "BC-99999",
             "previous_school": "Sunshine Primary",
             "previous_class": "Grade 6",

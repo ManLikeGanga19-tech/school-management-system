@@ -24,20 +24,22 @@ MANAGE = ["admin.dashboard.view_tenant"]
 class TestWhoamiCurriculumType:
     def test_whoami_defaults_to_cbc(self, client: TestClient, db_session: Session):
         """A freshly created tenant has curriculum_type=CBC.
-        whoami only needs X-Tenant-ID header (no Bearer token required).
+        whoami requires an authenticated user (it returns RBAC context).
         """
         tenant = create_tenant(db_session)
-        resp = client.get(WHOAMI, headers={"X-Tenant-ID": str(tenant.id)})
+        _, headers = make_actor(db_session, tenant=tenant, permissions=MANAGE)
+        resp = client.get(WHOAMI, headers=headers)
         assert resp.status_code == 200
         data = resp.json()
         assert "curriculum_type" in data
         assert data["curriculum_type"] == "CBC"
 
-    def test_whoami_is_accessible_without_auth(self, client: TestClient, db_session: Session):
-        """whoami is a lightweight identity endpoint — no Bearer token needed."""
+    def test_whoami_requires_auth(self, client: TestClient, db_session: Session):
+        """whoami returns per-user roles/permissions, so it requires a Bearer
+        token — an unauthenticated call (tenant header only) is rejected."""
         tenant = create_tenant(db_session)
         resp = client.get(WHOAMI, headers={"X-Tenant-ID": str(tenant.id)})
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
     def test_whoami_reflects_updated_curriculum_type(
         self, client: TestClient, db_session: Session
@@ -49,8 +51,7 @@ class TestWhoamiCurriculumType:
         patch = client.patch(UPDATE_ME, json={"curriculum_type": "8-4-4"}, headers=headers)
         assert patch.status_code == 200
 
-        # whoami only needs X-Tenant-ID
-        resp = client.get(WHOAMI, headers={"X-Tenant-ID": str(tenant.id)})
+        resp = client.get(WHOAMI, headers=headers)
         assert resp.status_code == 200
         assert resp.json()["curriculum_type"] == "8-4-4"
 
