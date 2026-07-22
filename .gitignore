@@ -26,3 +26,12 @@ env/
 .mypy_cache/
 ruff_cache/
 .claude/
+
+# ── Deployment secrets — NEVER commit (Phase 2) ──
+shulehq_admin_key
+shulehq_admin_key.pub
+shulehq_ci_key
+shulehq_ci_key.pub
+*.pem
+deploy/.env.production
+deploy/*.env
