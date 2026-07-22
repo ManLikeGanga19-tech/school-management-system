@@ -106,6 +106,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
         # SMS platform management (pricing, balances) is SaaS-level, no tenant required
         if path.startswith("/api/v1/admin/sms"):
             return True
+        # Platform database backups are whole-DB (cross-tenant) SaaS operations
+        if path.startswith("/api/v1/admin/backups"):
+            return True
         # Support inbox for SaaS operators (cross-tenant) must not require tenant headers
         if path.startswith("/api/v1/support/admin"):
             return True

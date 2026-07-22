@@ -1889,3 +1889,74 @@ def admin_verify_receipt(
         ),
         message="Receipt verified.",
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 1 — Platform database backups (SaaS-admin only)
+#
+# The safety net for the ONE production system with live clients: a full
+# database + student-documents backup the platform admin can create and
+# download to any drive, plus a ledger of every backup taken. See
+# docs/ops/BACKUP_RESTORE_RUNBOOK.md.
+# ═══════════════════════════════════════════════════════════════════════════
+import os as _os
+from fastapi import Request as _Request
+from fastapi.responses import FileResponse as _FileResponse
+from starlette.background import BackgroundTask as _BackgroundTask
+import shutil as _shutil
+
+
+@router.get(
+    "/backups",
+    dependencies=[Depends(require_permission_saas("platform.backup.manage"))],
+)
+def list_platform_backups(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Ledger of every backup taken (who / when / outcome / size / checksum)."""
+    from app.api.v1.admin.backup_service import list_backups
+    return {"items": list_backups(db, limit=limit)}
+
+
+@router.post(
+    "/backups",
+    dependencies=[Depends(require_permission_saas("platform.backup.manage"))],
+)
+def create_and_download_backup(
+    request: _Request,
+    db: Session = Depends(get_db),
+):
+    """Create a full backup NOW and stream it to the browser for download.
+
+    Builds a single .tar (Postgres custom-format dump + student-documents
+    archive + manifest with SHA-256s), records a core.backups ledger row,
+    then streams the artifact with Content-Disposition: attachment. The
+    server-side temp copy is deleted after the response is sent — the
+    server never hoards PII-laden dumps; the durable copy is on YOUR drive.
+    """
+    from app.api.v1.admin.backup_service import create_backup_artifact, BackupError
+
+    actor_id = getattr(request.state, "user_id", None)
+    try:
+        result = create_backup_artifact(db, actor_user_id=actor_id, kind="MANUAL")
+    except BackupError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Backup failed: {e}")
+
+    work_dir = result["work_dir"]
+
+    def _cleanup() -> None:
+        _shutil.rmtree(work_dir, ignore_errors=True)
+
+    return _FileResponse(
+        path=result["path"],
+        media_type="application/x-tar",
+        filename=result["filename"],
+        headers={
+            "X-Backup-Id": result["backup_id"],
+            "X-Backup-Sha256": result["sha256"],
+        },
+        background=_BackgroundTask(_cleanup),
+    )

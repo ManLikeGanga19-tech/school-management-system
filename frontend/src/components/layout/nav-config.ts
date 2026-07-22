@@ -184,6 +184,7 @@ export const saasNav: AppNavItem[] = [
   { href: "/saas/rbac/permissions", label: "Permissions", icon: "ShieldCheck" },
   { href: "/saas/rbac/roles", label: "Roles", icon: "Layers" },
   { href: "/saas/audit", label: "Audit Logs", icon: "ScrollText" },
+  { href: "/saas/backups", label: "Backups", icon: "DatabaseBackup" },
   { href: "/saas/changelog", label: "Changelog", icon: "Megaphone" },
   { href: "/saas/verify-receipt", label: "Verify Receipt", icon: "ShieldCheck" },
   { href: "/saas/sms", label: "SMS Credits", icon: "MessageSquare" },
