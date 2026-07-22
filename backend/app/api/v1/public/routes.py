@@ -895,3 +895,50 @@ def resolve_guardian_portal(
         school_slug=str(tenant.slug),
         children=children,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 2 — Caddy on-demand TLS authorization
+#
+# Caddy calls this before minting a certificate for any hostname not in its
+# fixed list. We authorize:
+#   * the platform fixed hosts (apex / www / api / admin), and
+#   * <tenant>.<base> where <tenant> is an ACTIVE tenant slug.
+# Everything else is refused (404) so an attacker pointing a domain at the VPS
+# cannot trigger Let's Encrypt issuance (rate-limit / abuse protection).
+# Tenant-exempt via middleware (path starts with /api/v1/public).
+# ═══════════════════════════════════════════════════════════════════════════
+@router.get("/tls-authorize", include_in_schema=False)
+@limiter.limit("60/minute")
+def tls_authorize(
+    request: Request,
+    domain: str,
+    db: Session = Depends(get_db),
+):
+    d = (domain or "").strip().lower().rstrip(".")
+    if not d or len(d) > 253:
+        raise HTTPException(status_code=400, detail="invalid domain")
+
+    base = (settings.CORS_BASE_DOMAIN or "").strip().lower()
+    if not base:
+        # No base domain configured — refuse rather than issue for anything.
+        raise HTTPException(status_code=503, detail="TLS base domain not configured")
+
+    fixed = {base, f"www.{base}", f"api.{base}", f"admin.{base}"}
+    if d in fixed:
+        return {"authorized": True, "reason": "fixed_host"}
+
+    suffix = f".{base}"
+    if d.endswith(suffix):
+        sub = d[: -len(suffix)]
+        # single-label subdomain only; reserved labels are handled above
+        if sub and "." not in sub and sub not in {"www", "api", "admin"}:
+            exists = db.execute(
+                select(Tenant.id).where(
+                    and_(Tenant.slug == sub, Tenant.is_active.is_(True))
+                )
+            ).first()
+            if exists:
+                return {"authorized": True, "reason": "active_tenant"}
+
+    raise HTTPException(status_code=404, detail="host not authorized for TLS")

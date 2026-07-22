@@ -2,7 +2,10 @@
 
 services:
   postgres:
-    image: postgres:16.4-alpine
+    # Phase 2: standardized on PostgreSQL 18 (matches the prod server the
+    # backup client dumps + restores). Fresh install on the VPS — no in-place
+    # major upgrade; data is restored from a v18 logical dump at cutover.
+    image: postgres:18-alpine
     container_name: sms-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-school_manager_db}
@@ -84,6 +87,10 @@ services:
     command: ["gunicorn", "app.main:app", "--config", "/app/gunicorn.conf.py"]
     volumes:
       - backend_storage:/app/storage
+      # Phase 2: persist student-document uploads (birth certs, parent IDs,
+      # transfer letters). Without this volume they lived on the ephemeral
+      # container filesystem and were lost on every redeploy.
+      - backend_media:/app/media
     ports:
       - "${BACKEND_PORT:-127.0.0.1:8000}:8000"
     depends_on:
@@ -163,6 +170,42 @@ services:
       - frontend-net
       - backend-net
 
+  caddy:
+    # Phase 2: the public TLS edge. The ONLY service reachable from the
+    # internet (80/443). Terminates HTTPS for every hostname and proxies to
+    # the internal nginx (which routes by path). Automatic TLS for the fixed
+    # hosts; on-demand TLS for tenant subdomains, gated by the backend's
+    # /public/tls-authorize ask endpoint. Certs persist in caddy_data.
+    image: caddy:2-alpine
+    container_name: sms-caddy
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in production .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"     # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      nginx:
+        condition: service_started
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2019/config/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    cpus: "0.30"
+    mem_limit: "128m"
+    networks:
+      - frontend-net
+      - backend-net
+
   dozzle:
     image: amir20/dozzle:latest
     container_name: sms-dozzle
@@ -184,6 +227,9 @@ volumes:
   postgres_data:
   redis_data:
   backend_storage:
+  backend_media:      # Phase 2 — student documents (was unpersisted)
+  caddy_data:         # Phase 2 — issued TLS certs (survive restarts)
+  caddy_config:
 
 networks:
   backend-net:

@@ -65,10 +65,13 @@ COPY --from=builder /app/alambic /app/alambic
 COPY --from=builder /app/gunicorn.conf.py /app/gunicorn.conf.py
 COPY --from=builder /app/scripts /app/scripts
 
-# Create writable storage directory for tenant badge uploads and chown to appuser.
-# The volume declared in docker-compose.prod.yml mounts here so badges survive redeploys.
-RUN mkdir -p /app/storage/tenant_badges && \
-    chown -R appuser:appgroup /app/storage
+# Writable dirs for uploads, chowned so the non-root app user can write when
+# the docker-compose volumes mount over them:
+#   /app/storage  → tenant badges          (backend_storage volume)
+#   /app/media    → STUDENT DOCUMENTS       (backend_media volume) — Phase 2:
+#                   previously unpersisted, so uploads were lost on redeploy.
+RUN mkdir -p /app/storage/tenant_badges /app/media/student-docs && \
+    chown -R appuser:appgroup /app/storage /app/media
 
 EXPOSE 8000
 
