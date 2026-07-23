@@ -27,8 +27,14 @@ prefer evening or weekend).
 
 - [ ] VPS running the latest `main` deploy, all services healthy
 - [ ] `deploy/.env.production` and the `PRODUCTION_ENV_FILE` secret are in sync
-- [ ] Daraja sandbox `DARAJA_CONSUMER_KEY` / `DARAJA_CONSUMER_SECRET` filled,
-      **or** accept `DARAJA_SANDBOX_FALLBACK_TO_MOCK=true` (payments mock)
+- [ ] **`DARAJA_USE_MOCK=false` AND `DARAJA_SANDBOX_FALLBACK_TO_MOCK=false`**
+      in the live env — verify in the deployed `/opt/shulehq/.env`, not just
+      the template. With the fallback enabled, a failed Daraja call writes the
+      payment as `completed` with a `MOCK...` receipt: a subscription recorded
+      as PAID with no money received (same hazard for SMS top-ups). Student fee
+      collection is unaffected. A loud failure is always preferable.
+- [ ] Latest `main` deployed to the VPS (so the running stack matches the repo)
+- [ ] `PRODUCTION_ENV_FILE` secret re-pasted after any `.env.production` change
 - [ ] A fresh dashboard backup downloaded and stored on **two** external drives
 - [ ] This runbook open, plus the rollback table in §5
 
