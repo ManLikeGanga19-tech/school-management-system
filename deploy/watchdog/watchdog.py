@@ -47,6 +47,7 @@ TIMEOUT = int(os.environ.get("CHECK_TIMEOUT", "20"))
 def check_http(host: str, path: str, allowed: set[int], severity: str) -> dict:
     url = f"https://{host}{path}"
     started = time.monotonic()
+    mitigated = ""
     try:
         req = urllib.request.Request(url, method="GET", headers=_headers())
         # Do not follow redirects: a 307 to /login is a healthy answer.
@@ -55,11 +56,25 @@ def check_http(host: str, path: str, allowed: set[int], severity: str) -> dict:
             code = resp.status
     except urllib.error.HTTPError as e:
         code = e.code
+        mitigated = (e.headers.get("cf-mitigated") or "").strip().lower()
     except Exception as e:  # DNS failure, refused, TLS error, timeout
         return {"name": host + path, "kind": "http", "ok": False,
                 "severity": severity, "detail": f"unreachable: {type(e).__name__}: {e}",
                 "ms": int((time.monotonic() - started) * 1000)}
     ms = int((time.monotonic() - started) * 1000)
+
+    # A Cloudflare challenge is NOT an outage. It proves the edge is up and
+    # actively protecting the site; it says nothing bad about the origin. This
+    # happens whenever the bypass token is missing or misconfigured, and paging
+    # about it would train us to ignore the pager -- the failure mode that
+    # makes monitoring worthless. Origin health is covered by the /readyz and
+    # whoami checks, which are excluded from the challenge by design.
+    if code == 403 and mitigated == "challenge":
+        return {"name": host + path, "kind": "http", "ok": True, "severity": severity,
+                "detail": "403 challenged by Cloudflare (edge healthy; "
+                          "set WATCHDOG_TOKEN as a REPOSITORY secret to probe through it)",
+                "ms": ms}
+
     ok = code in allowed
     return {"name": host + path, "kind": "http", "ok": ok, "severity": severity,
             "detail": f"HTTP {code}" + ("" if ok else f" (expected one of {sorted(allowed)})"),
