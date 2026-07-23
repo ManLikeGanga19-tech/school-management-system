@@ -26,7 +26,7 @@ configure_mappers()
 # Configure logging as early as possible — before any module-level loggers fire.
 # Uses JSON in all non-dev environments (staging, ci, production).
 configure_logging(app_env=os.environ.get("APP_ENV", "dev"))
-from app.core.database import database_status, engine
+from app.core.database import database_status
 from app.core.middleware import TenantMiddleware
 from app.core.middleware_audit import AuditMiddleware
 from app.core.middleware_request_id import RequestIDMiddleware
@@ -209,9 +209,17 @@ def healthz():
 
 @app.get("/readyz")
 def readyz():
+    # database_status() already opens a connection and runs
+    # SELECT to_regclass('core.tenants') — a STRONGER readiness proof than
+    # SELECT 1, because it verifies the schema exists rather than merely that
+    # the socket is open. A second connection + round-trip here doubled the
+    # cost of the endpoint for no additional signal.
+    #
+    # This matters beyond throughput: /readyz backs the Docker healthcheck
+    # (every 15s, 5s timeout). A readiness probe that is the slowest endpoint
+    # in the system can time out under load and mark a healthy container
+    # unhealthy exactly when it is busiest.
     ready, reason = database_status()
     if not ready:
         raise HTTPException(status_code=503, detail=f"Database not ready: {reason}")
-    with engine.connect() as conn:
-        conn.exec_driver_sql("SELECT 1")
     return {"status": "ready"}
