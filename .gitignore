@@ -34,4 +34,9 @@ shulehq_ci_key
 shulehq_ci_key.pub
 *.pem
 deploy/.env.production
+# The TEMPLATE is placeholders only and must be committed -- it is the sole
+# record of why these values are what they are (JWT carry-over, the Daraja
+# mock hazard, Turnstile rollout). The `.env.*` rule above was silently
+# swallowing it, so the documentation existed on one laptop and nowhere else.
+!deploy/.env.production.example
 deploy/*.env
