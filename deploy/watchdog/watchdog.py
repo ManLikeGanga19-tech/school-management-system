@@ -114,25 +114,36 @@ def check_tenant_auth(host: str) -> dict:
             "severity": "critical", "detail": detail, "ms": ms}
 
 
-def check_tls(host: str) -> dict:
-    """Days remaining on the served certificate."""
+def check_tls(host: str, connect_to: str | None = None, label: str | None = None) -> dict:
+    """Days remaining on a served certificate.
+
+    `connect_to` lets us bypass DNS and speak to a specific IP while still
+    sending `host` as SNI. That matters once Cloudflare proxies the domain:
+    a normal lookup then returns CLOUDFLARE's edge certificate, which
+    Cloudflare renews itself and which therefore never alerts. The certificate
+    that can actually break is Caddy's on the ORIGIN — under SSL mode
+    "Full (strict)" an expired origin cert makes Cloudflare refuse the
+    connection and the whole site returns error 526.
+    """
+    name = label or f"tls:{host}"
+    target = connect_to or host
     try:
         ctx = ssl.create_default_context()
-        with socket.create_connection((host, 443), timeout=TIMEOUT) as sock:
+        with socket.create_connection((target, 443), timeout=TIMEOUT) as sock:
             with ctx.wrap_socket(sock, server_hostname=host) as ssock:
                 cert = ssock.getpeercert()
         not_after = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z").replace(
             tzinfo=timezone.utc)
         days = (not_after - datetime.now(timezone.utc)).days
     except Exception as e:
-        return {"name": f"tls:{host}", "kind": "tls", "ok": False, "severity": "critical",
+        return {"name": name, "kind": "tls", "ok": False, "severity": "critical",
                 "detail": f"could not read certificate: {type(e).__name__}: {e}", "days": None}
     # Expired is critical; approaching expiry is a warning worth acting on early.
     if days < 0:
-        return {"name": f"tls:{host}", "kind": "tls", "ok": False, "severity": "critical",
+        return {"name": name, "kind": "tls", "ok": False, "severity": "critical",
                 "detail": f"CERTIFICATE EXPIRED {abs(days)}d ago", "days": days}
     ok = days >= TLS_WARN_DAYS
-    return {"name": f"tls:{host}", "kind": "tls", "ok": ok, "severity": "warning",
+    return {"name": name, "kind": "tls", "ok": ok, "severity": "warning",
             "detail": f"expires in {days}d ({not_after:%Y-%m-%d})", "days": days}
 
 
@@ -146,7 +157,13 @@ def main() -> int:
     # GET can establish while a wildcard cert answers every hostname.
     results.append(check_tenant_auth(os.environ.get("PROBE_TENANT_HOST",
                                                     "novel-school.shulehq.co.ke")))
-    results.append(check_tls("novel-school.shulehq.co.ke"))
+    results.append(check_tls("novel-school.shulehq.co.ke", label="tls:edge"))
+    # The one that can actually break: Caddy's cert on the origin. Once
+    # Cloudflare proxies the zone this is invisible to a normal lookup, yet an
+    # expired origin cert under "Full (strict)" takes the entire site down (526).
+    origin = os.environ.get("ORIGIN_IP", "94.72.102.13")
+    results.append(check_tls("novel-school.shulehq.co.ke", connect_to=origin,
+                             label=f"tls:origin({origin})"))
 
     failed = [r for r in results if not r["ok"]]
     critical = [r for r in failed if r["severity"] == "critical"]
