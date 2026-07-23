@@ -14,7 +14,13 @@ services:
     ports:
       - "${POSTGRES_PORT:-127.0.0.1:5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL 18+ Docker images store data in major-version-specific
+      # subdirectories (e.g. /var/lib/postgresql/18/docker) so that
+      # `pg_upgrade --link` works without crossing a mount boundary. Mounting
+      # at the pre-18 path (/var/lib/postgresql/data) makes the image treat the
+      # volume as unused and refuse to start. Mount the PARENT directory.
+      # See https://github.com/docker-library/postgres/pull/1259
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
