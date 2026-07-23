@@ -62,6 +62,36 @@ def _tenant_or_ip_key(request: Request) -> str:
     tenant_id = getattr(request.state, "tenant_id", None)
     if tenant_id:
         return f"tenant:{tenant_id}"
+    return _client_ip(request)
+
+
+def _client_ip(request: Request) -> str:
+    """The real client IP, not the last proxy in the chain.
+
+    ``get_remote_address`` returns the immediate TCP peer. Behind
+    Cloudflare -> Caddy -> nginx -> backend that is always nginx's container
+    address, so EVERY unauthenticated request shared a single rate-limit
+    bucket. Two consequences, both observed in production:
+
+      * six teachers logging in within a minute -> the sixth got 429, because
+        one bucket was shared by every user of every school;
+      * an attacker sending 5 requests/minute from anywhere could exhaust that
+        one bucket and lock all schools out of logging in -- the limiter meant
+        to stop brute force became a denial-of-service vector.
+
+    CF-Connecting-IP is set by Cloudflare and cannot be forged by a client
+    *through* Cloudflare. It is only trustworthy while the origin is not
+    reachable directly, so the origin should be firewalled to Cloudflare's
+    ranges; until then this is still strictly better than keying every user to
+    one proxy address. X-Forwarded-For is the fallback for non-Cloudflare
+    paths, taking the left-most entry (the original client).
+    """
+    cf = request.headers.get("cf-connecting-ip")
+    if cf and cf.strip():
+        return cf.strip()
+    xff = request.headers.get("x-forwarded-for")
+    if xff and xff.strip():
+        return xff.split(",")[0].strip()
     return get_remote_address(request)
 
 

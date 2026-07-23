@@ -26,7 +26,17 @@
 	reverse_proxy nginx:80 {
 		header_up Host {host}
 		header_up X-Forwarded-Proto {scheme}
-		header_up X-Forwarded-For {remote_host}
+		# X-Forwarded-For is deliberately NOT set to {remote_host}: that
+		# REPLACES the incoming chain, so once Cloudflare fronts the origin
+		# every request arrived downstream looking like it came from a
+		# Cloudflare edge address. The real client was unrecoverable, which
+		# silently collapsed all unauthenticated rate limiting into a single
+		# shared bucket. Caddy appends the peer to the existing chain by
+		# default, which preserves the original client as the left-most entry.
+		#
+		# CF-Connecting-IP passes through untouched (Caddy forwards unknown
+		# headers), and the application prefers it. X-Real-IP stays the direct
+		# peer for nginx's own logging.
 		header_up X-Real-IP {remote_host}
 	}
 	# Baseline security headers (HSTS: 1 year, preload-eligible).
