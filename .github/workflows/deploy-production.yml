@@ -450,12 +450,22 @@ jobs:
             rm -f .release-images.tgz
             grep -E '^(NGINX_HTTP_PORT|NEXT_PUBLIC_API_BASE_URL|BACKEND_BASE_URL|COOKIE_SECURE)=' .env
             docker compose --env-file .env -f docker-compose.prod.yml up -d --wait postgres redis
-            POSTGRES_USER_VALUE=\${POSTGRES_USER:-postgres}
-            POSTGRES_PASSWORD_VALUE=\${POSTGRES_PASSWORD:-postgres}
-            POSTGRES_USER_SQL=\$(printf '%s' \"\${POSTGRES_USER_VALUE}\" | sed 's/\"/\"\"/g')
-            POSTGRES_PASSWORD_SQL=\$(printf '%s' \"\${POSTGRES_PASSWORD_VALUE}\" | sed \"s/'/''/g\")
-            docker exec -u postgres sms-postgres psql -v ON_ERROR_STOP=1 --dbname postgres \
-              -c \"ALTER ROLE \\\"\${POSTGRES_USER_SQL}\\\" WITH PASSWORD '\${POSTGRES_PASSWORD_SQL}';\"
+            # Re-sync the superuser password with .env. POSTGRES_PASSWORD only
+            # takes effect at first init, so without this a rotated password in
+            # .env would be silently ignored by an existing volume.
+            # Read the values FROM the deployed .env -- they are not exported
+            # into this ssh shell -- and connect as that role explicitly: with a
+            # custom POSTGRES_USER there is no \"postgres\" role to fall back to.
+            POSTGRES_USER_VALUE=\$(grep -E '^POSTGRES_USER=' .env | tail -n1 | cut -d= -f2-)
+            POSTGRES_PASSWORD_VALUE=\$(grep -E '^POSTGRES_PASSWORD=' .env | tail -n1 | cut -d= -f2-)
+            POSTGRES_USER_VALUE=\${POSTGRES_USER_VALUE:-postgres}
+            if [ -n \"\${POSTGRES_PASSWORD_VALUE}\" ]; then
+              POSTGRES_USER_SQL=\$(printf '%s' \"\${POSTGRES_USER_VALUE}\" | sed 's/\"/\"\"/g')
+              POSTGRES_PASSWORD_SQL=\$(printf '%s' \"\${POSTGRES_PASSWORD_VALUE}\" | sed \"s/'/''/g\")
+              docker exec -u postgres sms-postgres psql -v ON_ERROR_STOP=1 \
+                -U \"\${POSTGRES_USER_VALUE}\" --dbname postgres \
+                -c \"ALTER ROLE \\\"\${POSTGRES_USER_SQL}\\\" WITH PASSWORD '\${POSTGRES_PASSWORD_SQL}';\"
+            fi
             docker compose --env-file .env -f docker-compose.prod.yml run --rm --no-deps db-migrate
             docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
             docker compose --env-file .env -f docker-compose.prod.yml ps
