@@ -218,12 +218,18 @@ services:
       - backend-net
 
   dozzle:
-    image: amir20/dozzle:latest
+    # PINNED: ":latest" floated to v10, which dropped DOZZLE_USERNAME/PASSWORD
+    # in favour of a users.yaml file, and the container crash-looped with
+    # "No users.yaml found" -- a third-party release changing production
+    # behaviour on its own. Production pins versions.
+    image: amir20/dozzle:v10.6.11
     container_name: sms-dozzle
     environment:
-      DOZZLE_AUTH_PROVIDER: simple
-      DOZZLE_USERNAME: ${DOZZLE_USERNAME:-admin}
-      DOZZLE_PASSWORD: ${DOZZLE_PASSWORD:-changeme}
+      # Auth is intentionally off: the port is bound to 127.0.0.1 only, so
+      # reaching this requires SSH to the box -- and anyone with SSH is in the
+      # docker group, which is already root-equivalent. A second password here
+      # guards nothing. Never expose this port publicly.
+      DOZZLE_AUTH_PROVIDER: none
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
