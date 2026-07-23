@@ -293,81 +293,9 @@ jobs:
             echo ""
             echo "Staging deploy complete: $IMAGE_TAG"
 
-  deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: docker-images
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment:
-      name: production
-      url: https://shulehq.co.ke
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Copy compose file to production droplet
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.PRODUCTION_SSH_HOST }}
-          username: ${{ secrets.PRODUCTION_SSH_USER }}
-          key: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
-          source: docker-compose.prod.yml
-          target: ${{ secrets.PRODUCTION_DEPLOY_PATH }}
-
-      - name: Deploy on production droplet
-        uses: appleboy/ssh-action@v1
-        env:
-          IMAGE_TAG: ${{ needs.docker-images.outputs.short_sha }}
-          GHCR_USER: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
-          DEPLOY_PATH: ${{ secrets.PRODUCTION_DEPLOY_PATH }}
-        with:
-          host: ${{ secrets.PRODUCTION_SSH_HOST }}
-          username: ${{ secrets.PRODUCTION_SSH_USER }}
-          key: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
-          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN,ENV_FILE,DEPLOY_PATH
-          script: |
-            set -euo pipefail
-            DEPLOY_DIR="$DEPLOY_PATH"
-
-            # Write .env atomically
-            printf '%s\n' "$ENV_FILE"        > "$DEPLOY_DIR/.env.tmp"
-            echo "IMAGE_TAG=$IMAGE_TAG"     >> "$DEPLOY_DIR/.env.tmp"
-            mv "$DEPLOY_DIR/.env.tmp" "$DEPLOY_DIR/.env"
-
-            # Pull new images from GHCR
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-            IMAGE_TAG="$IMAGE_TAG" docker compose \
-              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
-              --env-file "$DEPLOY_DIR/.env" \
-              pull
-
-            # Ensure postgres and redis are up before running migrations
-            IMAGE_TAG="$IMAGE_TAG" docker compose \
-              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
-              --env-file "$DEPLOY_DIR/.env" \
-              up -d --wait postgres redis
-
-            # Run migrations in the foreground so output is visible in CI logs.
-            # If this step fails the exact Alembic/SQL error will appear above.
-            echo "=== Running database migrations ==="
-            IMAGE_TAG="$IMAGE_TAG" docker compose \
-              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
-              --env-file "$DEPLOY_DIR/.env" \
-              up db-migrate
-            echo "=== Migrations complete ==="
-
-            # Start (or update) all remaining services.
-            # db-migrate already exited 0 so backend's depends_on is satisfied.
-            IMAGE_TAG="$IMAGE_TAG" docker compose \
-              -f "$DEPLOY_DIR/docker-compose.prod.yml" \
-              --env-file "$DEPLOY_DIR/.env" \
-              up -d --remove-orphans
-
-            # Smoke test
-            echo "Waiting for services to stabilise..."
-            sleep 20
-            curl --fail --silent --show-error http://127.0.0.1:8081/nginx-healthz
-            echo ""
-            echo "Production deploy complete: $IMAGE_TAG"
+  # NOTE: production deployment lives in .github/workflows/deploy-production.yml,
+  # which runs on successful completion of this workflow (workflow_run) on main.
+  # The inline deploy job that used to live here was removed: it duplicated that
+  # workflow (racing it on the same host), pulled private GHCR images ON the VPS
+  # instead of shipping them from CI, and never shipped the Caddyfile -- so the
+  # TLS edge would start with no configuration. One deploy path only.
