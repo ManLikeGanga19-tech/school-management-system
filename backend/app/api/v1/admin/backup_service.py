@@ -95,6 +95,18 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+# Ledger column widths (core.backups). Metadata is clamped to these before
+# it is written: a successful backup must never be reported as a failure
+# because a cosmetic string outgrew its column.
+_MAX_PG_DUMP_VERSION = 120
+_MAX_ALEMBIC_HEAD = 64
+
+
+def _clamp(value: str, limit: int) -> str:
+    value = (value or "").strip()
+    return value[:limit]
+
+
 def _current_alembic_head(db: Session) -> str:
     try:
         return str(db.execute(sa.text("SELECT version_num FROM alembic_version")).scalar() or "")
@@ -209,7 +221,8 @@ def create_backup_artifact(
             pg_ver = v.stdout.strip()
         except Exception:
             pass
-        alembic_head = _current_alembic_head(db)
+        pg_ver = _clamp(pg_ver, _MAX_PG_DUMP_VERSION)
+        alembic_head = _clamp(_current_alembic_head(db), _MAX_ALEMBIC_HEAD)
         manifest = {
             "product": "ShuleHQ",
             "artifact_version": 1,

@@ -33,6 +33,6 @@ class Backup(Base):
     db_table_data_count = Column(Integer, nullable=True)
     media_file_count = Column(Integer, nullable=True)
     alembic_head = Column(String(64), nullable=True)
-    pg_dump_version = Column(String(40), nullable=True)
+    pg_dump_version = Column(String(120), nullable=True)
     duration_ms = Column(Integer, nullable=True)
     error = Column(Text, nullable=True)
