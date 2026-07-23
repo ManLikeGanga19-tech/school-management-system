@@ -1,0 +1,123 @@
+# External watchdog — runs on GitHub's infrastructure, NOT the production VPS.
+#
+# This placement is the whole point: a monitor hosted on the machine it watches
+# is down exactly when it matters. Do not move this onto the VPS.
+name: Watchdog
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # uptime + TLS
+    - cron: "0 7 * * *"      # daily deep check (07:00 UTC = 10:00 EAT)
+  workflow_dispatch:
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  uptime:
+    name: Uptime and TLS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run checks
+        id: checks
+        run: python3 deploy/watchdog/watchdog.py --out status.json
+
+      - name: Alert on failure
+        if: failure()
+        env:
+          # Channels light up purely by the presence of these secrets —
+          # no code change needed to add one later.
+          NTFY_TOPIC:    ${{ secrets.NTFY_TOPIC }}
+          NTFY_URL:      ${{ secrets.NTFY_URL }}
+          AT_USERNAME:   ${{ secrets.AT_USERNAME }}
+          AT_API_KEY:    ${{ secrets.AT_API_KEY }}
+          AT_VOICE_FROM: ${{ secrets.AT_VOICE_FROM }}
+          AT_SANDBOX:    ${{ secrets.AT_SANDBOX }}
+          ALERT_PHONE:   ${{ secrets.ALERT_PHONE }}
+          ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
+        run: |
+          bash deploy/watchdog/notify.sh critical \
+            "ShuleHQ is DOWN" \
+            "${WATCHDOG_SUMMARY:-one or more critical checks failed} — https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Publish status document
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: status
+          path: status.json
+          retention-days: 7
+
+  deep:
+    name: Backup freshness and host health
+    runs-on: ubuntu-latest
+    # Only on the daily cron or a manual run — not every 10 minutes.
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 7 * * *'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}" > ~/.ssh/id
+          chmod 600 ~/.ssh/id
+          ssh-keyscan -H "${{ secrets.PRODUCTION_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Check backup freshness, disk and services
+        id: deep
+        env:
+          H: ${{ secrets.PRODUCTION_SSH_HOST }}
+          U: ${{ secrets.PRODUCTION_SSH_USER }}
+        run: |
+          set -uo pipefail
+          OUT=$(ssh -i ~/.ssh/id -o IdentitiesOnly=yes -o ConnectTimeout=20 -o BatchMode=yes \
+            "${U}@${H}" '
+              newest=$(ls -1t /opt/shulehq/backups/*.tar 2>/dev/null | head -1)
+              if [ -z "$newest" ]; then echo "BACKUP=none"; else
+                age=$(( ( $(date +%s) - $(stat -c %Y "$newest") ) / 3600 ))
+                echo "BACKUP=$(basename $newest) AGE_H=${age}"
+              fi
+              echo "DISK=$(df -P / | awk "NR==2{print \$5}" | tr -d %)"
+              echo "MEM=$(free | awk "/Mem:/{printf \"%d\", \$3*100/\$2}")"
+              echo "UNHEALTHY=$(docker ps --filter health=unhealthy --format "{{.Names}}" | tr "\n" "," )"
+              echo "RESTARTING=$(docker ps --filter status=restarting --format "{{.Names}}" | tr "\n" "," )"
+            ' 2>&1) || { echo "SSH_FAILED"; echo "problems=VPS unreachable over SSH" >> "$GITHUB_OUTPUT"; exit 1; }
+
+          echo "$OUT"
+          AGE=$(sed -n 's/.*AGE_H=\([0-9]*\).*/\1/p' <<<"$OUT")
+          DISK=$(sed -n 's/^DISK=\([0-9]*\)/\1/p' <<<"$OUT")
+          UNHEALTHY=$(sed -n 's/^UNHEALTHY=\(.*\)/\1/p' <<<"$OUT" | tr -d ',')
+          RESTARTING=$(sed -n 's/^RESTARTING=\(.*\)/\1/p' <<<"$OUT" | tr -d ',')
+
+          P=""
+          grep -q 'BACKUP=none' <<<"$OUT" && P="${P}no backup artifacts on the VPS; "
+          [ -n "${AGE:-}" ] && [ "${AGE}" -gt 30 ] && P="${P}newest backup is ${AGE}h old (expected <30h); "
+          [ -n "${DISK:-}" ] && [ "${DISK}" -gt 80 ] && P="${P}disk ${DISK}% full; "
+          [ -n "${UNHEALTHY}" ] && P="${P}unhealthy: ${UNHEALTHY}; "
+          [ -n "${RESTARTING}" ] && P="${P}restarting: ${RESTARTING}; "
+
+          if [ -n "$P" ]; then echo "problems=$P" >> "$GITHUB_OUTPUT"; exit 1; fi
+          echo "All deep checks passed."
+
+      - name: Alert on failure
+        if: failure()
+        env:
+          NTFY_TOPIC:    ${{ secrets.NTFY_TOPIC }}
+          NTFY_URL:      ${{ secrets.NTFY_URL }}
+          AT_USERNAME:   ${{ secrets.AT_USERNAME }}
+          AT_API_KEY:    ${{ secrets.AT_API_KEY }}
+          AT_VOICE_FROM: ${{ secrets.AT_VOICE_FROM }}
+          AT_SANDBOX:    ${{ secrets.AT_SANDBOX }}
+          ALERT_PHONE:   ${{ secrets.ALERT_PHONE }}
+          ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
+        run: |
+          bash deploy/watchdog/notify.sh warning \
+            "ShuleHQ health warning" \
+            "${{ steps.deep.outputs.problems || 'VPS unreachable over SSH' }}"
