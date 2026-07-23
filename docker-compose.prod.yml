@@ -169,6 +169,10 @@ services:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
       BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://nginx/api/v1}
       BACKEND_FETCH_TIMEOUT_MS: "${BACKEND_FETCH_TIMEOUT_MS:-20000}"
+      # Read by the login page (a server component) at RUNTIME and passed to
+      # the client as a prop. Deliberately not NEXT_PUBLIC_*, which Next.js
+      # inlines at BUILD time and would require a full CI rebuild to change.
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
       AUTH_LOGIN_TIMEOUT_MS: "${AUTH_LOGIN_TIMEOUT_MS:-60000}"
     ports:
       - "${FRONTEND_PORT:-127.0.0.1:3000}:3000"

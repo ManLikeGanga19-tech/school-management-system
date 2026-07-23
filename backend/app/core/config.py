@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # Set to "shulehq.co.ke" in production to allow any https://<slug>.shulehq.co.ke
     # origin without enumerating every school subdomain.  Leave empty in dev.
     CORS_BASE_DOMAIN: str = ""
+
+    # Cloudflare Turnstile on the login endpoints. Empty = verification is
+    # skipped entirely (fail-open), so enabling and disabling is one env var
+    # rather than a code rollback.
+    TURNSTILE_SECRET_KEY: str = ""
     PUBLIC_OAUTH_SHARED_SECRET: str = ""
 
     # Conservative defaults for local/dev and safe production baseline.

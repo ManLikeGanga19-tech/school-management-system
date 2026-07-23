@@ -31,7 +31,7 @@ export default async function LoginPage() {
           </div>
 
           <div className="flex items-center justify-center">
-            <LoginForm initialTenantSlug={tenantSlug} />
+            <LoginForm initialTenantSlug={tenantSlug} turnstileSiteKey={process.env.TURNSTILE_SITE_KEY} />
           </div>
         </div>
       </div>

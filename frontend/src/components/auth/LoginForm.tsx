@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 
 import { storage, keys } from "@/lib/storage"; // ✅ add this
+import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 
 type LoginValues = {
   email: string;
@@ -18,6 +19,9 @@ type LoginValues = {
 
 type LoginFormProps = {
   initialTenantSlug?: string;
+  /** Cloudflare Turnstile site key, passed from the server component so it can
+   *  change without a rebuild. Absent = widget renders nothing. */
+  turnstileSiteKey?: string;
 };
 
 function getErrorMessage(data: any) {
@@ -27,7 +31,8 @@ function getErrorMessage(data: any) {
   return "Login failed";
 }
 
-export function LoginForm({ initialTenantSlug }: LoginFormProps) {
+export function LoginForm({ initialTenantSlug, turnstileSiteKey }: LoginFormProps) {
+  const [turnstileToken, setTurnstileToken] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
   const form = useForm<LoginValues>({
@@ -50,6 +55,7 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
         tenant_slug: (initialTenantSlug || "").trim().toLowerCase(),
         email: values.email.trim().toLowerCase(),
         password: values.password,
+        turnstile_token: turnstileToken || undefined,
       }),
     });
 
@@ -122,6 +128,12 @@ export function LoginForm({ initialTenantSlug }: LoginFormProps) {
               {...form.register("password", { required: true })}
             />
           </div>
+
+          {/* Renders nothing until a site key is configured server-side, so the
+              form is unchanged while Turnstile is rolled out. In managed mode
+              it stays invisible for legitimate users and only becomes
+              interactive when Cloudflare's scoring calls for it. */}
+          <TurnstileWidget siteKey={turnstileSiteKey} onToken={setTurnstileToken} />
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Signing in..." : "Sign in"}

@@ -29,7 +29,8 @@ function resolveLoginTimeoutMs() {
 async function requestTenantLogin(
   tenant_slug: string,
   email: string,
-  password: string
+  password: string,
+  turnstile_token?: string
 ): Promise<Response> {
   const timeoutMs = resolveLoginTimeoutMs();
   const maxAttempts = 2;
@@ -41,7 +42,10 @@ async function requestTenantLogin(
     try {
       return await backendFetch("/api/v1/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        // The Turnstile token must be forwarded: this BFF route is the only
+        // thing between the browser and the API, so dropping it here would
+        // silently defeat the verification once it is enforced.
+        body: JSON.stringify({ email, password, turnstile_token }),
         headers: { "x-tenant-slug": tenant_slug },
         signal: controller.signal,
       });
@@ -73,6 +77,7 @@ export async function POST(req: Request) {
     (portal.kind === "tenant" ? portal.tenantSlug || undefined : undefined);
   const email = (body?.email as string | undefined)?.trim().toLowerCase();
   const password = (body?.password as string | undefined) || "";
+  const turnstile_token = (body?.turnstile_token as string | undefined) || undefined;
 
   if (!tenant_slug) {
     return NextResponse.json(
@@ -90,7 +95,7 @@ export async function POST(req: Request) {
 
   let res;
   try {
-    res = await requestTenantLogin(tenant_slug, email, password);
+    res = await requestTenantLogin(tenant_slug, email, password, turnstile_token);
   } catch (err: any) {
     if (err && err.name === "AbortError") {
       return NextResponse.json({ detail: "Login request timed out" }, { status: 504 });

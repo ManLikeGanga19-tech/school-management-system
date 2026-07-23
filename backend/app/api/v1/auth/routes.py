@@ -17,6 +17,8 @@ from app.core.dependencies import (
 from app.core.rate_limit import limiter
 from app.core.session_cache import blacklist_token, invalidate_session
 from app.utils.tokens import decode_token
+from app.core import turnstile
+from app.core.rate_limit import _client_ip
 
 router = APIRouter()
 
@@ -61,6 +63,17 @@ def login(
     db: Session = Depends(get_db),
     tenant=Depends(get_tenant),
 ):
+    # Turnstile guards this endpoint because the Cloudflare WAF challenge
+    # deliberately excludes /api/* (so M-Pesa callbacks are never challenged),
+    # which leaves login — the credential-stuffing target — unprotected at the
+    # edge. No-ops entirely when TURNSTILE_SECRET_KEY is unset.
+    _ts = turnstile.verify(payload.turnstile_token, _client_ip(request))
+    if not _ts.ok:
+        raise HTTPException(
+            status_code=403,
+            detail="Human verification failed. Please refresh the page and try again.",
+        )
+
     try:
         access, refresh = service.login(
             db,
