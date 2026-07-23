@@ -34,6 +34,12 @@ DEFAULT_TARGETS = [
     ("admin.shulehq.co.ke", "/", {200, 301, 302, 307, 308}, "warning"),
 ]
 
+# Secret header so Cloudflare's WAF can BYPASS the challenge for this monitor.
+# Without it, a Managed Challenge on browser paths makes every probe fail and
+# the watchdog pages about an outage that is not happening. Not spoofable
+# without the token, unlike matching on User-Agent.
+WATCHDOG_TOKEN = os.environ.get("WATCHDOG_TOKEN", "")
+
 TLS_WARN_DAYS = int(os.environ.get("TLS_WARN_DAYS", "21"))
 TIMEOUT = int(os.environ.get("CHECK_TIMEOUT", "20"))
 
@@ -42,8 +48,7 @@ def check_http(host: str, path: str, allowed: set[int], severity: str) -> dict:
     url = f"https://{host}{path}"
     started = time.monotonic()
     try:
-        req = urllib.request.Request(url, method="GET",
-                                     headers={"User-Agent": "shulehq-watchdog/1"})
+        req = urllib.request.Request(url, method="GET", headers=_headers())
         # Do not follow redirects: a 307 to /login is a healthy answer.
         opener = urllib.request.build_opener(_NoRedirect)
         with opener.open(req, timeout=TIMEOUT) as resp:
@@ -59,6 +64,13 @@ def check_http(host: str, path: str, allowed: set[int], severity: str) -> dict:
     return {"name": host + path, "kind": "http", "ok": ok, "severity": severity,
             "detail": f"HTTP {code}" + ("" if ok else f" (expected one of {sorted(allowed)})"),
             "ms": ms}
+
+
+def _headers() -> dict[str, str]:
+    h = {"User-Agent": "shulehq-watchdog/1"}
+    if WATCHDOG_TOKEN:
+        h["X-Watchdog-Token"] = WATCHDOG_TOKEN
+    return h
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -92,8 +104,7 @@ def check_tenant_auth(host: str) -> dict:
     try:
         req = urllib.request.Request(
             url, data=body, method="POST",
-            headers={"Content-Type": "application/json",
-                     "User-Agent": "shulehq-watchdog/1"})
+            headers={**_headers(), "Content-Type": "application/json"})
         urllib.request.build_opener(_NoRedirect).open(req, timeout=TIMEOUT)
         code = 200  # a 200 here would mean our bogus password was accepted
     except urllib.error.HTTPError as e:

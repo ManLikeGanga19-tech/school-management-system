@@ -51,6 +51,11 @@ jobs:
       - name: Run checks
         if: ${{ !inputs.test_alert }}
         id: checks
+        env:
+          # Lets Cloudflare's WAF bypass the Managed Challenge for this monitor.
+          # Without it the browser-path probes get challenged and the watchdog
+          # reports an outage that is not happening.
+          WATCHDOG_TOKEN: ${{ secrets.WATCHDOG_TOKEN }}
         run: python3 deploy/watchdog/watchdog.py --out status.json
 
       - name: Alert on failure
