@@ -79,34 +79,30 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def check_tenant_auth(host: str) -> dict:
-    """Deep end-to-end check: Caddy -> nginx -> backend -> Postgres -> argon2.
+    """Deep end-to-end check: Caddy -> nginx -> backend -> Postgres tenant lookup.
 
-    A deliberately wrong password against a REAL tenant must return 401
-    ("Invalid credentials"). This is the only check that proves the database
-    is actually being read:
+    Probes /tenants/whoami, which resolves the tenant from the subdomain via
+    the database before rejecting the unauthenticated request:
 
-        401  tenant resolved from the DB, user table queried, hash compared  -> healthy
-        400  "Tenant not resolved" — DB or tenant lookup is broken
+        401  "Missing access token" — tenant WAS resolved from the DB -> healthy
+        400  "Tenant not resolved"  — DB or tenant lookup is broken
         5xx  backend broken
 
-    A plain GET cannot distinguish these: the wildcard DNS + wildcard cert mean
-    ANY hostname returns a healthy-looking 307, even a tenant that
-    does not exist.
+    A plain GET cannot distinguish these: wildcard DNS plus a wildcard cert mean
+    ANY hostname returns a healthy-looking 307, even a tenant that does not
+    exist.
+
+    Deliberately NOT the login endpoint. Login is protected by Turnstile, and
+    exempting the monitor would mean punching a bypass through the exact
+    control that stops credential stuffing. whoami yields the same 401/400
+    signal with nothing to bypass.
     """
-    url = f"https://{host}/api/v1/auth/login"
-    # NOTE: the address must pass the API's email validation, otherwise the
-    # request is rejected with 422 before auth is ever exercised and the check
-    # proves nothing. A reserved-for-testing domain (RFC 2606) is used, not a
-    # bogus TLD.
-    body = json.dumps({"email": "watchdog-probe@example.com",
-                       "password": "not-a-real-password"}).encode()
+    url = f"https://{host}/api/v1/tenants/whoami"
     started = time.monotonic()
     try:
-        req = urllib.request.Request(
-            url, data=body, method="POST",
-            headers={**_headers(), "Content-Type": "application/json"})
+        req = urllib.request.Request(url, method="GET", headers=_headers())
         urllib.request.build_opener(_NoRedirect).open(req, timeout=TIMEOUT)
-        code = 200  # a 200 here would mean our bogus password was accepted
+        code = 200  # unauthenticated access should never succeed
     except urllib.error.HTTPError as e:
         code = e.code
     except Exception as e:
@@ -116,10 +112,10 @@ def check_tenant_auth(host: str) -> dict:
     ms = int((time.monotonic() - started) * 1000)
     if code == 401:
         return {"name": f"auth:{host}", "kind": "auth", "ok": True, "severity": "critical",
-                "detail": "401 — tenant resolved, DB reachable, auth working", "ms": ms}
+                "detail": "401 — tenant resolved from DB, auth enforced", "ms": ms}
     detail = {
         400: "400 — TENANT NOT RESOLVED: database or tenant lookup is broken",
-        200: "200 — a bogus password was ACCEPTED: authentication is broken",
+        200: "200 — unauthenticated access SUCCEEDED: auth is not being enforced",
     }.get(code, f"HTTP {code} (expected 401)")
     return {"name": f"auth:{host}", "kind": "auth", "ok": False,
             "severity": "critical", "detail": detail, "ms": ms}
