@@ -9,6 +9,11 @@ on:
     - cron: "*/10 * * * *"   # uptime + TLS
     - cron: "0 7 * * *"      # daily deep check (07:00 UTC = 10:00 EAT)
   workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Send a test page instead of checking (verifies the alert path end-to-end)"
+        type: boolean
+        default: false
 
 concurrency:
   group: watchdog
@@ -24,7 +29,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Alerting you cannot test is alerting you cannot trust. This proves the
+      # whole path -- GitHub secret -> notify.sh -> your phone -- on demand,
+      # without waiting for a real outage.
+      - name: Send test page
+        if: inputs.test_alert
+        env:
+          NTFY_TOPIC:    ${{ secrets.NTFY_TOPIC }}
+          NTFY_URL:      ${{ secrets.NTFY_URL }}
+          AT_USERNAME:   ${{ secrets.AT_USERNAME }}
+          AT_API_KEY:    ${{ secrets.AT_API_KEY }}
+          AT_VOICE_FROM: ${{ secrets.AT_VOICE_FROM }}
+          AT_SANDBOX:    ${{ secrets.AT_SANDBOX }}
+          ALERT_PHONE:   ${{ secrets.ALERT_PHONE }}
+          ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
+        run: |
+          bash deploy/watchdog/notify.sh critical \
+            "TEST page from the watchdog" \
+            "Triggered manually from GitHub Actions. Nothing is down — this only verifies the alert path."
+
       - name: Run checks
+        if: ${{ !inputs.test_alert }}
         id: checks
         run: python3 deploy/watchdog/watchdog.py --out status.json
 
@@ -47,7 +72,9 @@ jobs:
             "${WATCHDOG_SUMMARY:-one or more critical checks failed} — https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Publish status document
-        if: always()
+        # always() so it uploads even when checks fail -- but not on a
+        # test-only run, where no status document is produced.
+        if: ${{ always() && !inputs.test_alert }}
         uses: actions/upload-artifact@v4
         with:
           name: status
