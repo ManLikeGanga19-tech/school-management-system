@@ -205,6 +205,18 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if not tenant.is_active:
             return JSONResponse({"detail": "Tenant is inactive."}, status_code=403)
 
+        # Read-only demo tenant: the credentials are published on the marketing
+        # site, so nothing but signing in may mutate state. Block every write
+        # method; the only exception is the login endpoint itself (logout and
+        # token refresh are already handled as public paths above).
+        if getattr(tenant, "is_demo", False):
+            if request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"} \
+                    and not path.startswith("/api/v1/auth/login"):
+                return JSONResponse(
+                    {"detail": "This is a read-only demo — sign up to make changes."},
+                    status_code=403,
+                )
+
         # Store lightweight immutable context object (detached from SQLAlchemy session).
         tenant_ctx = SimpleNamespace(
             id=tenant.id,
@@ -213,6 +225,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
             is_active=tenant.is_active,
             curriculum_type=getattr(tenant, "curriculum_type", "CBC") or "CBC",
             group_id=getattr(tenant, "group_id", None),
+            is_demo=bool(getattr(tenant, "is_demo", False)),
         )
 
         request.state.tenant = tenant_ctx

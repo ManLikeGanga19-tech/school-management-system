@@ -16,6 +16,11 @@ class Tenant(Base):
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
     curriculum_type = Column(String(20), nullable=False, server_default=text("'CBC'"))
 
+    # Read-only public demo tenant. When true, the tenant middleware rejects
+    # every mutating request (POST/PUT/PATCH/DELETE) except login, so the
+    # demo's published credentials cannot be used to alter or damage data.
+    is_demo = Column(Boolean, nullable=False, server_default=text("false"))
+
     # Multi-campus — set when this tenant is a campus within a tenant group.
     group_id = Column(
         UUID(as_uuid=True),
