@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response, status
 from jose import JWTError
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -30,6 +30,54 @@ from app.utils.tokens import create_access_token, create_refresh_token, decode_t
 from app.utils.receipt_pdf import decode_receipt_verify_token
 
 router = APIRouter()
+
+
+# ── Public marketing stats ───────────────────────────────────────────────────
+# Real, aggregate-only counts for the marketing site. NO PII and nothing
+# tenant-identifying — just totals — so it is safe to serve unauthenticated.
+# The marketing site shows these live rather than hardcoding numbers, so the
+# figures can never drift from reality.
+class PublicStatsOut(BaseModel):
+    schools_active: int
+    students_total: int
+
+
+_STATS_CACHE: dict[str, object] = {"at": 0.0, "value": None}
+_STATS_TTL_S = 300  # counts change slowly; avoid a DB hit on every landing view
+
+
+@router.get("/stats", response_model=PublicStatsOut)
+def public_stats(db: Session = Depends(get_db)):
+    import time
+
+    now = time.monotonic()
+    cached = _STATS_CACHE.get("value")
+    if cached is not None and (now - float(_STATS_CACHE["at"])) < _STATS_TTL_S:
+        return cached
+
+    # Active, non-deleted schools.
+    schools = db.execute(
+        select(Tenant).where(
+            Tenant.is_active.is_(True), Tenant.deleted_at.is_(None)
+        )
+    ).scalars().all()
+    schools_active = len(schools)
+
+    # Students that are not withdrawn (status ACTIVE), across all tenants.
+    students_total = int(
+        db.execute(
+            text(
+                "SELECT count(*) FROM core.students "
+                "WHERE coalesce(status, 'ACTIVE') = 'ACTIVE'"
+            )
+        ).scalar()
+        or 0
+    )
+
+    out = PublicStatsOut(schools_active=schools_active, students_total=students_total)
+    _STATS_CACHE["value"] = out
+    _STATS_CACHE["at"] = now
+    return out
 
 PUBLIC_ACCESS_ROLE = "PUBLIC_PROSPECT"
 PUBLIC_PERMISSIONS = ["prospect.requests.read", "prospect.requests.create"]
