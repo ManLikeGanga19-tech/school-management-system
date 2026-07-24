@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { BookOpenCheck, Receipt, ShieldCheck, MapPin } from "lucide-react";
+import { BookOpenCheck, Receipt, ShieldCheck, IdCard } from "lucide-react";
 
 export type PublicStats = {
   schools_active: number;
@@ -11,9 +11,9 @@ export type PublicStats = {
 // Honest capability signals — true today, no numbers to inflate.
 const badges = [
   { Icon: BookOpenCheck, label: "CBC-ready · KICD-aligned" },
+  { Icon: IdCard, label: "KEMIS / ULI-compliant records" },
   { Icon: Receipt, label: "Instant parent SMS receipts" },
   { Icon: ShieldCheck, label: "Audit logs & data protection" },
-  { Icon: MapPin, label: "Built in Nairobi, Kenya" },
 ];
 
 // Only surface the school count once it's substantial enough to impress;

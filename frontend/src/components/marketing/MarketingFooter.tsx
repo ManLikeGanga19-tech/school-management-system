@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Mail, MapPin, Phone } from "lucide-react";
+import { Mail, Phone } from "lucide-react";
 import { ShuleHQLogo } from "@/components/brand/ShuleHQLogo";
 
 export function MarketingFooter() {
@@ -12,9 +12,9 @@ export function MarketingFooter() {
               <ShuleHQLogo theme="dark" size={40} className="group-hover:scale-105 transition-transform" />
             </Link>
             <p className="text-warm-cream/60 text-base max-w-sm leading-relaxed mb-8 font-medium">
-              Kenya's modern school operations platform — CBC assessments, fee
-              recording with instant parent receipts, and a parent portal. Built
-              in Nairobi.
+              Kenya's modern school operations platform — CBC & KEMIS-aligned
+              records, fee recording with instant parent receipts, and a parent
+              portal.
             </p>
             <div className="space-y-4">
               <div className="flex items-center gap-3 text-warm-cream/50 text-sm font-medium">
@@ -24,10 +24,6 @@ export function MarketingFooter() {
               <div className="flex items-center gap-3 text-warm-cream/50 text-sm font-medium">
                 <Phone className="w-4 h-4 text-brand-primary" />
                 <span>+254 785 640 048</span>
-              </div>
-              <div className="flex items-center gap-3 text-warm-cream/50 text-sm font-medium">
-                <MapPin className="w-4 h-4 text-brand-primary" />
-                <span>Nairobi, Kenya</span>
               </div>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Users, User, Target, Award, MapPin, ShieldCheck, ArrowRight, TrendingUp, Heart } from "lucide-react";
+import { Users, User, Target, Award, IdCard, ShieldCheck, ArrowRight, TrendingUp, Heart } from "lucide-react";
 
 export default function AboutPage() {
   return (
@@ -16,7 +16,7 @@ export default function AboutPage() {
           </p>
           <div className="flex justify-center flex-wrap gap-4">
             <div className="px-6 py-3 bg-white rounded-xl border border-brand-border text-sm font-bold text-dark-navy flex items-center gap-2 shadow-sm">
-              <MapPin size={16} className="text-brand-primary" /> Headquartered in Nairobi
+              <IdCard size={16} className="text-brand-primary" /> CBC · KEMIS · KICD aligned
             </div>
             <div className="px-6 py-3 bg-white rounded-xl border border-brand-border text-sm font-bold text-dark-navy flex items-center gap-2 shadow-sm">
               <ShieldCheck size={16} className="text-brand-primary" /> 100% Kenyan Owned
@@ -51,7 +51,7 @@ export default function AboutPage() {
               <div className="relative ds-card aspect-[4/5] bg-muted-warm flex items-center justify-center p-12 text-muted-text italic text-center font-medium border border-brand-border overflow-hidden">
                 <div className="flex flex-col items-center gap-6">
                   <TrendingUp size={48} className="opacity-20 text-brand-primary" />
-                  <p className="text-sm font-medium">[Photo: The ShuleHQ team with a school director in Nairobi]</p>
+                  <p className="text-sm font-medium">[Photo: a school director using ShuleHQ]</p>
                 </div>
               </div>
             </div>
