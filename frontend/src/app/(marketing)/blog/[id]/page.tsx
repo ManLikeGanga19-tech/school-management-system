@@ -1,28 +1,29 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { Calendar, ArrowLeft, ArrowRight, Share2, Bookmark, BookOpen, Facebook, Twitter, Linkedin, MessageSquare } from "lucide-react";
-
-const post = {
-  title: "How to Transition Your Private School to CBC Without the Paperwork Headache",
-  category: "CBC Excellence",
-  author: "Faith Wambui",
-  authorTitle: "CEO, Former School Director",
-  date: "May 10, 2024",
-  readTime: "8 min read",
-  content: [
-    { type: "p", text: "The shift from 8-4-4 to the Competency-Based Curriculum (CBC) has been one of the most significant changes in the history of Kenyan education. For private school directors, it's not just a change in syllabus; it's a complete shift in administrative requirements." },
-    { type: "h2", text: "The Challenge of Continuous Assessment" },
-    { type: "p", text: "Under the old system, exams were the primary metric. You had mid-terms and end-of-terms. Now, formative assessment means teachers must record observations almost daily. For a school with 300 students, that's thousands of data points every week." },
-    { type: "blockquote", text: "CBC is about identifying the unique competency of every child. You can't do that if your teachers are drowning in assessment sheets." },
-    { type: "h2", text: "3 Steps to Digital Transition" },
-    { type: "p", text: "1. Standardize your grading language: Ensure all teachers understand the difference between 'Exceeding Expectation' (EE) and 'Meeting Expectation' (ME) in the context of specific learning areas." },
-    { type: "p", text: "2. Automate the aggregation: Don't let teachers spend Sundays calculating final scores. A system like ShuleHQ does this instantly as rubric scores are entered." },
-    { type: "p", text: "3. Share with parents early: Don't wait for the report card. Use the parent portal to share small wins and support needs as they happen." },
-  ],
-};
+import { BLOG_POSTS, getPostById } from "@/lib/blog-posts";
 
 export default function BlogPostPage() {
+  const params = useParams();
+  const id = Array.isArray(params?.id) ? params.id[0] : (params?.id as string | undefined);
+  const post = id ? getPostById(id) : undefined;
+
+  if (!post) {
+    return (
+      <div className="bg-page-bg min-h-screen flex items-center justify-center px-4">
+        <div className="text-center">
+          <p className="label-caps text-brand-primary mb-4">Article not found</p>
+          <h1 className="text-3xl font-bold text-dark-navy mb-8 tracking-tight">That article doesn&apos;t exist.</h1>
+          <Link href="/blog" className="btn-primary px-8 py-4">Back to the Journal</Link>
+        </div>
+      </div>
+    );
+  }
+
+  const related = BLOG_POSTS.filter((p) => p.id !== post.id).slice(0, 2);
+
   return (
     <div className="bg-page-bg min-h-screen">
       <section className="pt-32 pb-20 bg-page-bg border-b border-brand-border">
@@ -65,7 +66,7 @@ export default function BlogPostPage() {
           <div className="ds-card bg-muted-warm aspect-video flex items-center justify-center p-12 italic text-muted-text/40 font-medium border-brand-border mb-20 shadow-inner">
             <div className="text-center">
               <BookOpen size={48} className="mx-auto mb-4 opacity-10" />
-              <p className="text-sm">Digital assessment in action — visualization</p>
+              <p className="text-sm">{post.imageCaption}</p>
             </div>
           </div>
 
@@ -77,6 +78,16 @@ export default function BlogPostPage() {
                 <blockquote key={i} className="mb-12 border-l-4 border-brand-primary bg-hero-gradient p-8 rounded-[2rem] font-bold italic text-dark-navy">
                   {block.text}
                 </blockquote>
+              );
+              if (block.type === "ul") return (
+                <ul key={i} className="mb-10 space-y-3">
+                  {block.items.map((item, j) => (
+                    <li key={j} className="flex gap-3 text-muted-text leading-relaxed">
+                      <span className="mt-2 w-1.5 h-1.5 rounded-full bg-brand-primary shrink-0" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
               );
               return null;
             })}
@@ -102,26 +113,25 @@ export default function BlogPostPage() {
         </div>
       </main>
 
-      <section className="py-24 px-4 bg-warm-cream border-t border-brand-border">
-        <div className="max-w-7xl mx-auto">
-          <h3 className="text-2xl font-bold text-dark-navy mb-12 tracking-tight">Keep Reading</h3>
-          <div className="grid md:grid-cols-2 gap-8">
-            {[
-              { tag: "Up Next", title: "Digital Fee Collection: 5 Common Myths Debunked", desc: "Learn why parents actually prefer digital invoices over paper slips, and how to make the move safely." },
-              { tag: "Previous", title: "Preparing for the August Teacher's Conference", desc: "A checklist of what to prepare for your staff before the mid-year pedagogical review." },
-            ].map((related, i) => (
-              <Link key={i} href="/blog" className="ds-card p-8 bg-white border-brand-border hover:border-brand-primary/30 hover:shadow-xl transition-all group shadow-sm">
-                <p className="label-caps text-brand-primary mb-4">{related.tag}</p>
-                <h4 className="text-xl font-bold text-dark-navy mb-4 group-hover:text-brand-primary transition-colors tracking-tight">{related.title}</h4>
-                <p className="text-muted-text text-sm font-normal mb-8 leading-relaxed">{related.desc}</p>
-                <span className="flex items-center gap-2 text-brand-primary font-bold label-caps">
-                  Read Article <ArrowRight size={14} />
-                </span>
-              </Link>
-            ))}
+      {related.length > 0 && (
+        <section className="py-24 px-4 bg-warm-cream border-t border-brand-border">
+          <div className="max-w-7xl mx-auto">
+            <h3 className="text-2xl font-bold text-dark-navy mb-12 tracking-tight">Keep Reading</h3>
+            <div className="grid md:grid-cols-2 gap-8">
+              {related.map((r) => (
+                <Link key={r.id} href={`/blog/${r.id}`} className="ds-card p-8 bg-white border-brand-border hover:border-brand-primary/30 hover:shadow-xl transition-all group shadow-sm">
+                  <p className="label-caps text-brand-primary mb-4">{r.category}</p>
+                  <h4 className="text-xl font-bold text-dark-navy mb-4 group-hover:text-brand-primary transition-colors tracking-tight">{r.title}</h4>
+                  <p className="text-muted-text text-sm font-normal mb-8 leading-relaxed line-clamp-2">{r.excerpt}</p>
+                  <span className="flex items-center gap-2 text-brand-primary font-bold label-caps">
+                    Read Article <ArrowRight size={14} />
+                  </span>
+                </Link>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       <section className="py-24 px-4 bg-white">
         <div className="max-w-4xl mx-auto text-center">

@@ -291,6 +291,34 @@ export function PublicSite({
         </div>
       </section>
 
+      {/* CLIENT REFERENCE — factual (real school, real roles). A quoted
+          testimonial goes here once we have the client's own words. */}
+      <section className="py-24 px-4 bg-page-bg">
+        <div className="max-w-4xl mx-auto ds-card p-12 md:p-16 relative border-brand-border shadow-none bg-white">
+          <span className="label-caps text-brand-primary mb-6 block">A real school runs on ShuleHQ</span>
+          <p className="text-2xl md:text-3xl text-dark-navy mb-10 font-medium leading-relaxed tracking-tight">
+            Novel School runs its daily operations on ShuleHQ — enrolments, fee recording,
+            parent receipts and CBC assessments.
+          </p>
+          <div className="flex flex-wrap items-center gap-8">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-light-sand rounded-full border-2 border-white shadow-sm flex items-center justify-center font-bold text-amber-brown">NK</div>
+              <div>
+                <p className="font-bold text-dark-navy tracking-tight">Naum Kioko</p>
+                <p className="label-caps text-muted-text mt-0.5">Director, Novel School</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-teal-accent rounded-full border-2 border-white shadow-sm flex items-center justify-center font-bold text-deep-teal">CM</div>
+              <div>
+                <p className="font-bold text-dark-navy tracking-tight">Clara Mwadime</p>
+                <p className="label-caps text-muted-text mt-0.5">Secretary, Novel School</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* FINAL CTA */}
       <section className="py-32 px-4 bg-white">
         <div className="max-w-7xl mx-auto bg-dark-navy rounded-[3rem] p-12 md:p-24 text-white text-center shadow-2xl relative overflow-hidden border border-white/5">
