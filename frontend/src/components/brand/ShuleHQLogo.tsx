@@ -42,9 +42,9 @@ export function ShuleHQMark({ size = 40, className }: { size?: number; className
         fill="#FFFFFF"
         opacity="0.82"
       />
-      <path d="M32 11 L53 21 L32 31 L11 21 Z" fill="#F4B63F" />
-      <path d="M50 22.5 L50 30" stroke="#F4B63F" strokeWidth="2.6" strokeLinecap="round" />
-      <circle cx="50" cy="32.2" r="2.6" fill="#F4B63F" />
+      <path d="M32 11 L53 21 L32 31 L11 21 Z" fill="#F2811D" />
+      <path d="M50 22.5 L50 30" stroke="#F2811D" strokeWidth="2.6" strokeLinecap="round" />
+      <circle cx="50" cy="32.2" r="2.6" fill="#F2811D" />
     </svg>
   );
 }
@@ -72,7 +72,7 @@ export function ShuleHQLogo({
         <span className={theme === "dark" ? "text-white" : "text-slate-900"}>
           Shule
         </span>
-        <span className="text-[#F4B63F]">HQ</span>
+        <span className="text-[#F2811D]">HQ</span>
       </span>
     </span>
   );

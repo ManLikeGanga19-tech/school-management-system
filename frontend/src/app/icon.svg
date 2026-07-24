@@ -3,7 +3,7 @@
     ShuleHQ brand mark.
     Field:   deep teal #173F49 — the same brand teal used on every printed
              school document (invoices, receipts, sheets).
-    Cap:     warm amber #F4B63F — the graduation mortarboard, education.
+    Cap:     warm orange #F2811D — the graduation mortarboard, education.
     Book:    white open book — "shule" (school), knowledge base of the HQ.
     Geometry is 16px-safe: three bold shapes, no fine detail.
   -->
@@ -20,8 +20,8 @@
            C 35.5 47.5, 44 47.5, 51 51.5 Z"
         fill="#FFFFFF" opacity="0.82"/>
   <!-- mortarboard -->
-  <path d="M32 11 L53 21 L32 31 L11 21 Z" fill="#F4B63F"/>
+  <path d="M32 11 L53 21 L32 31 L11 21 Z" fill="#F2811D"/>
   <!-- tassel -->
-  <path d="M50 22.5 L50 30" stroke="#F4B63F" stroke-width="2.6" stroke-linecap="round"/>
-  <circle cx="50" cy="32.2" r="2.6" fill="#F4B63F"/>
+  <path d="M50 22.5 L50 30" stroke="#F2811D" stroke-width="2.6" stroke-linecap="round"/>
+  <circle cx="50" cy="32.2" r="2.6" fill="#F2811D"/>
 </svg>

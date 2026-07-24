@@ -2,7 +2,32 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { PublicSite } from "@/components/marketing/PublicSite";
+import type { PublicStats } from "@/components/marketing/TrustBar";
 import { resolvePortalContext } from "@/lib/platform-host";
+
+// Real, aggregate-only counts from the backend, fetched server-side so the
+// marketing numbers are live and never fabricated. Fails soft to null — the
+// TrustBar simply hides numbers rather than breaking the page.
+async function getPublicStats(): Promise<PublicStats> {
+  const base = process.env.BACKEND_BASE_URL || "http://nginx/api/v1";
+  try {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`${base}/public/stats`, {
+      signal: controller.signal,
+      next: { revalidate: 300 },
+    });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      schools_active: Number(data.schools_active) || 0,
+      students_total: Number(data.students_total) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export const metadata = {
   title: "ShuleHQ | School Operations Platform",
@@ -27,5 +52,7 @@ export default async function Home() {
     redirect(tenantAccess ? "/dashboard" : "/login");
   }
 
-  return <PublicSite adminHost={adminHost} tenantBaseHost={publicHost} />;
+  const stats = await getPublicStats();
+
+  return <PublicSite adminHost={adminHost} tenantBaseHost={publicHost} stats={stats} />;
 }

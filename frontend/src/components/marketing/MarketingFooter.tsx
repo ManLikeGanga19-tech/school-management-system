@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ShieldCheck, Mail, MapPin, Phone } from "lucide-react";
+import { Mail, MapPin, Phone } from "lucide-react";
+import { ShuleHQLogo } from "@/components/brand/ShuleHQLogo";
 
 export function MarketingFooter() {
   return (
@@ -7,16 +8,13 @@ export function MarketingFooter() {
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-16 mb-20">
           <div className="col-span-1 md:col-span-2 lg:col-span-1">
-            <Link href="/" className="flex items-center gap-2 mb-8 group">
-              <div className="w-10 h-10 bg-brand-primary rounded-xl flex items-center justify-center text-white shadow-lg shadow-brand-primary/20">
-                <ShieldCheck size={24} />
-              </div>
-              <span className="text-2xl font-bold tracking-tight text-white italic font-display">
-                Shule<span className="text-brand-primary font-black">HQ</span>
-              </span>
+            <Link href="/" className="inline-flex items-center mb-8 group" aria-label="ShuleHQ home">
+              <ShuleHQLogo theme="dark" size={40} className="group-hover:scale-105 transition-transform" />
             </Link>
             <p className="text-warm-cream/60 text-base max-w-sm leading-relaxed mb-8 font-medium">
-              Kenya's modern SaaS for private schools. Specialized in CBC curriculum automation and seamless M-Pesa fee reconciliation.
+              Kenya's modern school operations platform — CBC assessments, fee
+              recording with instant parent receipts, and a parent portal. Built
+              in Nairobi.
             </p>
             <div className="space-y-4">
               <div className="flex items-center gap-3 text-warm-cream/50 text-sm font-medium">

@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { MarketingNavbar } from "./MarketingNavbar";
 import { MarketingFooter } from "./MarketingFooter";
-import { TrustBar } from "./TrustBar";
+import { TrustBar, type PublicStats } from "./TrustBar";
 import {
   ShieldCheck,
   PlayCircle,
@@ -15,7 +15,6 @@ import {
   Wallet,
   Users,
   ClipboardList,
-  Zap,
   Shield,
   BarChart3,
   LayoutGrid,
@@ -23,24 +22,25 @@ import {
   Camera,
   Check,
   Info,
-  CheckCircle2,
 } from "lucide-react";
 
 const features = [
-  { icon: BookOpenCheck, title: "CBC Engine", desc: "Automated formative grading per KICD standards.", bg: "bg-teal-accent", color: "text-deep-teal" },
-  { icon: Wallet, title: "Fee Tracking", desc: "Receipt scanning and M-Pesa matching in real time.", bg: "bg-[#d1fae5]", color: "text-forest-green" },
-  { icon: Users, title: "Parent Portal", desc: "Real-time grades and fee balances delivered instantly.", bg: "bg-light-sand", color: "text-amber-brown" },
-  { icon: ClipboardList, title: "Assessments", desc: "Digital rubric entry and auto-report generation.", bg: "bg-teal-accent", color: "text-deep-teal" },
-  { icon: Zap, title: "Support Flags", desc: "Auto-identified alerts for students needing extra help.", bg: "bg-[#fee2e2]", color: "text-brand-primary" },
-  { icon: Shield, title: "Compliance", desc: "Tamper-proof audit logs and data protection.", bg: "bg-page-bg", color: "text-muted-text" },
+  { icon: BookOpenCheck, title: "CBC Assessments", desc: "Digital rubric entry and report cards aligned to KICD standards.", bg: "bg-teal-accent", color: "text-deep-teal" },
+  { icon: Wallet, title: "Fee Recording", desc: "Record every payment — cash, M-Pesa, bank or cheque — or scan the receipt.", bg: "bg-[#d1fae5]", color: "text-forest-green" },
+  { icon: Users, title: "Parent Portal", desc: "Parents get an SMS receipt and can check grades and fee balances anytime.", bg: "bg-light-sand", color: "text-amber-brown" },
+  { icon: ClipboardList, title: "Attendance", desc: "Daily class registers and school-wide roll call in seconds.", bg: "bg-teal-accent", color: "text-deep-teal" },
+  { icon: BarChart3, title: "Performance Trends", desc: "See how each stream and learner is tracking across the term.", bg: "bg-[#fee2e2]", color: "text-brand-primary" },
+  { icon: Shield, title: "Audit & Compliance", desc: "Tamper-evident audit logs and data protection built in.", bg: "bg-page-bg", color: "text-muted-text" },
 ];
 
 export function PublicSite({
   adminHost = "admin.shulehq.co.ke",
   tenantBaseHost = "shulehq.co.ke",
+  stats = null,
 }: {
   adminHost?: string;
   tenantBaseHost?: string;
+  stats?: PublicStats;
 }) {
   return (
     <>
@@ -52,12 +52,12 @@ export function PublicSite({
           <span className="ds-badge bg-light-sand text-deep-teal mb-8">Built for Kenya's CBC Curriculum</span>
 
           <h1 className="text-5xl md:text-7xl font-bold text-dark-navy tracking-tight leading-[1.1] mb-8 font-display">
-            The School That <br className="hidden md:block" />
-            <span className="text-brand-primary italic">Runs Itself</span>
+            Run Your School <br className="hidden md:block" />
+            <span className="text-brand-primary italic">Without the Paperwork</span>
           </h1>
 
           <p className="max-w-2xl mx-auto text-lg md:text-xl text-muted-text leading-relaxed mb-10 font-normal">
-            ShuleHQ automates fees, CBC assessments, staff management, and parent communication — so your school can focus on what matters: teaching children.
+            ShuleHQ brings fee recording, CBC assessments, attendance and parent communication into one place — with instant SMS receipts and invoices that update themselves — so your school can focus on what matters: teaching children.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
@@ -101,7 +101,7 @@ export function PublicSite({
       </section>
 
       {/* TRUST BAR */}
-      <TrustBar />
+      <TrustBar stats={stats} />
 
       {/* PROBLEM / SOLUTION */}
       <section className="py-24 px-4">
@@ -129,9 +129,9 @@ export function PublicSite({
               <h2 className="text-3xl font-bold mb-10 text-brand-primary tracking-tight font-display">ShuleHQ changes everything.</h2>
               <ul className="space-y-8">
                 {[
-                  { t: "Automated invoices & M-Pesa tracking", d: "Real-time balances that reconcile themselves as parents pay." },
-                  { t: "One-click CBC Assessment Engine", d: "Automatic generation of KICD-standard report cards." },
-                  { t: "Intelligent Learning Flags", d: "Our system identifies students needing extra support based on actual progress." },
+                  { t: "Instant receipts & auto-updating invoices", d: "Record a payment and the balance updates at once — the parent gets an SMS receipt they can verify online." },
+                  { t: "CBC Assessment Engine", d: "Generate KICD-standard report cards from digital rubric entries." },
+                  { t: "Performance trends at a glance", d: "See how each stream and learner is tracking across the term — not after it." },
                 ].map((item, i) => (
                   <li key={i} className="flex items-start gap-4">
                     <div className="text-forest-green mt-1"><CircleCheckBig className="w-6 h-6" /></div>
@@ -198,7 +198,7 @@ export function PublicSite({
                 {[
                   { Icon: LayoutGrid, t: "Digital Observation Log", d: "Track strands and sub-strands on any device, fully aligned with KICD modules." },
                   { Icon: BarChart3, t: "Stream Distribution Reports", d: "Instantly visualize the distribution of EE to BE performance levels across your school." },
-                  { Icon: Zap, t: "Early Warning Tags", d: "Automatically flag students needing support based on real-time assessment data trends." },
+                  { Icon: BarChart3, t: "Term-over-term progress", d: "Compare performance across terms and strands to see who needs support." },
                 ].map(({ Icon, t, d }, i) => (
                   <li key={i} className="flex items-start gap-6 group">
                     <div className="bg-white/10 p-3 rounded-xl text-brand-primary flex-shrink-0 group-hover:bg-brand-primary group-hover:text-white transition-colors">
@@ -228,7 +228,7 @@ export function PublicSite({
               Record every payment. <br /> Verify every receipt.
             </h2>
             <p className="text-muted-text text-lg max-w-2xl mx-auto font-normal">
-              Automated M-Pesa integration and physical receipt scanning to eliminate fee disputes and ensure transparency.
+              Turn every physical receipt into a verifiable digital record — so every payment is transparent and fee disputes disappear.
             </p>
           </div>
 
@@ -236,7 +236,7 @@ export function PublicSite({
             {[
               { n: "1", Icon: Banknote, bg: "bg-teal-accent/50 text-deep-teal border-teal-accent", t: "School collects fee", d: "Continue collecting however you do — cash, M-Pesa, bank, or cheque.", rot: "group-hover:rotate-6" },
               { n: "2", Icon: Camera, bg: "bg-brand-primary text-white shadow-2xl shadow-brand-primary/20", t: "Secretary scans receipt", d: "Use any phone to photograph physical receipts for instant recording.", rot: "group-hover:-rotate-6" },
-              { n: "3", Icon: ShieldCheck, bg: "bg-teal-accent/50 text-deep-teal border-teal-accent", t: "Balances update", d: "Ledgers update instantly. Parents can verify receipts via our secure portal.", rot: "group-hover:rotate-6" },
+              { n: "3", Icon: ShieldCheck, bg: "bg-teal-accent/50 text-deep-teal border-teal-accent", t: "Balances update", d: "Ledgers update instantly, the parent gets an SMS receipt, and they can verify it on our secure portal.", rot: "group-hover:rotate-6" },
             ].map(({ n, Icon, bg, t, d, rot }) => (
               <div key={n} className="p-8 group relative ds-card border-none shadow-none">
                 <div className="text-page-bg text-9xl font-bold absolute -z-10 opacity-30 transform -translate-x-12 -translate-y-4 transition-transform group-hover:scale-110">{n}</div>
@@ -257,7 +257,7 @@ export function PublicSite({
                   Every physical payment becomes a verifiable digital record. Eliminate disputes by providing a single source of truth for both administration and parents.
                 </p>
                 <ul className="space-y-6">
-                  {["M-Pesa confirmation code matching", "One-click student balance statements"].map((item, i) => (
+                  {["Payment reference captured on every receipt", "One-click student balance statements"].map((item, i) => (
                     <li key={i} className="flex items-center gap-4 group">
                       <div className="bg-teal-accent p-2 rounded-lg text-deep-teal group-hover:bg-deep-teal group-hover:text-white transition-all">
                         <Check size={20} />
@@ -291,30 +291,15 @@ export function PublicSite({
         </div>
       </section>
 
-      {/* TESTIMONIAL */}
-      <section className="py-24 px-4 bg-page-bg">
-        <div className="max-w-4xl mx-auto ds-card p-12 md:p-20 text-center relative border-brand-border shadow-none bg-white">
-          <Star className="text-amber-brown absolute top-12 left-12 opacity-20" size={48} />
-          <p className="text-2xl md:text-3xl italic text-dark-navy mb-12 font-medium leading-relaxed">
-            "Before ShuleHQ, my secretary spent two full days every term just reconciling M-Pesa codes with our fee ledger. Now she finishes it before morning tea. The time we've saved alone is worth every shilling."
-          </p>
-          <div className="flex flex-col items-center">
-            <div className="w-16 h-16 bg-light-sand rounded-full mb-6 border-2 border-white shadow-sm flex items-center justify-center font-bold text-amber-brown">DM</div>
-            <p className="font-bold text-brand-primary text-lg font-display">David Mwangi</p>
-            <p className="label-caps text-muted-text mt-1">Director, Sunrise Academy — Nairobi</p>
-          </div>
-        </div>
-      </section>
-
       {/* FINAL CTA */}
       <section className="py-32 px-4 bg-white">
         <div className="max-w-7xl mx-auto bg-dark-navy rounded-[3rem] p-12 md:p-24 text-white text-center shadow-2xl relative overflow-hidden border border-white/5">
           <div className="max-w-4xl mx-auto relative z-10">
             <h2 className="text-5xl md:text-6xl font-bold mb-8 tracking-tight leading-[1.1] font-display">
-              Join the future of <br /> school management.
+              See ShuleHQ with <br /> your own school.
             </h2>
             <p className="text-warm-cream/60 text-xl md:text-2xl mb-16 font-normal leading-relaxed">
-              Join Kenya's fastest-growing private schools already running smarter with ShuleHQ.
+              Book a walkthrough and we'll show you fee recording, CBC assessments and parent receipts running end to end.
             </p>
             <Link href="/demo" className="btn-dark-section text-2xl px-12 py-6 shadow-2xl">
               Request a Free Demo

@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ShuleHQMark } from "@/components/brand/ShuleHQLogo";
+import { ShuleHQLogo } from "@/components/brand/ShuleHQLogo";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldCheck, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 
 const navLinks = [
   { name: "Features", path: "/features" },
@@ -41,13 +41,8 @@ export function MarketingNavbar() {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center">
-          <Link href="/" className="flex items-center gap-2 group">
-            <div className="w-10 h-10 bg-brand-primary rounded-xl flex items-center justify-center text-white shadow-lg shadow-brand-primary/20 group-hover:scale-110 transition-transform">
-              <ShieldCheck size={24} />
-            </div>
-            <span className={`text-2xl font-bold tracking-tight italic font-display transition-colors ${useLightText ? "text-white" : "text-dark-navy"}`}>
-              Shule<span className="text-brand-primary font-black">HQ</span>
-            </span>
+          <Link href="/" className="flex items-center group" aria-label="ShuleHQ home">
+            <ShuleHQLogo theme={useLightText ? "dark" : "light"} size={38} className="group-hover:scale-105 transition-transform" />
           </Link>
 
           <div className="hidden md:flex items-center space-x-10">
@@ -69,12 +64,8 @@ export function MarketingNavbar() {
           </div>
 
           <div className="hidden md:flex items-center space-x-6">
-            <Link
-              href="/sign-in"
-              className={`text-[15px] font-semibold transition-colors ${useLightText ? "text-white/70 hover:text-white" : "text-muted-text hover:text-dark-navy"}`}
-            >
-              Sign In
-            </Link>
+            {/* No public sign-in: each school signs in on its own subdomain,
+                emailed after onboarding. The site's only CTA is a demo. */}
             <Link href="/demo" className="btn-primary">
               Request a Demo
             </Link>
@@ -102,9 +93,6 @@ export function MarketingNavbar() {
             </Link>
           ))}
           <div className="pt-6 border-t border-brand-border flex flex-col space-y-4">
-            <Link href="/sign-in" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-dark-navy">
-              Sign In
-            </Link>
             <Link href="/demo" onClick={() => setIsMobileMenuOpen(false)} className="btn-primary text-center">
               Request a Demo
             </Link>

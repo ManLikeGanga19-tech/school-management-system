@@ -93,7 +93,7 @@ export default function CbcGuidePage() {
       <section className="py-24 px-4 bg-white text-center">
         <h2 className="text-4xl font-bold text-dark-navy mb-8 tracking-tight">Ready to digitize your CBC assessments?</h2>
         <p className="text-muted-text text-lg mb-12 font-normal max-w-2xl mx-auto leading-relaxed">
-          Join 40+ Kenyan private schools using ShuleHQ to simplify CBC grading and learner tracking.
+          Join Kenyan private schools using ShuleHQ to simplify CBC grading and learner tracking.
         </p>
         <Link href="/demo" className="btn-primary px-12 py-5 text-xl shadow-2xl shadow-brand-primary/20">
           Book a Free Demo

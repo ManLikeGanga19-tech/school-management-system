@@ -127,7 +127,7 @@ export default function BlogPostPage() {
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-4xl font-bold text-dark-navy mb-8 tracking-tight">Bring ShuleHQ to your school</h2>
           <p className="text-xl text-muted-text mb-12 font-normal leading-relaxed">
-            Join 40+ Kenyan private schools that have digitized their CBC assessments and fee tracking.
+            Join Kenyan private schools digitizing their CBC assessments and fee tracking.
           </p>
           <Link href="/demo" className="btn-primary px-12 py-5 text-xl shadow-2xl shadow-brand-primary/20">
             Get Started Now
