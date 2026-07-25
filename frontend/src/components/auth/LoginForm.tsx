@@ -22,6 +22,10 @@ type LoginFormProps = {
   /** Cloudflare Turnstile site key, passed from the server component so it can
    *  change without a rebuild. Absent = widget renders nothing. */
   turnstileSiteKey?: string;
+  /** When this is the read-only demo tenant, the login is pre-filled and a
+   *  read-only notice is shown. The credentials are public by design (the demo
+   *  cannot write anything). */
+  demoPrefill?: { email: string; password: string };
 };
 
 function getErrorMessage(data: any) {
@@ -31,14 +35,14 @@ function getErrorMessage(data: any) {
   return "Login failed";
 }
 
-export function LoginForm({ initialTenantSlug, turnstileSiteKey }: LoginFormProps) {
+export function LoginForm({ initialTenantSlug, turnstileSiteKey, demoPrefill }: LoginFormProps) {
   const [turnstileToken, setTurnstileToken] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
   const form = useForm<LoginValues>({
     defaultValues: {
-      email: "",
-      password: "",
+      email: demoPrefill?.email ?? "",
+      password: demoPrefill?.password ?? "",
     },
   });
 
@@ -98,13 +102,20 @@ export function LoginForm({ initialTenantSlug, turnstileSiteKey }: LoginFormProp
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
-        <CardTitle>Sign in</CardTitle>
+        <CardTitle>{demoPrefill ? "Explore the ShuleHQ demo" : "Sign in"}</CardTitle>
         <CardDescription>
-          {initialTenantSlug
+          {demoPrefill
+            ? "Read-only demo — sign in below (already filled in) and click around freely. Changes are disabled."
+            : initialTenantSlug
             ? `Sign in to ${initialTenantSlug}.`
             : "Sign in through your school's mapped subdomain."}
         </CardDescription>
       </CardHeader>
+      {demoPrefill && (
+        <div className="mx-6 -mt-2 mb-2 rounded-lg border border-amber-brown/25 bg-light-sand/60 px-4 py-2.5 text-sm font-medium text-amber-brown">
+          You&apos;re viewing a live, <strong>read-only</strong> demo. Explore every module — nothing you do is saved.
+        </div>
+      )}
 
       <CardContent>
         {err && <div className="mb-3 text-sm text-red-600">{err}</div>}

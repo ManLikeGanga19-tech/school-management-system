@@ -3298,6 +3298,8 @@ def whoami(
         "tenant_slug": tenant.slug,
         "tenant_name": tenant.name,
         "curriculum_type": getattr(tenant, "curriculum_type", "CBC") or "CBC",
+        # Drives the read-only banner in the UI for the public demo tenant.
+        "is_demo": bool(getattr(tenant, "is_demo", False)),
         # RBAC context for the current user — drives UI permission gating.
         "roles": sorted(_request_roles(request)),
         "permissions": sorted(_request_permissions(request)),
@@ -11887,6 +11889,8 @@ def get_tenant_profile(
     return {
         "curriculum_type": getattr(tenant, "curriculum_type", "CBC") or "CBC",
         "name": str(getattr(tenant, "name", "") or ""),
+        # Drives the read-only banner in the app shell (false for real tenants).
+        "is_demo": bool(getattr(tenant, "is_demo", False)),
     }
 
 

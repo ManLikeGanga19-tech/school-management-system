@@ -61,7 +61,12 @@ chmod 600 "/home/${DEPLOY_USER}/.ssh/authorized_keys"
 chown -R "$DEPLOY_USER:$DEPLOY_USER" "/home/${DEPLOY_USER}/.ssh"
 
 log "SSH hardening (keys only, no root, no passwords)"
-SSHD=/etc/ssh/sshd_config.d/99-shulehq.conf
+# NAMED 00- ON PURPOSE. sshd uses the FIRST value it reads for a keyword, and
+# cloud images ship /etc/ssh/sshd_config.d/50-cloud-init.conf with
+# "PasswordAuthentication yes". A 99- file sorts AFTER it and is silently
+# ignored, leaving password auth enabled while appearing hardened. Sorting
+# first is what makes this actually take effect.
+SSHD=/etc/ssh/sshd_config.d/00-shulehq-hardening.conf
 cat > "$SSHD" <<EOF
 PermitRootLogin no
 PasswordAuthentication no
@@ -71,7 +76,14 @@ PubkeyAuthentication yes
 X11Forwarding no
 MaxAuthTries 3
 EOF
+sshd -t || { echo "ERROR: sshd config invalid; not restarting."; exit 1; }
 systemctl restart ssh || systemctl restart sshd || true
+# Prove the hardening actually took effect rather than assuming it did.
+if sshd -T 2>/dev/null | grep -qi '^passwordauthentication yes'; then
+  echo "ERROR: password authentication is STILL enabled — another sshd_config.d"
+  echo "       file is winning. Inspect /etc/ssh/sshd_config.d/ before serving."
+  exit 1
+fi
 
 log "Firewall (UFW): allow 22, 80, 443"
 ufw --force reset

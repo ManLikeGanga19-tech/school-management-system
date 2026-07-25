@@ -15,6 +15,10 @@ const navLinks = [
 
 const DARK_HERO_PATHS = ["/blog", "/careers", "/changelog", "/privacy", "/mpesa-setup", "/cbc-guide", "/help"];
 
+// The read-only demo tenant's login (credentials pre-filled there). Stable
+// production URL; the demo lives on its own subdomain.
+const DEMO_URL = "https://demo.shulehq.co.ke/login";
+
 export function MarketingNavbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -63,11 +67,19 @@ export function MarketingNavbar() {
             ))}
           </div>
 
-          <div className="hidden md:flex items-center space-x-6">
-            {/* No public sign-in: each school signs in on its own subdomain,
-                emailed after onboarding. The site's only CTA is a demo. */}
+          <div className="hidden md:flex items-center gap-4">
+            {/* No public sign-in: schools sign in on their own subdomain,
+                emailed after onboarding. Two CTAs instead:
+                  View Demo        -> the read-only demo tenant (explore now)
+                  Get Started free -> the onboarding/contact form */}
+            <a
+              href={DEMO_URL}
+              className={`text-[15px] font-semibold transition-colors ${useLightText ? "text-white/80 hover:text-white" : "text-muted-text hover:text-dark-navy"}`}
+            >
+              View Demo
+            </a>
             <Link href="/demo" className="btn-primary">
-              Request a Demo
+              Get Started for free
             </Link>
           </div>
 
@@ -93,8 +105,11 @@ export function MarketingNavbar() {
             </Link>
           ))}
           <div className="pt-6 border-t border-brand-border flex flex-col space-y-4">
+            <a href={DEMO_URL} onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-dark-navy text-center">
+              View Demo
+            </a>
             <Link href="/demo" onClick={() => setIsMobileMenuOpen(false)} className="btn-primary text-center">
-              Request a Demo
+              Get Started for free
             </Link>
           </div>
         </div>

@@ -80,6 +80,7 @@ import { logout as authLogout } from "@/lib/auth/auth";
 import { TENANT_BRANDING_UPDATED_EVENT } from "@/lib/tenant-branding";
 import { SubscriptionBanner } from "@/components/layout/SubscriptionBanner";
 import { ChangelogBanner } from "@/components/layout/ChangelogBanner";
+import { DemoBanner } from "@/components/layout/DemoBanner";
 import { CampusSwitcher } from "@/components/layout/CampusSwitcher";
 import { useSubscription } from "@/lib/auth/useSubscription";
 
@@ -259,7 +260,7 @@ function resolveBadgeKey(link: AppNavLink): AppBadgeKey | null {
 // on every navigation — flashing un-gated nav items into the sidebar until the
 // /tenants/profile fetch returns. Booting from this snapshot keeps the gated
 // sidebar stable from the very first render of every page.
-type TenantProfileSnapshot = { curriculumType: string; schoolName: string };
+type TenantProfileSnapshot = { curriculumType: string; schoolName: string; isDemo?: boolean };
 let tenantProfileCache: TenantProfileSnapshot | null = null;
 const TENANT_PROFILE_STORAGE_KEY = "sms_tenant_profile";
 
@@ -273,6 +274,7 @@ function readTenantProfile(): TenantProfileSnapshot | null {
     tenantProfileCache = {
       curriculumType: String(parsed.curriculumType || ""),
       schoolName: String(parsed.schoolName || ""),
+      isDemo: Boolean(parsed.isDemo),
     };
     return tenantProfileCache;
   } catch {
@@ -361,6 +363,10 @@ export function AppShell({
   );
   const [schoolName, setSchoolName] = useState<string | null>(
     () => (appShellHydrated ? readTenantProfile()?.schoolName || null : null)
+  );
+  // Read-only demo tenant → drives the DemoBanner. false for every real tenant.
+  const [isDemo, setIsDemo] = useState<boolean>(
+    () => (appShellHydrated ? Boolean(readTenantProfile()?.isDemo) : false)
   );
   const [badgeCounts, setBadgeCounts] = useState<BadgeCounts>(EMPTY_BADGE_COUNTS);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -532,14 +538,17 @@ export function AppShell({
           asString(obj?.name) ||
           asString(obj?.school_name) ||
           asString(obj?.tenant_name);
+        const demo = Boolean(obj?.is_demo);
         if (!cancelled) {
           setCurriculumType(ct);
           if (nm) setSchoolName(nm);
+          setIsDemo(demo);
         }
         // Cache for the next navigation so the gated sidebar never flashes.
         writeTenantProfile({
           curriculumType: ct,
           schoolName: nm || tenantProfileCache?.schoolName || "",
+          isDemo: demo,
         });
       } catch {
         // Leave null — show all nav items
@@ -1213,6 +1222,7 @@ export function AppShell({
         sidebarCollapsed ? "md:ml-[76px]" : "md:ml-[260px]"
       )}>
         <div className="mx-auto w-full max-w-6xl">
+          {isDemo && <DemoBanner />}
           <SubscriptionBanner />
           <ChangelogBanner />
           {children}

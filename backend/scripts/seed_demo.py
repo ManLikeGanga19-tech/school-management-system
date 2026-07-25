@@ -346,6 +346,13 @@ def main() -> None:
             db.add(tenant)
             db.flush()
             print(f"  [+] created tenant slug={DEMO_SLUG}")
+        # Always (re)assert the demo invariants — idempotent, and safe to run on
+        # an existing tenant: this is the public read-only demo, on CBC.
+        tenant.is_active = True
+        tenant.is_demo = True
+        tenant.curriculum_type = "CBC"
+        db.flush()
+        print(f"  [=] demo invariants: is_demo=True, curriculum_type=CBC")
         tid = tenant.id
 
         # ── 2. Print profile ────────────────────────────────────────────────────
