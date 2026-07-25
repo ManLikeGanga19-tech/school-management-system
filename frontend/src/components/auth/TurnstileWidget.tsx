@@ -41,13 +41,16 @@ export function TurnstileWidget({ siteKey, onToken }: Props) {
   cb.current = onToken;
 
   useEffect(() => {
-    if (!siteKey || !holder.current) return;
+    if (!siteKey) return;
 
     let cancelled = false;
+    let poll: ReturnType<typeof setInterval> | null = null;
 
-    function renderWidget() {
-      if (cancelled || !holder.current || !window.turnstile) return;
-      if (widgetId.current) return; // already rendered
+    // Render as soon as BOTH the holder is mounted and the Turnstile API is
+    // ready. Returns true once rendered so callers can stop polling.
+    function tryRender(): boolean {
+      if (cancelled || widgetId.current) return true;
+      if (!holder.current || !window.turnstile?.render) return false;
       widgetId.current = window.turnstile.render(holder.current, {
         sitekey: siteKey,
         // Managed mode: invisible for legitimate users, interactive only when
@@ -57,31 +60,39 @@ export function TurnstileWidget({ siteKey, onToken }: Props) {
         "expired-callback": () => cb.current(""),
         "error-callback": () => cb.current(""),
       });
+      return true;
     }
 
-    if (window.turnstile) {
-      renderWidget();
-    } else if (!document.getElementById(SCRIPT_ID)) {
-      const s = document.createElement("script");
-      s.id = SCRIPT_ID;
-      s.src = SCRIPT_SRC;
-      s.async = true;
-      s.defer = true;
-      s.onload = renderWidget;
-      document.head.appendChild(s);
+    // The script's `load` event can fire a tick before `window.turnstile` is
+    // fully attached, so we never rely on a single onload — we poll until the
+    // API is actually callable. This is what fixes the "widget missing on the
+    // first page load, appears on refresh" race.
+    function waitAndRender() {
+      if (tryRender()) return;
+      poll = setInterval(() => {
+        if (tryRender() && poll) clearInterval(poll);
+      }, 100);
+    }
+
+    if (window.turnstile?.render) {
+      tryRender();
     } else {
-      // Script tag exists but the API has not initialised yet.
-      const t = setInterval(() => {
-        if (window.turnstile) {
-          clearInterval(t);
-          renderWidget();
-        }
-      }, 150);
-      return () => clearInterval(t);
+      if (!document.getElementById(SCRIPT_ID)) {
+        const s = document.createElement("script");
+        s.id = SCRIPT_ID;
+        s.src = SCRIPT_SRC;
+        s.async = true;
+        s.defer = true;
+        document.head.appendChild(s);
+      }
+      // Whether we just injected the script or another mount already did,
+      // poll for the API to become ready.
+      waitAndRender();
     }
 
     return () => {
       cancelled = true;
+      if (poll) clearInterval(poll);
       if (widgetId.current && window.turnstile) {
         try {
           window.turnstile.remove(widgetId.current);
