@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Mail, Phone } from "lucide-react";
 import { ShuleHQLogo } from "@/components/brand/ShuleHQLogo";
 
@@ -24,6 +25,15 @@ export function MarketingFooter() {
               <div className="flex items-center gap-3 text-warm-cream/50 text-sm font-medium">
                 <Phone className="w-4 h-4 text-brand-primary" />
                 <span>+254 785 640 048</span>
+              </div>
+            </div>
+            {/* Standards alignment — logos on a light chip for contrast on the dark footer */}
+            <div className="mt-8">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-warm-cream/40 mb-3">Aligned with</p>
+              <div className="inline-flex items-center gap-4 rounded-xl bg-white/95 px-4 py-2.5">
+                <Image src="/brand/kicd-logo.png" alt="KICD" width={84} height={22} className="h-[22px] w-auto object-contain" />
+                <span className="h-6 w-px bg-brand-border/60" />
+                <Image src="/brand/kemis-logo.png" alt="KEMIS" width={100} height={22} className="h-[22px] w-auto object-contain" />
               </div>
             </div>
           </div>

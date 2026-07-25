@@ -75,10 +75,9 @@ export function PublicSite({
               </a>
             </div>
 
-            <div className="flex flex-wrap justify-center lg:justify-start items-center gap-4 text-[11px] font-semibold text-muted-text uppercase tracking-[0.2em]">
-              <span>CBC-ready from day one</span>
-              <span className="opacity-30">•</span>
-              <span>KEMIS / ULI-compliant</span>
+            <div className="flex flex-wrap justify-center lg:justify-start items-center gap-5">
+              <Image src="/brand/kicd-logo.png" alt="Aligned with KICD standards" width={92} height={24} className="h-6 w-auto object-contain" />
+              <Image src="/brand/kemis-logo.png" alt="KEMIS / ULI compliant" width={114} height={24} className="h-6 w-auto object-contain" />
               <div className="flex gap-1 text-amber-brown">
                 {[1,2,3,4,5].map(i => <Star key={i} className="w-4 h-4 fill-current" />)}
               </div>
