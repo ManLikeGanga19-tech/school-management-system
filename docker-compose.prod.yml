@@ -67,6 +67,7 @@ services:
     mem_limit: "2048m"
     networks:
       - backend-net
+      - whk-db-net        # external — keeps WHK's backend able to reach sms-postgres across recreates
 
   redis:
     image: redis:7.4-alpine
@@ -240,6 +241,10 @@ services:
       - "443:443/udp"     # HTTP/3
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # WHK's site block lives here (host-owned, outside /opt/shulehq) and is
+      # pulled in via `import` in the Caddyfile — so our deploys never overwrite
+      # it. Read-only.
+      - /opt/caddy-sites:/etc/caddy/sites:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -259,6 +264,7 @@ services:
     networks:
       - frontend-net
       - backend-net
+      - whk-edge-net      # external — keeps sms-caddy able to reach WHK containers across recreates
 
   dozzle:
     # PINNED: ":latest" floated to v10, which dropped DOZZLE_USERNAME/PASSWORD
@@ -296,3 +302,11 @@ networks:
     driver: bridge
   frontend-net:
     driver: bridge
+  # Wooden Houses Kenya shares this box + this Caddy. These nets are created and
+  # owned by the WHK deploy (external: true), so ShuleHQ never manages them —
+  # attaching to them just keeps sms-caddy/sms-postgres reachable to WHK across
+  # our container recreates. See docs/ops/SHULEHQ_CADDY_COORDINATION.md.
+  whk-edge-net:
+    external: true
+  whk-db-net:
+    external: true
