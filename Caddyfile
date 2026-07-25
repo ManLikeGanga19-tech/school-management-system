@@ -20,13 +20,6 @@
 	email {$ACME_EMAIL}
 }
 
-# Co-tenant safety: pull in site blocks owned by OTHER apps sharing this box
-# (e.g. Wooden Houses Kenya → /opt/caddy-sites/woodenhouses.caddy, mounted
-# read-only). They live outside /opt/shulehq, so our deploys never overwrite
-# them, and a glob matching nothing is a no-op. Do NOT paste their blocks here.
-# See docs/ops/SHULEHQ_CADDY_COORDINATION.md.
-import /etc/caddy/sites/*.caddy
-
 # Shared proxy behaviour → internal nginx (path-based routing lives there).
 (to_app) {
 	encode zstd gzip
