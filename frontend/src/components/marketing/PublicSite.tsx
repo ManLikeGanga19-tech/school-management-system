@@ -46,45 +46,47 @@ export function PublicSite({
     <>
     <MarketingNavbar />
     <div className="bg-page-bg">
-      {/* HERO */}
-      <section className="pt-32 pb-20 md:pt-48 md:pb-32 px-4 shadow-[inset_0_-40px_80px_rgba(15,23,42,0.03)] overflow-hidden bg-hero-gradient">
-        <div className="max-w-7xl mx-auto text-center">
-          <span className="ds-badge bg-light-sand text-deep-teal mb-8">Built for Kenya's CBC Curriculum</span>
+      {/* HERO — text and product shot side by side */}
+      <section className="pt-32 pb-20 md:pt-40 md:pb-28 px-4 overflow-hidden bg-hero-gradient">
+        <div className="max-w-7xl mx-auto grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+          {/* Text + CTA */}
+          <div className="text-center lg:text-left">
+            <span className="ds-badge bg-light-sand text-deep-teal mb-6">Built for Kenya's CBC Curriculum</span>
 
-          <h1 className="text-5xl md:text-7xl font-bold text-dark-navy tracking-tight leading-[1.1] mb-8 font-display">
-            Run Your School <br className="hidden md:block" />
-            <span className="text-brand-primary italic">Without the Paperwork</span>
-          </h1>
+            <h1 className="text-4xl md:text-6xl font-bold text-dark-navy tracking-tight leading-[1.1] mb-6 font-display">
+              Run Your School <br className="hidden md:block" />
+              <span className="text-brand-primary italic">Without the Paperwork</span>
+            </h1>
 
-          <p className="max-w-2xl mx-auto text-lg md:text-xl text-muted-text leading-relaxed mb-10 font-normal">
-            ShuleHQ brings fee recording, CBC assessments, attendance and parent communication into one place — with instant SMS receipts and invoices that update themselves — so your school can focus on what matters: teaching children.
-          </p>
+            <p className="max-w-xl mx-auto lg:mx-0 text-lg text-muted-text leading-relaxed mb-8 font-normal">
+              ShuleHQ brings fee recording, CBC assessments, attendance and parent communication into one place — with instant SMS receipts and invoices that update themselves — so your school can focus on teaching.
+            </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
-            <Link href="/demo" className="btn-primary text-lg px-12 py-5 shadow-2xl shadow-brand-primary/20">
-              Request a Free Demo
-            </Link>
-            <a
-              href="mailto:support@shulehq.co.ke"
-              className="btn-secondary text-lg flex items-center justify-center gap-2"
-            >
-              <PlayCircle className="w-5 h-5" />
-              Talk to Us
-            </a>
-          </div>
+            <div className="flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-4 mb-8">
+              <Link href="/demo" className="btn-primary text-lg px-10 py-4 shadow-2xl shadow-brand-primary/20">
+                Get Started for free
+              </Link>
+              <a
+                href="mailto:support@shulehq.co.ke"
+                className="btn-secondary text-lg flex items-center justify-center gap-2"
+              >
+                <PlayCircle className="w-5 h-5" />
+                Talk to Us
+              </a>
+            </div>
 
-          <div className="flex flex-wrap justify-center items-center gap-6 text-[11px] font-semibold text-muted-text uppercase tracking-[0.2em] mb-20">
-            <span>Trusted by growing Kenyan schools</span>
-            <span className="hidden md:block opacity-30">•</span>
-            <span>CBC-ready from day one</span>
-            <span className="hidden md:block opacity-30">•</span>
-            <div className="flex gap-1 text-amber-brown">
-              {[1,2,3,4,5].map(i => <Star key={i} className="w-4 h-4 fill-current" />)}
+            <div className="flex flex-wrap justify-center lg:justify-start items-center gap-4 text-[11px] font-semibold text-muted-text uppercase tracking-[0.2em]">
+              <span>CBC-ready from day one</span>
+              <span className="opacity-30">•</span>
+              <span>KEMIS / ULI-compliant</span>
+              <div className="flex gap-1 text-amber-brown">
+                {[1,2,3,4,5].map(i => <Star key={i} className="w-4 h-4 fill-current" />)}
+              </div>
             </div>
           </div>
 
-          {/* Dashboard preview */}
-          <div className="relative mx-auto max-w-5xl group">
+          {/* Product shot */}
+          <div className="relative group">
             <div className="absolute -inset-4 bg-brand-primary/5 rounded-[3rem] blur-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
             <div className="relative ds-card border-brand-border/40 overflow-hidden aspect-[16/10] bg-white">
               <Image
@@ -92,7 +94,7 @@ export function PublicSite({
                 alt="ShuleHQ director dashboard — CBC analytics and fee overview"
                 fill
                 priority
-                sizes="(max-width: 1024px) 100vw, 1024px"
+                sizes="(max-width: 1024px) 100vw, 600px"
                 className="object-cover object-top"
               />
             </div>

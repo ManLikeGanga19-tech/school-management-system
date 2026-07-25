@@ -74,6 +74,8 @@ export function MarketingNavbar() {
                   Get Started free -> the onboarding/contact form */}
             <a
               href={DEMO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
               className={`text-[15px] font-semibold transition-colors ${useLightText ? "text-white/80 hover:text-white" : "text-muted-text hover:text-dark-navy"}`}
             >
               View Demo
@@ -105,7 +107,7 @@ export function MarketingNavbar() {
             </Link>
           ))}
           <div className="pt-6 border-t border-brand-border flex flex-col space-y-4">
-            <a href={DEMO_URL} onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-dark-navy text-center">
+            <a href={DEMO_URL} target="_blank" rel="noopener noreferrer" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-dark-navy text-center">
               View Demo
             </a>
             <Link href="/demo" onClick={() => setIsMobileMenuOpen(false)} className="btn-primary text-center">
