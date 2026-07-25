@@ -118,7 +118,7 @@ export default function AboutPage() {
             Ready to see how we can <br /> transform your school?
           </h2>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6 relative z-10">
-            <Link href="/demo" className="btn-dark-section text-xl px-12 py-5 shadow-2xl">Request a Free Demo</Link>
+            <Link href="/contact" className="btn-dark-section text-xl px-12 py-5 shadow-2xl">Get Started for free</Link>
             <Link href="/pricing" className="text-warm-cream/60 hover:text-white font-bold flex items-center gap-2 group transition-colors">
               View Pricing Plans <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </Link>

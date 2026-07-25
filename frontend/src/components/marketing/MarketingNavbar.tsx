@@ -80,7 +80,7 @@ export function MarketingNavbar() {
             >
               View Demo
             </a>
-            <Link href="/demo" className="btn-primary">
+            <Link href="/contact" className="btn-primary">
               Get Started for free
             </Link>
           </div>
@@ -110,7 +110,7 @@ export function MarketingNavbar() {
             <a href={DEMO_URL} target="_blank" rel="noopener noreferrer" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-dark-navy text-center">
               View Demo
             </a>
-            <Link href="/demo" onClick={() => setIsMobileMenuOpen(false)} className="btn-primary text-center">
+            <Link href="/contact" onClick={() => setIsMobileMenuOpen(false)} className="btn-primary text-center">
               Get Started for free
             </Link>
           </div>

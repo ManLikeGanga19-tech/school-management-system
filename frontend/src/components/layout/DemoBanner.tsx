@@ -14,7 +14,7 @@ export function DemoBanner() {
     >
       You&apos;re exploring a <strong>read-only demo</strong> of ShuleHQ — click
       through every module freely. Changes aren&apos;t saved.{" "}
-      <a href="/demo" className="underline underline-offset-2 hover:opacity-80">
+      <a href="/contact" className="underline underline-offset-2 hover:opacity-80">
         Get started for your school →
       </a>
     </div>

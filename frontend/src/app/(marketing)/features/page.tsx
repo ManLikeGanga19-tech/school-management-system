@@ -39,8 +39,8 @@ export default function FeaturesPage() {
           <p className="max-w-2xl mx-auto text-lg text-muted-text mb-10 leading-relaxed font-normal">
             From high-level director analytics to granular classroom grading, ShuleHQ is built to handle the complexities of the modern Kenyan school.
           </p>
-          <Link href="/demo" className="btn-primary px-12 py-5 text-xl shadow-2xl">
-            Request a Free Demo
+          <Link href="/contact" className="btn-primary px-12 py-5 text-xl shadow-2xl">
+            Get Started for free
           </Link>
         </div>
       </section>
@@ -271,7 +271,7 @@ export default function FeaturesPage() {
             <section className="bg-dark-navy rounded-[3.5rem] p-12 md:p-20 text-white text-center shadow-2xl relative overflow-hidden border border-white/5">
               <h2 className="text-4xl font-bold mb-6 relative z-10 tracking-tight leading-tight">Start automating <br /> your school today.</h2>
               <p className="text-warm-cream/60 text-lg mb-12 relative z-10 font-normal">Join the waitlist or book a personal walkthrough.</p>
-              <Link href="/demo" className="btn-dark-section px-12 py-5 text-xl relative z-10">
+              <Link href="/contact" className="btn-dark-section px-12 py-5 text-xl relative z-10">
                 Let's Talk
               </Link>
             </section>

@@ -60,16 +60,16 @@ export default function DemoPage() {
           <div className="flex flex-col lg:flex-row gap-16">
             <div className="lg:w-3/5">
               <div className="ds-card bg-white p-8 md:p-12 shadow-sm">
-                <h2 className="text-3xl font-bold text-dark-navy mb-4 tracking-tight">See ShuleHQ in action</h2>
+                <h2 className="text-3xl font-bold text-dark-navy mb-4 tracking-tight">Get your school started on ShuleHQ</h2>
                 <p className="text-muted-text mb-10 leading-relaxed font-normal">
-                  We'll show you a live demo tailored to your school type and size. Most demos take 30 minutes including Q&A.
+                  Already explored the live demo? Tell us about your school and we'll get you set up — instant parent receipts, CBC assessments and fee recording, on your own subdomain.
                 </p>
 
                 {submitted ? (
                   <div className="flex flex-col items-center justify-center py-16 gap-6 text-center">
                     <CheckCircle2 size={56} className="text-forest-green" />
                     <h3 className="text-2xl font-bold text-dark-navy tracking-tight">Request sent!</h3>
-                    <p className="text-muted-text max-w-sm leading-relaxed">We'll reach out within one business day to schedule your personalised demo.</p>
+                    <p className="text-muted-text max-w-sm leading-relaxed">We'll reach out within one business day to get your school set up.</p>
                   </div>
                 ) : (
                   <form className="space-y-8" onSubmit={handleSubmit}>
@@ -144,7 +144,7 @@ export default function DemoPage() {
                       <p className="text-sm text-red-600 font-medium text-center bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</p>
                     )}
                     <button type="submit" disabled={loading} className="btn-primary w-full py-6 text-xl shadow-2xl shadow-brand-primary/20 flex items-center justify-center gap-3 disabled:opacity-60">
-                      {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Sending…</> : "Book My Free Demo →"}
+                      {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Sending…</> : "Get Started →"}
                     </button>
                     <p className="text-center text-[10px] text-muted-text font-bold uppercase tracking-[0.2em]">We typically respond within 2 hours.</p>
                   </form>
@@ -159,7 +159,7 @@ export default function DemoPage() {
                   {[
                     { n: "1", title: "Submit this form", desc: "Tell us about your school needs and biggest pain points.", hasDivider: true },
                     { n: "2", title: "We call you back", desc: "We'll reach out within 2 hours to confirm a convenient time.", hasDivider: true },
-                    { n: "3", title: "30-min live demo", desc: "A personalized tour of the features that matter most. No pressure.", hasDivider: false },
+                    { n: "3", title: "Go live", desc: "We set up your workspace and email your school its subdomain — you're ready to run.", hasDivider: false },
                   ].map((step, i) => (
                     <div key={i} className="flex gap-8 relative group">
                       {step.hasDivider && <div className="absolute top-10 left-5 w-px h-16 bg-brand-border"></div>}

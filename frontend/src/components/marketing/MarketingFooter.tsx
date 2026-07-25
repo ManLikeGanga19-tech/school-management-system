@@ -43,7 +43,6 @@ export function MarketingFooter() {
             <ul className="space-y-4 text-[15px] text-warm-cream/60 font-medium">
               <li><Link href="/features" className="hover:text-brand-primary transition-colors">Features</Link></li>
               <li><Link href="/pricing" className="hover:text-brand-primary transition-colors">Pricing</Link></li>
-              <li><Link href="/demo" className="hover:text-brand-primary transition-colors">Request Demo</Link></li>
               <li><Link href="/changelog" className="hover:text-brand-primary transition-colors">Changelog</Link></li>
             </ul>
           </div>
@@ -54,7 +53,7 @@ export function MarketingFooter() {
               <li><Link href="/about" className="hover:text-brand-primary transition-colors">About Us</Link></li>
               <li><Link href="/blog" className="hover:text-brand-primary transition-colors">Journal</Link></li>
               <li><Link href="/careers" className="hover:text-brand-primary transition-colors">Careers</Link></li>
-              <li><Link href="/demo" className="hover:text-brand-primary transition-colors">Contact</Link></li>
+              <li><Link href="/contact" className="hover:text-brand-primary transition-colors">Contact</Link></li>
             </ul>
           </div>
 

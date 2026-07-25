@@ -95,8 +95,8 @@ export default function CbcGuidePage() {
         <p className="text-muted-text text-lg mb-12 font-normal max-w-2xl mx-auto leading-relaxed">
           Join Kenyan private schools using ShuleHQ to simplify CBC grading and learner tracking.
         </p>
-        <Link href="/demo" className="btn-primary px-12 py-5 text-xl shadow-2xl shadow-brand-primary/20">
-          Book a Free Demo
+        <Link href="/contact" className="btn-primary px-12 py-5 text-xl shadow-2xl shadow-brand-primary/20">
+          Get Started for free
         </Link>
       </section>
     </div>

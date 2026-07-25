@@ -139,7 +139,7 @@ export default function BlogPostPage() {
           <p className="text-xl text-muted-text mb-12 font-normal leading-relaxed">
             Join Kenyan private schools digitizing their CBC assessments and fee tracking.
           </p>
-          <Link href="/demo" className="btn-primary px-12 py-5 text-xl shadow-2xl shadow-brand-primary/20">
+          <Link href="/contact" className="btn-primary px-12 py-5 text-xl shadow-2xl shadow-brand-primary/20">
             Get Started Now
           </Link>
         </div>

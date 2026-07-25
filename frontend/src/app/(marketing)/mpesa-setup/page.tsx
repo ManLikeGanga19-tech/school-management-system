@@ -14,7 +14,7 @@ export default function MpesaSetupPage() {
             <p className="max-w-xl text-xl text-warm-cream/60 leading-relaxed font-normal mb-10">
               Wave goodbye to manual code checking. Collect fees via Paybill or Till and watch your ledger update in real-time.
             </p>
-            <Link href="/demo" className="btn-dark-section px-10 py-5 text-lg">
+            <Link href="/contact" className="btn-dark-section px-10 py-5 text-lg">
               Get Started with M-Pesa
             </Link>
           </div>
@@ -107,8 +107,8 @@ export default function MpesaSetupPage() {
 
       <section className="py-24 px-4 bg-white text-center">
         <h2 className="text-4xl font-bold text-dark-navy mb-8 tracking-tight">Stop checking SMS on the office phone.</h2>
-        <Link href="/demo" className="btn-primary px-12 py-5 text-xl shadow-2xl shadow-brand-primary/20">
-          Book a Finance Demo
+        <Link href="/contact" className="btn-primary px-12 py-5 text-xl shadow-2xl shadow-brand-primary/20">
+          Get Started for free
         </Link>
       </section>
     </div>

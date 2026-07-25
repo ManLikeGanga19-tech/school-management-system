@@ -63,7 +63,7 @@ export function PublicSite({
             </p>
 
             <div className="flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-4 mb-8">
-              <Link href="/demo" className="btn-primary text-lg px-10 py-4 shadow-2xl shadow-brand-primary/20">
+              <Link href="/contact" className="btn-primary text-lg px-10 py-4 shadow-2xl shadow-brand-primary/20">
                 Get Started for free
               </Link>
               <a
@@ -325,13 +325,13 @@ export function PublicSite({
         <div className="max-w-7xl mx-auto bg-dark-navy rounded-[3rem] p-12 md:p-24 text-white text-center shadow-2xl relative overflow-hidden border border-white/5">
           <div className="max-w-4xl mx-auto relative z-10">
             <h2 className="text-5xl md:text-6xl font-bold mb-8 tracking-tight leading-[1.1] font-display">
-              See ShuleHQ with <br /> your own school.
+              Ready to run <br /> your school on ShuleHQ?
             </h2>
             <p className="text-warm-cream/60 text-xl md:text-2xl mb-16 font-normal leading-relaxed">
-              Book a walkthrough and we'll show you fee recording, CBC assessments and parent receipts running end to end.
+              Explore the live demo, then tell us about your school — we'll set up your workspace and get you live on your own subdomain.
             </p>
-            <Link href="/demo" className="btn-dark-section text-2xl px-12 py-6 shadow-2xl">
-              Request a Free Demo
+            <Link href="/contact" className="btn-dark-section text-2xl px-12 py-6 shadow-2xl">
+              Get Started for free
             </Link>
           </div>
         </div>

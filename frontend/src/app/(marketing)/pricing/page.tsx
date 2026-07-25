@@ -113,8 +113,8 @@ export default function PricingPage() {
                 <li className="flex items-center gap-3 opacity-30 line-through">Learner Support Flags</li>
               </ul>
             </div>
-            <Link href="/demo" className="btn-secondary w-full text-xs label-caps py-4 text-center block">
-              Request a Demo
+            <Link href="/contact" className="btn-secondary w-full text-xs label-caps py-4 text-center block">
+              Get Started for free
             </Link>
           </div>
 
@@ -147,8 +147,8 @@ export default function PricingPage() {
                 <li className="flex items-center gap-3 text-brand-primary font-bold tracking-tight"><Plus className="w-4 h-4" /> Extra SMS top-ups anytime</li>
               </ul>
             </div>
-            <Link href="/demo" className="btn-primary w-full text-xs label-caps py-4 shadow-xl shadow-brand-primary/20 text-center block">
-              Request a Demo
+            <Link href="/contact" className="btn-primary w-full text-xs label-caps py-4 shadow-xl shadow-brand-primary/20 text-center block">
+              Get Started for free
             </Link>
           </div>
 
@@ -176,7 +176,7 @@ export default function PricingPage() {
                 <li className="flex items-center gap-3"><Check className="w-4 h-4 text-forest-green" /> Priority support</li>
               </ul>
             </div>
-            <Link href="/demo" className="btn-secondary text-center w-full text-xs label-caps py-4">
+            <Link href="/contact" className="btn-secondary text-center w-full text-xs label-caps py-4">
               Contact Sales
             </Link>
           </div>

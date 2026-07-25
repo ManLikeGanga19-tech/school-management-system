@@ -82,8 +82,8 @@ export default function SignInPage() {
             </p>
             <p className="text-sm text-muted-text font-normal">
               Don't have an account?{" "}
-              <Link href="/demo" className="text-brand-primary font-bold hover:underline">
-                Request a demo
+              <Link href="/contact" className="text-brand-primary font-bold hover:underline">
+                Get Started for free
               </Link>
             </p>
           </div>
