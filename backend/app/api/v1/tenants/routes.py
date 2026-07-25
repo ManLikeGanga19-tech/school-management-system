@@ -11889,6 +11889,8 @@ def get_tenant_profile(
     return {
         "curriculum_type": getattr(tenant, "curriculum_type", "CBC") or "CBC",
         "name": str(getattr(tenant, "name", "") or ""),
+        # Drives the read-only banner in the app shell (false for real tenants).
+        "is_demo": bool(getattr(tenant, "is_demo", False)),
     }
 
 
