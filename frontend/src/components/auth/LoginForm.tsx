@@ -37,6 +37,7 @@ function getErrorMessage(data: any) {
 
 export function LoginForm({ initialTenantSlug, turnstileSiteKey, demoPrefill }: LoginFormProps) {
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileError, setTurnstileError] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const form = useForm<LoginValues>({
@@ -47,6 +48,13 @@ export function LoginForm({ initialTenantSlug, turnstileSiteKey, demoPrefill }: 
   });
 
   const loading = form.formState.isSubmitting;
+
+  // When Turnstile is enabled we must wait for it to issue a token before the
+  // backend will accept the login (the WAF doesn't cover /api/*). Gating the
+  // button on the token prevents the "submitted before the token arrived" race
+  // that surfaced as "Human verification failed" — worst on the pre-filled demo.
+  const turnstileEnabled = !!turnstileSiteKey;
+  const awaitingTurnstile = turnstileEnabled && !turnstileToken && !turnstileError;
 
   async function onSubmit(values: LoginValues) {
     setErr(null);
@@ -144,10 +152,23 @@ export function LoginForm({ initialTenantSlug, turnstileSiteKey, demoPrefill }: 
               form is unchanged while Turnstile is rolled out. In managed mode
               it stays invisible for legitimate users and only becomes
               interactive when Cloudflare's scoring calls for it. */}
-          <TurnstileWidget siteKey={turnstileSiteKey} onToken={setTurnstileToken} />
+          <TurnstileWidget
+            siteKey={turnstileSiteKey}
+            onToken={(t) => {
+              setTurnstileToken(t);
+              if (t) setTurnstileError(false);
+            }}
+            onError={() => setTurnstileError(true)}
+          />
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Signing in..." : "Sign in"}
+          {turnstileError && (
+            <p className="text-sm text-amber-brown">
+              Couldn&apos;t verify your browser. Please refresh the page and try again.
+            </p>
+          )}
+
+          <Button type="submit" className="w-full" disabled={loading || awaitingTurnstile}>
+            {loading ? "Signing in..." : awaitingTurnstile ? "Verifying…" : "Sign in"}
           </Button>
         </form>
       </CardContent>

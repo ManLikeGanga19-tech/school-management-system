@@ -31,14 +31,19 @@ type Props = {
   siteKey?: string;
   /** Called with the solved token, or "" when it expires and must be re-solved. */
   onToken: (token: string) => void;
+  /** Fired when the challenge errors out (network, ad-blocker, etc.) so the
+   *  form can show a retry hint instead of a permanently-disabled button. */
+  onError?: () => void;
 };
 
-export function TurnstileWidget({ siteKey, onToken }: Props) {
+export function TurnstileWidget({ siteKey, onToken, onError }: Props) {
   const holder = useRef<HTMLDivElement | null>(null);
   const widgetId = useRef<string | null>(null);
-  // Keep the latest callback without re-rendering the widget on every keystroke.
+  // Keep the latest callbacks without re-rendering the widget on every keystroke.
   const cb = useRef(onToken);
   cb.current = onToken;
+  const errCb = useRef(onError);
+  errCb.current = onError;
 
   useEffect(() => {
     if (!siteKey) return;
@@ -58,7 +63,10 @@ export function TurnstileWidget({ siteKey, onToken }: Props) {
         appearance: "interaction-only",
         callback: (token: string) => cb.current(token),
         "expired-callback": () => cb.current(""),
-        "error-callback": () => cb.current(""),
+        "error-callback": () => {
+          cb.current("");
+          errCb.current?.();
+        },
       });
       return true;
     }
