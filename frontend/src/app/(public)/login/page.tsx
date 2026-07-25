@@ -31,7 +31,18 @@ export default async function LoginPage() {
           </div>
 
           <div className="flex items-center justify-center">
-            <LoginForm initialTenantSlug={tenantSlug} turnstileSiteKey={process.env.TURNSTILE_SITE_KEY} />
+            <LoginForm
+              initialTenantSlug={tenantSlug}
+              turnstileSiteKey={process.env.TURNSTILE_SITE_KEY}
+              demoPrefill={
+                tenantSlug === (process.env.DEMO_TENANT_SLUG || "demo")
+                  ? {
+                      email: process.env.DEMO_EMAIL || "director@demo.shulehq.co.ke",
+                      password: process.env.DEMO_PASSWORD || "Demo@2026",
+                    }
+                  : undefined
+              }
+            />
           </div>
         </div>
       </div>
