@@ -30,7 +30,9 @@ export const COOKIE_SAMESITE = normalizeSameSite(process.env.COOKIE_SAMESITE);
 export const COOKIE_DOMAIN = normalizeDomain(process.env.COOKIE_DOMAIN);
 
 type BuildCookieOptionsInput = {
-  maxAge: number;
+  /** Omit to produce a SESSION cookie (no maxAge/expires) that the browser
+   *  clears when it closes — this is how "Remember me = off" is honoured. */
+  maxAge?: number;
   httpOnly: boolean;
   path?: string;
 };
@@ -45,7 +47,7 @@ export function buildCookieOptions({
     sameSite: COOKIE_SAMESITE,
     secure: COOKIE_SECURE,
     path,
-    maxAge,
+    ...(typeof maxAge === "number" ? { maxAge } : {}),
     ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
   };
 }

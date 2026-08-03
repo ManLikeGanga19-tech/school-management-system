@@ -8,6 +8,7 @@ import {
   setRefreshTokenOnResponse,
   setTenantContextOnResponse,
   setClientModeCookieOnResponse,
+  setRememberHintOnResponse,
 } from "@/lib/auth/cookies";
 import { decodeAccess } from "@/lib/auth/jwt";
 import { resolvePortalContext } from "@/lib/platform-host";
@@ -74,8 +75,13 @@ export async function POST() {
     { status: 200 }
   );
 
+  // Preserve the login's "Remember me" choice across token rotation, so a
+  // remembered session stays persistent and a session-only one is not silently
+  // upgraded to a 30-day cookie on the first refresh.
+  const remember = (await cookies()).get("sms_remember")?.value === "1";
+
   if (data?.access_token && tenantId) {
-    setAccessTokenOnResponse(response, data.access_token);
+    setAccessTokenOnResponse(response, data.access_token, remember);
     setTenantContextOnResponse(response, {
       tenant_id: tenantId,
       tenant_slug: tenantSlug ?? undefined,
@@ -84,8 +90,9 @@ export async function POST() {
   }
   const refresh = extractCookieValue(res.headers, "sms_refresh");
   if (refresh) {
-    setRefreshTokenOnResponse(response, refresh);
+    setRefreshTokenOnResponse(response, refresh, remember);
   }
+  setRememberHintOnResponse(response, remember);
 
   return response;
 }

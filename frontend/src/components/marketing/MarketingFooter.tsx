@@ -74,7 +74,7 @@ export function MarketingFooter() {
           </p>
           <div className="flex space-x-8 text-[11px] font-semibold uppercase tracking-[0.2em] text-warm-cream/30">
             <Link href="/privacy" className="hover:text-brand-primary transition-colors">Privacy Policy</Link>
-            <a href="#" className="hover:text-brand-primary transition-colors">Terms of Service</a>
+            <Link href="/terms" className="hover:text-brand-primary transition-colors">Terms of Service</Link>
             <a href="#" className="hover:text-brand-primary transition-colors">Data Processing</a>
           </div>
         </div>

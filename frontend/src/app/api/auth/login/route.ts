@@ -6,6 +6,7 @@ import {
   setRefreshTokenOnResponse,
   setTenantContextOnResponse,
   setClientModeCookieOnResponse,
+  setRememberHintOnResponse,
   clearAllAuthCookiesOnResponse,
 } from "@/lib/auth/cookies";
 import { decodeAccess } from "@/lib/auth/jwt";
@@ -78,6 +79,7 @@ export async function POST(req: Request) {
   const email = (body?.email as string | undefined)?.trim().toLowerCase();
   const password = (body?.password as string | undefined) || "";
   const turnstile_token = (body?.turnstile_token as string | undefined) || undefined;
+  const remember = body?.remember_me === true;
 
   if (!tenant_slug) {
     return NextResponse.json(
@@ -132,7 +134,7 @@ export async function POST(req: Request) {
   clearAllAuthCookiesOnResponse(response);
 
   if (data?.access_token) {
-    setAccessTokenOnResponse(response, data.access_token);
+    setAccessTokenOnResponse(response, data.access_token, remember);
     setTenantContextOnResponse(response, {
       tenant_id: tenant_id ?? undefined,
       tenant_slug,
@@ -142,8 +144,11 @@ export async function POST(req: Request) {
 
   const refresh = extractCookieValue(res.headers, "sms_refresh");
   if (refresh) {
-    setRefreshTokenOnResponse(response, refresh);
+    setRefreshTokenOnResponse(response, refresh, remember);
   }
+
+  // Remember the choice so token rotation on /refresh keeps the same persistence.
+  setRememberHintOnResponse(response, remember);
 
   return response;
 }

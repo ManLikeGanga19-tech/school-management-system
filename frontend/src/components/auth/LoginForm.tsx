@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { KeyRound, Phone, Mail } from "lucide-react";
 
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
-import { storage, keys } from "@/lib/storage"; // ✅ add this
+import { storage, keys } from "@/lib/storage";
 import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 
 type LoginValues = {
@@ -23,9 +24,13 @@ type LoginFormProps = {
    *  change without a rebuild. Absent = widget renders nothing. */
   turnstileSiteKey?: string;
   /** When this is the read-only demo tenant, the login is pre-filled and a
-   *  read-only notice is shown. The credentials are public by design (the demo
-   *  cannot write anything). */
+   *  read-only notice is shown. The credentials are public by design. */
   demoPrefill?: { email: string; password: string };
+  /** Per-tenant personalisation resolved server-side from the subdomain. */
+  schoolName?: string;
+  accentColor?: string;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
 };
 
 function getErrorMessage(data: any) {
@@ -35,9 +40,19 @@ function getErrorMessage(data: any) {
   return "Login failed";
 }
 
-export function LoginForm({ initialTenantSlug, turnstileSiteKey, demoPrefill }: LoginFormProps) {
+export function LoginForm({
+  initialTenantSlug,
+  turnstileSiteKey,
+  demoPrefill,
+  schoolName,
+  accentColor = "#b9512d",
+  contactPhone,
+  contactEmail,
+}: LoginFormProps) {
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileError, setTurnstileError] = useState(false);
+  const [remember, setRemember] = useState(true);
+  const [showForgot, setShowForgot] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const form = useForm<LoginValues>({
@@ -49,10 +64,8 @@ export function LoginForm({ initialTenantSlug, turnstileSiteKey, demoPrefill }: 
 
   const loading = form.formState.isSubmitting;
 
-  // When Turnstile is enabled we must wait for it to issue a token before the
-  // backend will accept the login (the WAF doesn't cover /api/*). Gating the
-  // button on the token prevents the "submitted before the token arrived" race
-  // that surfaced as "Human verification failed" — worst on the pre-filled demo.
+  // Wait for Turnstile to issue a token before enabling submit — otherwise the
+  // backend rejects the empty token with "Human verification failed".
   const turnstileEnabled = !!turnstileSiteKey;
   const awaitingTurnstile = turnstileEnabled && !turnstileToken && !turnstileError;
 
@@ -68,6 +81,7 @@ export function LoginForm({ initialTenantSlug, turnstileSiteKey, demoPrefill }: 
         email: values.email.trim().toLowerCase(),
         password: values.password,
         turnstile_token: turnstileToken || undefined,
+        remember_me: remember,
       }),
     });
 
@@ -78,7 +92,6 @@ export function LoginForm({ initialTenantSlug, turnstileSiteKey, demoPrefill }: 
       return;
     }
 
-    // ✅ CRITICAL: persist tenant context for apiFetch tenantRequired calls
     storage.remove(keys.saasAccessToken);
     storage.remove(keys.tenantId);
     storage.set(keys.mode, "tenant");
@@ -88,9 +101,6 @@ export function LoginForm({ initialTenantSlug, turnstileSiteKey, demoPrefill }: 
     if (typeof data?.tenant_id === "string" && data.tenant_id.trim()) {
       storage.set(keys.tenantId, data.tenant_id.trim());
     }
-
-    // Optional: if your /api/auth/login ever returns access_token, store it
-    // (won't break anything if absent)
     if (data?.access_token) {
       storage.set(keys.accessToken, String(data.access_token));
     }
@@ -103,75 +113,145 @@ export function LoginForm({ initialTenantSlug, turnstileSiteKey, demoPrefill }: 
         ? data.redirect_to
         : "/dashboard";
 
-    // Use hard navigation to guarantee fresh server render with newly-set auth cookies.
     window.location.assign(safeNext || serverRedirect);
   }
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>{demoPrefill ? "Explore the ShuleHQ demo" : "Sign in"}</CardTitle>
-        <CardDescription>
+    <div className="w-full">
+      <div className="mb-7">
+        <h2 className="text-2xl font-bold tracking-tight text-dark-navy">
+          {demoPrefill ? "Explore the demo" : "Welcome back"}
+        </h2>
+        <p className="mt-1.5 text-sm text-muted-text">
           {demoPrefill
-            ? "Read-only demo — sign in below (already filled in) and click around freely. Changes are disabled."
-            : initialTenantSlug
-            ? `Sign in to ${initialTenantSlug}.`
-            : "Sign in through your school's mapped subdomain."}
-        </CardDescription>
-      </CardHeader>
+            ? "Read-only demo — already filled in. Sign in and click around freely."
+            : `Sign in to continue to ${schoolName || "your workspace"}.`}
+        </p>
+      </div>
+
       {demoPrefill && (
-        <div className="mx-6 -mt-2 mb-2 rounded-lg border border-amber-brown/25 bg-light-sand/60 px-4 py-2.5 text-sm font-medium text-amber-brown">
-          You&apos;re viewing a live, <strong>read-only</strong> demo. Explore every module — nothing you do is saved.
+        <div className="mb-5 rounded-lg border border-amber-brown/25 bg-light-sand/60 px-4 py-2.5 text-sm font-medium text-amber-brown">
+          You&apos;re viewing a live, <strong>read-only</strong> demo. Nothing you do is saved.
         </div>
       )}
 
-      <CardContent>
-        {err && <div className="mb-3 text-sm text-red-600">{err}</div>}
+      {err && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">
+          {err}
+        </div>
+      )}
 
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label>Email</Label>
-            <Input
-              placeholder="director@demo.com"
-              type="email"
-              autoCapitalize="none"
-              autoCorrect="off"
-              {...form.register("email", { required: true })}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Password</Label>
-            <PasswordInput
-              placeholder="Enter your password"
-              {...form.register("password", { required: true })}
-            />
-          </div>
-
-          {/* Renders nothing until a site key is configured server-side, so the
-              form is unchanged while Turnstile is rolled out. In managed mode
-              it stays invisible for legitimate users and only becomes
-              interactive when Cloudflare's scoring calls for it. */}
-          <TurnstileWidget
-            siteKey={turnstileSiteKey}
-            onToken={(t) => {
-              setTurnstileToken(t);
-              if (t) setTurnstileError(false);
-            }}
-            onError={() => setTurnstileError(true)}
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+        <div className="space-y-2">
+          <Label htmlFor="login-email">Email</Label>
+          <Input
+            id="login-email"
+            placeholder="you@school.com"
+            type="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            autoComplete="email"
+            {...form.register("email", { required: true })}
           />
+        </div>
 
-          {turnstileError && (
-            <p className="text-sm text-amber-brown">
-              Couldn&apos;t verify your browser. Please refresh the page and try again.
-            </p>
-          )}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="login-password">Password</Label>
+            <button
+              type="button"
+              onClick={() => setShowForgot((v) => !v)}
+              className="text-sm font-medium hover:underline"
+              style={{ color: accentColor }}
+            >
+              Forgot password?
+            </button>
+          </div>
+          <PasswordInput
+            id="login-password"
+            placeholder="Enter your password"
+            autoComplete="current-password"
+            {...form.register("password", { required: true })}
+          />
+        </div>
 
-          <Button type="submit" className="w-full" disabled={loading || awaitingTurnstile}>
-            {loading ? "Signing in..." : awaitingTurnstile ? "Verifying…" : "Sign in"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+        {showForgot && (
+          <div className="rounded-lg border border-brand-border bg-muted-warm/50 px-4 py-3 text-sm text-muted-text">
+            <div className="flex items-start gap-2">
+              <KeyRound size={16} className="mt-0.5 shrink-0" style={{ color: accentColor }} />
+              <div className="space-y-1.5">
+                <p>
+                  Password resets are handled by your school. Contact your{" "}
+                  <strong className="text-dark-navy">administrator</strong> to have it reset.
+                </p>
+                {(contactPhone || contactEmail) && (
+                  <div className="flex flex-col gap-1 pt-0.5">
+                    {contactPhone && (
+                      <a href={`tel:${contactPhone}`} className="flex items-center gap-2 font-medium text-dark-navy hover:underline">
+                        <Phone size={13} /> {contactPhone}
+                      </a>
+                    )}
+                    {contactEmail && (
+                      <a href={`mailto:${contactEmail}`} className="flex items-center gap-2 font-medium text-dark-navy hover:underline">
+                        <Mail size={13} /> {contactEmail}
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="remember"
+            checked={remember}
+            onCheckedChange={setRemember}
+            accentColor={accentColor}
+            aria-label="Remember me on this device"
+          />
+          <label htmlFor="remember" className="cursor-pointer select-none text-sm text-muted-text" onClick={() => setRemember((v) => !v)}>
+            Remember me on this device
+          </label>
+        </div>
+
+        {/* Renders nothing until a site key is configured server-side. */}
+        <TurnstileWidget
+          siteKey={turnstileSiteKey}
+          onToken={(t) => {
+            setTurnstileToken(t);
+            if (t) setTurnstileError(false);
+          }}
+          onError={() => setTurnstileError(true)}
+        />
+        {turnstileError && (
+          <p className="text-sm text-amber-brown">
+            Couldn&apos;t verify your browser. Please refresh the page and try again.
+          </p>
+        )}
+
+        <Button
+          type="submit"
+          className="w-full py-6 text-base font-semibold text-white transition-opacity hover:opacity-90"
+          style={{ backgroundColor: accentColor }}
+          disabled={loading || awaitingTurnstile}
+        >
+          {loading ? "Signing in..." : awaitingTurnstile ? "Verifying…" : "Sign in"}
+        </Button>
+      </form>
+
+      <p className="mt-6 text-center text-xs leading-relaxed text-muted-text/80">
+        By signing in you agree to ShuleHQ&apos;s{" "}
+        <a href="https://shulehq.co.ke/terms" className="font-medium hover:underline" style={{ color: accentColor }}>
+          Terms
+        </a>{" "}
+        and{" "}
+        <a href="https://shulehq.co.ke/privacy" className="font-medium hover:underline" style={{ color: accentColor }}>
+          Privacy Policy
+        </a>
+        .
+      </p>
+    </div>
   );
 }

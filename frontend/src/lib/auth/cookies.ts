@@ -27,6 +27,9 @@ export const COOKIE_REFRESH      = "sms_refresh";
 export const COOKIE_TENANT_ID    = "sms_tenant_id";
 export const COOKIE_TENANT_SLUG  = "sms_tenant_slug";
 export const COOKIE_MODE         = "sms_mode";
+// "Remember me" marker. Server-only hint so token rotation on /refresh can keep
+// re-issuing persistent (vs session) auth cookies for the whole session.
+export const COOKIE_REMEMBER     = "sms_remember";
 
 export const COOKIE_SAAS_ACCESS  = "sms_saas_access";
 export const COOKIE_SAAS_REFRESH = "sms_saas_refresh";
@@ -42,16 +45,18 @@ type CookieWriter = {
   };
 };
 
-/** Base options for SHORT-LIVED access tokens — NOT httpOnly so JS can read them */
-function accessCookieOptions(maxAge: number) {
+/** Base options for SHORT-LIVED access tokens — NOT httpOnly so JS can read them.
+ *  Omit maxAge → session cookie ("Remember me" off). */
+function accessCookieOptions(maxAge?: number) {
   return buildCookieOptions({
     maxAge,
     httpOnly: false, // must remain readable by document.cookie
   });
 }
 
-/** Base options for LONG-LIVED refresh tokens — httpOnly, never readable by JS */
-function refreshCookieOptions(maxAge: number) {
+/** Base options for LONG-LIVED refresh tokens — httpOnly, never readable by JS.
+ *  Omit maxAge → session cookie ("Remember me" off). */
+function refreshCookieOptions(maxAge?: number) {
   return buildCookieOptions({
     maxAge,
     httpOnly: true,
@@ -96,22 +101,57 @@ function setCookieOnResponse(
   response.cookies.set(name, value, options);
 }
 
-/** Tenant/school login access token */
-export async function setAccessToken(token: string) {
-  (await cookies()).set(COOKIE_ACCESS, token, accessCookieOptions(ACCESS_MAX_AGE));
+/** Tenant/school login access token.
+ *  `persistent=false` ("Remember me" off) writes a SESSION cookie that the
+ *  browser drops on close, so the short-lived access token cannot linger on a
+ *  shared machine. */
+export async function setAccessToken(token: string, persistent = true) {
+  (await cookies()).set(
+    COOKIE_ACCESS,
+    token,
+    accessCookieOptions(persistent ? ACCESS_MAX_AGE : undefined)
+  );
 }
 
-export function setAccessTokenOnResponse(response: CookieWriter, token: string) {
-  setCookieOnResponse(response, COOKIE_ACCESS, token, accessCookieOptions(ACCESS_MAX_AGE));
+export function setAccessTokenOnResponse(response: CookieWriter, token: string, persistent = true) {
+  setCookieOnResponse(
+    response,
+    COOKIE_ACCESS,
+    token,
+    accessCookieOptions(persistent ? ACCESS_MAX_AGE : undefined)
+  );
 }
 
-/** Tenant/school login refresh token */
-export async function setRefreshToken(token: string) {
-  (await cookies()).set(COOKIE_REFRESH, token, refreshCookieOptions(REFRESH_MAX_AGE));
+/** Tenant/school login refresh token. Session cookie when not persistent. */
+export async function setRefreshToken(token: string, persistent = true) {
+  (await cookies()).set(
+    COOKIE_REFRESH,
+    token,
+    refreshCookieOptions(persistent ? REFRESH_MAX_AGE : undefined)
+  );
 }
 
-export function setRefreshTokenOnResponse(response: CookieWriter, token: string) {
-  setCookieOnResponse(response, COOKIE_REFRESH, token, refreshCookieOptions(REFRESH_MAX_AGE));
+export function setRefreshTokenOnResponse(response: CookieWriter, token: string, persistent = true) {
+  setCookieOnResponse(
+    response,
+    COOKIE_REFRESH,
+    token,
+    refreshCookieOptions(persistent ? REFRESH_MAX_AGE : undefined)
+  );
+}
+
+/** Remember-me marker so /refresh keeps issuing persistent-vs-session cookies. */
+export function setRememberHintOnResponse(response: CookieWriter, remember: boolean) {
+  if (remember) {
+    setCookieOnResponse(
+      response,
+      COOKIE_REMEMBER,
+      "1",
+      buildCookieOptions({ maxAge: REFRESH_MAX_AGE, httpOnly: true })
+    );
+  } else {
+    expireCookieOnResponse(response, COOKIE_REMEMBER);
+  }
 }
 
 /** SaaS super admin access token */
@@ -217,6 +257,7 @@ export async function clearTenantAuthCookies() {
   await expireCookie(COOKIE_REFRESH);
   await expireCookie(COOKIE_TENANT_ID);
   await expireCookie(COOKIE_TENANT_SLUG);
+  await expireCookie(COOKIE_REMEMBER);
 }
 
 export function clearTenantAuthCookiesOnResponse(response: CookieWriter) {
@@ -224,6 +265,7 @@ export function clearTenantAuthCookiesOnResponse(response: CookieWriter) {
   expireCookieOnResponse(response, COOKIE_REFRESH);
   expireCookieOnResponse(response, COOKIE_TENANT_ID);
   expireCookieOnResponse(response, COOKIE_TENANT_SLUG);
+  expireCookieOnResponse(response, COOKIE_REMEMBER);
 }
 
 export async function clearSaasAuthCookies() {

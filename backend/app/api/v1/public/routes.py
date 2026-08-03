@@ -79,6 +79,60 @@ def public_stats(db: Session = Depends(get_db)):
     _STATS_CACHE["at"] = now
     return out
 
+# ── Public per-tenant brand (for the logged-out login screen) ─────────────────
+# Just the school's public identity — name, brand colour, badge, and the contact
+# a user should reach for a password reset. No PII, nothing privileged, so it is
+# safe to serve unauthenticated. The login page is server-rendered per subdomain
+# and reads this to personalise itself (real school name + brand colour, and the
+# school's own badge once uploaded).
+class PublicTenantBrandOut(BaseModel):
+    slug: str
+    name: str
+    brand_color: Optional[str] = None
+    badge_url: Optional[str] = None
+    school_phone: Optional[str] = None
+    school_email: Optional[str] = None
+
+
+_HEX_RE = None  # lazily compiled below
+
+
+def _safe_hex(value: Optional[str]) -> Optional[str]:
+    """Only echo a brand colour back if it is a well-formed #RRGGBB, so it can
+    be dropped straight into inline styles on the login page without becoming a
+    CSS-injection vector."""
+    global _HEX_RE
+    if _HEX_RE is None:
+        import re
+        _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+    v = (value or "").strip()
+    return v if v and _HEX_RE.match(v) else None
+
+
+@router.get("/tenant-brand", response_model=PublicTenantBrandOut)
+def public_tenant_brand(slug: str, db: Session = Depends(get_db)):
+    s = (slug or "").strip().lower()
+    if not s:
+        raise HTTPException(status_code=404, detail="Unknown school")
+    tenant = db.execute(
+        select(Tenant).where(
+            Tenant.slug == s,
+            Tenant.is_active.is_(True),
+            Tenant.deleted_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Unknown school")
+    return PublicTenantBrandOut(
+        slug=tenant.slug,
+        name=tenant.name,
+        brand_color=_safe_hex(tenant.brand_color),
+        badge_url=getattr(tenant, "logo_url", None),  # phase 2: uploaded badge
+        school_phone=(tenant.school_phone or None),
+        school_email=(tenant.school_email or None),
+    )
+
+
 PUBLIC_ACCESS_ROLE = "PUBLIC_PROSPECT"
 PUBLIC_PERMISSIONS = ["prospect.requests.read", "prospect.requests.create"]
 PUBLIC_TENANT_MARKER = "__public__"
