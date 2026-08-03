@@ -79,9 +79,21 @@ else
 fi
 [ -f "${WORK}/media.tar.gz" ] || : > "${WORK}/media.tar.gz"
 
+# ── 2b. Storage (tenant badges + generated artifacts on the backend volume) ──
+if docker inspect "${APP_CONTAINER}" >/dev/null 2>&1; then
+  docker exec "${APP_CONTAINER}" sh -c 'tar czf - -C /app/storage . 2>/dev/null' \
+    > "${WORK}/storage.tar.gz" || : # empty storage dir is valid
+  STORAGE_COUNT=$(docker exec "${APP_CONTAINER}" sh -c \
+    'find /app/storage -type f 2>/dev/null | wc -l' || echo 0)
+else
+  : > "${WORK}/storage.tar.gz"; STORAGE_COUNT=0
+fi
+[ -f "${WORK}/storage.tar.gz" ] || : > "${WORK}/storage.tar.gz"
+
 # ── 3. Manifest ──────────────────────────────────────────────────────────────
 DB_SHA=$(sha256sum "${WORK}/database.dump" | cut -d' ' -f1)
 MD_SHA=$(sha256sum "${WORK}/media.tar.gz" | cut -d' ' -f1)
+ST_SHA=$(sha256sum "${WORK}/storage.tar.gz" | cut -d' ' -f1)
 HEAD=$(docker exec -u postgres "${PG_CONTAINER}" \
         psql -U "${PGUSER}" -d "${PGDB}" -tAc 'SELECT version_num FROM alembic_version;' 2>/dev/null | tr -d '[:space:]' || true)
 PGVER=$(docker exec "${PG_CONTAINER}" pg_dump --version 2>/dev/null | head -c 120 || true)
@@ -105,16 +117,21 @@ cat > "${WORK}/manifest.json" <<JSON
     "file_count": ${MEDIA_COUNT:-0},
     "sha256": "${MD_SHA}",
     "bytes": $(stat -c%s "${WORK}/media.tar.gz")
+  },
+  "storage": {
+    "file_count": ${STORAGE_COUNT:-0},
+    "sha256": "${ST_SHA}",
+    "bytes": $(stat -c%s "${WORK}/storage.tar.gz")
   }
 }
 JSON
 
 # ── 4. Bundle (outer tar; the dump is already compressed) ────────────────────
-tar cf "${BACKUP_DIR}/${NAME}" -C "${WORK}" database.dump media.tar.gz manifest.json \
+tar cf "${BACKUP_DIR}/${NAME}" -C "${WORK}" database.dump media.tar.gz storage.tar.gz manifest.json \
   || fail "bundling failed"
 SIZE=$(stat -c%s "${BACKUP_DIR}/${NAME}")
 SHA=$(sha256sum "${BACKUP_DIR}/${NAME}" | cut -d' ' -f1)
-log "artifact ${NAME} bytes=${SIZE} tables=${TDC} media=${MEDIA_COUNT} head=${HEAD}"
+log "artifact ${NAME} bytes=${SIZE} tables=${TDC} media=${MEDIA_COUNT} storage=${STORAGE_COUNT} head=${HEAD}"
 log "sha256 ${SHA}"
 
 # ── 5. Offsite (optional but strongly recommended — 3-2-1) ───────────────────

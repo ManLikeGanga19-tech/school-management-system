@@ -47,9 +47,12 @@ _STATS_TTL_S = 300  # counts change slowly; avoid a DB hit on every landing view
 
 
 @router.get("/stats", response_model=PublicStatsOut)
-def public_stats(db: Session = Depends(get_db)):
+def public_stats(response: Response, db: Session = Depends(get_db)):
     import time
 
+    # Cacheable at the edge/browser — these are slow-moving aggregate counts and
+    # the biggest latency here is the client↔origin round trip, not the query.
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=600"
     now = time.monotonic()
     cached = _STATS_CACHE.get("value")
     if cached is not None and (now - float(_STATS_CACHE["at"])) < _STATS_TTL_S:
@@ -110,7 +113,10 @@ def _safe_hex(value: Optional[str]) -> Optional[str]:
 
 
 @router.get("/tenant-brand", response_model=PublicTenantBrandOut)
-def public_tenant_brand(slug: str, db: Session = Depends(get_db)):
+def public_tenant_brand(slug: str, response: Response, db: Session = Depends(get_db)):
+    # A school's public identity changes rarely — let the edge/browser cache it
+    # so the login screen doesn't pay an origin round trip on every load.
+    response.headers["Cache-Control"] = "public, max-age=120, stale-while-revalidate=600"
     s = (slug or "").strip().lower()
     if not s:
         raise HTTPException(status_code=404, detail="Unknown school")
@@ -127,9 +133,56 @@ def public_tenant_brand(slug: str, db: Session = Depends(get_db)):
         slug=tenant.slug,
         name=tenant.name,
         brand_color=_safe_hex(tenant.brand_color),
-        badge_url=getattr(tenant, "logo_url", None),  # phase 2: uploaded badge
+        badge_url=_tenant_badge_public_url(tenant.id, tenant.slug),
         school_phone=(tenant.school_phone or None),
         school_email=(tenant.school_email or None),
+    )
+
+
+def _tenant_badge_public_url(tenant_id, slug: str) -> Optional[str]:
+    """Browser-usable URL for a tenant's uploaded badge, or None if unset.
+
+    The badge is stored on the persistent backend volume and normally served by
+    an authenticated route; the logged-out login screen needs it public, so we
+    point at /public/tenant-badge. Absolute (api.<base>) so it resolves from a
+    tenant subdomain; relative in dev where no base domain is configured."""
+    from urllib.parse import quote
+    from app.api.v1.tenants.routes import _tenant_badge_path
+
+    if _tenant_badge_path(tenant_id) is None:
+        return None
+    base = (settings.CORS_BASE_DOMAIN or "").strip().lower().lstrip(".")
+    q = f"tenant-badge?slug={quote(slug)}"
+    return f"https://api.{base}/api/v1/public/{q}" if base else f"/api/v1/public/{q}"
+
+
+@router.get("/tenant-badge")
+def public_tenant_badge(slug: str, db: Session = Depends(get_db)):
+    """Serve a tenant's badge image unauthenticated for the login screen.
+    204 when the school or its badge does not exist (a normal, non-error state)."""
+    from app.api.v1.tenants.routes import _tenant_badge_path, TENANT_BADGE_CONTENT_TYPE_BY_EXT
+
+    s = (slug or "").strip().lower()
+    if not s:
+        return Response(status_code=204)
+    tenant = db.execute(
+        select(Tenant).where(
+            Tenant.slug == s,
+            Tenant.is_active.is_(True),
+            Tenant.deleted_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if tenant is None:
+        return Response(status_code=204)
+    badge_path = _tenant_badge_path(tenant.id)
+    if badge_path is None or not badge_path.is_file():
+        return Response(status_code=204)
+    ext = badge_path.suffix.lower().lstrip(".")
+    media_type = TENANT_BADGE_CONTENT_TYPE_BY_EXT.get(ext, "application/octet-stream")
+    return Response(
+        content=badge_path.read_bytes(),
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=300"},
     )
 
 
