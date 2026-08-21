@@ -18,7 +18,10 @@ export const metadata: Metadata = {
   description:
     "Enterprise school management for Kenyan schools — enrollment, finance, attendance, exams, and KEMIS-ready student records.",
   applicationName: "ShuleHQ",
-  manifest: "/site.webmanifest",
+  // Served from /api so the Cloudflare WAF (which excludes /api/*) never
+  // challenges it — the browser fetches the manifest without credentials, so a
+  // challenged path would 403. See src/app/api/manifest/route.ts.
+  manifest: "/api/manifest",
   // iOS: open from the home screen as a standalone app (not a Safari shortcut).
   appleWebApp: {
     capable: true,

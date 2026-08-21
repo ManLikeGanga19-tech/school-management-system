@@ -1,8 +1,13 @@
 import { headers } from "next/headers";
 
 /**
- * Host-aware PWA manifest, served at /site.webmanifest (linked from the root
- * layout). The super-admin / operator console lives on the admin host and gets
+ * Host-aware PWA manifest, served at /api/manifest (linked from the root
+ * layout). It lives under /api on purpose: the Cloudflare WAF Managed Challenge
+ * excludes /api/*, and the browser fetches the manifest WITHOUT credentials
+ * (no cf_clearance cookie) — so a manifest at a challenged path 403s. Under
+ * /api it is never challenged.
+ *
+ * The super-admin / operator console lives on the admin host and gets
  * a visually distinct installed-app icon + name + theme, so the platform owner
  * can tell the admin PWA apart from any school's PWA at a glance on their home
  * screen. Every other host (tenant subdomains, marketing apex) gets the normal
@@ -19,10 +24,10 @@ const DEFAULT_MANIFEST = {
   background_color: "#F8FAFC",
   theme_color: "#173F49",
   icons: [
-    { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
-    { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
-    { src: "/icons/maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
-    { src: "/icons/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+    { src: "/api/pwa-icon/icon-192.png", sizes: "192x192", type: "image/png" },
+    { src: "/api/pwa-icon/icon-512.png", sizes: "512x512", type: "image/png" },
+    { src: "/api/pwa-icon/maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+    { src: "/api/pwa-icon/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
   ],
 };
 
@@ -36,10 +41,10 @@ const ADMIN_MANIFEST = {
   background_color: "#0f172a",
   theme_color: "#0f172a",
   icons: [
-    { src: "/icons/admin-icon-192.png", sizes: "192x192", type: "image/png" },
-    { src: "/icons/admin-icon-512.png", sizes: "512x512", type: "image/png" },
-    { src: "/icons/admin-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
-    { src: "/icons/admin-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+    { src: "/api/pwa-icon/admin-icon-192.png", sizes: "192x192", type: "image/png" },
+    { src: "/api/pwa-icon/admin-icon-512.png", sizes: "512x512", type: "image/png" },
+    { src: "/api/pwa-icon/admin-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+    { src: "/api/pwa-icon/admin-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
   ],
 };
 

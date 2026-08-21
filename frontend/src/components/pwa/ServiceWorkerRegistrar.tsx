@@ -13,7 +13,8 @@ export function ServiceWorkerRegistrar() {
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
     const register = () => {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Served from /api/sw (WAF-excluded); scope "/" via Service-Worker-Allowed.
+      navigator.serviceWorker.register("/api/sw", { scope: "/" }).catch(() => {
         /* registration is best-effort; the app works without it */
       });
     };

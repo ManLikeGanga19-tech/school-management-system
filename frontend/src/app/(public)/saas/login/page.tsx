@@ -52,7 +52,7 @@ export default function SaaSLoginPage() {
 
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/icons/admin-icon-192.png" alt="ShuleHQ Admin" className="h-10 w-10 rounded-xl" />
+          <img src="/api/pwa-icon/admin-icon-192.png" alt="ShuleHQ Admin" className="h-10 w-10 rounded-xl" />
           <span className="text-lg font-bold tracking-tight">
             Shule<span className="text-[#f59e0b]">HQ</span>
             <span className="ml-2 rounded-md bg-[#f59e0b]/15 px-2 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-[0.2em] text-[#f59e0b]">
@@ -88,7 +88,7 @@ export default function SaaSLoginPage() {
           {/* Mobile identity */}
           <div className="mb-8 flex flex-col items-center gap-3 text-center lg:hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icons/admin-icon-192.png" alt="ShuleHQ Admin" className="h-16 w-16 rounded-2xl shadow-md" />
+            <img src="/api/pwa-icon/admin-icon-192.png" alt="ShuleHQ Admin" className="h-16 w-16 rounded-2xl shadow-md" />
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-dark-navy">
                 Shule<span className="text-[#f59e0b]">HQ</span> Admin
