@@ -5,8 +5,10 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 
 // Brand identity — favicon/apple-icon are served by the app-router file
-// conventions (src/app/icon.svg, favicon.ico, apple-icon.png); the PWA
-// manifest by src/app/manifest.ts. Keep titles consistent with the mark.
+// conventions (src/app/icon.svg, favicon.ico, apple-icon.png). The PWA manifest
+// is served host-aware by src/app/site.webmanifest/route.ts (the admin host gets
+// a distinct installed-app icon); we link it here with a static path so pages
+// stay statically/SSR-rendered rather than being forced dynamic.
 export const metadata: Metadata = {
   title: {
     default: "ShuleHQ — School Management System",
@@ -15,6 +17,7 @@ export const metadata: Metadata = {
   description:
     "Enterprise school management for Kenyan schools — enrollment, finance, attendance, exams, and KEMIS-ready student records.",
   applicationName: "ShuleHQ",
+  manifest: "/site.webmanifest",
 };
 
 export const viewport: Viewport = {
