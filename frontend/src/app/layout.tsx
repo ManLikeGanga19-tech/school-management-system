@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 
@@ -18,6 +19,12 @@ export const metadata: Metadata = {
     "Enterprise school management for Kenyan schools — enrollment, finance, attendance, exams, and KEMIS-ready student records.",
   applicationName: "ShuleHQ",
   manifest: "/site.webmanifest",
+  // iOS: open from the home screen as a standalone app (not a Safari shortcut).
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "ShuleHQ",
+  },
 };
 
 export const viewport: Viewport = {
@@ -38,6 +45,7 @@ export default async function RootLayout({
         <NextIntlClientProvider locale={locale} messages={messages}>
           {children}
           <Toaster />
+          <ServiceWorkerRegistrar />
         </NextIntlClientProvider>
       </body>
     </html>

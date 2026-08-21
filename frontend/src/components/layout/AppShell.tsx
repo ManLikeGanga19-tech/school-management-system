@@ -1223,7 +1223,9 @@ export function AppShell({
       )}>
         <div className="mx-auto w-full max-w-6xl">
           {isDemo && <DemoBanner />}
-          <SubscriptionBanner />
+          {/* Subscription/renewal state is a TENANT concern — never show it in the
+              super-admin (/saas) console, which has no tenant subscription. */}
+          {!pathname.startsWith("/saas") && <SubscriptionBanner />}
           <ChangelogBanner />
           {children}
         </div>
