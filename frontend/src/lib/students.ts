@@ -116,25 +116,39 @@ export function payloadBoolean(
   return false;
 }
 
-export function studentName(payload: Record<string, unknown>): string {
-  for (const key of [
-    "student_name",
-    "studentName",
-    "full_name",
-    "fullName",
-    "name",
-  ]) {
-    const value = payload[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
+export function studentName(source: Record<string, unknown>): string {
+  // Accept EITHER an enrollment payload OR a full enrollment row (which nests
+  // the intake fields under `.payload`). Several callers pass the whole row
+  // (studentName(e)), where the name lives at e.payload.student_name — so we
+  // search the object itself first, then its payload. This keeps the common
+  // studentName(row.payload) callers working while fixing the row callers
+  // (discipline / CBC / IGCSE pickers) that otherwise showed "Unknown student".
+  const scopes: Record<string, unknown>[] = [];
+  if (source && typeof source === "object") {
+    scopes.push(source);
+    const nested = (source as { payload?: unknown }).payload;
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      scopes.push(nested as Record<string, unknown>);
+    }
+  }
+
+  for (const scope of scopes) {
+    for (const key of ["student_name", "studentName", "full_name", "fullName", "name"]) {
+      const value = scope[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
   }
   // Fall back to composing from name parts — production intake records often
   // store first/middle/last separately without a combined student_name.
-  const parts = ["first_name", "firstName", "middle_name", "middleName", "last_name", "lastName"]
-    .map((k) => (typeof payload[k] === "string" ? (payload[k] as string).trim() : ""))
-    // avoid double-counting first/middle/last vs their camelCase twins
-    .filter((v, i, a) => v && a.indexOf(v) === i);
-  const composed = parts.join(" ").trim();
-  return composed || "Unknown student";
+  for (const scope of scopes) {
+    const parts = ["first_name", "firstName", "middle_name", "middleName", "last_name", "lastName"]
+      .map((k) => (typeof scope[k] === "string" ? (scope[k] as string).trim() : ""))
+      // avoid double-counting first/middle/last vs their camelCase twins
+      .filter((v, i, a) => v && a.indexOf(v) === i);
+    const composed = parts.join(" ").trim();
+    if (composed) return composed;
+  }
+  return "Unknown student";
 }
 
 export function studentClass(payload: Record<string, unknown>): string {
