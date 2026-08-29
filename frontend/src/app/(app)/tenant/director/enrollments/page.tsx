@@ -165,7 +165,7 @@ const INITIAL_UPDATE_DRAFT: UpdateDraft = {
 
 // ─── Static config ────────────────────────────────────────────────────────────
 
-const chartConfig = { count: { label: "Count", color: "#3b82f6" } };
+const chartConfig = { count: { label: "Count", color: "#c2680f" } };
 
 const requirementChecklist = [
   { key: "birth_certificate",    label: "Birth Certificate"    },
@@ -180,7 +180,7 @@ const actionConfig: Record<ActionType, {
   icon: React.ComponentType<{ className?: string }>;
   iconColor: string;
 }> = {
-  submit:           { label: "Submit",           description: "Move DRAFT → SUBMITTED for office review.",          icon: Send,           iconColor: "text-blue-600"    },
+  submit:           { label: "Submit",           description: "Move DRAFT → SUBMITTED for office review.",          icon: Send,           iconColor: "text-[var(--tenant-primary)]"    },
   approve:          { label: "Approve",          description: "Verify documents and move to APPROVED.",             icon: CheckCircle,    iconColor: "text-emerald-600" },
   reject:           { label: "Reject",           description: "Reject this intake. A written reason is required.",  icon: XCircle,        iconColor: "text-red-500"     },
   enroll:           { label: "Mark Enrolled",    description: "Final enrollment. Requires Assessment No. (ULI optional)",  icon: GraduationCap,  iconColor: "text-emerald-600" },
@@ -300,11 +300,11 @@ function FormField({ label, hint, children, required }: {
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-sm font-medium text-slate-700">
+      <Label className="text-sm font-medium text-[var(--tenant-ink)]">
         {label}{required && <span className="ml-0.5 text-red-500">*</span>}
       </Label>
       {children}
-      {hint && <p className="text-xs text-slate-400">{hint}</p>}
+      {hint && <p className="text-xs text-[var(--tenant-muted)]">{hint}</p>}
     </div>
   );
 }
@@ -313,16 +313,16 @@ function EnrollmentStatusBadge({ status }: { status: string }) {
   const s = status.toUpperCase();
   const map: Record<string, string> = {
     ENROLLED:           "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-    ENROLLED_PARTIAL:   "bg-teal-50 text-teal-700 ring-1 ring-teal-200",
-    APPROVED:           "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+    ENROLLED_PARTIAL:   "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100",
+    APPROVED:           "bg-[var(--tenant-primary-soft)] text-[var(--tenant-primary)] ring-1 ring-[var(--tenant-primary)]/20",
     SUBMITTED:          "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
-    DRAFT:              "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
+    DRAFT:              "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]",
     REJECTED:           "bg-red-50 text-red-700 ring-1 ring-red-200",
     TRANSFER_REQUESTED: "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
     DELETED:            "bg-red-100 text-red-800 ring-1 ring-red-300",
   };
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${map[s] ?? "bg-slate-100 text-slate-600 ring-1 ring-slate-200"}`}>
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${map[s] ?? "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]"}`}>
       {s.replace(/_/g, " ")}
     </span>
   );
@@ -333,8 +333,8 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
     <TableRow>
       <TableCell colSpan={colSpan} className="py-10 text-center">
         <div className="flex flex-col items-center gap-1">
-          <ClipboardList className="h-7 w-7 text-slate-300" />
-          <span className="text-sm text-slate-400">{message}</span>
+          <ClipboardList className="h-7 w-7 text-[var(--tenant-muted)]" />
+          <span className="text-sm text-[var(--tenant-muted)]">{message}</span>
         </div>
       </TableCell>
     </TableRow>
@@ -346,8 +346,8 @@ function PaginationControls({ page, totalPages, setPage, totalItems, label = "re
 }) {
   if (totalPages <= 1) return null;
   return (
-    <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3">
-      <span className="text-xs text-slate-400">{totalItems} {label} · Page {page} of {totalPages}</span>
+    <div className="flex items-center justify-between border-t border-[var(--tenant-border)] px-5 py-3">
+      <span className="text-xs text-[var(--tenant-muted)]">{totalItems} {label} · Page {page} of {totalPages}</span>
       <div className="flex items-center gap-1">
         <Button variant="ghost" size="icon" className="h-7 w-7"
           onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}>
@@ -361,7 +361,7 @@ function PaginationControls({ page, totalPages, setPage, totalItems, label = "re
           else                             n = page - 2 + i;
           return (
             <Button key={n} variant={n === page ? "default" : "ghost"} size="icon"
-              className={`h-7 w-7 text-xs ${n === page ? "bg-blue-600 text-white hover:bg-blue-700" : ""}`}
+              className={`h-7 w-7 text-xs ${n === page ? "bg-[var(--tenant-primary)] text-white hover:opacity-90" : ""}`}
               onClick={() => setPage(n)}>
               {n}
             </Button>
@@ -381,7 +381,7 @@ function SearchInput({ value, onChange, placeholder = "Search…" }: {
 }) {
   return (
     <div className="relative">
-      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--tenant-muted)]" />
       <Input value={value} onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder} className="h-8 pl-8 text-xs" />
     </div>
@@ -509,34 +509,34 @@ function StudentDetailDialog({ row, open, onClose }: {
       <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Eye className="h-4 w-4 text-slate-500" /> Student Record
+            <Eye className="h-4 w-4 text-[var(--tenant-muted)]" /> Student Record
           </DialogTitle>
           <DialogDescription>Full details for {studentName(p)}</DialogDescription>
         </DialogHeader>
         <div className="max-h-[65vh] overflow-y-auto space-y-4 pr-1">
-          <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 flex-wrap">
+          <div className="flex items-center gap-3 rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-4 py-3 flex-wrap">
             <EnrollmentStatusBadge status={row.status} />
             {admNum !== "—" && <span className="font-mono text-xs font-semibold text-emerald-700">{admNum}</span>}
-            <span className="ml-auto font-mono text-[11px] text-slate-400 select-all">{row.id}</span>
+            <span className="ml-auto font-mono text-[11px] text-[var(--tenant-muted)] select-all">{row.id}</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
             {fields.map(({ label, value }) => (
               <div key={label} className="space-y-0.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
-                <div className="text-sm font-medium text-slate-900 break-all">{value || "—"}</div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--tenant-muted)]">{label}</div>
+                <div className="text-sm font-medium text-[var(--tenant-ink)] break-all">{value || "—"}</div>
               </div>
             ))}
           </div>
           {(p as any)?.documents && (
-            <div className="rounded-xl border border-slate-100 overflow-hidden">
-              <div className="bg-slate-50 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Documents</div>
+            <div className="rounded-xl border border-[var(--tenant-border)] overflow-hidden">
+              <div className="bg-[var(--tenant-surface-2)] px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--tenant-muted)]">Documents</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-4">
                 {requirementChecklist.map((item) => {
                   const checked = !!(p as any).documents?.[item.key];
                   return (
                     <div key={item.key} className="flex items-center gap-2 text-sm">
                       <span className={`h-2 w-2 rounded-full shrink-0 ${checked ? "bg-emerald-500" : "bg-red-400"}`} />
-                      <span className={checked ? "text-slate-700" : "text-slate-400"}>{item.label}</span>
+                      <span className={checked ? "text-[var(--tenant-ink)]" : "text-[var(--tenant-muted)]"}>{item.label}</span>
                     </div>
                   );
                 })}
@@ -614,7 +614,7 @@ function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, t
       <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-[680px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Pencil className="h-4 w-4 text-slate-500" />
+            <Pencil className="h-4 w-4 text-[var(--tenant-muted)]" />
             Update Student — {studentName(row.payload || {})}
           </DialogTitle>
           <DialogDescription>
@@ -748,7 +748,7 @@ function UpdateEnrollmentDialog({ row, open, onClose, onSave, saving, classes, t
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onSave(row.id, draft)} disabled={!canSave} className="bg-blue-600 hover:bg-blue-700">
+          <Button onClick={() => onSave(row.id, draft)} disabled={!canSave} className="bg-[var(--tenant-primary)] hover:opacity-90">
             {saving
               ? <span className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</span>
               : "Save Changes"}
@@ -775,14 +775,14 @@ function DirectorOverrideDialog({ row, open, onClose, onConfirm, loading }: {
       <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[540px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-blue-600" /> Unlock Secretary Edit Lock
+            <ShieldCheck className="h-5 w-5 text-[var(--tenant-primary)]" /> Unlock Secretary Edit Lock
           </DialogTitle>
           <DialogDescription>Reset the edit counter for this enrolled student record.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 space-y-1.5">
+          <div className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-4 py-3 space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-800">{studentName(row.payload || {})}</span>
+              <span className="text-sm font-semibold text-[var(--tenant-ink)]">{studentName(row.payload || {})}</span>
               <EnrollmentStatusBadge status={row.status} />
             </div>
             {admissionNumber && (
@@ -807,7 +807,7 @@ function DirectorOverrideDialog({ row, open, onClose, onConfirm, loading }: {
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
-          <Button onClick={() => onConfirm(note)} disabled={loading} className="bg-blue-600 hover:bg-blue-700">
+          <Button onClick={() => onConfirm(note)} disabled={loading} className="bg-[var(--tenant-primary)] hover:opacity-90">
             {loading
               ? <span className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Unlocking…</span>
               : <span className="flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Confirm Override</span>}
@@ -865,26 +865,26 @@ function DeleteStudentDialog({ row, open, onClose, onSoftDelete, onHardDelete, s
 
         <div className="space-y-4">
           {/* Student info */}
-          <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 space-y-1.5">
+          <div className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-4 py-3 space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-800">{name}</span>
+              <span className="text-sm font-semibold text-[var(--tenant-ink)]">{name}</span>
               <EnrollmentStatusBadge status={row.status} />
             </div>
             <div className="flex items-center gap-3 text-xs">
               {admissionNumber && (
                 <span className="font-mono font-semibold text-emerald-700">{admissionNumber}</span>
               )}
-              <span className="font-mono text-slate-400">{row.id.slice(0, 16)}…</span>
+              <span className="font-mono text-[var(--tenant-muted)]">{row.id.slice(0, 16)}…</span>
             </div>
           </div>
 
           {/* Step indicator */}
           <div className="flex items-center gap-2">
             <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${currentStep === "soft" ? "bg-amber-500 text-white" : "bg-red-100 text-red-400 line-through"}`}>1</div>
-            <span className={`text-xs ${currentStep === "soft" ? "font-semibold text-amber-700" : "text-slate-400"}`}>Soft Delete (mark DELETED)</span>
-            <div className="h-px flex-1 bg-slate-200" />
-            <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${currentStep === "hard" ? "bg-red-600 text-white" : "bg-slate-100 text-slate-400"}`}>2</div>
-            <span className={`text-xs ${currentStep === "hard" ? "font-semibold text-red-700" : "text-slate-400"}`}>Permanent Delete</span>
+            <span className={`text-xs ${currentStep === "soft" ? "font-semibold text-amber-700" : "text-[var(--tenant-muted)]"}`}>Soft Delete (mark DELETED)</span>
+            <div className="h-px flex-1 bg-[var(--tenant-border)]" />
+            <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${currentStep === "hard" ? "bg-red-600 text-white" : "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)]"}`}>2</div>
+            <span className={`text-xs ${currentStep === "hard" ? "font-semibold text-red-700" : "text-[var(--tenant-muted)]"}`}>Permanent Delete</span>
           </div>
 
           {currentStep === "soft" && (
@@ -911,7 +911,7 @@ function DeleteStudentDialog({ row, open, onClose, onSoftDelete, onHardDelete, s
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-600">
+                <Label className="text-xs font-semibold text-[var(--tenant-muted)]">
                   Type <span className="font-mono text-red-600">{hardDeleteConfirmPhrase}</span> to confirm
                 </Label>
                 <Input
@@ -1446,7 +1446,7 @@ function TenantEnrollmentsPageContent() {
               <DialogDescription>Provide a written reason. This will be recorded in the workflow.</DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rejection Reason *</Label>
+              <Label className="text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">Rejection Reason *</Label>
               <Textarea value={rejectDialogText} onChange={(e) => setRejectDialogText(e.target.value)}
                 placeholder="State the reason for rejection…" rows={4} className="resize-none" />
             </div>
@@ -1469,25 +1469,25 @@ function TenantEnrollmentsPageContent() {
               <h1 className="text-xl font-bold">
                 {section === "students" ? "Enrolled Students" : "Enrollment Operations"}
               </h1>
-              <p className="mt-0.5 text-sm text-blue-100">
+              <p className="mt-0.5 text-sm text-white/70">
                 {section === "students"
                   ? "Manage student records — view, edit, and permanently remove learners."
                   : "Director-level approval workflow for student intake management."}
               </p>
             </div>
-            <div className="flex items-center gap-3 text-right text-sm text-blue-100">
+            <div className="flex items-center gap-3 text-right text-sm text-white/70">
               <div>
                 <div className="text-xl font-bold text-white">{rows.length}</div>
                 <div className="text-xs">Total</div>
               </div>
-              <div className="h-8 w-px bg-blue-400" />
+              <div className="h-8 w-px bg-white/20" />
               <div>
                 <div className="text-xl font-bold text-white">{enrolledRows.length}</div>
                 <div className="text-xs">Enrolled</div>
               </div>
               {pendingCount > 0 && (
                 <>
-                  <div className="h-8 w-px bg-blue-400" />
+                  <div className="h-8 w-px bg-white/20" />
                   <div>
                     <div className="text-xl font-bold text-amber-300">{pendingCount}</div>
                     <div className="text-xs">Pending</div>
@@ -1506,27 +1506,27 @@ function TenantEnrollmentsPageContent() {
 
             {/* 1) OVERVIEW */}
             <div className="grid gap-5 xl:grid-cols-3">
-              <div className="dashboard-surface rounded-[1.6rem] p-5">
-                <h3 className="mb-3 text-sm font-semibold text-slate-800">Enrollment Status Overview</h3>
+              <div className="dashboard-surface min-w-0 rounded-[1.6rem] p-5">
+                <h3 className="mb-3 text-sm font-semibold text-[var(--tenant-ink)]">Enrollment Status Overview</h3>
                 {chartData.length > 0 ? (
-                  <ChartContainer config={chartConfig} className="h-[200px] w-full">
+                  <ChartContainer config={chartConfig} className="aspect-auto h-[200px] w-full">
                     <BarChart accessibilityLayer data={chartData}>
-                      <CartesianGrid vertical={false} stroke="#f1f5f9" />
+                      <CartesianGrid vertical={false} stroke="#efe9df" />
                       <XAxis dataKey="status" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 10 }} />
                       <ChartTooltip content={<ChartTooltipContent />} />
                       <Bar dataKey="count" fill="var(--color-count)" radius={6} />
                     </BarChart>
                   </ChartContainer>
                 ) : (
-                  <div className="flex h-[200px] items-center justify-center text-sm text-slate-400">No enrollment data yet</div>
+                  <div className="flex h-[200px] items-center justify-center text-sm text-[var(--tenant-muted)]">No enrollment data yet</div>
                 )}
               </div>
 
-              <div className="xl:col-span-2 dashboard-surface rounded-[1.6rem] p-5">
-                <div className="flex items-start justify-between gap-3 mb-4">
+              <div className="xl:col-span-2 dashboard-surface min-w-0 rounded-[1.6rem] p-5">
+                <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-800">Pipeline Snapshot</h3>
-                    <p className="mt-0.5 text-xs text-slate-500">Current status distribution across all records.</p>
+                    <h3 className="text-sm font-semibold text-[var(--tenant-ink)]">Pipeline Snapshot</h3>
+                    <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">Current status distribution across all records.</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className="text-xs">Total: {rows.length}</Badge>
@@ -1536,13 +1536,17 @@ function TenantEnrollmentsPageContent() {
                 <div className="grid gap-3 md:grid-cols-3">
                   {["DRAFT", "SUBMITTED", "APPROVED"].map((s) => {
                     const count = rows.filter((r) => r.status.toUpperCase() === s).length;
-                    const accent = s === "SUBMITTED" ? "border-amber-100 bg-amber-50"
-                      : s === "APPROVED" ? "border-blue-100 bg-blue-50"
-                      : "border-slate-100 bg-slate-50";
+                    // Uniform flat cards; status identity carried by a small dot only.
+                    const dot = s === "SUBMITTED" ? "bg-[var(--tenant-warning)]"
+                      : s === "APPROVED" ? "bg-[var(--tenant-primary)]"
+                      : "bg-[var(--tenant-muted)]";
                     return (
-                      <div key={s} className={`rounded-xl border ${accent} px-4 py-3`}>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{s}</div>
-                        <div className="mt-1 text-2xl font-bold text-slate-900">{count}</div>
+                      <div key={s} className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2 w-2 rounded-full ${dot}`} />
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">{s}</span>
+                        </div>
+                        <div className="mt-1 text-2xl font-bold text-[var(--tenant-ink)]">{count}</div>
                       </div>
                     );
                   })}
@@ -1552,27 +1556,29 @@ function TenantEnrollmentsPageContent() {
 
             {/* 2) WORKFLOW ACTIONS TABLE */}
             <div className="dashboard-surface rounded-[1.6rem]">
-              <div className="border-b border-slate-100 px-6 py-4 flex items-start justify-between gap-3">
+              <div className="border-b border-[var(--tenant-border)] px-4 py-4 sm:px-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">Workflow Actions</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <h2 className="text-base font-semibold text-[var(--tenant-ink)]">Workflow Actions</h2>
+                  <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">
                     Use the ⋯ menu to run workflow actions. Click a row to view full details.
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <SearchInput value={workflowSearch} onChange={setWorkflowSearch} placeholder="Search student, class, ID…" />
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
+                  <div className="min-w-[140px] flex-1 sm:w-56 sm:flex-none">
+                    <SearchInput value={workflowSearch} onChange={setWorkflowSearch} placeholder="Search student, class, ID…" />
+                  </div>
                   <button onClick={() => void Promise.all([load(true), reloadPagedTables(true)])}
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 transition">
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--tenant-border)] px-2.5 py-1.5 text-xs font-medium text-[var(--tenant-muted)] hover:bg-[var(--tenant-surface-2)] transition">
                     <RefreshCw className="h-3 w-3" /> Refresh
                   </button>
-                  <span className="text-xs text-slate-400 whitespace-nowrap">{workflowPageData.total} records</span>
+                  <span className="shrink-0 text-xs text-[var(--tenant-muted)] whitespace-nowrap">{workflowPageData.total} records</span>
                 </div>
               </div>
 
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Adm. No.</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
@@ -1591,25 +1597,25 @@ function TenantEnrollmentsPageContent() {
 
                       return (
                         <TableRow key={row.id}
-                          className={`cursor-pointer hover:bg-slate-50 ${targetId === row.id ? "bg-blue-50/40" : ""}`}
+                          className={`cursor-pointer hover:bg-[var(--tenant-surface-2)] ${targetId === row.id ? "bg-[var(--tenant-primary-soft)]/40" : ""}`}
                           onClick={() => { setTargetId(row.id); setViewRow(row); setViewOpen(true); }}>
                           <TableCell className="text-sm font-medium">{studentName(row.payload || {})}</TableCell>
                           <TableCell>
                             {admNum
                               ? <span className="font-mono text-xs font-semibold text-emerald-700">{admNum}</span>
-                              : <span className="text-xs text-slate-300">—</span>}
+                              : <span className="text-xs text-[var(--tenant-muted)]">—</span>}
                           </TableCell>
                           <TableCell>
-                            <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
+                            <span className="font-mono text-xs text-[var(--tenant-muted)]">{studentClass(row.payload || {}) || "—"}</span>
                           </TableCell>
                           <TableCell>
-                            <span className="font-mono text-xs text-slate-500">
+                            <span className="font-mono text-xs text-[var(--tenant-muted)]">
                               {termFromPayload(row.payload || {}) || "—"}
                             </span>
                           </TableCell>
                           <TableCell><EnrollmentStatusBadge status={row.status} /></TableCell>
-                          <TableCell className="text-xs text-slate-500">{intakeDate || "—"}</TableCell>
-                          <TableCell className="font-mono text-xs text-slate-400">{row.id.slice(0, 8)}…</TableCell>
+                          <TableCell className="text-xs text-[var(--tenant-muted)]">{intakeDate || "—"}</TableCell>
+                          <TableCell className="font-mono text-xs text-[var(--tenant-muted)]">{row.id.slice(0, 8)}…</TableCell>
                           <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -1633,10 +1639,10 @@ function TenantEnrollmentsPageContent() {
                                         <div className="text-sm font-medium">
                                           {cfg.label}
                                           {isSugg && (
-                                            <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 ring-1 ring-blue-200">Suggested</span>
+                                            <span className="ml-2 rounded-full bg-[var(--tenant-primary-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--tenant-primary)] ring-1 ring-[var(--tenant-primary)]/20">Suggested</span>
                                           )}
                                         </div>
-                                        <div className="mt-0.5 text-xs text-slate-400">{cfg.description}</div>
+                                        <div className="mt-0.5 text-xs text-[var(--tenant-muted)]">{cfg.description}</div>
                                       </div>
                                     </DropdownMenuItem>
                                   );
@@ -1645,13 +1651,13 @@ function TenantEnrollmentsPageContent() {
                                 <DropdownMenuItem
                                   onClick={() => { setViewRow(row); setViewOpen(true); }}
                                   className="flex items-center gap-2">
-                                  <Eye className="h-3.5 w-3.5 text-slate-500" />
+                                  <Eye className="h-3.5 w-3.5 text-[var(--tenant-muted)]" />
                                   <span className="text-sm">View Full Record</span>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => { setUpdateRow(row); setUpdateOpen(true); }}
                                   className="flex items-center gap-2">
-                                  <Pencil className="h-3.5 w-3.5 text-slate-500" />
+                                  <Pencil className="h-3.5 w-3.5 text-[var(--tenant-muted)]" />
                                   <span className="text-sm">Edit Record</span>
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
@@ -1679,20 +1685,22 @@ function TenantEnrollmentsPageContent() {
 
             {/* 3) ENROLLMENT QUEUE */}
             <div className="dashboard-surface rounded-[1.6rem]">
-              <div className="border-b border-slate-100 px-5 py-4 flex items-center justify-between">
+              <div className="border-b border-[var(--tenant-border)] px-4 py-4 sm:px-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-800">Enrollment Queue</h3>
-                  <p className="mt-0.5 text-xs text-slate-500">All records across all statuses. Click a row to view full details.</p>
+                  <h3 className="text-sm font-semibold text-[var(--tenant-ink)]">Enrollment Queue</h3>
+                  <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">All records across all statuses. Click a row to view full details.</p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <SearchInput value={queueSearch} onChange={setQueueSearch} placeholder="Search student, class, ADM…" />
-                  <span className="text-xs text-slate-400 whitespace-nowrap">{queuePageData.total} records</span>
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
+                  <div className="min-w-[140px] flex-1 sm:w-56 sm:flex-none">
+                    <SearchInput value={queueSearch} onChange={setQueueSearch} placeholder="Search student, class, ADM…" />
+                  </div>
+                  <span className="shrink-0 text-xs text-[var(--tenant-muted)] whitespace-nowrap">{queuePageData.total} records</span>
                 </div>
               </div>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Adm. No.</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
@@ -1709,28 +1717,28 @@ function TenantEnrollmentsPageContent() {
                       const intakeDate = (row.payload as any)?.intake_date;
                       return (
                         <TableRow key={row.id}
-                          className={`cursor-pointer hover:bg-slate-50 ${targetId === row.id ? "bg-blue-50" : ""}`}
+                          className={`cursor-pointer hover:bg-[var(--tenant-surface-2)] ${targetId === row.id ? "bg-[var(--tenant-primary-soft)]" : ""}`}
                           onClick={() => { setTargetId(row.id); setViewRow(row); setViewOpen(true); }}>
                           <TableCell className="text-sm font-medium">{studentName(row.payload || {})}</TableCell>
                           <TableCell>
                             {admNum
                               ? <span className="font-mono text-xs font-semibold text-emerald-700">{admNum}</span>
-                              : <span className="text-xs text-slate-300">Not assigned</span>}
+                              : <span className="text-xs text-[var(--tenant-muted)]">Not assigned</span>}
                           </TableCell>
                           <TableCell>
-                            <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
+                            <span className="font-mono text-xs text-[var(--tenant-muted)]">{studentClass(row.payload || {}) || "—"}</span>
                           </TableCell>
                           <TableCell>
-                            <span className="font-mono text-xs text-slate-500">
+                            <span className="font-mono text-xs text-[var(--tenant-muted)]">
                               {termFromPayload(row.payload || {}) || "—"}
                             </span>
                           </TableCell>
                           <TableCell><EnrollmentStatusBadge status={row.status} /></TableCell>
-                          <TableCell className="text-xs text-slate-500">{intakeDate || "—"}</TableCell>
-                          <TableCell className="font-mono text-xs text-slate-400">{row.id.slice(0, 8)}…</TableCell>
+                          <TableCell className="text-xs text-[var(--tenant-muted)]">{intakeDate || "—"}</TableCell>
+                          <TableCell className="font-mono text-xs text-[var(--tenant-muted)]">{row.id.slice(0, 8)}…</TableCell>
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <button onClick={() => { setTargetId(row.id); setViewRow(row); setViewOpen(true); }}
-                              className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 transition">
+                              className="rounded-md bg-[var(--tenant-primary-soft)] px-2 py-1 text-xs font-medium text-[var(--tenant-primary)] hover:opacity-80 transition">
                               View
                             </button>
                           </TableCell>
@@ -1759,11 +1767,11 @@ function TenantEnrollmentsPageContent() {
         ══════════════════════════════════════════════════════════════ */}
         {section === "students" && (
           <div className="dashboard-surface rounded-[1.6rem]">
-            <div className="border-b border-slate-100 px-6 py-4">
+            <div className="border-b border-[var(--tenant-border)] px-6 py-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">Enrolled Students</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <h2 className="text-base font-semibold text-[var(--tenant-ink)]">Enrolled Students</h2>
+                  <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">
                     Director-level management. View, edit, or permanently remove student records.
                   </p>
                 </div>
@@ -1801,7 +1809,7 @@ function TenantEnrollmentsPageContent() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead className="text-xs">Student Name</TableHead>
                       <TableHead className="text-xs">Adm. No.</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
@@ -1818,24 +1826,24 @@ function TenantEnrollmentsPageContent() {
                     const intakeDate = (row.payload as any)?.intake_date;
 
                     return (
-                      <TableRow key={row.id} className="hover:bg-slate-50 align-top">
+                      <TableRow key={row.id} className="hover:bg-[var(--tenant-surface-2)] align-top">
                         <TableCell className="text-sm font-medium pt-3">{studentName(row.payload || {})}</TableCell>
                         <TableCell className="pt-3">
                           {admNum
                             ? <span className="font-mono text-xs font-semibold text-emerald-700">{admNum}</span>
-                            : <span className="text-xs text-slate-300">—</span>}
+                            : <span className="text-xs text-[var(--tenant-muted)]">—</span>}
                         </TableCell>
                         <TableCell className="pt-3">
-                          <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
+                          <span className="font-mono text-xs text-[var(--tenant-muted)]">{studentClass(row.payload || {}) || "—"}</span>
                         </TableCell>
                         <TableCell className="pt-3">
-                          <span className="font-mono text-xs text-slate-500">
+                          <span className="font-mono text-xs text-[var(--tenant-muted)]">
                             {termFromPayload(row.payload || {}) || "—"}
                           </span>
                         </TableCell>
-                        <TableCell className="text-xs text-slate-500 pt-3">{intakeDate || "—"}</TableCell>
+                        <TableCell className="text-xs text-[var(--tenant-muted)] pt-3">{intakeDate || "—"}</TableCell>
                         <TableCell className="pt-3"><EnrollmentStatusBadge status={row.status} /></TableCell>
-                        <TableCell className="font-mono text-xs text-slate-400 pt-3">{row.id}</TableCell>
+                        <TableCell className="font-mono text-xs text-[var(--tenant-muted)] pt-3">{row.id}</TableCell>
 
                         {/* ── Director action cell ── */}
                         <TableCell className="py-2 text-center">
@@ -1902,8 +1910,8 @@ export default function TenantEnrollmentsPage() {
     <Suspense fallback={
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-          <p className="text-sm text-slate-500">Loading enrollments…</p>
+          <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--tenant-primary)] border-t-transparent" />
+          <p className="text-sm text-[var(--tenant-muted)]">Loading enrollments…</p>
         </div>
       </div>
     }>

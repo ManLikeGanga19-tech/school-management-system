@@ -70,6 +70,14 @@ const nextConfig: NextConfig = {
   distDir,
   output: "standalone",
 
+  // Tree-shake big barrel-import libraries so dev doesn't load their entire
+  // module graphs into the browser (lucide-react alone is ~1,600 icons). This
+  // rewrites `import { X } from "lib"` to per-module imports — dramatically
+  // fewer modules compiled and shipped in dev, smaller prod bundles too.
+  experimental: {
+    optimizePackageImports: ["lucide-react", "recharts", "radix-ui", "framer-motion"],
+  },
+
   // next-intl requires the request config to be resolvable as "next-intl/config".
   // createNextIntlPlugin injects this alias via webpack but also adds
   // experimental.turbo which is invalid in Next.js 16, breaking Turbopack.

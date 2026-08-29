@@ -56,7 +56,7 @@ export function RowActionsMenu({
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 text-slate-500 hover:text-slate-900"
+          className="h-8 w-8 text-[var(--tenant-muted)] hover:text-[var(--tenant-ink)]"
           aria-label={ariaLabel}
           onClick={(e) => e.stopPropagation()}
         >

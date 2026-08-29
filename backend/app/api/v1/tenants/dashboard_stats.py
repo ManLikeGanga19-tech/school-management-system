@@ -228,11 +228,11 @@ def get_finance_current_term(
                 FROM core.invoices
                 WHERE tenant_id = :tid
                   AND status != 'CANCELLED'
-                  AND created_at >= :start
-                  AND (:end IS NULL OR created_at <= :end)
+                  AND created_at::date >= CAST(:start AS date)
+                  AND (CAST(:end AS date) IS NULL OR created_at::date <= CAST(:end AS date))
                 """
             ),
-            {"tid": str(tenant_id), "start": start, "end": end},
+            {"tid": str(tenant_id), "start": str(start), "end": (str(end) if end else None)},
         ).mappings().first()
         scope = "created_at_window"
 

@@ -96,11 +96,11 @@ export function StudentOrParentCombobox({
         >
           <span className={cn("flex items-center gap-1.5 truncate", !selected && "text-muted-foreground")}>
             {selected?.kind === "parent" ? (
-              <Users className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <Users className="h-3.5 w-3.5 shrink-0 text-[var(--tenant-muted)]" />
             ) : selected?.kind === "student" ? (
-              <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <User className="h-3.5 w-3.5 shrink-0 text-[var(--tenant-muted)]" />
             ) : selected?.kind === "applicant" ? (
-              <GraduationCap className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <GraduationCap className="h-3.5 w-3.5 shrink-0 text-[var(--tenant-muted)]" />
             ) : null}
             <span className="truncate">{displayLabel}</span>
           </span>
@@ -115,7 +115,7 @@ export function StudentOrParentCombobox({
           className="z-50 w-[var(--radix-popover-trigger-width)] rounded-md border bg-white shadow-md"
         >
           <div className="flex items-center border-b px-2">
-            <Search className="h-4 w-4 shrink-0 text-slate-400" />
+            <Search className="h-4 w-4 shrink-0 text-[var(--tenant-muted)]" />
             <Input
               ref={inputRef}
               value={query}
@@ -127,7 +127,7 @@ export function StudentOrParentCombobox({
 
           <div className="max-h-72 overflow-y-auto py-1">
             {filtered.length === 0 && (
-              <p className="px-3 py-6 text-center text-sm text-slate-400">
+              <p className="px-3 py-6 text-center text-sm text-[var(--tenant-muted)]">
                 No matches.
               </p>
             )}
@@ -138,8 +138,8 @@ export function StudentOrParentCombobox({
                 <button
                   key={key}
                   className={cn(
-                    "flex w-full items-start gap-2 px-3 py-2 text-sm hover:bg-slate-50",
-                    isSelected && "bg-blue-50"
+                    "flex w-full items-start gap-2 px-3 py-2 text-sm hover:bg-[var(--tenant-surface-2)]",
+                    isSelected && "bg-[var(--tenant-primary-soft)]"
                   )}
                   onClick={() => {
                     onChange({ kind: opt.kind, id: opt.id });
@@ -149,7 +149,7 @@ export function StudentOrParentCombobox({
                   <Check
                     className={cn(
                       "mt-0.5 h-3.5 w-3.5 shrink-0",
-                      isSelected ? "text-blue-600" : "opacity-0"
+                      isSelected ? "text-[var(--tenant-primary)]" : "opacity-0"
                     )}
                   />
                   {opt.kind === "parent" ? (
@@ -157,10 +157,10 @@ export function StudentOrParentCombobox({
                   ) : opt.kind === "applicant" ? (
                     <GraduationCap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                   ) : (
-                    <User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
+                    <User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--tenant-primary)]" />
                   )}
                   <span className="flex flex-col items-start text-left">
-                    <span className={cn("font-medium flex items-center gap-1.5", isSelected && "text-blue-700")}>
+                    <span className={cn("font-medium flex items-center gap-1.5", isSelected && "text-[var(--tenant-primary)]")}>
                       {opt.label}
                       {opt.kind === "applicant" && (
                         <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-800 ring-1 ring-amber-200">
@@ -169,7 +169,7 @@ export function StudentOrParentCombobox({
                       )}
                     </span>
                     {opt.sublabel && (
-                      <span className="text-xs text-slate-400">{opt.sublabel}</span>
+                      <span className="text-xs text-[var(--tenant-muted)]">{opt.sublabel}</span>
                     )}
                   </span>
                 </button>

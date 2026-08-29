@@ -221,7 +221,7 @@ export function GrantScholarshipDialog({
           </DialogTitle>
           <DialogDescription>
             Attach{" "}
-            <strong className="text-slate-800">{scholarship?.name ?? ""}</strong>{" "}
+            <strong className="text-[var(--tenant-ink)]">{scholarship?.name ?? ""}</strong>{" "}
             to a student. Every subsequent invoice generated for them will
             inherit the discount. Optional scope narrows it to a specific
             term or year.
@@ -232,7 +232,7 @@ export function GrantScholarshipDialog({
           <div className="space-y-1.5">
             <Label>Student</Label>
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-2.5 h-3.5 w-3.5 text-slate-400" />
+              <Search className="pointer-events-none absolute left-2 top-2.5 h-3.5 w-3.5 text-[var(--tenant-muted)]" />
               <Input
                 placeholder="Search by name or admission no…"
                 value={q}
@@ -240,14 +240,14 @@ export function GrantScholarshipDialog({
                 className="pl-7"
               />
             </div>
-            <div className="max-h-40 overflow-y-auto rounded-md border border-slate-100">
+            <div className="max-h-40 overflow-y-auto rounded-md border border-[var(--tenant-border)]">
               {studentsLoading ? (
-                <div className="flex items-center justify-center gap-2 py-4 text-xs text-slate-400">
+                <div className="flex items-center justify-center gap-2 py-4 text-xs text-[var(--tenant-muted)]">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   Loading students…
                 </div>
               ) : filtered.length === 0 ? (
-                <div className="py-4 text-center text-xs text-slate-400">
+                <div className="py-4 text-center text-xs text-[var(--tenant-muted)]">
                   {students.length === 0 && unlinkedCount > 0 ? (
                     <>
                       {unlinkedCount} enrollment{unlinkedCount === 1 ? "" : "s"} found,
@@ -261,7 +261,7 @@ export function GrantScholarshipDialog({
                   )}
                 </div>
               ) : (
-                <ul className="divide-y divide-slate-100">
+                <ul className="divide-y divide-[var(--tenant-border)]">
                   {filtered.map((s) => (
                     <li key={s.student_id}>
                       <button
@@ -271,11 +271,11 @@ export function GrantScholarshipDialog({
                           "flex w-full items-center justify-between px-3 py-2 text-left text-xs transition " +
                           (studentId === s.student_id
                             ? "bg-emerald-50 font-medium text-emerald-900"
-                            : "hover:bg-slate-50 text-slate-700")
+                            : "hover:bg-[var(--tenant-surface-2)] text-[var(--tenant-ink)]")
                         }
                       >
                         <span className="truncate">{s.name}</span>
-                        <span className="ml-2 font-mono text-[10px] text-slate-400">
+                        <span className="ml-2 font-mono text-[10px] text-[var(--tenant-muted)]">
                           {s.admission_no || "—"}
                         </span>
                       </button>
@@ -324,17 +324,17 @@ export function GrantScholarshipDialog({
             />
           </div>
 
-          <label className="flex items-start gap-2 rounded-md border border-slate-100 bg-slate-50/50 px-3 py-2 text-xs">
+          <label className="flex items-start gap-2 rounded-md border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]/50 px-3 py-2 text-xs">
             <input
               type="checkbox"
               checked={applyExisting}
               onChange={(e) => setApplyExisting(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600"
+              className="mt-0.5 h-4 w-4 rounded border-[var(--tenant-border)] text-emerald-600"
             />
-            <span className="text-slate-700">
+            <span className="text-[var(--tenant-ink)]">
               Apply immediately to this student's open invoices matching the
               scope
-              <span className="mt-0.5 block text-[11px] text-slate-500">
+              <span className="mt-0.5 block text-[11px] text-[var(--tenant-muted)]">
                 Uses the overpayment-credit path if the parent already paid
                 more than the new total (no negative balances).
               </span>

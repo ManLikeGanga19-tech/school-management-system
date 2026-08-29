@@ -252,7 +252,7 @@ export default function PlansTab() {
                     {p.modules.map((m) => (
                       <span
                         key={m}
-                        className="rounded-md bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700"
+                        className="rounded-md bg-[var(--admin-gold-soft)] px-2 py-0.5 text-[11px] font-medium text-[#8a6d00]"
                       >
                         {moduleLabel(m)}
                       </span>
@@ -314,12 +314,12 @@ export default function PlansTab() {
                         onClick={() => toggleModule(m.code)}
                         className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm transition ${
                           on
-                            ? "border-teal-300 bg-teal-50 text-teal-800"
+                            ? "border-[var(--admin-gold)] bg-[var(--admin-gold-soft)] text-[#8a6d00]"
                             : "border-slate-200 text-slate-600 hover:bg-slate-50"
                         }`}
                       >
                         <CheckCircle2
-                          className={`h-4 w-4 shrink-0 ${on ? "text-teal-600" : "text-slate-300"}`}
+                          className={`h-4 w-4 shrink-0 ${on ? "text-[#8a6d00]" : "text-slate-300"}`}
                         />
                         {m.label}
                       </button>

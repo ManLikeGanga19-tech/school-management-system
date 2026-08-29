@@ -74,9 +74,9 @@ export function TrustBar({ stats }: { stats?: PublicStats }) {
           )}
           <div className="flex items-center gap-4">
             <span className="label-caps text-muted-text">Aligned with</span>
-            <Image src="/brand/kicd-logo.png" alt="KICD" width={80} height={22} className="h-[22px] w-auto object-contain" />
-            <span className="h-5 w-px bg-brand-border" />
-            <Image src="/brand/kemis-logo.png" alt="KEMIS" width={96} height={22} className="h-[22px] w-auto object-contain" />
+            <Image src="/brand/kicd-logo.png" alt="KICD" width={123} height={32} className="h-8 w-auto object-contain" />
+            <span className="h-10 w-px bg-brand-border" />
+            <Image src="/brand/kemis-logo.png" alt="KEMIS" width={50} height={48} className="h-12 w-auto object-contain" />
           </div>
         </div>
       </div>

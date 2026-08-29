@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useState } from "react";
 import {
   GraduationCap,
-  Wallet,
   Receipt,
   AlertCircle,
   CheckCircle2,
@@ -75,12 +74,12 @@ function StatCard({ label, value, sub, icon: Icon, accent }: {
   accent: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-[var(--tenant-border)] bg-[var(--tenant-surface)] p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</p>
-          <p className="mt-1 text-xl font-bold text-slate-800 truncate">{value}</p>
-          {sub && <p className="mt-0.5 text-xs text-slate-400">{sub}</p>}
+          <p className="text-xs font-medium text-[var(--tenant-muted)] uppercase tracking-wide">{label}</p>
+          <p className="mt-1 text-xl font-bold text-[var(--tenant-ink)] truncate">{value}</p>
+          {sub && <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">{sub}</p>}
         </div>
         <div className={`shrink-0 rounded-xl p-2.5 ${accent}`}>
           <Icon className="h-5 w-5" />
@@ -93,14 +92,14 @@ function StatCard({ label, value, sub, icon: Icon, accent }: {
 function ChildCard({ child }: { child: ChildSummary }) {
   const isPaid = child.outstanding <= 0;
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col gap-3">
+    <div className="rounded-2xl border border-[var(--tenant-border)] bg-[var(--tenant-surface)] p-4 shadow-sm flex flex-col gap-3">
       <div className="flex items-center gap-3">
-        <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-          <GraduationCap className="h-5 w-5 text-blue-600" />
+        <div className="h-10 w-10 rounded-full bg-[var(--tenant-surface-2)] flex items-center justify-center shrink-0">
+          <GraduationCap className="h-5 w-5 text-[var(--tenant-primary)]" />
         </div>
         <div className="min-w-0">
-          <p className="font-semibold text-slate-800 truncate">{child.student_name}</p>
-          <p className="text-xs text-slate-500">
+          <p className="font-semibold text-[var(--tenant-ink)] truncate">{child.student_name}</p>
+          <p className="text-xs text-[var(--tenant-muted)]">
             {child.class_code}
             {child.admission_number && <> &middot; {child.admission_number}</>}
           </p>
@@ -111,7 +110,7 @@ function ChildCard({ child }: { child: ChildSummary }) {
         isPaid ? "bg-emerald-50" : "bg-amber-50"
       }`}>
         <div>
-          <p className="text-xs font-medium text-slate-500">
+          <p className="text-xs font-medium text-[var(--tenant-muted)]">
             {isPaid ? "Balance" : "Amount Due"}
           </p>
           <p className={`text-base font-bold ${isPaid ? "text-emerald-700" : "text-amber-700"}`}>
@@ -162,7 +161,7 @@ function ParentDashboardContent() {
     return (
       <AppShell title="Parent Portal" nav={parentNav} activeHref="/tenant/parent/dashboard">
         <div className="flex min-h-[380px] items-center justify-center">
-          <Loader2 className="h-7 w-7 animate-spin text-slate-400" />
+          <Loader2 className="h-7 w-7 animate-spin text-[var(--tenant-muted)]" />
         </div>
       </AppShell>
     );
@@ -173,8 +172,8 @@ function ParentDashboardContent() {
       <AppShell title="Parent Portal" nav={parentNav} activeHref="/tenant/parent/dashboard">
         <div className="flex min-h-[380px] flex-col items-center justify-center gap-3 text-center">
           <AlertCircle className="h-10 w-10 text-red-400" />
-          <p className="font-medium text-slate-700">Unable to load your portal</p>
-          <p className="text-sm text-slate-500">{error || "No parent account linked to this login."}</p>
+          <p className="font-medium text-[var(--tenant-ink)]">Unable to load your portal</p>
+          <p className="text-sm text-[var(--tenant-muted)]">{error || "No parent account linked to this login."}</p>
         </div>
       </AppShell>
     );
@@ -210,7 +209,7 @@ function ParentDashboardContent() {
             value={String(me.child_count)}
             sub={me.child_count === 1 ? "enrolled" : "enrolled"}
             icon={Users}
-            accent="bg-blue-100 text-blue-600"
+            accent="bg-[var(--tenant-surface-2)] text-[var(--tenant-primary)]"
           />
           <StatCard
             label="Outstanding"
@@ -227,17 +226,17 @@ function ParentDashboardContent() {
             value={String(payments.length)}
             sub="in history"
             icon={Receipt}
-            accent="bg-purple-100 text-purple-600"
+            accent="bg-[var(--tenant-surface-2)] text-[var(--tenant-primary)]"
           />
         </div>
 
         {/* ── Children cards ── */}
         <div>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">
             My Children
           </h2>
           {me.children.length === 0 ? (
-            <p className="text-sm text-slate-500 italic">No children linked yet. Contact the school office.</p>
+            <p className="text-sm text-[var(--tenant-muted)] italic">No children linked yet. Contact the school office.</p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {me.children.map((child) => (
@@ -247,11 +246,11 @@ function ParentDashboardContent() {
           )}
         </div>
 
-        {/* ── Pending bills callout ── */}
+        {/* ── Outstanding fees notice (informational — no online payment) ── */}
         {outstandingChildren.length > 0 && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <div className="flex items-start gap-3">
-              <Wallet className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-amber-800">Outstanding Fees</p>
                 <p className="mt-0.5 text-sm text-amber-700">
@@ -259,14 +258,13 @@ function ParentDashboardContent() {
                     ? `${outstandingChildren[0].student_name} has an outstanding balance of ${kes(outstandingChildren[0].outstanding)}.`
                     : `${outstandingChildren.length} of your children have outstanding fee balances totalling ${kes(me.outstanding_total)}.`
                   }
-                  {" "}Please visit the school office to make a payment.
                 </p>
               </div>
               <a
                 href="/tenant/parent/invoices"
                 className="shrink-0 flex items-center gap-1 text-sm font-medium text-amber-700 hover:text-amber-900"
               >
-                View <ChevronRight className="h-4 w-4" />
+                Details <ChevronRight className="h-4 w-4" />
               </a>
             </div>
           </div>
@@ -275,37 +273,37 @@ function ParentDashboardContent() {
         {/* ── Recent payments ── */}
         {payments.length > 0 && (
           <div>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">
               Recent Payments
             </h2>
 
             {/* Mobile: card list */}
             <div className="space-y-2 sm:hidden">
               {payments.map((pay) => (
-                <div key={pay.payment_id} className="rounded-xl border border-slate-100 bg-white p-4">
+                <div key={pay.payment_id} className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface)] p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-medium text-slate-800 truncate">{pay.student_name}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="font-medium text-[var(--tenant-ink)] truncate">{pay.student_name}</p>
+                      <p className="text-xs text-[var(--tenant-muted)] mt-0.5">
                         {fmtDate(pay.received_at)} &middot; {providerLabel(pay.provider)}
                       </p>
                       {(pay.receipt_no || pay.reference) && (
-                        <p className="mt-1 font-mono text-xs text-slate-400">
+                        <p className="mt-1 font-mono text-xs text-[var(--tenant-muted)]">
                           {pay.receipt_no || pay.reference}
                         </p>
                       )}
                     </div>
-                    <p className="font-bold tabular-nums text-slate-800 shrink-0">{kes(pay.amount)}</p>
+                    <p className="font-bold tabular-nums text-[var(--tenant-ink)] shrink-0">{kes(pay.amount)}</p>
                   </div>
                 </div>
               ))}
             </div>
 
             {/* Desktop: table */}
-            <div className="hidden sm:block rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden">
+            <div className="hidden sm:block rounded-2xl border border-[var(--tenant-border)] bg-[var(--tenant-surface)] shadow-sm overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr className="border-b border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">
                     <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3">Student</th>
                     <th className="px-4 py-3">Method</th>
@@ -315,14 +313,14 @@ function ParentDashboardContent() {
                 </thead>
                 <tbody>
                   {payments.map((pay) => (
-                    <tr key={pay.payment_id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(pay.received_at)}</td>
-                      <td className="px-4 py-3 font-medium text-slate-700">{pay.student_name}</td>
-                      <td className="px-4 py-3 text-slate-600">{providerLabel(pay.provider)}</td>
-                      <td className="px-4 py-3 text-slate-500 font-mono text-xs">
+                    <tr key={pay.payment_id} className="border-b border-[var(--tenant-border)] last:border-0 hover:bg-[var(--tenant-surface-2)]">
+                      <td className="px-4 py-3 text-[var(--tenant-muted)] whitespace-nowrap">{fmtDate(pay.received_at)}</td>
+                      <td className="px-4 py-3 font-medium text-[var(--tenant-ink)]">{pay.student_name}</td>
+                      <td className="px-4 py-3 text-[var(--tenant-muted)]">{providerLabel(pay.provider)}</td>
+                      <td className="px-4 py-3 text-[var(--tenant-muted)] font-mono text-xs">
                         {pay.receipt_no || pay.reference || "—"}
                       </td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-800 tabular-nums">
+                      <td className="px-4 py-3 text-right font-semibold text-[var(--tenant-ink)] tabular-nums">
                         {kes(pay.amount)}
                       </td>
                     </tr>
@@ -343,7 +341,7 @@ export default function ParentDashboardPage() {
   return (
     <Suspense fallback={
       <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-7 w-7 animate-spin text-slate-400" />
+        <Loader2 className="h-7 w-7 animate-spin text-[var(--tenant-muted)]" />
       </div>
     }>
       <ParentDashboardContent />

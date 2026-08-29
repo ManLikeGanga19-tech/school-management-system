@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
-import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { AdminShell } from "@/components/admin/AdminShell";
+import { DashboardStatCard } from "@/components/admin/admin-primitives";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -96,7 +95,7 @@ function actionBadgeClass(action: string) {
   if (["create", "post", "add"].includes(verb))
     return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   if (["approve", "enroll", "complete", "activate", "restore"].includes(verb))
-    return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+    return "bg-[var(--admin-gold-soft)] text-[#8a6d00] ring-1 ring-[var(--admin-border)]";
   if (["reject", "delete", "remove", "deactivate", "suspend"].includes(verb))
     return "bg-red-50 text-red-700 ring-1 ring-red-200";
   if (["update", "edit", "transfer", "patch"].includes(verb))
@@ -237,7 +236,7 @@ export default function SaaSAuditPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/audit">
+    <AdminShell title="Super Admin" activeHref="/saas/audit">
 
       {/* ── Detail dialog ── */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
@@ -477,7 +476,7 @@ export default function SaaSAuditPage() {
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
-                className="h-8 bg-blue-600 text-xs hover:bg-blue-700"
+                className="h-8 bg-[var(--admin-primary)] text-xs hover:bg-[var(--admin-slate)]"
                 onClick={applyFilters}
                 disabled={loading}
               >
@@ -603,7 +602,7 @@ export default function SaaSAuditPage() {
                         {activeFilters.length > 0 && (
                           <button
                             onClick={clearFilters}
-                            className="mt-1 text-xs text-blue-500 hover:underline"
+                            className="mt-1 text-xs text-[var(--admin-slate)] hover:underline"
                           >
                             Clear filters
                           </button>
@@ -729,6 +728,6 @@ export default function SaaSAuditPage() {
           )}
         </SaasSurface>
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }

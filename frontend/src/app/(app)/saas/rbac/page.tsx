@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import {
   ShieldCheck,
@@ -34,8 +33,8 @@ const modules = [
   {
     href:        "/saas/rbac/roles",
     icon:        Layers,
-    iconColor:   "bg-blue-50 text-blue-600",
-    borderHover: "hover:border-blue-200",
+    iconColor:   "bg-[var(--admin-gold-soft)] text-[#8a6d00]",
+    borderHover: "hover:border-[var(--admin-border)]",
     title:       "Role Catalog",
     description: "Manage global and tenant-scoped roles. Assign permission sets, inspect effective access, and create roles for any institution.",
     bullets: [
@@ -44,7 +43,7 @@ const modules = [
       "Inspect & manage permission sets",
     ],
     badge: "RBAC Core",
-    badgeColor: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+    badgeColor: "bg-[var(--admin-gold-soft)] text-[#8a6d00] ring-1 ring-[var(--admin-border)]",
   },
 ];
 
@@ -59,7 +58,7 @@ const steps = [
   },
   {
     icon:  Layers,
-    color: "bg-blue-100 text-blue-600",
+    color: "bg-[var(--admin-gold-soft)] text-[#8a6d00]",
     title: "2. Create Roles",
     desc:  "Group permissions into global or tenant-scoped roles. Roles are assigned to users by directors.",
   },
@@ -81,7 +80,7 @@ const steps = [
 
 export default function SaaSRbacHubPage() {
   return (
-    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/rbac">
+    <AdminShell title="Super Admin" activeHref="/saas/rbac">
       <div className="space-y-6">
 
         {/* ── Header ── */}
@@ -98,7 +97,7 @@ export default function SaaSRbacHubPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           {modules.map((m) => (
             <Link key={m.href} href={m.href}>
-              <div className={`dashboard-surface group h-full rounded-[1.6rem] border-0 p-6 transition hover:-translate-y-0.5 ${m.borderHover}`}>
+              <div className={`border border-[var(--admin-border)] bg-[var(--admin-surface)] group h-full rounded-xl border-0 p-6 transition hover:-translate-y-0.5 ${m.borderHover}`}>
                 <div className="mb-4 flex items-start justify-between">
                   <div className={`inline-flex rounded-xl p-3 ${m.iconColor}`}>
                     <m.icon className="h-6 w-6" />
@@ -109,10 +108,10 @@ export default function SaaSRbacHubPage() {
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <h2 className="text-base font-semibold text-slate-900 transition group-hover:text-blue-700">
+                  <h2 className="text-base font-semibold text-slate-900 transition group-hover:text-[#8a6d00]">
                     {m.title}
                   </h2>
-                  <ArrowRight className="h-4 w-4 translate-x-0 text-slate-300 opacity-0 transition-all group-hover:translate-x-1 group-hover:opacity-100 group-hover:text-blue-500" />
+                  <ArrowRight className="h-4 w-4 translate-x-0 text-slate-300 opacity-0 transition-all group-hover:translate-x-1 group-hover:opacity-100 group-hover:text-[var(--admin-slate)]" />
                 </div>
 
                 <p className="mt-2 text-sm leading-relaxed text-slate-500">
@@ -155,6 +154,6 @@ export default function SaaSRbacHubPage() {
         </SaasSurface>
 
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }

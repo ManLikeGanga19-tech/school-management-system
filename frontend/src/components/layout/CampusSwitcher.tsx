@@ -8,7 +8,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Building2, ChevronsUpDown, Check, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { storage, keys } from "@/lib/storage";
 
 type Campus = {
   tenant_id: string;
@@ -54,17 +53,16 @@ export function CampusSwitcher() {
     if (c.is_current || switching) return;
     setSwitching(true);
     try {
-      const res = await apiFetch<{ access_token?: string }>("/auth/switch-campus", {
+      // BFF route: rewrites the SSR tenant cookies (sms_tenant_slug/id + access)
+      // so the server-rendered dashboard shows the new campus after reload.
+      const res = await fetch("/api/auth/switch-campus", {
         method: "POST",
-        tenantRequired: true,
-        body: JSON.stringify({ tenant_id: c.tenant_id }),
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-      } as never);
-      // Point the client at the new campus before reloading so the first
-      // requests after reload already carry the right tenant context.
-      if (res?.access_token) storage.set(keys.accessToken, res.access_token);
-      storage.set(keys.tenantId, c.tenant_id);
-      storage.set(keys.tenantSlug, c.slug);
+        body: JSON.stringify({ tenant_id: c.tenant_id, tenant_slug: c.slug }),
+      });
+      if (!res.ok) throw new Error("switch failed");
+      // The BFF has already set the new campus's session cookies — just reload.
       window.location.assign("/");
     } catch {
       setSwitching(false);
@@ -76,16 +74,16 @@ export function CampusSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 rounded-lg border border-[#e1d4c0] bg-white px-3 py-2 text-left text-sm transition hover:bg-[#f5ece1]"
+        className="flex w-full items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-left text-sm transition hover:bg-white/10"
       >
-        <Building2 className="h-4 w-4 shrink-0 text-[#7c4b24]" />
-        <span className="min-w-0 flex-1 truncate font-medium text-[#173f49]">
+        <Building2 className="h-4 w-4 shrink-0 text-[var(--tenant-accent)]" />
+        <span className="min-w-0 flex-1 truncate font-medium text-white">
           {current?.name ?? "Select campus"}
         </span>
         {switching ? (
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-slate-400" />
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white/50" />
         ) : (
-          <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
+          <ChevronsUpDown className="h-4 w-4 shrink-0 text-white/50" />
         )}
       </button>
 

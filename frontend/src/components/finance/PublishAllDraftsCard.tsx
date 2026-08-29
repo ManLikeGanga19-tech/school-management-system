@@ -185,7 +185,7 @@ export function PublishAllDraftsCard({ onPublished }: Props) {
         <button
           onClick={() => void refreshCount()}
           disabled={counting}
-          className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--tenant-border)] bg-white px-3 py-1 text-xs text-[var(--tenant-muted)] hover:bg-[var(--tenant-surface-2)] disabled:opacity-60"
         >
           {counting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           Refresh
@@ -194,7 +194,7 @@ export function PublishAllDraftsCard({ onPublished }: Props) {
       <div className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <div className="space-y-1">
-            <Label htmlFor="publish-scope" className="text-xs uppercase tracking-wide text-slate-500">
+            <Label htmlFor="publish-scope" className="text-xs uppercase tracking-wide text-[var(--tenant-muted)]">
               Scope
             </Label>
             <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
@@ -216,12 +216,12 @@ export function PublishAllDraftsCard({ onPublished }: Props) {
             </Select>
           </div>
 
-          <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-2">
+          <div className="flex items-center gap-3 rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]/60 px-4 py-2">
             <div className="text-right">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--tenant-muted)]">
                 Drafts ready
               </div>
-              <div className="text-2xl font-bold tabular-nums text-slate-800">
+              <div className="text-2xl font-bold tabular-nums text-[var(--tenant-ink)]">
                 {counting ? "—" : count ?? "—"}
               </div>
             </div>
@@ -278,7 +278,7 @@ export function PublishAllDraftsCard({ onPublished }: Props) {
 
         {/* Result summary */}
         {result && (
-          <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+          <div className="space-y-3 rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]/60 p-4">
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-1.5 text-sm text-emerald-700">
                 <CheckCircle2 className="h-4 w-4" />
@@ -295,14 +295,14 @@ export function PublishAllDraftsCard({ onPublished }: Props) {
                 <span className="font-semibold tabular-nums">{result.summary.failed}</span>
                 <span>failed</span>
               </div>
-              <div className="ml-auto text-xs text-slate-400">
+              <div className="ml-auto text-xs text-[var(--tenant-muted)]">
                 Total {result.summary.total}
               </div>
             </div>
 
             {(result.skipped.length > 0 || result.failed.length > 0) && (
-              <details className="rounded-lg border border-slate-200 bg-white p-3 text-xs">
-                <summary className="cursor-pointer font-medium text-slate-600">
+              <details className="rounded-lg border border-[var(--tenant-border)] bg-white p-3 text-xs">
+                <summary className="cursor-pointer font-medium text-[var(--tenant-muted)]">
                   Per-row outcomes
                 </summary>
                 <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">

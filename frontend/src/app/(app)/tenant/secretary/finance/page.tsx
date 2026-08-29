@@ -154,6 +154,9 @@ type Payment = {
   // Phase R — carry-forward touches (SETTLEMENT = prior balance paid down,
   // CREDIT_CONSUMED = available credit spent as funding).
   cf_allocations?: { amount: string; kind: string; term_label?: string | null }[];
+  // Payment reversal state (director-only action; secretaries see the badge).
+  reversed_at?: string | null;
+  reversal_reason?: string | null;
 };
 
 // Phase R — allocation summary for the payments table: names CF
@@ -2439,9 +2442,22 @@ function SecretaryFinancePageContent() {
                   </TableHeader>
                   <TableBody>
                     {paymentsTable.items.map((payment) => (
-                      <TableRow key={payment.id} className="hover:bg-slate-50">
+                      <TableRow
+                        key={payment.id}
+                        className={payment.reversed_at ? "opacity-60 hover:bg-slate-50" : "hover:bg-slate-50"}
+                      >
                         <TableCell className="font-mono text-xs font-medium text-blue-700">
-                          {String(payment.id).slice(0, 8).toUpperCase()}
+                          <span className="inline-flex items-center gap-1.5">
+                            {String(payment.id).slice(0, 8).toUpperCase()}
+                            {payment.reversed_at && (
+                              <span
+                                className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700"
+                                title={payment.reversal_reason || "This payment has been reversed"}
+                              >
+                                Reversed
+                              </span>
+                            )}
+                          </span>
                         </TableCell>
                         <TableCell className="text-sm">
                           {paymentStudentLabel(payment)}

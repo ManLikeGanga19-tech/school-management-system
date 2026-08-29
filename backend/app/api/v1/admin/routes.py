@@ -243,10 +243,26 @@ def upsert_saas_academic_calendar(
             terms=[t.model_dump() for t in payload.terms],
         )
         db.commit()
-        return result
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc))
+
+    # Auto-sync the saved calendar into the terms of every tenant that follows
+    # the platform calendar (overwrite dates; self-managing schools excluded).
+    # Best-effort: the template save above is already durable, so a sync hiccup
+    # must never fail the request.
+    try:
+        service.apply_saas_academic_calendar_to_tenants(
+            db,
+            academic_year=payload.academic_year,
+            only_missing=False,
+            only_following=True,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return result
 
 
 @router.post("/saas/academic-calendar/apply", response_model=SaaSAcademicCalendarApplyResponse)
@@ -1086,7 +1102,8 @@ def assign_tenant_plan(
 
 class TenantGroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    slug: str = Field(min_length=2, max_length=120)
+    # Slug is optional — auto-derived from the name when omitted.
+    slug: Optional[str] = Field(default=None, max_length=120)
     billing_email: Optional[str] = Field(default=None, max_length=200)
     primary_contact: Optional[str] = Field(default=None, max_length=200)
 
@@ -1149,9 +1166,17 @@ def create_tenant_group(
     db: Session = Depends(get_db),
     _=Depends(require_permission_saas("subscriptions.manage")),
 ):
-    slug = payload.slug.strip().lower()
-    if db.execute(select(TenantGroup.id).where(TenantGroup.slug == slug)).first():
-        raise HTTPException(status_code=409, detail=f"A group '{slug}' already exists.")
+    # Derive a URL-safe slug from the provided slug or the group name, and make
+    # it unique automatically (-2, -3, …) so the operator need not supply one.
+    import re
+    raw = (payload.slug or payload.name or "").strip().lower()
+    base = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")[:120] or "group"
+    slug = base
+    n = 2
+    while db.execute(select(TenantGroup.id).where(TenantGroup.slug == slug)).first():
+        suffix = f"-{n}"
+        slug = f"{base[: 120 - len(suffix)]}{suffix}"
+        n += 1
     group = TenantGroup(
         name=payload.name.strip(),
         slug=slug,
@@ -1238,6 +1263,13 @@ def attach_campus(
     if tenant is None or getattr(tenant, "deleted_at", None) is not None:
         raise HTTPException(status_code=404, detail="Tenant not found.")
     tenant.group_id = group.id
+    db.flush()
+    # Provision group directors into the newly-attached campus (and this campus's
+    # directors across the group), so multi-campus switching works immediately.
+    try:
+        service.sync_group_director_access(db, group_id=group.id)
+    except Exception:
+        pass  # best-effort: attaching the campus must not fail on provisioning
     db.commit()
     invalidate_subscription_cache(tenant_id)
     return _group_row(db, group)

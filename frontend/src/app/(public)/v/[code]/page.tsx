@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   ReceiptText,
   FileText,
+  Ban,
 } from "lucide-react";
 
 type VerifyResult = {
@@ -26,6 +27,8 @@ type VerifyResult = {
   status?: string | null;
   issued_at?: string | null;
   provider?: string | null;
+  reversed?: boolean;
+  reversed_at?: string | null;
   message: string;
 };
 
@@ -151,14 +154,35 @@ export default function VerifyDocumentPage() {
         {state === "valid" && result && (
           <div className="py-8 px-6 space-y-5">
             <div className="flex flex-col items-center gap-2 text-center">
-              <div className="rounded-full bg-green-50 p-3">
-                <CheckCircle2 className="h-10 w-10 text-green-600" />
-              </div>
-              <p className="font-bold text-gray-900 text-lg">
-                {docLabel} Verified
-              </p>
-              <p className="text-sm text-gray-500">{result.message}</p>
+              {result.reversed ? (
+                <>
+                  <div className="rounded-full bg-red-50 p-3">
+                    <Ban className="h-10 w-10 text-red-600" />
+                  </div>
+                  <p className="font-bold text-red-700 text-lg">
+                    {docLabel} Reversed
+                  </p>
+                  <p className="text-sm text-gray-500">{result.message}</p>
+                </>
+              ) : (
+                <>
+                  <div className="rounded-full bg-green-50 p-3">
+                    <CheckCircle2 className="h-10 w-10 text-green-600" />
+                  </div>
+                  <p className="font-bold text-gray-900 text-lg">
+                    {docLabel} Verified
+                  </p>
+                  <p className="text-sm text-gray-500">{result.message}</p>
+                </>
+              )}
             </div>
+
+            {result.reversed && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-red-700">
+                Void — this payment was reversed
+                {result.reversed_at ? ` on ${formatDate(result.reversed_at)}` : ""}
+              </div>
+            )}
 
             <hr className="border-gray-100" />
 

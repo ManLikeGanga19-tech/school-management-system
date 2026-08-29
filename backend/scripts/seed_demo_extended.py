@@ -32,7 +32,10 @@ from app.models.tenant_class import TenantClass
 from app.models.tenant_term import TenantTerm
 from app.models.user import User
 
-DEMO_SLUG = "demo"
+import os
+# Target tenant is env-driven so this extended seed can enrich a writable dev
+# tenant (e.g. SEED_SLUG=novel). Defaults to the public "demo" tenant.
+DEMO_SLUG = os.environ.get("SEED_SLUG", "demo")
 
 # ── Kenya CBC Upper Primary curriculum (Grade 4–8) ───────────────────────────
 # Structure: (learning_area_code, learning_area_name, display_order, [

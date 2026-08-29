@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { storage, keys } from "@/lib/storage";
 import { getCurrentUser } from "@/lib/auth/auth";
+import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 
 type Props = {
   mode: "saas" | "tenant";
@@ -43,11 +44,7 @@ export default function RequireAuth({ mode, children }: Props) {
   }, [loginPath, mode, router, tokenKey]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen text-sm text-gray-500">
-        Checking session...
-      </div>
-    );
+    return <AuthLoadingScreen mode={mode} />;
   }
 
   return <>{children}</>;

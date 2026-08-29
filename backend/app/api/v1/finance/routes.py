@@ -1512,6 +1512,37 @@ def create_payment(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post(
+    "/payments/{payment_id}/reverse",
+    dependencies=[Depends(require_permission("finance.payments.reverse"))],
+)
+def reverse_payment_route(
+    payment_id: UUID,
+    payload: dict,
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    user=Depends(get_current_user),
+):
+    """Reverse a payment (director-only). Restores the affected invoices to
+    their pre-payment amounts and audits the reversal."""
+    try:
+        result = service.reverse_payment(
+            db,
+            tenant_id=tenant.id,
+            payment_id=payment_id,
+            actor_user_id=user.id,
+            reason=str((payload or {}).get("reason") or ""),
+        )
+        db.commit()
+        return result
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get(
     "/students/{student_id}/payment-summary",
     response_model=StudentPaymentSummaryOut,

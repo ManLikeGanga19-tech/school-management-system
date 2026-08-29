@@ -16,7 +16,7 @@ import {
   Layers,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { DashboardStatCard } from "@/components/admin/admin-primitives";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -478,7 +478,7 @@ export default function TenantGroupsPage() {
                       <button
                         type="button"
                         onClick={() => setDraft({ ...draft, period_end: term.end_date! })}
-                        className="mt-1 text-[11px] font-medium text-teal-600 hover:underline"
+                        className="mt-1 text-[11px] font-medium text-[#8a6d00] hover:underline"
                       >
                         Use academic term end — {term.term_name}
                         {term.academic_year ? ` ${term.academic_year}` : ""} ({term.end_date})
@@ -581,7 +581,7 @@ export default function TenantGroupsPage() {
                             {t.tenant_slug}
                           </p>
                         </div>
-                        <Check className="h-4 w-4 shrink-0 text-teal-500" />
+                        <Check className="h-4 w-4 shrink-0 text-[#8a6d00]" />
                       </button>
                     ))}
                   {tenants.filter((t) => !managedCampusIds.has(t.tenant_id)).length === 0 && (

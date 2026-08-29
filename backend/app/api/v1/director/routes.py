@@ -521,5 +521,9 @@ def list_director_payments(
             # Phase R — CF settlements + consumed credits for the director's
             # payments table (same shape as the secretary route).
             "cf_allocations": row.get("cf_allocations") or [],
+            # Payment reversal state — lets the UI badge reversed rows and hide
+            # the reverse action once done.
+            "reversed_at":     row.get("reversed_at"),
+            "reversal_reason": row.get("reversal_reason"),
         })
     return {"items": items, "meta": result["meta"]}

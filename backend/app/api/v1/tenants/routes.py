@@ -4132,6 +4132,12 @@ def create_tenant_term(
             "academic_year": payload.academic_year,
         },
     ).mappings().first()
+    # Adding a term by hand means this school self-manages its calendar — stop
+    # auto-syncing the platform academic calendar over its dates.
+    db.execute(
+        sa.text("UPDATE core.tenants SET follows_platform_calendar = false, updated_at = now() WHERE id = :tid"),
+        {"tid": str(tenant.id)},
+    )
     db.commit()
 
     if not created:
@@ -4240,6 +4246,13 @@ def update_tenant_term(
                   term_number, academic_year
     """
     updated = db.execute(sa.text(update_q), params).mappings().first()
+    # Editing term dates by hand means this school self-manages its calendar —
+    # stop auto-syncing the platform academic calendar over its dates.
+    if payload.start_date is not None or payload.end_date is not None:
+        db.execute(
+            sa.text("UPDATE core.tenants SET follows_platform_calendar = false, updated_at = now() WHERE id = :tid"),
+            {"tid": str(tenant.id)},
+        )
     db.commit()
 
     if not updated:

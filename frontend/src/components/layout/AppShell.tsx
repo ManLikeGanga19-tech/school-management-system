@@ -82,7 +82,9 @@ import { SubscriptionBanner } from "@/components/layout/SubscriptionBanner";
 import { ChangelogBanner } from "@/components/layout/ChangelogBanner";
 import { DemoBanner } from "@/components/layout/DemoBanner";
 import { CampusSwitcher } from "@/components/layout/CampusSwitcher";
+import { storage } from "@/lib/storage";
 import { useSubscription } from "@/lib/auth/useSubscription";
+import { usePermissions } from "@/lib/auth/usePermissions";
 
 type AppNavLink = {
   href: string;
@@ -94,6 +96,23 @@ type AppNavLink = {
   curriculumGate?: string[];
   /** If set, only show this item when the tenant's subscription plan unlocks this module */
   moduleKey?: string;
+  /** If set, only show this item when the current user's role holds this RBAC permission */
+  permission?: string;
+};
+
+/**
+ * Gateable module → the RBAC "view" permission that reveals it in the sidebar.
+ * A module shows only when the tier unlocks it AND the role holds this permission.
+ * Modules without an entry (events, etc.) are tier-gated only.
+ */
+const MODULE_VIEW_PERMISSION: Record<string, string> = {
+  exams: "reports.view",
+  cbc: "cbc.assessments.view",
+  igcse: "reports.view",
+  discipline: "discipline.incidents.view",
+  messaging: "sms.send",
+  hr: "hr.staff.view",
+  analytics: "audit.read",
 };
 
 export type AppNavItem = AppNavLink & {
@@ -394,7 +413,7 @@ export function AppShell({
   // the hydration render identical to the server's — avoiding React #418.
   useEffect(() => {
     try {
-      setSidebarCollapsed(window.localStorage.getItem("sms_sidebar_collapsed") === "1");
+      setSidebarCollapsed(storage.get("sms_sidebar_collapsed") === "1");
     } catch {
       /* ignore */
     }
@@ -404,7 +423,7 @@ export function AppShell({
     setSidebarCollapsed((prev) => {
       const next = !prev;
       try {
-        window.localStorage.setItem("sms_sidebar_collapsed", next ? "1" : "0");
+        storage.set("sms_sidebar_collapsed", next ? "1" : "0");
       } catch {
         /* ignore */
       }
@@ -659,6 +678,7 @@ export function AppShell({
 
   const { subscription, ready: subReady } = useSubscription();
   const subModules = subscription?.modules;
+  const { has: hasPermission, loading: permLoading } = usePermissions();
 
   const filteredNav = useMemo(() => {
     return nav.filter((item) => {
@@ -678,9 +698,17 @@ export function AppShell({
           return false;
         }
       }
+      // RBAC gate — a module shows only when the current role holds its view
+      // permission (explicit item.permission, or the module's mapped permission).
+      // Fail-OPEN while permissions load (avoids flicker; pages enforce the real
+      // boundary), then hide once we know the role lacks it.
+      const requiredPerm = item.permission || (item.moduleKey ? MODULE_VIEW_PERMISSION[item.moduleKey] : undefined);
+      if (requiredPerm && !permLoading && !hasPermission(requiredPerm)) {
+        return false;
+      }
       return true;
     });
-  }, [nav, curriculumType, subReady, subModules]);
+  }, [nav, curriculumType, subReady, subModules, permLoading, hasPermission]);
 
   const requestedBadgeKeys = useMemo(() => {
     const keys = new Set<AppBadgeKey>();
@@ -832,25 +860,30 @@ export function AppShell({
     const mobile = Boolean(options?.mobile);
     const accountMenuOpen = mobile ? accountMenuOpenMobile : accountMenuOpenDesktop;
     const setAccountMenuOpen = mobile ? setAccountMenuOpenMobile : setAccountMenuOpenDesktop;
+    const acctInitials = (sidebarUserName || sidebarUserEmail || "U")
+      .trim().split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase() || "U";
     return (
       <div
-        className={cn("border-t border-[#e1d4c0] p-3", !mobile && "pt-2")}
+        className={cn("border-t border-white/10 p-3", !mobile && "pt-2")}
       >
 
         <DropdownMenu open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="h-auto w-full items-center justify-between px-3 py-2">
-              <span className="min-w-0 text-left">
-                <span className="block text-[10px] uppercase tracking-wide text-slate-500">
-                  Account
+            <Button variant="ghost" className="h-auto w-full items-center justify-start gap-3 px-2 py-2 text-white hover:bg-white/[0.06] hover:text-white">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--tenant-accent)] text-xs font-bold text-[#3a2a0a]">
+                {acctInitials}
+              </span>
+              <span className="min-w-0 flex-1 text-left leading-tight">
+                <span className="block truncate text-sm font-semibold text-white">
+                  {sidebarUserName || "Signed in"}
                 </span>
-                <span className="block truncate text-sm font-medium text-slate-800">
+                <span className="block truncate text-xs text-white/45">
                   {sidebarUserEmail}
                 </span>
               </span>
               <ChevronDown
                 className={cn(
-                  "h-4 w-4 shrink-0 text-slate-500 transition-transform",
+                  "h-4 w-4 shrink-0 text-white/40 transition-transform",
                   accountMenuOpen ? "rotate-0" : "rotate-180"
                 )}
               />
@@ -859,18 +892,18 @@ export function AppShell({
           <DropdownMenuContent
             align="start"
             side="top"
-            className="w-64"
+            className="tenant-theme w-64 border-[var(--tenant-border)] bg-[var(--tenant-surface)] text-[var(--tenant-ink)]"
           >
-            <DropdownMenuLabel className="truncate">{accountLabel}</DropdownMenuLabel>
-            <div className="px-2 pb-1 text-xs text-slate-500">{sidebarUserEmail}</div>
-            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="truncate text-[var(--tenant-ink)]">{accountLabel}</DropdownMenuLabel>
+            <div className="px-2 pb-1 text-xs text-[var(--tenant-muted)]">{sidebarUserEmail}</div>
+            <DropdownMenuSeparator className="bg-[var(--tenant-border)]" />
             <DropdownMenuItem asChild>
               <Link
                 href={settingsHref}
                 onClick={() => {
                   if (mobile) setMobileNavOpen(false);
                 }}
-                className="cursor-pointer"
+                className="cursor-pointer text-[var(--tenant-ink)] focus:bg-[var(--tenant-surface-2)] focus:text-[var(--tenant-ink)]"
               >
                 <Settings2 className="h-4 w-4" />
                 Settings
@@ -899,38 +932,41 @@ export function AppShell({
 
   function renderShellBrand(options?: { mode?: "desktop" | "mobile-top" | "mobile-drawer" }) {
     const mode = options?.mode || "desktop";
-    if (sidebarBadgeUrl) {
-      const containerClass =
-        mode === "mobile-top"
-          ? "flex h-10 items-center rounded-md border border-[#e1d4c0] bg-white/90 px-2 backdrop-blur"
-          : "flex h-16 items-center justify-center rounded-lg border border-[#e1d4c0] bg-white/90 px-2 backdrop-blur";
-      const imageClass =
-        mode === "mobile-top"
-          ? "h-8 w-auto max-w-[150px] object-contain"
-          : "h-14 w-auto max-w-[210px] object-contain";
-      return (
-        <div className={containerClass}>
-          <img src={sidebarBadgeUrl} alt={`${title} school badge`} className={imageClass} />
+    // Mobile top bar sits on a light surface — keep the compact badge/text dark.
+    if (mode === "mobile-top") {
+      return sidebarBadgeUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={sidebarBadgeUrl} alt={`${title} school badge`} className="h-8 w-auto max-w-[150px] object-contain" />
+      ) : (
+        <div className="leading-tight">
+          <div className="text-[10px] uppercase tracking-wide text-[#7c4b24]">{schoolName || "Platform"}</div>
+          <div className="text-base font-semibold text-[#132129]">{title}</div>
         </div>
       );
     }
 
-    const titleClass =
-      mode === "desktop"
-        ? "text-lg font-semibold text-[#132129]"
-        : "text-base font-semibold text-[#132129]";
+    // Desktop + drawer: dark bronze frame — compact logo + school name + role,
+    // mirroring the admin sidebar brand.
     return (
-      <>
-        <div className="text-xs uppercase tracking-wide text-[#7c4b24]">
-          {schoolName || "Platform"}
+      <div className="flex items-center gap-3">
+        {sidebarBadgeUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={sidebarBadgeUrl} alt={`${title} school badge`} className="h-9 w-9 shrink-0 rounded-lg bg-white object-contain p-0.5" />
+        ) : (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--tenant-accent)] text-sm font-bold text-[#3a2a0a]">
+            {(schoolName || title || "S").charAt(0).toUpperCase()}
+          </div>
+        )}
+        <div className="min-w-0 leading-tight">
+          <div className="truncate text-[15px] font-bold tracking-tight text-white">{schoolName || title}</div>
+          <div className="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-white/40">{title}</div>
         </div>
-        <div className={titleClass}>{title}</div>
-      </>
+      </div>
     );
   }
 
   return (
-    <div className="dashboard-app-bg min-h-screen">
+    <div className="tenant-theme dashboard-app-bg min-h-screen">
       {/*
         ┌─ SIDEBAR (fixed) ──────────────────────────────────────────────────┐
         │  fixed + h-screen keeps it pinned while the page scrolls behind it │
@@ -940,19 +976,24 @@ export function AppShell({
       <aside className={cn(
         "hidden md:flex md:flex-col",
         "fixed top-0 left-0 z-30 h-screen",
-        "border-r border-[#e1d4c0] bg-white/80 backdrop-blur-xl",
+        "border-r border-black/20 bg-[var(--tenant-sidebar)]",
         "overflow-y-auto overflow-x-hidden transition-[width] duration-200",
         sidebarCollapsed ? "w-[76px]" : "w-[260px]"
       )}>
-        <div className={cn("flex items-center gap-2 p-4", sidebarCollapsed && "justify-center px-2")}>
-          {!sidebarCollapsed && (
+        <div className={cn("flex shrink-0 items-center gap-2 border-b border-white/[0.06] px-3", sidebarCollapsed ? "flex-col justify-center py-3" : "h-16")}>
+          {sidebarCollapsed ? (
+            sidebarBadgeUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={sidebarBadgeUrl} alt="School badge" className="h-9 w-9 shrink-0 rounded-lg bg-white object-contain p-0.5" />
+            ) : null
+          ) : (
             <div className="min-w-0 flex-1">{renderShellBrand({ mode: "desktop" })}</div>
           )}
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="h-8 w-8 shrink-0"
+            className="h-8 w-8 shrink-0 rounded-md border border-white/15 bg-white/5 text-white/80 hover:bg-white/15 hover:text-white"
             onClick={toggleSidebar}
             aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -963,7 +1004,7 @@ export function AppShell({
 
         {!sidebarCollapsed && <CampusSwitcher />}
 
-        <Separator />
+        <Separator className="bg-white/10" />
 
         <nav className="flex-1 space-y-1 px-3 py-3">
           {filteredNav.map((item) => {
@@ -984,15 +1025,16 @@ export function AppShell({
                     href={item.href}
                     title={sidebarCollapsed ? item.label : undefined}
                     className={cn(
-                      "flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+                      "group relative flex flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
                       sidebarCollapsed && "justify-center px-2",
                       itemIsActive
-                        ? "bg-[#e4edef] font-medium text-[#173f49]"
-                        : "text-slate-600 hover:bg-[#f5ece1] hover:text-[#173f49]"
+                        ? "bg-white/[0.06] font-semibold text-white"
+                        : "font-medium text-white/60 hover:bg-white/[0.04] hover:text-white"
                     )}
                   >
-                    <span className="relative inline-flex h-4 w-4 items-center justify-center">
-                      {Icon && <Icon className="h-4 w-4" />}
+                    {itemIsActive && <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r bg-[var(--tenant-accent)]" />}
+                    <span className="relative inline-flex h-[18px] w-[18px] items-center justify-center">
+                      {Icon && <Icon className={cn("h-[18px] w-[18px]", itemIsActive && "text-[var(--tenant-accent)]")} />}
                       {showItemBadge && (
                         <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white">
                           {itemBadgeLabel}
@@ -1007,7 +1049,7 @@ export function AppShell({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 shrink-0"
+                      className="h-8 w-8 shrink-0 text-white/70 hover:bg-white/10 hover:text-white"
                       onClick={() =>
                         setExpandedModuleKey((prev) => (prev === key ? null : key))
                       }
@@ -1036,14 +1078,15 @@ export function AppShell({
                           key={child.href}
                           href={child.href}
                           className={cn(
-                            "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs transition-colors",
+                            "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-xs transition-colors",
                             childIsExactActive
-                              ? "bg-[#e4edef] font-medium text-[#173f49]"
-                              : "text-slate-600 hover:bg-[#f5ece1] hover:text-[#173f49]"
+                              ? "bg-white/[0.06] font-semibold text-white"
+                              : "font-medium text-white/60 hover:bg-white/[0.04] hover:text-white"
                           )}
                         >
-                          <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center">
-                            {ChildIcon && <ChildIcon className="h-3.5 w-3.5" />}
+                          {childIsExactActive && <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r bg-[var(--tenant-accent)]" />}
+                          <span className="relative inline-flex h-4 w-4 items-center justify-center">
+                            {ChildIcon && <ChildIcon className={cn("h-4 w-4", childIsExactActive && "text-[var(--tenant-accent)]")} />}
                             {showChildBadge && (
                               <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold text-white">
                                 {childBadgeLabel}
@@ -1064,7 +1107,7 @@ export function AppShell({
         {!sidebarCollapsed && renderSidebarFooter()}
       </aside>
 
-      <div className="sticky top-0 z-40 border-b border-[#e1d4c0] bg-white/92 backdrop-blur-xl md:hidden">
+      <div className="sticky top-0 z-40 border-b border-[var(--tenant-border)] bg-[var(--tenant-surface)]/92 backdrop-blur-xl md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <div>
             {renderShellBrand({ mode: "mobile-top" })}
@@ -1098,7 +1141,7 @@ export function AppShell({
             aria-label="Close navigation menu overlay"
           />
           <aside
-            className="fixed inset-y-0 left-0 z-50 w-[280px] max-w-[85vw] border-r border-[#e1d4c0] bg-white/95 shadow-2xl backdrop-blur-xl"
+            className="fixed inset-y-0 left-0 z-50 w-[280px] max-w-[85vw] border-r border-black/20 bg-[var(--tenant-sidebar)] shadow-2xl"
           >
             <div className="flex items-center justify-between px-4 py-3">
               <div>
@@ -1108,14 +1151,16 @@ export function AppShell({
                 type="button"
                 variant="ghost"
                 size="icon"
+                className="text-white/70 hover:bg-white/10 hover:text-white"
                 onClick={() => setMobileNavOpen(false)}
                 aria-label="Close navigation menu"
               >
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <Separator />
-            <nav className="max-h-[calc(100vh-130px)] space-y-1 overflow-y-auto px-3 py-3">
+            <Separator className="bg-white/10" />
+            <div className="pt-2"><CampusSwitcher /></div>
+            <nav className="max-h-[calc(100vh-180px)] space-y-1 overflow-y-auto px-3 py-3">
               {filteredNav.map((item) => {
                 const key = parseHref(item.href).path;
                 const hasChildren = Boolean(item.children && item.children.length > 0);
@@ -1134,10 +1179,10 @@ export function AppShell({
                         href={item.href}
                         onClick={() => setMobileNavOpen(false)}
                         className={cn(
-                          "flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+                          "group relative flex flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
                           itemIsActive
-                            ? "bg-[#e4edef] font-medium text-[#173f49]"
-                            : "text-slate-600 hover:bg-[#f5ece1] hover:text-[#173f49]"
+                            ? "bg-white/[0.06] font-semibold text-white"
+                            : "font-medium text-white/60 hover:bg-white/[0.04] hover:text-white"
                         )}
                       >
                         <span className="relative inline-flex h-4 w-4 items-center justify-center">
@@ -1156,7 +1201,7 @@ export function AppShell({
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 shrink-0"
+                          className="h-8 w-8 shrink-0 text-white/70 hover:bg-white/10 hover:text-white"
                           onClick={() =>
                             setExpandedModuleKey((prev) => (prev === key ? null : key))
                           }
@@ -1186,14 +1231,15 @@ export function AppShell({
                               href={child.href}
                               onClick={() => setMobileNavOpen(false)}
                               className={cn(
-                                "flex min-h-[40px] items-center gap-2 rounded-md px-3 py-2 text-xs transition-colors",
+                                "group relative flex min-h-[40px] items-center gap-3 rounded-lg px-3 py-2 text-xs transition-colors",
                                 childIsExactActive
-                                  ? "bg-[#e4edef] font-medium text-[#173f49]"
-                                  : "text-slate-600 hover:bg-[#f5ece1] hover:text-[#173f49]"
+                                  ? "bg-white/[0.06] font-semibold text-white"
+                                  : "font-medium text-white/60 hover:bg-white/[0.04] hover:text-white"
                               )}
                             >
-                              <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center">
-                                {ChildIcon && <ChildIcon className="h-3.5 w-3.5" />}
+                              {childIsExactActive && <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r bg-[var(--tenant-accent)]" />}
+                              <span className="relative inline-flex h-4 w-4 items-center justify-center">
+                                {ChildIcon && <ChildIcon className={cn("h-4 w-4", childIsExactActive && "text-[var(--tenant-accent)]")} />}
                                 {showChildBadge && (
                                   <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold text-white">
                                     {childBadgeLabel}
@@ -1217,7 +1263,7 @@ export function AppShell({
 
 
       <main className={cn(
-        "min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(252,251,247,0.96))]",
+        "min-h-screen overflow-x-hidden bg-[var(--tenant-bg)]",
         "px-3 py-4 sm:px-4 md:px-6 md:py-6 transition-[margin] duration-200",
         sidebarCollapsed ? "md:ml-[76px]" : "md:ml-[260px]"
       )}>

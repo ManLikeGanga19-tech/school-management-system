@@ -50,6 +50,8 @@ class TenantRow(BaseModel):
     name: str
     primary_domain: Optional[str] = None
     is_active: bool
+    curriculum: Optional[str] = None
+    badge_url: Optional[str] = None
     plan: Optional[str] = None
     user_count: Optional[int] = None
     admin_user_id: Optional[UUID] = None

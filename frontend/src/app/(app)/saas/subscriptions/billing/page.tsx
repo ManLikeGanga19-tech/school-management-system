@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePersistedState } from "@/lib/usePersistedState";
 import { apiFetch } from "@/lib/api";
-import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { DashboardStatCard } from "@/components/admin/admin-primitives";
 import { BillingEligibilityPreview } from "@/components/saas/BillingEligibilityPreview";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import {
@@ -148,7 +148,7 @@ function daysUntil(iso?: string | null): number | null {
 function statusStyle(s: SubStatus) {
   return {
     active:    "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-    trialing:  "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+    trialing:  "bg-[var(--admin-gold-soft)] text-[#8a6d00] ring-1 ring-[var(--admin-border)]",
     past_due:  "bg-red-50 text-red-700 ring-1 ring-red-200",
     cancelled: "bg-slate-100 text-slate-500 ring-1 ring-slate-200",
     paused:    "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
@@ -158,7 +158,7 @@ function statusStyle(s: SubStatus) {
 function statusDot(s: SubStatus) {
   return {
     active:    "bg-emerald-500",
-    trialing:  "bg-blue-500",
+    trialing:  "bg-[var(--admin-primary)]",
     past_due:  "bg-red-500",
     cancelled: "bg-slate-400",
     paused:    "bg-amber-500",
@@ -184,7 +184,7 @@ function billingIcon(plan: BillingPlan) {
 
 function avatarColor(id: string) {
   const p = [
-    "bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700",
+    "bg-[var(--admin-gold-soft)] text-[#8a6d00]", "bg-emerald-100 text-emerald-700",
     "bg-amber-100 text-amber-700", "bg-purple-100 text-purple-700",
     "bg-rose-100 text-rose-700",
   ];
@@ -246,6 +246,7 @@ async function cancelSubscription(id: string): Promise<void> {
 
 export default function SaaSSubscriptionsPage() {
   const [rows, setRows]       = useState<SubscriptionRow[]>([]);
+  const [planTiers, setPlanTiers] = useState<{ name: string; count: number; price: number }[]>([]);
   const [tenants, setTenants] = useState<TenantOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr]         = useState<string | null>(null);
@@ -318,6 +319,18 @@ export default function SaaSSubscriptionsPage() {
     void Promise.all([loadTenants(), load()]);
     const timer = setInterval(() => void load(true), 30_000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Plan-tier distribution for the side card (from the SaaS metrics snapshot).
+  useEffect(() => {
+    let off = false;
+    apiFetch<{ subscriptions?: { plans?: { name: string; count: number; price: number }[] } }>(
+      "/admin/saas/metrics",
+      { method: "GET", tenantRequired: false }
+    )
+      .then((m) => { if (!off) setPlanTiers(m?.subscriptions?.plans ?? []); })
+      .catch(() => {});
+    return () => { off = true; };
   }, []);
 
   // Auto-suggest standard amount when billing plan changes in Create dialog
@@ -633,7 +646,7 @@ export default function SaaSSubscriptionsPage() {
             <Button
               onClick={() => void handleCreate()}
               disabled={creating || !cTenant || Number(cAmount) <= 0}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-[var(--admin-primary)] hover:bg-[var(--admin-slate)]"
             >
               {creating ? (
                 <span className="flex items-center gap-2">
@@ -726,15 +739,15 @@ export default function SaaSSubscriptionsPage() {
               />
             </div>
 
-            <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+            <div className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-gold-soft)] px-4 py-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-xs font-medium text-blue-600">Billing Plan</div>
-                  <div className="text-xs text-blue-400">
+                  <div className="text-xs font-medium text-[#8a6d00]">Billing Plan</div>
+                  <div className="text-xs text-[var(--admin-slate)]">
                     {billingLabel(eBillingPlan)}
                   </div>
                 </div>
-                <div className="text-2xl font-bold text-blue-900">
+                <div className="text-2xl font-bold text-[#8a6d00]">
                   {formatKes(Number(eAmount) || 0)}
                 </div>
               </div>
@@ -756,7 +769,7 @@ export default function SaaSSubscriptionsPage() {
             <Button
               onClick={() => void handleSaveEdit()}
               disabled={saving}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-[var(--admin-primary)] hover:bg-[var(--admin-slate)]"
             >
               {saving ? "Saving…" : "Save Changes"}
             </Button>
@@ -831,33 +844,83 @@ export default function SaaSSubscriptionsPage() {
           <DashboardStatCard label="Est. MRR" value={formatKes(totalMrr)} sub="Approximate monthly normalized revenue" icon={BadgePercent} tone="warning" />
         </div>
 
-        {/* Billing plan breakdown */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          {BILLING_PLANS.map((plan) => {
-            const subs = rows.filter((r) => resolveBillingPlan(r) === plan && r.status === "active");
-            const revenue = subs.reduce((s, r) => s + r.amount_kes, 0);
-            const Icon = billingIcon(plan);
-            return (
-              <SaasSurface key={plan} className="flex items-center gap-4 p-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                  <Icon className="h-6 w-6" />
+        {/* At-Risk + Plan Distribution (insight side cards, per Stitch) */}
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* At-Risk Subscriptions */}
+          <SaasSurface className="border-[var(--admin-gold)]/60 p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-[var(--admin-gold)]" />
+              <h3 className="font-serif text-base font-bold text-[var(--admin-ink)]">At-Risk Subscriptions</h3>
+            </div>
+            {(() => {
+              const now = Date.now();
+              const risk = rows.filter(
+                (r) =>
+                  r.status === "past_due" ||
+                  (r.status === "trialing" && r.period_end && new Date(r.period_end).getTime() - now < 14 * 864e5)
+              );
+              if (risk.length === 0)
+                return <p className="text-sm text-[var(--admin-muted)]">No at-risk subscriptions — all accounts healthy.</p>;
+              return (
+                <div className="space-y-2">
+                  <p className="text-xs text-[var(--admin-muted)]">
+                    Immediate attention required for {risk.length} account{risk.length !== 1 ? "s" : ""}.
+                  </p>
+                  {risk.slice(0, 4).map((r) => {
+                    const overdue = r.status === "past_due";
+                    return (
+                      <div
+                        key={r.id}
+                        className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${overdue ? "border-red-200 bg-red-50" : "border-[var(--admin-border)] bg-[var(--admin-gold-soft)]"}`}
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-[var(--admin-ink)]">{r.tenant_name || r.tenant_slug}</div>
+                          <div className={`text-xs ${overdue ? "text-red-600" : "text-[#8a6d00]"}`}>
+                            {overdue ? "Payment past due" : "Trial ending soon"}
+                            {r.period_end ? ` · ${new Date(r.period_end).toLocaleDateString("en-KE")}` : ""}
+                          </div>
+                        </div>
+                        <Button size="sm" variant="outline" className="h-7 shrink-0 text-xs" onClick={() => openEdit(r)}>Review</Button>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-slate-900">{billingLabel(plan)}</div>
-                  <div className="text-xs text-slate-400 mt-0.5">
-                    {plan === "per_term"
-                      ? "Invoiced each school term (3× per year)"
-                      : "Single upfront annual payment"}
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="text-lg font-bold text-slate-800">{subs.length}</div>
-                  <div className="text-xs text-slate-400">tenants</div>
-                  <div className="mt-0.5 text-xs font-medium text-emerald-600">{formatKes(revenue)}</div>
-                </div>
-              </SaasSurface>
-            );
-          })}
+              );
+            })()}
+          </SaasSurface>
+
+          {/* Plan Distribution (by subscription tier) */}
+          <SaasSurface className="p-5">
+            <h3 className="font-serif text-base font-bold text-[var(--admin-ink)]">Plan Distribution</h3>
+            <p className="text-xs text-[var(--admin-muted)]">Tenant count by subscription tier</p>
+            {planTiers.length === 0 ? (
+              <p className="mt-3 text-sm text-[var(--admin-muted)]">No tier data yet.</p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {(() => {
+                  const total = planTiers.reduce((s, p) => s + p.count, 0) || 1;
+                  const colors = ["#2a78d6", "#d97706", "#7c3aed", "#0891b2", "#be185d"];
+                  return planTiers.map((p, i) => {
+                    const pct = Math.round((p.count / total) * 100);
+                    return (
+                      <div key={p.name}>
+                        <div className="mb-1 flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: colors[i % colors.length] }} />
+                            <span className="font-medium text-[var(--admin-ink)]">{p.name}</span>
+                          </div>
+                          <span className="text-[var(--admin-muted)]">{p.count} ({pct}%)</span>
+                        </div>
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--admin-surface-2)]">
+                          <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: colors[i % colors.length] }} />
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            )}
+          </SaasSurface>
         </div>
 
         {/* Table card */}
@@ -911,7 +974,7 @@ export default function SaaSSubscriptionsPage() {
                 Refresh
               </Button>
 
-              <Button size="sm" className="h-8 gap-1.5 bg-blue-600 text-xs hover:bg-blue-700" onClick={() => setCreateOpen(true)}>
+              <Button size="sm" className="h-8 gap-1.5 bg-[var(--admin-primary)] text-xs hover:bg-[var(--admin-slate)]" onClick={() => setCreateOpen(true)}>
                 <Plus className="h-3.5 w-3.5" />
                 New Subscription
               </Button>
@@ -950,7 +1013,7 @@ export default function SaaSSubscriptionsPage() {
                           {q.trim() ? `No subscriptions matching "${q}"` : "No subscriptions yet."}
                         </p>
                         {!q.trim() && (
-                          <button onClick={() => setCreateOpen(true)} className="text-xs text-blue-500 hover:underline">
+                          <button onClick={() => setCreateOpen(true)} className="text-xs text-[var(--admin-slate)] hover:underline">
                             Create first subscription →
                           </button>
                         )}
@@ -998,8 +1061,8 @@ export default function SaaSSubscriptionsPage() {
                           const Icon = billingIcon(plan);
                           return (
                             <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
-                                <Icon className="h-3.5 w-3.5 text-blue-500" />
+                              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--admin-gold-soft)] px-2 py-0.5 text-xs font-medium text-[#8a6d00] ring-1 ring-[var(--admin-border)]">
+                                <Icon className="h-3.5 w-3.5 text-[var(--admin-slate)]" />
                                 {billingLabel(plan)}
                               </span>
                               {r.billing_term_label ? (
@@ -1087,7 +1150,7 @@ export default function SaaSSubscriptionsPage() {
                 {activeCount} active
               </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-                <CalendarDays className="h-3.5 w-3.5 text-blue-400" />
+                <CalendarDays className="h-3.5 w-3.5 text-[var(--admin-slate)]" />
                 {termCount} per-term
               </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">

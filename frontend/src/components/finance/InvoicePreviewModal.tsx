@@ -212,7 +212,7 @@ export function InvoicePreviewModal({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-blue-600" />
+            <FileText className="h-4 w-4 text-[var(--tenant-primary)]" />
             Preview &amp; Publish Invoice
           </DialogTitle>
           <DialogDescription>
@@ -223,20 +223,20 @@ export function InvoicePreviewModal({
         </DialogHeader>
 
         {/* Header strip — student + term + invoice no */}
-        <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+        <div className="rounded-2xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]/60 p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               {studentLabel && (
-                <p className="text-sm font-semibold text-slate-800">{studentLabel}</p>
+                <p className="text-sm font-semibold text-[var(--tenant-ink)]">{studentLabel}</p>
               )}
-              <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span className="font-mono text-blue-700">{invoice.invoice_no || invoice.id.slice(0, 8)}</span>
+              <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[var(--tenant-muted)]">
+                <span className="font-mono text-[var(--tenant-primary)]">{invoice.invoice_no || invoice.id.slice(0, 8)}</span>
                 <span>·</span>
                 <span>Term {invoice.term_number ?? "—"} · {invoice.academic_year ?? "—"}</span>
                 {invoice.student_type_snapshot && (
                   <>
                     <span>·</span>
-                    <span className="rounded-full bg-white px-1.5 py-0.5 font-semibold uppercase tracking-wide text-[10px] text-slate-700 ring-1 ring-slate-200">
+                    <span className="rounded-full bg-white px-1.5 py-0.5 font-semibold uppercase tracking-wide text-[10px] text-[var(--tenant-ink)] ring-1 ring-[var(--tenant-border)]">
                       {invoice.student_type_snapshot}
                     </span>
                   </>
@@ -248,8 +248,8 @@ export function InvoicePreviewModal({
               </p>
             </div>
             <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wide text-slate-400">Total</p>
-              <p className="text-lg font-bold text-slate-900">{fmtKes(invoice.total_amount)}</p>
+              <p className="text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">Total</p>
+              <p className="text-lg font-bold text-[var(--tenant-ink)]">{fmtKes(invoice.total_amount)}</p>
             </div>
           </div>
 
@@ -260,14 +260,14 @@ export function InvoicePreviewModal({
                   ? "border-amber-200 bg-amber-50 text-amber-900"
                   : arrearsTotal < 0
                     ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                    : "border-slate-200 bg-white text-slate-700"
+                    : "border-[var(--tenant-border)] bg-white text-[var(--tenant-ink)]"
               }`}>
                 <div className="font-semibold uppercase tracking-wide text-[10px] opacity-70">
                   Brought-forward
                 </div>
                 <div className="font-bold">{fmtKes(arrearsTotal)}</div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-700">
+              <div className="rounded-lg border border-[var(--tenant-border)] bg-white px-3 py-1.5 text-[11px] text-[var(--tenant-ink)]">
                 <div className="font-semibold uppercase tracking-wide text-[10px] opacity-70">
                   Current term
                 </div>
@@ -278,14 +278,14 @@ export function InvoicePreviewModal({
         </div>
 
         {/* Line items */}
-        <div className="rounded-2xl border border-slate-100">
-          <div className="border-b border-slate-100 px-4 py-2 text-xs font-semibold text-slate-600">
+        <div className="rounded-2xl border border-[var(--tenant-border)]">
+          <div className="border-b border-[var(--tenant-border)] px-4 py-2 text-xs font-semibold text-[var(--tenant-muted)]">
             Line items
           </div>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50">
+                <TableRow className="bg-[var(--tenant-surface-2)]">
                   <TableHead className="text-xs">Description</TableHead>
                   <TableHead className="text-xs">Kind</TableHead>
                   <TableHead className="text-xs text-right">Amount</TableHead>
@@ -294,14 +294,14 @@ export function InvoicePreviewModal({
               <TableBody>
                 {linesLoading && (
                   <TableRow>
-                    <TableCell colSpan={3} className="py-6 text-center text-xs text-slate-400">
+                    <TableCell colSpan={3} className="py-6 text-center text-xs text-[var(--tenant-muted)]">
                       Loading lines…
                     </TableCell>
                   </TableRow>
                 )}
                 {!linesLoading && lines.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={3} className="py-6 text-center text-xs text-slate-400">
+                    <TableCell colSpan={3} className="py-6 text-center text-xs text-[var(--tenant-muted)]">
                       No lines on this invoice.
                     </TableCell>
                   </TableRow>
@@ -313,11 +313,11 @@ export function InvoicePreviewModal({
                       ? "text-emerald-700"
                       : kind.tone === "arrears"
                         ? "text-amber-700"
-                        : "text-slate-700";
+                        : "text-[var(--tenant-ink)]";
                   return (
                     <TableRow key={line.id}>
                       <TableCell className="text-sm">{line.description}</TableCell>
-                      <TableCell className="text-[10px] uppercase tracking-wide text-slate-500">
+                      <TableCell className="text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">
                         {kind.label}
                       </TableCell>
                       <TableCell className={`text-right text-sm font-medium ${tone}`}>
@@ -332,12 +332,12 @@ export function InvoicePreviewModal({
         </div>
 
         {/* Action row */}
-        <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] text-blue-800">
+        <div className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-primary-soft)] px-3 py-2 text-[11px] text-[var(--tenant-primary)]">
           <p className="flex items-center gap-1.5 font-semibold">
             <AlertTriangle className="h-3 w-3" />
             Publishing notifies the parent (SMS) and unlocks payment recording.
           </p>
-          <p className="mt-0.5 text-blue-700">
+          <p className="mt-0.5 text-[var(--tenant-primary)]">
             If the structure or scholarship looks wrong, save as draft and use
             Replace structure (director) before publishing.
           </p>

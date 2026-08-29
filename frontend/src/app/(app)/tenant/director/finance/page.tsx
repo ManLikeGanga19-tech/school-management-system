@@ -21,6 +21,8 @@ import {
   Banknote,
   Printer,
   Download,
+  Undo2,
+  AlertTriangle,
   Trash2,
   ChevronLeft,
   ChevronRight,
@@ -29,7 +31,10 @@ import {
 
 import { AppShell } from "@/components/layout/AppShell";
 import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStudent";
+import { EnrollmentCombobox, type EnrollmentOption } from "@/components/ui/enrollment-combobox";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
+import { Textarea } from "@/components/ui/textarea";
+import { usePermissions } from "@/lib/auth/usePermissions";
 import { ApplyScholarshipDialog } from "@/components/finance/ApplyScholarshipDialog";
 import type { Scholarship } from "@/components/finance/finance-utils";
 import { usePaginatedTable } from "@/lib/usePaginatedTable";
@@ -137,6 +142,8 @@ type Enrollment = {
   id: string;
   status: string;
   payload: Record<string, unknown>;
+  // Top-level admission number (server row); falls back to payload for older rows.
+  admission_number?: string | null;
 };
 
 type PaymentAllocation = {
@@ -156,6 +163,10 @@ type Payment = {
   // used by other tabs.
   student_label?: string | null;
   received_at?: string | null;
+  // Payment reversal state (director-only). Set once a payment is reversed:
+  // its allocations are removed and the affected invoices restored.
+  reversed_at?: string | null;
+  reversal_reason?: string | null;
 };
 
 type TenantInfo = {
@@ -517,43 +528,33 @@ function StatCard({
   icon: React.ComponentType<{ className?: string }>;
   color: "blue" | "emerald" | "amber" | "slate";
 }) {
-  const palettes = {
-    blue: {
-      wrap: "border-blue-100 bg-blue-50",
-      icon: "bg-blue-100 text-blue-600",
-      val: "text-blue-900",
-      sub: "text-blue-400",
-    },
-    emerald: {
-      wrap: "border-emerald-100 bg-emerald-50",
-      icon: "bg-emerald-100 text-emerald-600",
-      val: "text-emerald-900",
-      sub: "text-emerald-400",
-    },
-    amber: {
-      wrap: "border-amber-100 bg-amber-50",
-      icon: "bg-amber-100 text-amber-600",
-      val: "text-amber-900",
-      sub: "text-amber-400",
-    },
-    slate: {
-      wrap: "border-slate-100 bg-slate-50",
-      icon: "bg-slate-100 text-slate-500",
-      val: "text-slate-900",
-      sub: "text-slate-400",
-    },
+  // Uniform flat warm card (matches the dashboard standard) — `color` only tints
+  // the sub-line + a small status dot, never the whole card.
+  const subTone: Record<string, string> = {
+    blue: "text-[var(--tenant-primary)]",
+    emerald: "text-[#0f7a5a]",
+    amber: "text-[#a65f00]",
+    slate: "text-[var(--tenant-muted)]",
   };
-  const p = palettes[color];
+  const dotTone: Record<string, string> = {
+    blue: "bg-[var(--tenant-primary)]",
+    emerald: "bg-[var(--tenant-success)]",
+    amber: "bg-[var(--tenant-warning)]",
+    slate: "bg-[var(--tenant-muted)]",
+  };
   return (
-    <div className={`rounded-2xl border p-5 shadow-sm ${p.wrap}`}>
-      <div className={`inline-flex rounded-xl p-2.5 ${p.icon}`}>
-        <Icon className="h-5 w-5" />
+    <div className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface)] p-5 shadow-[0_1px_2px_rgba(51,36,15,0.05)]">
+      <div className="flex items-start justify-between">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--tenant-muted)]">{label}</div>
+        <Icon className="h-4 w-4 shrink-0 text-[var(--tenant-muted)]/50" />
       </div>
-      <div className={`mt-4 text-2xl font-bold tracking-tight ${p.val}`}>
-        {value}
-      </div>
-      <div className="mt-0.5 text-sm font-medium text-slate-600">{label}</div>
-      {sub && <div className={`mt-0.5 text-xs ${p.sub}`}>{sub}</div>}
+      <div className="mt-3 text-2xl font-bold tracking-tight text-[var(--tenant-ink)]">{value}</div>
+      {sub && (
+        <div className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${subTone[color]}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${dotTone[color]}`} />
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
@@ -577,13 +578,13 @@ function PolicyToggle({
       onClick={onToggle}
       className={`flex w-full items-start gap-3 rounded-xl border p-4 text-left transition ${
         enabled
-          ? "border-blue-200 bg-blue-50"
-          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+          ? "border-[var(--tenant-primary)]/30 bg-[var(--tenant-primary-soft)]"
+          : "border-[var(--tenant-border)] bg-white hover:border-[var(--tenant-border)] hover:bg-[var(--tenant-surface-2)]"
       }`}
     >
       <div
         className={`mt-0.5 rounded-lg p-1.5 ${
-          enabled ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-400"
+          enabled ? "bg-[var(--tenant-primary-soft)] text-[var(--tenant-primary)]" : "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)]"
         }`}
       >
         <Icon className="h-4 w-4" />
@@ -591,18 +592,18 @@ function PolicyToggle({
       <div className="flex-1">
         <div
           className={`text-sm font-semibold ${
-            enabled ? "text-blue-900" : "text-slate-700"
+            enabled ? "text-[var(--tenant-ink)]" : "text-[var(--tenant-ink)]"
           }`}
         >
           {label}
         </div>
-        <div className="mt-0.5 text-xs text-slate-400">{description}</div>
+        <div className="mt-0.5 text-xs text-[var(--tenant-muted)]">{description}</div>
       </div>
       <div className="mt-0.5 shrink-0">
         {enabled ? (
-          <ToggleRight className="h-5 w-5 text-blue-600" />
+          <ToggleRight className="h-5 w-5 text-[var(--tenant-primary)]" />
         ) : (
-          <ToggleLeft className="h-5 w-5 text-slate-300" />
+          <ToggleLeft className="h-5 w-5 text-[var(--tenant-muted)]" />
         )}
       </div>
     </button>
@@ -622,12 +623,12 @@ function SectionCard({
 }) {
   return (
     <div className="dashboard-surface rounded-[1.6rem]">
-      <div className="border-b border-slate-100 px-6 py-4">
+      <div className="border-b border-[var(--tenant-border)] px-6 py-4">
         <div className="flex items-center gap-2">
-          {Icon && <Icon className="h-4 w-4 text-slate-400" />}
-          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+          {Icon && <Icon className="h-4 w-4 text-[var(--tenant-muted)]" />}
+          <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">{title}</h2>
         </div>
-        {subtitle && <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>}
+        {subtitle && <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">{subtitle}</p>}
       </div>
       <div className="p-6">{children}</div>
     </div>
@@ -806,6 +807,46 @@ function TenantFinancePageContent() {
 
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
   const [deletingInvoice, setDeletingInvoice] = useState(false);
+
+  // ── Payment reversal (director-only) ────────────────────────────────────
+  const { has } = usePermissions();
+  const canReversePayments = has("finance.payments.reverse");
+  const [reverseTarget, setReverseTarget] = useState<Payment | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
+  const [reversingPayment, setReversingPayment] = useState(false);
+
+  const submitReversePayment = useCallback(async () => {
+    if (!reverseTarget) return;
+    const reason = reverseReason.trim();
+    if (!reason) {
+      toast.error("A reversal reason is required.");
+      return;
+    }
+    setReversingPayment(true);
+    try {
+      await api.post(
+        `/finance/payments/${encodeURIComponent(reverseTarget.id)}/reverse`,
+        { reason },
+        { tenantRequired: true }
+      );
+      toast.success(
+        `Payment ${reverseTarget.receipt_no || reverseTarget.id.slice(0, 8)} reversed. Affected invoices restored.`
+      );
+      setReverseTarget(null);
+      setReverseReason("");
+      // Refresh both payment views + the finance summary so balances update.
+      await Promise.all([paymentsTable.reload(), receiptsTable.reload()]);
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message?: unknown }).message)
+          : "Unable to reverse this payment.";
+      toast.error(msg);
+    } finally {
+      setReversingPayment(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reverseTarget, reverseReason]);
 
   // Apply-scholarship dialog target — Path 3 director-only after-the-fact
   // award on an existing invoice.
@@ -1051,6 +1092,17 @@ function TenantFinancePageContent() {
     }
     return map;
   }, [enrollments]);
+
+  // Searchable student options for the finance-table filters (a combobox, not a
+  // giant dropdown — usable for schools with many students).
+  const studentComboOptions = useMemo<EnrollmentOption[]>(
+    () => enrollments.map((row) => {
+      const p = row.payload || {};
+      const adm = (row.admission_number || (typeof p.admission_number === "string" ? p.admission_number : "") || "").trim();
+      return { id: row.id, label: enrollmentName(p), sublabel: adm || undefined };
+    }),
+    [enrollments]
+  );
 
   const invoiceById = useMemo(() => {
     const map = new Map<string, Invoice>();
@@ -1347,8 +1399,8 @@ function TenantFinancePageContent() {
       <AppShell title="Director" nav={directorNav} activeHref={directorFinanceHref(section)}>
         <div className="flex min-h-[380px] items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500">Loading finance data…</p>
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--tenant-primary)] border-t-transparent" />
+            <p className="text-sm text-[var(--tenant-muted)]">Loading finance data…</p>
           </div>
         </div>
       </AppShell>
@@ -1362,11 +1414,11 @@ function TenantFinancePageContent() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-xl font-bold">{SECTION_TITLES[section]}</h1>
-              <p className="mt-0.5 text-sm text-blue-100">
+              <p className="mt-0.5 text-sm text-white/70">
                 {schoolName} · Multi-tenant finance monitoring and controls
               </p>
             </div>
-            <div className="flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 backdrop-blur text-sm text-blue-100">
+            <div className="flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 backdrop-blur text-sm text-white/70">
               <TrendingUp className="h-4 w-4 text-emerald-300" />
               <span>{collectionRate}% collected</span>
             </div>
@@ -1431,21 +1483,21 @@ function TenantFinancePageContent() {
             </div>
 
             {totals.total > 0 && (
-              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+              <div className="rounded-2xl border border-[var(--tenant-border)] bg-white p-5 shadow-sm">
                 <div className="mb-2 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                    <TrendingUp className="h-4 w-4 text-slate-400" />
+                  <div className="flex items-center gap-2 text-sm font-medium text-[var(--tenant-ink)]">
+                    <TrendingUp className="h-4 w-4 text-[var(--tenant-muted)]" />
                     Fee Collection Progress
                   </div>
-                  <span className="text-sm font-bold text-slate-800">{collectionRate}%</span>
+                  <span className="text-sm font-bold text-[var(--tenant-ink)]">{collectionRate}%</span>
                 </div>
-                <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--tenant-surface-2)]">
                   <div
                     className="h-full rounded-full bg-emerald-500 transition-all"
                     style={{ width: `${collectionRate}%` }}
                   />
                 </div>
-                <div className="mt-2 flex justify-between text-xs text-slate-400">
+                <div className="mt-2 flex justify-between text-xs text-[var(--tenant-muted)]">
                   <span>Collected {formatKes(totals.paid)}</span>
                   <span>Target {formatKes(totals.total)}</span>
                 </div>
@@ -1483,43 +1535,43 @@ function TenantFinancePageContent() {
 
                     <div className="shrink-0 space-y-4">
                       <div>
-                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <div className="flex items-center gap-2 text-xs text-[var(--tenant-muted)]">
                           <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
                           Collected
                         </div>
-                        <div className="mt-0.5 text-xl font-bold text-slate-800">
+                        <div className="mt-0.5 text-xl font-bold text-[var(--tenant-ink)]">
                           {collectionRate}%
                         </div>
-                        <div className="text-xs text-slate-400">{formatKes(totals.paid)}</div>
+                        <div className="text-xs text-[var(--tenant-muted)]">{formatKes(totals.paid)}</div>
                       </div>
                       <div>
-                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <div className="flex items-center gap-2 text-xs text-[var(--tenant-muted)]">
                           <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
                           Outstanding
                         </div>
-                        <div className="mt-0.5 text-xl font-bold text-slate-800">
+                        <div className="mt-0.5 text-xl font-bold text-[var(--tenant-ink)]">
                           {100 - collectionRate}%
                         </div>
-                        <div className="text-xs text-slate-400">{formatKes(totals.balance)}</div>
+                        <div className="text-xs text-[var(--tenant-muted)]">{formatKes(totals.balance)}</div>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex h-[220px] items-center justify-center text-sm text-slate-400">
+                  <div className="flex h-[220px] items-center justify-center text-sm text-[var(--tenant-muted)]">
                     No invoice data yet
                   </div>
                 )}
 
-                <div className="mt-5 grid grid-cols-3 gap-3 border-t border-slate-100 pt-4">
+                <div className="mt-5 grid grid-cols-3 gap-3 border-t border-[var(--tenant-border)] pt-4">
                   {[
                     { label: "Fee Categories", value: feeCategories.length, icon: Tag },
                     { label: "Fee Items", value: feeItems.length, icon: ListChecks },
                     { label: "Scholarships", value: scholarships.length, icon: GraduationCap },
                   ].map(({ label, value, icon: Icon }) => (
-                    <div key={label} className="rounded-xl bg-slate-50 p-3 text-center">
-                      <Icon className="mx-auto mb-1 h-4 w-4 text-slate-400" />
-                      <div className="text-lg font-bold text-slate-800">{value}</div>
-                      <div className="text-xs text-slate-400">{label}</div>
+                    <div key={label} className="rounded-xl bg-[var(--tenant-surface-2)] p-3 text-center">
+                      <Icon className="mx-auto mb-1 h-4 w-4 text-[var(--tenant-muted)]" />
+                      <div className="text-lg font-bold text-[var(--tenant-ink)]">{value}</div>
+                      <div className="text-xs text-[var(--tenant-muted)]">{label}</div>
                     </div>
                   ))}
                 </div>
@@ -1531,14 +1583,14 @@ function TenantFinancePageContent() {
                 icon={ShieldAlert}
               >
                 {!policy ? (
-                  <div className="flex h-[200px] items-center justify-center text-sm text-slate-400">
+                  <div className="flex h-[200px] items-center justify-center text-sm text-[var(--tenant-muted)]">
                     Loading policy…
                   </div>
                 ) : (
                   <div className="space-y-4">
                     {/* ── Global Toggles ─────────────────────────────── */}
                     <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">
                         Global Rules
                       </p>
                       <PolicyToggle
@@ -1571,17 +1623,17 @@ function TenantFinancePageContent() {
                     </div>
 
                     {/* ── Partial Thresholds (only relevant when partial is on) ── */}
-                    <div className={`space-y-3 rounded-xl border p-4 transition ${policy.allow_partial_enrollment ? "border-blue-100 bg-blue-50/40" : "border-slate-100 bg-slate-50 opacity-50"}`}>
-                      <p className="text-xs font-semibold text-slate-600">
+                    <div className={`space-y-3 rounded-xl border p-4 transition ${policy.allow_partial_enrollment ? "border-[var(--tenant-border)] bg-[var(--tenant-primary-soft)]/40" : "border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] opacity-50"}`}>
+                      <p className="text-xs font-semibold text-[var(--tenant-muted)]">
                         Minimum Payment Threshold
                         {!policy.allow_partial_enrollment && (
-                          <span className="ml-2 text-slate-400 font-normal">(enable partial enrollment above to activate)</span>
+                          <span className="ml-2 text-[var(--tenant-muted)] font-normal">(enable partial enrollment above to activate)</span>
                         )}
                       </p>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="space-y-1.5">
-                          <Label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                            <BadgePercent className="h-3.5 w-3.5 text-slate-400" />
+                          <Label className="flex items-center gap-1.5 text-xs font-medium text-[var(--tenant-muted)]">
+                            <BadgePercent className="h-3.5 w-3.5 text-[var(--tenant-muted)]" />
                             Min. Percent to Enroll
                           </Label>
                           <div className="relative">
@@ -1602,15 +1654,15 @@ function TenantFinancePageContent() {
                               }}
                               className="pr-8"
                             />
-                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--tenant-muted)]">
                               %
                             </span>
                           </div>
                         </div>
 
                         <div className="space-y-1.5">
-                          <Label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                            <Banknote className="h-3.5 w-3.5 text-slate-400" />
+                          <Label className="flex items-center gap-1.5 text-xs font-medium text-[var(--tenant-muted)]">
+                            <Banknote className="h-3.5 w-3.5 text-[var(--tenant-muted)]" />
                             Min. Amount to Enroll (KES)
                           </Label>
                           <div className="relative">
@@ -1630,22 +1682,22 @@ function TenantFinancePageContent() {
                               }}
                               className="pr-12"
                             />
-                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--tenant-muted)]">
                               KES
                             </span>
                           </div>
                         </div>
                       </div>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-[var(--tenant-muted)]">
                         A student must meet <strong>at least one</strong> of the thresholds above to be enrolled. Leave both blank to allow any partial amount.
                       </p>
                     </div>
 
-                    <div className="border-t border-slate-100 pt-3">
+                    <div className="border-t border-[var(--tenant-border)] pt-3">
                       <Button
                         onClick={savePolicy}
                         disabled={saving || !policyDirty}
-                        className={`w-full ${policyDirty ? "bg-blue-600 hover:bg-blue-700" : "bg-slate-300"}`}
+                        className={`w-full ${policyDirty ? "bg-[var(--tenant-primary)] hover:opacity-90" : "bg-[var(--tenant-border)]"}`}
                       >
                         {saving ? (
                           <span className="flex items-center gap-2">Saving…</span>
@@ -1658,12 +1710,12 @@ function TenantFinancePageContent() {
                       </Button>
                     </div>
 
-                    <div className="border-t border-slate-100 pt-4 space-y-3">
+                    <div className="border-t border-[var(--tenant-border)] pt-4 space-y-3">
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-800">
+                        <h3 className="text-sm font-semibold text-[var(--tenant-ink)]">
                           Structure Enrollment Policy
                         </h3>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-[var(--tenant-muted)]">
                           Configure partial-enrollment rules per fee structure (class +
                           term) and optionally per fee item.
                         </p>
@@ -1677,7 +1729,7 @@ function TenantFinancePageContent() {
                         <div className="space-y-3">
                           <div className="grid gap-4 lg:grid-cols-2">
                             <div className="min-w-0 space-y-1.5">
-                              <Label className="text-xs font-medium text-slate-600">
+                              <Label className="text-xs font-medium text-[var(--tenant-muted)]">
                                 Fee Structure
                               </Label>
                               <Select
@@ -1709,7 +1761,7 @@ function TenantFinancePageContent() {
                             </div>
 
                             <div className="min-w-0 space-y-1.5">
-                              <Label className="text-xs font-medium text-slate-600">
+                              <Label className="text-xs font-medium text-[var(--tenant-muted)]">
                                 Policy Scope
                               </Label>
                               <Select
@@ -1759,12 +1811,12 @@ function TenantFinancePageContent() {
                             icon={BadgePercent}
                           />
 
-                          <div className={`grid gap-3 sm:grid-cols-2 rounded-lg p-3 transition ${structurePolicyDraft.allow_partial_enrollment ? "bg-blue-50/40 border border-blue-100" : "bg-slate-50 border border-slate-100 opacity-50"}`}>
+                          <div className={`grid gap-3 sm:grid-cols-2 rounded-lg p-3 transition ${structurePolicyDraft.allow_partial_enrollment ? "bg-[var(--tenant-primary-soft)]/40 border border-[var(--tenant-border)]" : "bg-[var(--tenant-surface-2)] border border-[var(--tenant-border)] opacity-50"}`}>
                             {!structurePolicyDraft.allow_partial_enrollment && (
-                              <p className="sm:col-span-2 text-xs text-slate-400">Enable partial above to set a minimum threshold for this scope.</p>
+                              <p className="sm:col-span-2 text-xs text-[var(--tenant-muted)]">Enable partial above to set a minimum threshold for this scope.</p>
                             )}
                             <div className="space-y-1.5">
-                              <Label className="text-xs font-medium text-slate-600">
+                              <Label className="text-xs font-medium text-[var(--tenant-muted)]">
                                 Min. Percent For Scope
                               </Label>
                               <Input
@@ -1785,7 +1837,7 @@ function TenantFinancePageContent() {
                               />
                             </div>
                             <div className="space-y-1.5">
-                              <Label className="text-xs font-medium text-slate-600">
+                              <Label className="text-xs font-medium text-[var(--tenant-muted)]">
                                 Min. Amount For Scope (KES)
                               </Label>
                               <Input
@@ -1808,7 +1860,7 @@ function TenantFinancePageContent() {
                             <Button
                               onClick={saveStructurePolicy}
                               disabled={saving || !selectedStructureId}
-                              className="flex-1 bg-blue-600 hover:bg-blue-700"
+                              className="flex-1 bg-[var(--tenant-primary)] hover:opacity-90"
                             >
                               Save Scope Policy
                             </Button>
@@ -1842,12 +1894,12 @@ function TenantFinancePageContent() {
             subtitle="Filter and review tenant invoices with deterministic ordering"
             icon={Receipt}
           >
-            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="mb-4 rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] p-4">
               <div className="grid gap-3 lg:grid-cols-12">
                 <div className="lg:col-span-4">
-                  <Label className="text-xs text-slate-600">Search</Label>
+                  <Label className="text-xs text-[var(--tenant-muted)]">Search</Label>
                   <Input
-                    placeholder="Student name, admission no, invoice no…"
+                    placeholder="Invoice no or reference…"
                     value={invoiceFilters.q}
                     onChange={(e) =>
                       setInvoiceFilters((p) => ({ ...p, q: e.target.value }))
@@ -1856,32 +1908,18 @@ function TenantFinancePageContent() {
                 </div>
 
                 <div className="lg:col-span-3">
-                  <Label className="text-xs text-slate-600">Student</Label>
-                  <Select
-                    value={invoiceFilters.enrollment_id || "__all__"}
-                    onValueChange={(v) =>
-                      setInvoiceFilters((p) => ({
-                        ...p,
-                        enrollment_id: v === "__all__" ? "" : v,
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All students" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All students</SelectItem>
-                      {enrollments.map((row) => (
-                        <SelectItem key={row.id} value={row.id}>
-                          {enrollmentName(row.payload || {})}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs text-[var(--tenant-muted)]">Student</Label>
+                  <EnrollmentCombobox
+                    options={studentComboOptions}
+                    value={invoiceFilters.enrollment_id}
+                    onChange={(id) => setInvoiceFilters((p) => ({ ...p, enrollment_id: id }))}
+                    allLabel="All students"
+                    placeholder="Search student by name or admission…"
+                  />
                 </div>
 
                 <div className="lg:col-span-2">
-                  <Label className="text-xs text-slate-600">Type</Label>
+                  <Label className="text-xs text-[var(--tenant-muted)]">Type</Label>
                   <Select
                     value={invoiceFilters.type || "__all__"}
                     onValueChange={(v) =>
@@ -1906,7 +1944,7 @@ function TenantFinancePageContent() {
                 </div>
 
                 <div className="lg:col-span-2">
-                  <Label className="text-xs text-slate-600">Status</Label>
+                  <Label className="text-xs text-[var(--tenant-muted)]">Status</Label>
                   <Select
                     value={invoiceFilters.status || "__all__"}
                     onValueChange={(v) =>
@@ -1949,7 +1987,7 @@ function TenantFinancePageContent() {
               {/* Date range + export row */}
               <div className="mt-3 flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[140px] space-y-1">
-                  <Label className="text-xs text-slate-600">From Date</Label>
+                  <Label className="text-xs text-[var(--tenant-muted)]">From Date</Label>
                   <input
                     type="date"
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
@@ -1960,7 +1998,7 @@ function TenantFinancePageContent() {
                   />
                 </div>
                 <div className="flex-1 min-w-[140px] space-y-1">
-                  <Label className="text-xs text-slate-600">To Date</Label>
+                  <Label className="text-xs text-[var(--tenant-muted)]">To Date</Label>
                   <input
                     type="date"
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
@@ -1989,7 +2027,7 @@ function TenantFinancePageContent() {
               </div>
             </div>
 
-            <div className="mb-3 flex items-center justify-between text-xs text-slate-500">
+            <div className="mb-3 flex items-center justify-between text-xs text-[var(--tenant-muted)]">
               <div>
                 {invoiceTableMeta.total > 0 ? (
                   <>
@@ -2009,17 +2047,17 @@ function TenantFinancePageContent() {
                 )}
               </div>
               {invoiceTableLoading && (
-                <span className="inline-flex items-center gap-1 text-slate-400">
+                <span className="inline-flex items-center gap-1 text-[var(--tenant-muted)]">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   Loading…
                 </span>
               )}
             </div>
 
-            <div className="rounded-xl border border-slate-100 overflow-hidden">
+            <div className="rounded-xl border border-[var(--tenant-border)] overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-slate-50">
+                  <TableRow className="bg-[var(--tenant-surface-2)]">
                     <TableHead>Invoice No</TableHead>
                     <TableHead>Invoice ID</TableHead>
                     <TableHead>Student</TableHead>
@@ -2042,10 +2080,10 @@ function TenantFinancePageContent() {
                       "Unknown student";
                     return (
                       <TableRow key={invoice.id}>
-                        <TableCell className="font-mono text-xs text-slate-700">
+                        <TableCell className="font-mono text-xs text-[var(--tenant-ink)]">
                           {invoice.invoice_no || "—"}
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-blue-700">
+                        <TableCell className="font-mono text-xs text-[var(--tenant-primary)]">
                           {invoice.id}
                         </TableCell>
                         <TableCell className="text-sm">{student}</TableCell>
@@ -2053,7 +2091,7 @@ function TenantFinancePageContent() {
                           {normalizeInvoiceType(invoice.invoice_type || "")}
                         </TableCell>
                         <TableCell>
-                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                          <span className="inline-flex rounded-full bg-[var(--tenant-surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--tenant-ink)]">
                             {normalizeInvoiceStatus(invoice.status || "")}
                           </span>
                         </TableCell>
@@ -2109,7 +2147,7 @@ function TenantFinancePageContent() {
 
                   {invoiceTableItems.length === 0 && !invoiceTableLoading && (
                     <TableRow>
-                      <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-400">
+                      <TableCell colSpan={9} className="py-10 text-center text-sm text-[var(--tenant-muted)]">
                         No invoices match the selected filters.
                       </TableCell>
                     </TableRow>
@@ -2121,19 +2159,19 @@ function TenantFinancePageContent() {
             {/* Pagination row — page-size dropdown sits BELOW the table per
                 spec. URL is updated on change so the view is bookmarkable. */}
             <div className="mt-3 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
-              <div className="flex items-center gap-2 text-xs text-slate-500">
+              <div className="flex items-center gap-2 text-xs text-[var(--tenant-muted)]">
                 <span>Page size</span>
                 <select
                   value={invoicePageSize}
                   onChange={(e) => setInvoicePageSize(Number(e.target.value))}
-                  className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs"
+                  className="h-7 rounded-md border border-[var(--tenant-border)] bg-white px-2 text-xs"
                 >
                   <option value={30}>30</option>
                   <option value={50}>50</option>
                   <option value={100}>100</option>
                 </select>
               </div>
-              <div className="flex items-center gap-2 text-xs text-slate-600">
+              <div className="flex items-center gap-2 text-xs text-[var(--tenant-muted)]">
                 <Button
                   variant="outline"
                   size="sm"
@@ -2171,12 +2209,12 @@ function TenantFinancePageContent() {
             subtitle="Payments linked to invoice allocations with tenant-safe traceability"
             icon={CircleDollarSign}
           >
-            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="mb-4 rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] p-4">
               <div className="grid gap-3 lg:grid-cols-12">
                 <div className="lg:col-span-4">
-                  <Label className="text-xs text-slate-600">Search</Label>
+                  <Label className="text-xs text-[var(--tenant-muted)]">Search</Label>
                   <Input
-                    placeholder="Student name, admission no, receipt no, reference…"
+                    placeholder="Receipt no or reference…"
                     value={paymentsTable.filters.q ?? ""}
                     onChange={(e) =>
                       paymentsTable.setFilters((p) => ({ ...p, q: e.target.value }))
@@ -2185,32 +2223,18 @@ function TenantFinancePageContent() {
                 </div>
 
                 <div className="lg:col-span-4">
-                  <Label className="text-xs text-slate-600">Student</Label>
-                  <Select
-                    value={paymentsTable.filters.enrollment_id || "__all__"}
-                    onValueChange={(v) =>
-                      paymentsTable.setFilters((p) => ({
-                        ...p,
-                        enrollment_id: v === "__all__" ? "" : v,
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All students" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All students</SelectItem>
-                      {enrollments.map((row) => (
-                        <SelectItem key={row.id} value={row.id}>
-                          {enrollmentName(row.payload || {})}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs text-[var(--tenant-muted)]">Student</Label>
+                  <EnrollmentCombobox
+                    options={studentComboOptions}
+                    value={paymentsTable.filters.enrollment_id}
+                    onChange={(id) => paymentsTable.setFilters((p) => ({ ...p, enrollment_id: id }))}
+                    allLabel="All students"
+                    placeholder="Search student by name or admission…"
+                  />
                 </div>
 
                 <div className="lg:col-span-4">
-                  <Label className="text-xs text-slate-600">Provider</Label>
+                  <Label className="text-xs text-[var(--tenant-muted)]">Provider</Label>
                   <Select
                     value={paymentsTable.filters.provider || "__all__"}
                     onValueChange={(v) =>
@@ -2236,14 +2260,14 @@ function TenantFinancePageContent() {
               </div>
             </div>
 
-            <div className="mb-3 text-xs text-slate-500">
+            <div className="mb-3 text-xs text-[var(--tenant-muted)]">
               <TableRangeCaption meta={paymentsTable.meta} />
             </div>
 
-            <div className="rounded-xl border border-slate-100 overflow-hidden">
+            <div className="rounded-xl border border-[var(--tenant-border)] overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-slate-50">
+                  <TableRow className="bg-[var(--tenant-surface-2)]">
                     <TableHead>Receipt No</TableHead>
                     <TableHead>Payment ID</TableHead>
                     <TableHead>Student(s)</TableHead>
@@ -2256,11 +2280,21 @@ function TenantFinancePageContent() {
                 </TableHeader>
                 <TableBody>
                   {paymentsTable.items.map((payment) => (
-                    <TableRow key={payment.id}>
-                      <TableCell className="font-mono text-xs text-slate-700">
-                        {payment.receipt_no || "—"}
+                    <TableRow key={payment.id} className={payment.reversed_at ? "opacity-60" : undefined}>
+                      <TableCell className="font-mono text-xs text-[var(--tenant-ink)]">
+                        <span className="inline-flex items-center gap-1.5">
+                          {payment.receipt_no || "—"}
+                          {payment.reversed_at && (
+                            <span
+                              className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700"
+                              title={payment.reversal_reason || "This payment has been reversed"}
+                            >
+                              Reversed
+                            </span>
+                          )}
+                        </span>
                       </TableCell>
-                      <TableCell className="font-mono text-xs text-blue-700">
+                      <TableCell className="font-mono text-xs text-[var(--tenant-primary)]">
                         {payment.id}
                       </TableCell>
                       <TableCell className="text-sm">
@@ -2269,7 +2303,7 @@ function TenantFinancePageContent() {
                           : "N/A"}
                       </TableCell>
                       <TableCell className="text-xs">{payment.provider}</TableCell>
-                      <TableCell className="text-xs text-slate-500">
+                      <TableCell className="text-xs text-[var(--tenant-muted)]">
                         {payment.reference || "—"}
                       </TableCell>
                       <TableCell className="text-right text-sm font-medium text-emerald-700">
@@ -2278,7 +2312,7 @@ function TenantFinancePageContent() {
                       <TableCell>
                         <div className="flex flex-wrap gap-1.5">
                           {(payment.allocations || []).length === 0 && (
-                            <span className="text-xs text-slate-400">No allocations</span>
+                            <span className="text-xs text-[var(--tenant-muted)]">No allocations</span>
                           )}
                           {(payment.allocations || []).map((alloc) => {
                             const inv = invoiceById.get(String(alloc.invoice_id || ""));
@@ -2289,7 +2323,7 @@ function TenantFinancePageContent() {
                                 href={`${directorFinanceHref("invoices")}&q=${encodeURIComponent(
                                   invoiceId
                                 )}`}
-                                className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-200"
+                                className="inline-flex items-center rounded-full bg-[var(--tenant-surface-2)] px-2 py-0.5 text-[11px] text-[var(--tenant-ink)] hover:bg-[var(--tenant-border)]"
                                 title="Open in invoices"
                               >
                                 {invoiceId.slice(0, 8)} · {formatKes(toNumber(alloc.amount))}
@@ -2315,6 +2349,18 @@ function TenantFinancePageContent() {
                               icon: <Download />,
                               onSelect: () => downloadPaymentPdf(payment),
                             },
+                            {
+                              key: "reverse",
+                              label: "Reverse payment",
+                              icon: <Undo2 />,
+                              destructive: true,
+                              separatorBefore: true,
+                              hidden: !canReversePayments || !!payment.reversed_at,
+                              onSelect: () => {
+                                setReverseReason("");
+                                setReverseTarget(payment);
+                              },
+                            },
                           ]}
                         />
                       </TableCell>
@@ -2323,7 +2369,7 @@ function TenantFinancePageContent() {
 
                   {paymentsTable.items.length === 0 && !paymentsTable.loading && (
                     <TableRow>
-                      <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-400">
+                      <TableCell colSpan={8} className="py-10 text-center text-sm text-[var(--tenant-muted)]">
                         No payments match the selected filters.
                       </TableCell>
                     </TableRow>
@@ -2352,9 +2398,9 @@ function TenantFinancePageContent() {
             >
               <div className="grid gap-3 lg:grid-cols-12">
                 <div className="lg:col-span-6">
-                  <Label className="text-xs text-slate-600">Search</Label>
+                  <Label className="text-xs text-[var(--tenant-muted)]">Search</Label>
                   <Input
-                    placeholder="Student, admission, receipt no, reference…"
+                    placeholder="Receipt no or reference…"
                     value={receiptsTable.filters.q}
                     onChange={(e) =>
                       receiptsTable.setFilters((p) => ({ ...p, q: e.target.value }))
@@ -2362,28 +2408,14 @@ function TenantFinancePageContent() {
                   />
                 </div>
                 <div className="lg:col-span-4">
-                  <Label className="text-xs text-slate-600">Student</Label>
-                  <Select
-                    value={receiptsTable.filters.enrollment_id || "__all__"}
-                    onValueChange={(v) =>
-                      receiptsTable.setFilters((p) => ({
-                        ...p,
-                        enrollment_id: v === "__all__" ? "" : v,
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All students" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All students</SelectItem>
-                      {enrollments.map((row) => (
-                        <SelectItem key={row.id} value={row.id}>
-                          {enrollmentName(row.payload || {})}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs text-[var(--tenant-muted)]">Student</Label>
+                  <EnrollmentCombobox
+                    options={studentComboOptions}
+                    value={receiptsTable.filters.enrollment_id}
+                    onChange={(id) => receiptsTable.setFilters((p) => ({ ...p, enrollment_id: id }))}
+                    allLabel="All students"
+                    placeholder="Search student by name or admission…"
+                  />
                 </div>
                 <div className="lg:col-span-2 flex items-end">
                   <Button
@@ -2406,13 +2438,13 @@ function TenantFinancePageContent() {
               subtitle="Paid or fully settled invoices"
               icon={FileText}
             >
-              <div className="mb-3 text-xs text-slate-500">
+              <div className="mb-3 text-xs text-[var(--tenant-muted)]">
                 Results: <strong>{filteredReceiptInvoices.length}</strong>
               </div>
-              <div className="rounded-xl border border-slate-100 overflow-hidden">
+              <div className="rounded-xl border border-[var(--tenant-border)] overflow-hidden">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead>Invoice No</TableHead>
                       <TableHead>Invoice ID</TableHead>
                       <TableHead>Student</TableHead>
@@ -2426,10 +2458,10 @@ function TenantFinancePageContent() {
                   <TableBody>
                     {filteredReceiptInvoices.slice(0, 200).map((invoice) => (
                       <TableRow key={invoice.id}>
-                        <TableCell className="font-mono text-xs text-slate-700">
+                        <TableCell className="font-mono text-xs text-[var(--tenant-ink)]">
                           {invoice.invoice_no || "—"}
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-blue-700">
+                        <TableCell className="font-mono text-xs text-[var(--tenant-primary)]">
                           {invoice.id}
                         </TableCell>
                         <TableCell className="text-sm">
@@ -2472,7 +2504,7 @@ function TenantFinancePageContent() {
 
                     {filteredReceiptInvoices.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-400">
+                        <TableCell colSpan={8} className="py-10 text-center text-sm text-[var(--tenant-muted)]">
                           No paid invoices found.
                         </TableCell>
                       </TableRow>
@@ -2487,13 +2519,13 @@ function TenantFinancePageContent() {
               subtitle="Payments linked to settled invoices"
               icon={CircleDollarSign}
             >
-              <div className="mb-3 text-xs text-slate-500">
+              <div className="mb-3 text-xs text-[var(--tenant-muted)]">
                 <TableRangeCaption meta={receiptsTable.meta} />
               </div>
-              <div className="rounded-xl border border-slate-100 overflow-hidden">
+              <div className="rounded-xl border border-[var(--tenant-border)] overflow-hidden">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead>Receipt No</TableHead>
                       <TableHead>Receipt Ref</TableHead>
                       <TableHead>Student(s)</TableHead>
@@ -2505,11 +2537,21 @@ function TenantFinancePageContent() {
                   </TableHeader>
                   <TableBody>
                     {receiptsTable.items.map((payment) => (
-                      <TableRow key={payment.id}>
-                        <TableCell className="font-mono text-xs text-slate-700">
-                          {payment.receipt_no || "—"}
+                      <TableRow key={payment.id} className={payment.reversed_at ? "opacity-60" : undefined}>
+                        <TableCell className="font-mono text-xs text-[var(--tenant-ink)]">
+                          <span className="inline-flex items-center gap-1.5">
+                            {payment.receipt_no || "—"}
+                            {payment.reversed_at && (
+                              <span
+                                className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700"
+                                title={payment.reversal_reason || "This payment has been reversed"}
+                              >
+                                Reversed
+                              </span>
+                            )}
+                          </span>
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-blue-700">
+                        <TableCell className="font-mono text-xs text-[var(--tenant-primary)]">
                           {payment.id}
                         </TableCell>
                         <TableCell className="text-sm">
@@ -2518,7 +2560,7 @@ function TenantFinancePageContent() {
                             : "N/A"}
                         </TableCell>
                         <TableCell className="text-xs">{payment.provider}</TableCell>
-                        <TableCell className="text-xs text-slate-500">
+                        <TableCell className="text-xs text-[var(--tenant-muted)]">
                           {payment.reference || "—"}
                         </TableCell>
                         <TableCell className="text-right text-sm font-medium text-emerald-700">
@@ -2540,6 +2582,18 @@ function TenantFinancePageContent() {
                                 icon: <Download />,
                                 onSelect: () => downloadPaymentPdf(payment),
                               },
+                              {
+                                key: "reverse",
+                                label: "Reverse payment",
+                                icon: <Undo2 />,
+                                destructive: true,
+                                separatorBefore: true,
+                                hidden: !canReversePayments || !!payment.reversed_at,
+                                onSelect: () => {
+                                  setReverseReason("");
+                                  setReverseTarget(payment);
+                                },
+                              },
                             ]}
                           />
                         </TableCell>
@@ -2548,7 +2602,7 @@ function TenantFinancePageContent() {
 
                     {receiptsTable.items.length === 0 && !receiptsTable.loading && (
                       <TableRow>
-                        <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-400">
+                        <TableCell colSpan={7} className="py-10 text-center text-sm text-[var(--tenant-muted)]">
                           No payment receipts found.
                         </TableCell>
                       </TableRow>
@@ -2576,7 +2630,7 @@ function TenantFinancePageContent() {
             <h2 className="flex items-center gap-2 text-sm font-semibold text-red-700">
               <Trash2 className="h-4 w-4" /> Delete invoice
             </h2>
-            <p className="mt-2 text-xs text-slate-600">
+            <p className="mt-2 text-xs text-[var(--tenant-muted)]">
               This permanently deletes invoice{" "}
               <span className="font-mono">
                 {deleteTarget.invoice_no || deleteTarget.id.slice(0, 8)}
@@ -2596,6 +2650,70 @@ function TenantFinancePageContent() {
                 disabled={deletingInvoice}
               >
                 {deletingInvoice ? "Deleting…" : "Delete permanently"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Director-only: reverse a payment. Removes its invoice allocations and
+          restores each affected invoice to its pre-payment balance. Backend
+          blocks (with a reason) any payment that created/consumed a credit. */}
+      {reverseTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-red-700">
+              <Undo2 className="h-4 w-4" /> Reverse payment
+            </h2>
+            <p className="mt-2 text-xs text-[var(--tenant-muted)]">
+              This reverses payment{" "}
+              <span className="font-mono">
+                {reverseTarget.receipt_no || reverseTarget.id.slice(0, 8)}
+              </span>{" "}
+              of{" "}
+              <strong>{formatKes(toNumber(reverseTarget.amount))}</strong>. The
+              linked invoice(s) return to the balance they had before this
+              payment. The payment stays on record, marked reversed, for the
+              audit trail.
+            </p>
+            <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-[11px] text-amber-800">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                If this payment created an overpayment credit or was funded by an
+                existing credit, the reversal will be blocked with an explanation
+                — the ledger stays consistent.
+              </span>
+            </div>
+            <div className="mt-4">
+              <Label className="text-xs text-[var(--tenant-muted)]">
+                Reason for reversal <span className="text-red-600">*</span>
+              </Label>
+              <Textarea
+                value={reverseReason}
+                onChange={(e) => setReverseReason(e.target.value)}
+                placeholder="e.g. Duplicate entry, wrong student, cheque bounced…"
+                rows={3}
+                maxLength={500}
+                className="mt-1 text-sm"
+                disabled={reversingPayment}
+              />
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setReverseTarget(null)}
+                disabled={reversingPayment}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-red-600 text-white hover:bg-red-700"
+                onClick={() => void submitReversePayment()}
+                disabled={reversingPayment || !reverseReason.trim()}
+              >
+                {reversingPayment ? "Reversing…" : "Reverse payment"}
               </Button>
             </div>
           </div>
@@ -2624,8 +2742,8 @@ export default function TenantFinancePage() {
       fallback={
         <div className="flex min-h-screen items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500">Loading finance…</p>
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--tenant-primary)] border-t-transparent" />
+            <p className="text-sm text-[var(--tenant-muted)]">Loading finance…</p>
           </div>
         </div>
       }

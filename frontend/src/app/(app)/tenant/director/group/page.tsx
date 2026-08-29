@@ -21,9 +21,11 @@ import {
   CartesianGrid,
 } from "recharts";
 import { apiFetch } from "@/lib/api";
+import { storage, keys } from "@/lib/storage";
+import { toast } from "@/components/ui/sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { directorNav } from "@/components/layout/nav-config";
-import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { DashboardStatCard } from "@/components/dashboard/tenant-dashboard-primitives";
 import { Button } from "@/components/ui/button";
 
 type Campus = {
@@ -71,6 +73,37 @@ export default function GroupOverviewPage() {
   const [data, setData] = useState<GroupDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [switchingId, setSwitchingId] = useState<string | null>(null);
+  const [currentTenantId, setCurrentTenantId] = useState<string | null>(null);
+
+  useEffect(() => { setCurrentTenantId(storage.get(keys.tenantId)); }, []);
+
+  // Switch into a sibling campus without re-logging in. The backend re-verifies
+  // group membership + re-scopes roles, and audits the switch on both campuses.
+  const switchTo = useCallback(async (c: Campus) => {
+    if (c.tenant_id === currentTenantId || switchingId) return;
+    setSwitchingId(c.tenant_id);
+    try {
+      // BFF route rewrites the SSR tenant cookies so the server-rendered
+      // dashboard actually renders the new campus after reload.
+      const res = await fetch("/api/auth/switch-campus", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenant_id: c.tenant_id, tenant_slug: c.slug }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.detail || "Could not switch campus");
+      }
+      // The BFF has set the new campus's session cookies — just reload.
+      toast.success(`Switched to ${c.name}`);
+      window.location.assign("/");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not switch campus");
+      setSwitchingId(null);
+    }
+  }, [currentTenantId, switchingId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,8 +137,8 @@ export default function GroupOverviewPage() {
         {/* ── Header ── */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-xl font-bold text-slate-800">Group Overview</h1>
-            <p className="mt-0.5 text-sm text-slate-500">
+            <h1 className="text-xl font-bold text-[var(--tenant-ink)]">Group Overview</h1>
+            <p className="mt-0.5 text-sm text-[var(--tenant-muted)]">
               Consolidated performance across every campus in your group.
             </p>
           </div>
@@ -116,7 +149,7 @@ export default function GroupOverviewPage() {
         </div>
 
         {loading && (
-          <div className="flex items-center justify-center rounded-2xl border border-slate-100 bg-white py-20 text-slate-400">
+          <div className="flex items-center justify-center rounded-2xl border border-[var(--tenant-border)] bg-white py-20 text-[var(--tenant-muted)]">
             <Loader2 className="h-6 w-6 animate-spin" />
           </div>
         )}
@@ -131,15 +164,15 @@ export default function GroupOverviewPage() {
         )}
 
         {!loading && !error && data && !data.grouped && (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-white py-20 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100">
-              <Building2 className="h-6 w-6 text-slate-300" />
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-[var(--tenant-border)] bg-white py-20 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--tenant-surface-2)]">
+              <Building2 className="h-6 w-6 text-white/60" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-slate-600">
+              <p className="text-sm font-semibold text-[var(--tenant-muted)]">
                 This school isn&rsquo;t part of a group
               </p>
-              <p className="mt-0.5 text-xs text-slate-400">
+              <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">
                 Multi-campus overview is available for schools in an Enterprise group.
               </p>
             </div>
@@ -149,14 +182,14 @@ export default function GroupOverviewPage() {
         {!loading && !error && data?.grouped && data.totals && data.group && (
           <>
             {/* ── Group identity + subscription ── */}
-            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-800 to-slate-700 px-6 py-5 text-white sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 rounded-2xl dashboard-hero px-6 py-5 text-white sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10">
                   <Building2 className="h-5 w-5" />
                 </div>
                 <div>
                   <div className="text-lg font-bold">{data.group.name}</div>
-                  <div className="font-mono text-xs text-slate-300">{data.group.slug}</div>
+                  <div className="font-mono text-xs text-white/60">{data.group.slug}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -207,36 +240,36 @@ export default function GroupOverviewPage() {
             </div>
 
             {/* ── Chart: billed vs collected by campus ── */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <h2 className="text-sm font-semibold text-slate-700">
+            <div className="rounded-2xl border border-[var(--tenant-border)] bg-white p-5">
+              <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">
                 Billed vs Collected by campus
               </h2>
               {chartData.length === 0 ? (
-                <p className="py-10 text-center text-sm text-slate-400">No campus data.</p>
+                <p className="py-10 text-center text-sm text-[var(--tenant-muted)]">No campus data.</p>
               ) : (
                 <div className="mt-4 h-72 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#eef2f5" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#efe9df" vertical={false} />
                       <XAxis
                         dataKey="name"
-                        tick={{ fontSize: 11, fill: "#64748b" }}
+                        tick={{ fontSize: 11, fill: "#78716c" }}
                         tickLine={false}
-                        axisLine={{ stroke: "#e2e8f0" }}
+                        axisLine={{ stroke: "#e7e1d8" }}
                       />
                       <YAxis
-                        tick={{ fontSize: 11, fill: "#64748b" }}
+                        tick={{ fontSize: 11, fill: "#78716c" }}
                         tickLine={false}
                         axisLine={false}
                         tickFormatter={(v: number) => `${Math.round(v / 1000)}k`}
                       />
                       <Tooltip
                         formatter={(v: number) => kes(Number(v))}
-                        contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
+                        contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e7e1d8" }}
                       />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="Billed" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Collected" fill="#0d9488" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Billed" fill="#eb6834" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Collected" fill="#1baf7a" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -244,42 +277,43 @@ export default function GroupOverviewPage() {
             </div>
 
             {/* ── Per-campus table ── */}
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              <div className="border-b border-slate-100 px-5 py-3">
-                <h2 className="text-sm font-semibold text-slate-700">Campus breakdown</h2>
+            <div className="overflow-hidden rounded-2xl border border-[var(--tenant-border)] bg-white">
+              <div className="border-b border-[var(--tenant-border)] px-5 py-3">
+                <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">Campus breakdown</h2>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-500">
+                    <tr className="border-b border-[var(--tenant-border)] text-left text-xs uppercase text-[var(--tenant-muted)]">
                       <th className="px-5 py-2.5">Campus</th>
                       <th className="px-3 py-2.5 text-right">Students</th>
                       <th className="px-3 py-2.5 text-right">Billed</th>
                       <th className="px-3 py-2.5 text-right">Collected</th>
                       <th className="px-3 py-2.5 text-right">Outstanding</th>
-                      <th className="px-5 py-2.5 text-right">Rate</th>
+                      <th className="px-3 py-2.5 text-right">Rate</th>
+                      <th className="px-5 py-2.5 text-right">Open</th>
                     </tr>
                   </thead>
                   <tbody>
                     {campuses.map((c) => (
-                      <tr key={c.tenant_id} className="border-b border-slate-50 last:border-0">
+                      <tr key={c.tenant_id} className="border-b border-[var(--tenant-border)] last:border-0">
                         <td className="px-5 py-3">
-                          <div className="font-medium text-slate-800">{c.name}</div>
-                          <div className="font-mono text-[11px] text-slate-400">{c.slug}</div>
+                          <div className="font-medium text-[var(--tenant-ink)]">{c.name}</div>
+                          <div className="font-mono text-[11px] text-[var(--tenant-muted)]">{c.slug}</div>
                         </td>
-                        <td className="px-3 py-3 text-right tabular-nums text-slate-600">
+                        <td className="px-3 py-3 text-right tabular-nums text-[var(--tenant-muted)]">
                           {c.students.toLocaleString("en-KE")}
                         </td>
-                        <td className="px-3 py-3 text-right tabular-nums text-slate-600">
+                        <td className="px-3 py-3 text-right tabular-nums text-[var(--tenant-muted)]">
                           {kes(c.billed)}
                         </td>
-                        <td className="px-3 py-3 text-right tabular-nums font-medium text-slate-800">
+                        <td className="px-3 py-3 text-right tabular-nums font-medium text-[var(--tenant-ink)]">
                           {kes(c.collected)}
                         </td>
                         <td className="px-3 py-3 text-right tabular-nums text-amber-700">
                           {kes(c.outstanding)}
                         </td>
-                        <td className="px-5 py-3 text-right">
+                        <td className="px-3 py-3 text-right">
                           <span
                             className={`rounded-md px-1.5 py-0.5 text-xs font-medium ${
                               c.collection_rate_pct >= 75
@@ -292,12 +326,31 @@ export default function GroupOverviewPage() {
                             {c.collection_rate_pct}%
                           </span>
                         </td>
+                        <td className="px-5 py-3 text-right">
+                          {c.tenant_id === currentTenantId ? (
+                            <span className="inline-flex items-center rounded-md bg-[var(--tenant-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--tenant-primary)]">
+                              Current
+                            </span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={switchingId === c.tenant_id}
+                              className="h-7 border-[var(--tenant-border)] text-[var(--tenant-primary)] hover:bg-[var(--tenant-primary-soft)] hover:text-[var(--tenant-primary)]"
+                              onClick={() => void switchTo(c)}
+                            >
+                              {switchingId === c.tenant_id
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : "Open →"}
+                            </Button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                   {campuses.length > 0 && (
                     <tfoot>
-                      <tr className="border-t border-slate-200 bg-slate-50 font-semibold text-slate-800">
+                      <tr className="border-t border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] font-semibold text-[var(--tenant-ink)]">
                         <td className="px-5 py-3">Group total</td>
                         <td className="px-3 py-3 text-right tabular-nums">
                           {data.totals.students.toLocaleString("en-KE")}
@@ -311,9 +364,10 @@ export default function GroupOverviewPage() {
                         <td className="px-3 py-3 text-right tabular-nums text-amber-700">
                           {kes(data.totals.outstanding)}
                         </td>
-                        <td className="px-5 py-3 text-right">
+                        <td className="px-3 py-3 text-right">
                           {data.totals.collection_rate_pct}%
                         </td>
+                        <td className="px-5 py-3" />
                       </tr>
                     </tfoot>
                   )}

@@ -1,7 +1,6 @@
 "use client";
 
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { SubscriptionTabs } from "./SubscriptionTabs";
 
 export default function SubscriptionsLayout({
@@ -10,9 +9,9 @@ export default function SubscriptionsLayout({
   children: React.ReactNode;
 }) {
   return (
-    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/subscriptions">
+    <AdminShell title="Super Admin" activeHref="/saas/subscriptions">
       <SubscriptionTabs />
       {children}
-    </AppShell>
+    </AdminShell>
   );
 }

@@ -10,8 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, apiFetchRaw } from "@/lib/api";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -106,7 +105,7 @@ export default function SaasBackupsPage() {
   const lastSuccess = rows.find((r) => r.status === "SUCCESS");
 
   return (
-    <AppShell title="SaaS" nav={saasNav} activeHref="/saas/backups">
+    <AdminShell title="SaaS" activeHref="/saas/backups">
       <div className="space-y-5">
         <SaasPageHeader
           title="Database Backups"
@@ -210,6 +209,6 @@ export default function SaasBackupsPage() {
           </div>
         </SaasSurface>
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }

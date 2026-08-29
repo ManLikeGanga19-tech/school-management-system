@@ -141,7 +141,7 @@ function statusBadge(status: CarryForwardStatus) {
     );
   if (status === "BUNDLED")
     return (
-      <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] px-1.5 py-0">
+      <Badge className="bg-[var(--tenant-primary-soft)] text-[var(--tenant-primary)] border-[var(--tenant-primary)]/30 text-[10px] px-1.5 py-0">
         On invoice
       </Badge>
     );
@@ -366,7 +366,7 @@ export function CarryForwardDialog({
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <History className="h-4 w-4 text-blue-600" />
+              <History className="h-4 w-4 text-[var(--tenant-primary)]" />
               Adjust Balance
             </DialogTitle>
             <DialogDescription>
@@ -398,15 +398,15 @@ export function CarryForwardDialog({
                     ? "bg-red-50 border-red-200"
                     : openNet < 0
                       ? "bg-emerald-50 border-emerald-200"
-                      : "bg-slate-50 border-slate-200"
+                      : "bg-[var(--tenant-surface-2)] border-[var(--tenant-border)]"
                 }`}
               >
-                <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-slate-600">
+                <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-[var(--tenant-muted)]">
                   <AlertTriangle className="h-3 w-3" /> Net rolled into next invoice
                 </div>
                 <p
                   className={`text-sm font-bold mt-0.5 ${
-                    openNet > 0 ? "text-red-700" : openNet < 0 ? "text-emerald-700" : "text-slate-700"
+                    openNet > 0 ? "text-red-700" : openNet < 0 ? "text-emerald-700" : "text-[var(--tenant-ink)]"
                   }`}
                 >
                   {fmtKes(openNet)}
@@ -418,10 +418,10 @@ export function CarryForwardDialog({
           {/* ── Entry list ────────────────────────────────────────────── */}
           <div className="space-y-2">
             {loading && (
-              <p className="text-center text-sm text-slate-400 py-6">Loading…</p>
+              <p className="text-center text-sm text-[var(--tenant-muted)] py-6">Loading…</p>
             )}
             {!loading && entries.length === 0 && (
-              <div className="text-center py-8 text-slate-400">
+              <div className="text-center py-8 text-[var(--tenant-muted)]">
                 <History className="h-8 w-8 mx-auto mb-2 opacity-30" />
                 <p className="text-sm">No balance adjustments recorded</p>
                 <p className="text-xs mt-1">
@@ -436,8 +436,8 @@ export function CarryForwardDialog({
                 <div key={entry.id}>
                   {editingId === entry.id ? (
                     /* ── Inline edit row ─────────────────────────────── */
-                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
-                      <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
+                    <div className="rounded-xl border border-[var(--tenant-primary)]/30 bg-[var(--tenant-primary-soft)] p-4 space-y-3">
+                      <p className="text-xs font-semibold text-[var(--tenant-primary)] uppercase tracking-wide">
                         Editing adjustment
                       </p>
                       <div className="space-y-1">
@@ -497,17 +497,17 @@ export function CarryForwardDialog({
                     </div>
                   ) : (
                     /* ── Normal display row ──────────────────────────── */
-                    <div className="flex items-start gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 hover:bg-slate-50 transition-colors">
+                    <div className="flex items-start gap-3 rounded-xl border border-[var(--tenant-border)] bg-white px-4 py-3 hover:bg-[var(--tenant-surface-2)] transition-colors">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-semibold text-slate-800">{entry.term_label}</span>
+                          <span className="text-sm font-semibold text-[var(--tenant-ink)]">{entry.term_label}</span>
                           {statusBadge(entry.status)}
-                          <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                          <span className="text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">
                             {categoryLabel(entry.category)}
                           </span>
                         </div>
                         {entry.description && (
-                          <p className="text-xs text-slate-500 mt-0.5 truncate">{entry.description}</p>
+                          <p className="text-xs text-[var(--tenant-muted)] mt-0.5 truncate">{entry.description}</p>
                         )}
                       </div>
                       <div className="text-right shrink-0">
@@ -520,7 +520,7 @@ export function CarryForwardDialog({
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-7 w-7 text-slate-400 hover:text-blue-600"
+                            className="h-7 w-7 text-[var(--tenant-muted)] hover:text-[var(--tenant-primary)]"
                             onClick={() => openEdit(entry)}
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -528,7 +528,7 @@ export function CarryForwardDialog({
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-7 w-7 text-slate-400 hover:text-red-600"
+                            className="h-7 w-7 text-[var(--tenant-muted)] hover:text-red-600"
                             onClick={() => setDeletingId(entry.id)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -544,8 +544,8 @@ export function CarryForwardDialog({
 
           {/* ── Add form ──────────────────────────────────────────────── */}
           {showAdd ? (
-            <div className="rounded-xl border border-dashed border-blue-300 bg-blue-50/50 p-4 space-y-3">
-              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
+            <div className="rounded-xl border border-dashed border-[var(--tenant-primary)]/40 bg-[var(--tenant-primary-soft)]/50 p-4 space-y-3">
+              <p className="text-xs font-semibold text-[var(--tenant-primary)] uppercase tracking-wide">
                 New balance adjustment
               </p>
               <div className="space-y-1">
@@ -567,7 +567,7 @@ export function CarryForwardDialog({
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-slate-500 mt-0.5">{selectedCategory.hint}</p>
+                <p className="text-[11px] text-[var(--tenant-muted)] mt-0.5">{selectedCategory.hint}</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1 col-span-2 sm:col-span-1">

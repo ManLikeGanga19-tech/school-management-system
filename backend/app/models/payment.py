@@ -46,6 +46,12 @@ class Payment(Base):
     received_at = Column(DateTime(timezone=True), server_default=func.now())
     created_by = Column(UUID(as_uuid=True), nullable=True)
 
+    # Payment reversal (director-only). When reversed_at is set the payment is
+    # void: its allocations are removed and affected invoices are restored.
+    reversed_at = Column(DateTime(timezone=True), nullable=True)
+    reversed_by = Column(UUID(as_uuid=True), nullable=True)
+    reversal_reason = Column(String(500), nullable=True)
+
 
 class PaymentAllocation(Base):
     __tablename__ = "payment_allocations"

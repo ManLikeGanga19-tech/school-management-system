@@ -243,7 +243,7 @@ export default function TenantsTab() {
                   <button
                     type="button"
                     onClick={() => setDraft({ ...draft, period_end: term.end_date! })}
-                    className="mt-1 text-[11px] font-medium text-teal-600 hover:underline"
+                    className="mt-1 text-[11px] font-medium text-[#8a6d00] hover:underline"
                   >
                     Use academic term end — {term.term_name}
                     {term.academic_year ? ` ${term.academic_year}` : ""} ({term.end_date})

@@ -65,39 +65,37 @@ function readCookie(name: string): string | null {
 // Reads from cookies first (set by server actions), falls back to localStorage.
 // Writes go to localStorage for client-set values (mode, etc).
 
+// Cookie-only session store — NO localStorage. Auth/tenant values live entirely
+// in cookies (server sets them client-readable via cookies.ts; the client may
+// also write the few non-sensitive hints). Using one source of truth (cookies)
+// avoids the localStorage↔cookie split-brain that broke campus switching, and
+// keeps session state out of localStorage entirely.
+function writeCookie(name: string, value: string, maxAgeSeconds = 60 * 60 * 24 * 30): void {
+  if (typeof document === "undefined") return;
+  const secure = typeof location !== "undefined" && location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSeconds}; SameSite=Lax${secure}`;
+}
+
 export const storage = {
   get(key: string): string | null {
-    // Always try cookies first — server actions write there
-    const fromCookie = readCookie(key);
-    if (fromCookie) return fromCookie;
-
-    // Fallback: localStorage for values set client-side
-    if (typeof localStorage !== "undefined") {
-      return localStorage.getItem(key) || null;
-    }
-    return null;
+    return readCookie(key);
   },
 
   set(key: string, value: string): void {
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(key, value);
-    }
+    writeCookie(key, value);
   },
 
   remove(key: string): void {
-    if (typeof localStorage !== "undefined") {
-      localStorage.removeItem(key);
-    }
-    // Also clear the cookie version (client-writable cookies only)
     if (typeof document !== "undefined") {
       document.cookie = `${key}=; path=/; max-age=0`;
     }
   },
 
   clear(): void {
-    if (typeof localStorage !== "undefined") {
-      localStorage.clear();
-    }
+    if (typeof document === "undefined") return;
+    Object.values(COOKIE_NAMES).forEach((name) => {
+      document.cookie = `${name}=; path=/; max-age=0`;
+    });
   },
 };
 

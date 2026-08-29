@@ -869,6 +869,8 @@ class DocumentVerifyOut(BaseModel):
     status: Optional[str] = None             # invoice status; receipts omit
     issued_at: Optional[str] = None
     provider: Optional[str] = None           # receipts only
+    reversed: bool = False                    # receipts: payment was reversed/void
+    reversed_at: Optional[str] = None
     message: str
 
 
@@ -929,7 +931,13 @@ def verify_document_public(
             amount=str(doc.get("amount") or "0"),
             issued_at=(str(doc.get("received_at")) if doc.get("received_at") else None),
             provider=(str(doc.get("provider") or "") or None),
-            message="Receipt is genuine and was issued by this school.",
+            reversed=bool(doc.get("reversed_at")),
+            reversed_at=(str(doc.get("reversed_at")) if doc.get("reversed_at") else None),
+            message=(
+                "This payment has been reversed and is no longer valid."
+                if doc.get("reversed_at")
+                else "Receipt is genuine and was issued by this school."
+            ),
         )
 
     invoice = db.execute(

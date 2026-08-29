@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
-import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { AdminShell } from "@/components/admin/AdminShell";
+import { DashboardStatCard } from "@/components/admin/admin-primitives";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -105,7 +104,7 @@ function setToArray(s: Set<string>) {
 
 function avatarColor(id: string) {
   const palette = [
-    "bg-blue-100 text-blue-700",
+    "bg-[var(--admin-gold-soft)] text-[#8a6d00]",
     "bg-emerald-100 text-emerald-700",
     "bg-amber-100 text-amber-700",
     "bg-purple-100 text-purple-700",
@@ -141,7 +140,7 @@ function ScopeBadge({ isSystem, tenantId }: { isSystem?: boolean; tenantId?: str
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-200">
+    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--admin-gold-soft)] px-2 py-0.5 text-xs font-medium text-[#8a6d00] ring-1 ring-[var(--admin-border)]">
       <Globe className="h-3 w-3" />
       global
     </span>
@@ -448,7 +447,7 @@ export default function SaaSRolesPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/rbac/roles">
+    <AdminShell title="Super Admin" activeHref="/saas/rbac/roles">
 
       {/* ── Delete confirm ── */}
       <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
@@ -493,7 +492,7 @@ export default function SaaSRolesPage() {
                     onClick={() => setCScope(s)}
                     className={`flex items-center gap-2 rounded-xl border p-3 text-sm font-medium transition ${
                       cScope === s
-                        ? "border-blue-200 bg-blue-50 text-blue-800"
+                        ? "border-[var(--admin-border)] bg-[var(--admin-gold-soft)] text-[#8a6d00]"
                         : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                     }`}
                   >
@@ -557,7 +556,7 @@ export default function SaaSRolesPage() {
             <Button
               onClick={() => void onCreate()}
               disabled={creating || !cCode.trim() || !cName.trim() || (cScope === "tenant" && !tenantId)}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-[var(--admin-primary)] hover:bg-[var(--admin-slate)]"
             >
               {creating ? (
                 <span className="flex items-center gap-2">
@@ -599,7 +598,7 @@ export default function SaaSRolesPage() {
               {inspectPerms.map((p) => (
                 <span
                   key={p}
-                  className="rounded-full bg-blue-50 px-2 py-0.5 font-mono text-xs font-medium text-blue-700 ring-1 ring-blue-200"
+                  className="rounded-full bg-[var(--admin-gold-soft)] px-2 py-0.5 font-mono text-xs font-medium text-[#8a6d00] ring-1 ring-[var(--admin-border)]"
                 >
                   {p}
                 </span>
@@ -642,7 +641,7 @@ export default function SaaSRolesPage() {
             <Button
               onClick={() => void onSaveEdit()}
               disabled={saving || !eName.trim()}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-[var(--admin-primary)] hover:bg-[var(--admin-slate)]"
             >
               {saving ? "Saving…" : "Save Changes"}
             </Button>
@@ -730,7 +729,7 @@ export default function SaaSRolesPage() {
                                   {p.code}
                                 </code>
                                 {desired && (
-                                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700 ring-1 ring-blue-200">
+                                  <span className="rounded-full bg-[var(--admin-gold-soft)] px-2 py-0.5 text-xs text-[#8a6d00] ring-1 ring-[var(--admin-border)]">
                                     assigned
                                   </span>
                                 )}
@@ -754,7 +753,7 @@ export default function SaaSRolesPage() {
                               variant={desired ? "outline" : "default"}
                               className={desired
                                 ? "h-7 border-red-200 bg-red-50 text-xs text-red-700 hover:bg-red-100"
-                                : "h-7 bg-blue-600 text-xs hover:bg-blue-700"}
+                                : "h-7 bg-[var(--admin-primary)] text-xs hover:bg-[var(--admin-slate)]"}
                               onClick={() => toggleDesired(p.code)}
                             >
                               {desired ? "Remove" : "Add"}
@@ -790,7 +789,7 @@ export default function SaaSRolesPage() {
             <Button
               onClick={() => void saveManagePermissions()}
               disabled={permLoading || permSaving}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-[var(--admin-primary)] hover:bg-[var(--admin-slate)]"
             >
               {permSaving ? (
                 <span className="flex items-center gap-2">
@@ -927,7 +926,7 @@ export default function SaaSRolesPage() {
 
               <Button
                 size="sm"
-                className="h-8 gap-1.5 bg-blue-600 text-xs hover:bg-blue-700"
+                className="h-8 gap-1.5 bg-[var(--admin-primary)] text-xs hover:bg-[var(--admin-slate)]"
                 onClick={() => setOpenCreate(true)}
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -971,7 +970,7 @@ export default function SaaSRolesPage() {
                           {q.trim() ? `No roles matching "${q}"` : "No roles found."}
                         </p>
                         {q.trim() && (
-                          <button onClick={() => setQ("")} className="mt-1 text-xs text-blue-500 hover:underline">
+                          <button onClick={() => setQ("")} className="mt-1 text-xs text-[var(--admin-slate)] hover:underline">
                             Clear search
                           </button>
                         )}
@@ -1056,7 +1055,7 @@ export default function SaaSRolesPage() {
                             <TooltipTrigger asChild>
                               <button
                                 onClick={() => void openManagePermissions(r)}
-                                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-blue-50 hover:text-blue-700"
+                                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-[var(--admin-surface-2)] hover:text-[#8a6d00]"
                               >
                                 <ShieldCheck className="h-4 w-4" />
                               </button>
@@ -1108,7 +1107,7 @@ export default function SaaSRolesPage() {
           {filtered.length > 0 && (
             <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-6 py-3">
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-                <Globe className="h-3.5 w-3.5 text-blue-400" />
+                <Globe className="h-3.5 w-3.5 text-[var(--admin-slate)]" />
                 {globalCount} global
               </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
@@ -1126,6 +1125,6 @@ export default function SaaSRolesPage() {
           )}
         </SaasSurface>
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }

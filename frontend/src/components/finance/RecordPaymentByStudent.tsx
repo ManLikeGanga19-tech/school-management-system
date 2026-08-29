@@ -819,71 +819,71 @@ export function RecordPaymentByStudent() {
   function renderStudentBreakdown(s: StudentSummary, compact = false) {
     const pendingNet = parseFloat(s.pending_balance_net || "0");
     return (
-      <div className={compact ? "rounded-xl border border-slate-100 bg-white p-4" : "rounded-2xl border border-slate-100 bg-white p-5 shadow-sm"}>
+      <div className={compact ? "rounded-xl border border-[var(--tenant-border)] bg-white p-4" : "rounded-2xl border border-[var(--tenant-border)] bg-white p-5 shadow-sm"}>
         <div className="mb-3 flex items-baseline justify-between gap-2">
           <div>
-            <h3 className={compact ? "text-sm font-semibold text-slate-900" : "text-sm font-semibold text-slate-900"}>
+            <h3 className={compact ? "text-sm font-semibold text-[var(--tenant-ink)]" : "text-sm font-semibold text-[var(--tenant-ink)]"}>
               {s.student_name}
             </h3>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-[var(--tenant-muted)]">
               {[s.admission_no, s.class_code].filter(Boolean).join(" · ") || "—"}
             </p>
           </div>
           <div className="text-right">
-            <p className="text-[10px] uppercase tracking-wide text-slate-400">Total owed</p>
+            <p className="text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">Total owed</p>
             <p
               className={`text-base font-bold ${
                 parseFloat(s.total_outstanding) > 0
                   ? "text-red-600"
                   : parseFloat(s.total_outstanding) < 0
                     ? "text-emerald-700"
-                    : "text-slate-700"
+                    : "text-[var(--tenant-ink)]"
               }`}
             >
               {fmtKes(s.total_outstanding)}
             </p>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <div
             className={`rounded-xl border px-3 py-2 text-xs ${
               pendingNet > 0
                 ? "border-amber-200 bg-amber-50"
                 : pendingNet < 0
                   ? "border-emerald-200 bg-emerald-50"
-                  : "border-slate-200 bg-slate-50"
+                  : "border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]"
             }`}
           >
-            <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-500">
+            <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">
               {pendingNet < 0 ? <ArrowDownRight className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
               Brought-forward
             </div>
-            <p className={`mt-0.5 text-sm font-semibold ${pendingNet > 0 ? "text-amber-800" : pendingNet < 0 ? "text-emerald-800" : "text-slate-700"}`}>
+            <p className={`mt-0.5 text-sm font-semibold ${pendingNet > 0 ? "text-amber-800" : pendingNet < 0 ? "text-emerald-800" : "text-[var(--tenant-ink)]"}`}>
               {fmtKes(s.pending_balance_net)}
             </p>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
-            <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-500">
+          <div className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-3 py-2 text-xs">
+            <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">
               <Wallet className="h-3 w-3" /> Current term
             </div>
-            <p className="mt-0.5 text-sm font-semibold text-slate-800">{fmtKes(s.current_term_balance)}</p>
-            <p className="text-[11px] text-slate-500">
+            <p className="mt-0.5 text-sm font-semibold text-[var(--tenant-ink)]">{fmtKes(s.current_term_balance)}</p>
+            <p className="text-[11px] text-[var(--tenant-muted)]">
               of {fmtKes(s.current_term_total)} · paid {fmtKes(s.current_term_paid)}
             </p>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
-            <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-500">
+          <div className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-3 py-2 text-xs">
+            <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">
               <AlertTriangle className="h-3 w-3" /> Prior terms
             </div>
-            <p className="mt-0.5 text-sm font-semibold text-slate-800">{fmtKes(s.prior_terms_balance)}</p>
+            <p className="mt-0.5 text-sm font-semibold text-[var(--tenant-ink)]">{fmtKes(s.prior_terms_balance)}</p>
           </div>
         </div>
 
         {s.invoices.length > 0 && (
-          <div className="mt-3 overflow-x-auto rounded-lg border border-slate-100">
+          <div className="mt-3 overflow-x-auto rounded-lg border border-[var(--tenant-border)]">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50">
+                <TableRow className="bg-[var(--tenant-surface-2)]">
                   <TableHead className="text-[11px]">Term</TableHead>
                   <TableHead className="text-[11px]">Invoice</TableHead>
                   <TableHead className="text-[11px]">Status</TableHead>
@@ -893,14 +893,14 @@ export function RecordPaymentByStudent() {
               <TableBody>
                 {s.invoices.map((inv) => (
                   <TableRow key={inv.invoice_id}>
-                    <TableCell className="text-xs text-slate-700">
+                    <TableCell className="text-xs text-[var(--tenant-ink)]">
                       Term {inv.term_number ?? "—"} {inv.academic_year ?? ""}
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-blue-700">
+                    <TableCell className="font-mono text-xs text-[var(--tenant-primary)]">
                       {inv.invoice_no || inv.invoice_id.slice(0, 8)}
                     </TableCell>
                     <TableCell>
-                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-600">
+                      <span className="rounded-full bg-[var(--tenant-surface-2)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--tenant-muted)]">
                         {inv.status}
                       </span>
                     </TableCell>
@@ -920,11 +920,11 @@ export function RecordPaymentByStudent() {
   return (
     <div className="space-y-4">
       {/* ── Picker ────────────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-[var(--tenant-border)] bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">Record a payment</h3>
-            <p className="text-xs text-slate-500">
+            <h3 className="text-sm font-semibold text-[var(--tenant-ink)]">Record a payment</h3>
+            <p className="text-xs text-[var(--tenant-muted)]">
               Pick a student to record a single-child payment, or a parent to
               record one payment that covers all their children at once.
               Allocation is automatic (oldest term first); surplus becomes a
@@ -957,18 +957,18 @@ export function RecordPaymentByStudent() {
       {/* ── Single-student panel ─────────────────────────────────────── */}
       {picked?.kind === "student" && (
         <div className="grid gap-4 lg:grid-cols-5">
-          <div className="space-y-4 lg:col-span-3">
+          <div className="min-w-0 space-y-4 lg:col-span-3">
             {summaryLoading || !studentSummary ? (
-              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                <p className="py-6 text-center text-sm text-slate-400">Loading…</p>
+              <div className="rounded-2xl border border-[var(--tenant-border)] bg-white p-5 shadow-sm">
+                <p className="py-6 text-center text-sm text-[var(--tenant-muted)]">Loading…</p>
               </div>
             ) : (
               renderStudentBreakdown(studentSummary)
             )}
           </div>
-          <div className="space-y-4 lg:col-span-2">
-            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <div className="min-w-0 space-y-4 lg:col-span-2">
+            <div className="rounded-2xl border border-[var(--tenant-border)] bg-white p-5 shadow-sm">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--tenant-ink)]">
                 <HandCoins className="h-4 w-4 text-emerald-600" /> Record payment
               </h3>
               <div className="space-y-3">
@@ -1019,7 +1019,7 @@ export function RecordPaymentByStudent() {
                     commit share one engine on the backend so what the operator
                     sees here is exactly what happens. No silent surprises. */}
                 {previewLoading && (
-                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                  <div className="rounded-md border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-3 py-2 text-[11px] text-[var(--tenant-muted)]">
                     Computing breakdown…
                   </div>
                 )}
@@ -1029,19 +1029,19 @@ export function RecordPaymentByStudent() {
                   </div>
                 )}
                 {!previewLoading && preview && preview.steps.length > 0 && (
-                  <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs">
+                  <div className="rounded-md border border-[var(--tenant-border)] bg-white px-3 py-2 text-xs">
                     <div className="mb-1.5 flex items-baseline justify-between">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">
                         Waterfall preview
                       </span>
-                      <span className="font-mono text-[11px] text-slate-500">
+                      <span className="font-mono text-[11px] text-[var(--tenant-muted)]">
                         {fmtKes(preview.amount)}
                       </span>
                     </div>
                     <ol className="space-y-1">
                       {preview.steps.map((s, i) => (
                         <li key={i} className="flex items-baseline justify-between gap-2">
-                          <span className="text-slate-700">
+                          <span className="text-[var(--tenant-ink)]">
                             {s.type === "credit_consumed" && (
                               <>
                                 <span className="mr-1 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-emerald-800">
@@ -1057,7 +1057,7 @@ export function RecordPaymentByStudent() {
                                 </span>
                                 {s.term_label || "Prior balance"}
                                 {s.fully_settles === false && (
-                                  <span className="ml-1 text-[10px] text-slate-400">
+                                  <span className="ml-1 text-[10px] text-[var(--tenant-muted)]">
                                     (partial)
                                   </span>
                                 )}
@@ -1065,18 +1065,18 @@ export function RecordPaymentByStudent() {
                             )}
                             {s.type === "invoice" && (
                               <>
-                                <span className="mr-1 rounded bg-slate-200 px-1 py-0.5 text-[9px] font-semibold uppercase text-slate-700">
+                                <span className="mr-1 rounded bg-[var(--tenant-border)] px-1 py-0.5 text-[9px] font-semibold uppercase text-[var(--tenant-ink)]">
                                   Invoice
                                 </span>
                                 Term {s.term_number ?? "—"}{" "}
                                 {s.academic_year ? s.academic_year : ""}
                                 {s.invoice_no && (
-                                  <span className="ml-1 font-mono text-[10px] text-slate-400">
+                                  <span className="ml-1 font-mono text-[10px] text-[var(--tenant-muted)]">
                                     {s.invoice_no}
                                   </span>
                                 )}
                                 {s.fully_pays === false && (
-                                  <span className="ml-1 text-[10px] text-slate-400">
+                                  <span className="ml-1 text-[10px] text-[var(--tenant-muted)]">
                                     (partial)
                                   </span>
                                 )}
@@ -1084,20 +1084,20 @@ export function RecordPaymentByStudent() {
                             )}
                             {s.type === "overpayment_credit" && (
                               <>
-                                <span className="mr-1 rounded bg-blue-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-blue-800">
+                                <span className="mr-1 rounded bg-[var(--tenant-primary-soft)] px-1 py-0.5 text-[9px] font-semibold uppercase text-[var(--tenant-primary)]">
                                   Credit fwd
                                 </span>
                                 Surplus → next invoice
                               </>
                             )}
                           </span>
-                          <span className="font-mono text-slate-700 tabular-nums">
+                          <span className="font-mono text-[var(--tenant-ink)] tabular-nums">
                             {fmtKes(s.amount)}
                           </span>
                         </li>
                       ))}
                     </ol>
-                    <div className="mt-2 border-t border-slate-100 pt-1.5 text-[10px] text-slate-500">
+                    <div className="mt-2 border-t border-[var(--tenant-border)] pt-1.5 text-[10px] text-[var(--tenant-muted)]">
                       Prior balance remaining after: {fmtKes(preview.cf_debits_remaining_after)}
                       {" · "}
                       Invoice balance remaining: {fmtKes(preview.invoices_remaining_after)}
@@ -1107,7 +1107,7 @@ export function RecordPaymentByStudent() {
                 <Button onClick={() => void recordStudent()} disabled={recording || !studentSummary} className="w-full">
                   {recording ? "Recording…" : "Record Payment"}
                 </Button>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-[var(--tenant-muted)]">
                   Prior balance first, then invoices oldest-first. Any surplus
                   is credited forward to the next invoice — never lost, never
                   fails.
@@ -1159,10 +1159,10 @@ export function RecordPaymentByStudent() {
       {/* ── Applicant (interview-fee) panel — Phase O ──────────────────── */}
       {picked?.kind === "applicant" && (
         <div className="grid gap-4 lg:grid-cols-5">
-          <div className="space-y-4 lg:col-span-3">
+          <div className="min-w-0 space-y-4 lg:col-span-3">
             {summaryLoading || !applicantSummary ? (
-              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                <p className="py-6 text-center text-sm text-slate-400">Loading applicant summary…</p>
+              <div className="rounded-2xl border border-[var(--tenant-border)] bg-white p-5 shadow-sm">
+                <p className="py-6 text-center text-sm text-[var(--tenant-muted)]">Loading applicant summary…</p>
               </div>
             ) : (
               <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-5">
@@ -1171,10 +1171,10 @@ export function RecordPaymentByStudent() {
                     <div className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">
                       Applicant · {applicantSummary.enrollment_status.toLowerCase()}
                     </div>
-                    <h3 className="text-sm font-semibold text-slate-900">
+                    <h3 className="text-sm font-semibold text-[var(--tenant-ink)]">
                       {applicantSummary.student_name}
                     </h3>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-[var(--tenant-muted)]">
                       {[
                         applicantSummary.class_code,
                         applicantSummary.parent_name && `Guardian: ${applicantSummary.parent_name}`,
@@ -1182,11 +1182,11 @@ export function RecordPaymentByStudent() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Total owed</p>
+                    <p className="text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">Total owed</p>
                     <p className={`text-lg font-bold ${
                       parseFloat(applicantSummary.total_outstanding) > 0
                         ? "text-amber-800"
-                        : "text-slate-700"
+                        : "text-[var(--tenant-ink)]"
                     }`}>
                       {fmtKes(applicantSummary.total_outstanding)}
                     </p>
@@ -1196,14 +1196,14 @@ export function RecordPaymentByStudent() {
                   <div className="space-y-2">
                     {applicantSummary.interview_invoices.length > 0 && (
                       <div className="rounded-xl border border-white bg-white p-3">
-                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">
                           Open interview invoices
                         </p>
                         <ul className="space-y-1">
                           {applicantSummary.interview_invoices.map((inv) => (
                             <li key={inv.invoice_id} className="flex items-center justify-between text-xs">
-                              <span className="font-mono text-slate-500">{inv.invoice_no || inv.invoice_id.slice(0, 8)}</span>
-                              <span className="text-slate-500">
+                              <span className="font-mono text-[var(--tenant-muted)]">{inv.invoice_no || inv.invoice_id.slice(0, 8)}</span>
+                              <span className="text-[var(--tenant-muted)]">
                                 paid {fmtKes(inv.paid_amount)} of {fmtKes(inv.total_amount)}
                               </span>
                               <span className="font-semibold text-amber-800">{fmtKes(inv.balance_amount)}</span>
@@ -1214,19 +1214,19 @@ export function RecordPaymentByStudent() {
                     )}
                     {applicantSummary.school_fees_invoices.length > 0 && (
                       <div className="rounded-xl border border-white bg-white p-3">
-                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">
                           Open school-fees invoices
                         </p>
                         <ul className="space-y-1">
                           {applicantSummary.school_fees_invoices.map((inv) => (
                             <li key={inv.invoice_id} className="flex items-center justify-between text-xs">
-                              <span className="font-mono text-slate-500">
+                              <span className="font-mono text-[var(--tenant-muted)]">
                                 {inv.invoice_no || inv.invoice_id.slice(0, 8)}
                                 {inv.term_number != null && (
-                                  <span className="ml-1 text-slate-400">Term {inv.term_number}</span>
+                                  <span className="ml-1 text-[var(--tenant-muted)]">Term {inv.term_number}</span>
                                 )}
                               </span>
-                              <span className="text-slate-500">
+                              <span className="text-[var(--tenant-muted)]">
                                 paid {fmtKes(inv.paid_amount)} of {fmtKes(inv.total_amount)}
                               </span>
                               <span className="font-semibold text-amber-800">{fmtKes(inv.balance_amount)}</span>
@@ -1258,9 +1258,9 @@ export function RecordPaymentByStudent() {
               </div>
             )}
           </div>
-          <div className="space-y-4 lg:col-span-2">
-            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <div className="min-w-0 space-y-4 lg:col-span-2">
+            <div className="rounded-2xl border border-[var(--tenant-border)] bg-white p-5 shadow-sm">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--tenant-ink)]">
                 <HandCoins className="h-4 w-4 text-amber-600" /> Record applicant payment
               </h3>
               <div className="space-y-3">
@@ -1294,7 +1294,7 @@ export function RecordPaymentByStudent() {
                 >
                   {recording ? "Recording…" : "Record Payment"}
                 </Button>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-[var(--tenant-muted)]">
                   Allocates oldest first — interview invoice then
                   school-fees. Once the school-fees payment meets the
                   partial-enrollment threshold, this applicant can be
@@ -1336,32 +1336,32 @@ export function RecordPaymentByStudent() {
       {/* ── Family panel ─────────────────────────────────────────────── */}
       {picked?.kind === "parent" && (
         <div className="grid gap-4 lg:grid-cols-5">
-          <div className="space-y-4 lg:col-span-3">
+          <div className="min-w-0 space-y-4 lg:col-span-3">
             {summaryLoading || !parentSummary ? (
-              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                <p className="py-6 text-center text-sm text-slate-400">Loading family summary…</p>
+              <div className="rounded-2xl border border-[var(--tenant-border)] bg-white p-5 shadow-sm">
+                <p className="py-6 text-center text-sm text-[var(--tenant-muted)]">Loading family summary…</p>
               </div>
             ) : (
               <>
-                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+                <div className="rounded-2xl border border-[var(--tenant-border)] bg-[var(--tenant-primary-soft)] p-5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Users className="h-4 w-4 text-blue-600" />
+                      <Users className="h-4 w-4 text-[var(--tenant-primary)]" />
                       <div>
-                        <p className="text-sm font-semibold text-blue-900">{parentSummary.parent_name}</p>
-                        <p className="text-xs text-blue-700">
+                        <p className="text-sm font-semibold text-[var(--tenant-ink)]">{parentSummary.parent_name}</p>
+                        <p className="text-xs text-[var(--tenant-primary)]">
                           {parentSummary.children.length} {parentSummary.children.length === 1 ? "child" : "children"} in this tenant
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] uppercase tracking-wide text-blue-700">Family total owed</p>
-                      <p className="text-lg font-bold text-blue-900">{fmtKes(parentSummary.family_total_outstanding)}</p>
+                      <p className="text-[10px] uppercase tracking-wide text-[var(--tenant-primary)]">Family total owed</p>
+                      <p className="text-lg font-bold text-[var(--tenant-ink)]">{fmtKes(parentSummary.family_total_outstanding)}</p>
                     </div>
                   </div>
                 </div>
                 {parentSummary.children.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-100 bg-white p-5 text-center text-sm text-slate-400 shadow-sm">
+                  <div className="rounded-2xl border border-[var(--tenant-border)] bg-white p-5 text-center text-sm text-[var(--tenant-muted)] shadow-sm">
                     No children with outstanding fees for this guardian.
                   </div>
                 ) : (
@@ -1375,9 +1375,9 @@ export function RecordPaymentByStudent() {
             )}
           </div>
 
-          <div className="space-y-4 lg:col-span-2">
-            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <div className="min-w-0 space-y-4 lg:col-span-2">
+            <div className="rounded-2xl border border-[var(--tenant-border)] bg-white p-5 shadow-sm">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--tenant-ink)]">
                 <HandCoins className="h-4 w-4 text-emerald-600" /> Record family payment
               </h3>
               <div className="space-y-3">
@@ -1406,7 +1406,7 @@ export function RecordPaymentByStudent() {
 
                 {/* Allocation mode toggle */}
                 {familyChildren.length > 1 && (
-                  <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-3 py-2">
                     <div className="flex items-center justify-between">
                       <Label className="text-xs">
                         {familyMode === "auto" ? "Auto allocation" : "Manual per-child split"}
@@ -1419,7 +1419,7 @@ export function RecordPaymentByStudent() {
                       </Button>
                     </div>
                     {familyMode === "auto" ? (
-                      <p className="mt-1 text-[11px] text-slate-500">
+                      <p className="mt-1 text-[11px] text-[var(--tenant-muted)]">
                         Oldest term first, across all children.
                       </p>
                     ) : (
@@ -1427,8 +1427,8 @@ export function RecordPaymentByStudent() {
                         {familyChildren.map((c) => (
                           <div key={c.student_id} className="flex items-center gap-2">
                             <div className="min-w-0 flex-1">
-                              <p className="truncate text-xs font-medium text-slate-700">{c.student_name}</p>
-                              <p className="text-[11px] text-slate-400">owes {fmtKes(c.total_outstanding)}</p>
+                              <p className="truncate text-xs font-medium text-[var(--tenant-ink)]">{c.student_name}</p>
+                              <p className="text-[11px] text-[var(--tenant-muted)]">owes {fmtKes(c.total_outstanding)}</p>
                             </div>
                             <Input
                               type="number" min="0" step="0.01"
@@ -1442,12 +1442,12 @@ export function RecordPaymentByStudent() {
                           </div>
                         ))}
                         <div className="flex justify-between text-[11px]">
-                          <span className="text-slate-500">Per-child total</span>
+                          <span className="text-[var(--tenant-muted)]">Per-child total</span>
                           <span
                             className={
                               manualSum > typedAmount && typedAmount > 0
                                 ? "font-semibold text-red-600"
-                                : "font-semibold text-slate-700"
+                                : "font-semibold text-[var(--tenant-ink)]"
                             }
                           >
                             {fmtKes(manualSum)} of {fmtKes(typedAmount)}
@@ -1480,7 +1480,7 @@ export function RecordPaymentByStudent() {
                 <Button onClick={() => void recordFamily()} disabled={recording || !parentSummary} className="w-full">
                   {recording ? "Recording…" : "Record Family Payment"}
                 </Button>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-[var(--tenant-muted)]">
                   One payment row covers the whole family. The receipt shows
                   each child's name, class, and per-child subtotal.
                 </p>
