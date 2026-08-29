@@ -107,15 +107,27 @@ def _enrich_incident_detail(db: Session, incident: DisciplineIncident) -> dict:
                 ds.action_notes,
                 ds.parent_notified,
                 ds.parent_notified_at,
-                s.first_name || ' ' || s.last_name AS student_name,
-                s.admission_no,
+                -- Resolve the name null-safely, and stay resilient to legacy rows
+                -- whose student_id actually holds an enrollment id: fall back
+                -- through the enrollment's student, then the enrollment payload.
+                COALESCE(
+                    NULLIF(TRIM(COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')), ''),
+                    NULLIF(TRIM(COALESCE(es.first_name, '') || ' ' || COALESCE(es.last_name, '')), ''),
+                    NULLIF(TRIM(e.payload->>'student_name'), '')
+                ) AS student_name,
+                COALESCE(s.admission_no, es.admission_no, e.admission_number) AS admission_no,
                 tc.name AS class_name
             FROM core.discipline_students ds
-            JOIN core.students s ON s.id = ds.student_id
+            LEFT JOIN core.students s ON s.id = ds.student_id
+            -- Enrollment fallback: match on the enrollment link, or on a
+            -- student_id that is really an enrollment id (the pre-fix write bug).
+            LEFT JOIN core.enrollments e
+                   ON e.id = ds.enrollment_id OR e.id = ds.student_id
+            LEFT JOIN core.students es ON es.id = e.student_id
             LEFT JOIN core.student_class_enrollments sce ON sce.id = ds.enrollment_id
             LEFT JOIN core.tenant_classes tc ON tc.id = sce.class_id
             WHERE ds.incident_id = :iid
-            ORDER BY ds.role, s.last_name, s.first_name
+            ORDER BY ds.role
             """
         ),
         {"iid": str(incident.id)},
