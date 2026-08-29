@@ -340,9 +340,9 @@ export const directorNav: AppNavItem[] = [
     badgeKey: "tenantNotifications",
   },
   { href: directorContactAdminHref(), label: "Contact Admin", icon: "Headset" },
-  { href: "/tenant/director/users", label: "Users", icon: "UserCog" },
-  { href: "/tenant/director/rbac", label: "RBAC", icon: "KeyRound" },
-  { href: "/tenant/director/audit", label: "Audit Logs", icon: "ScrollText" },
+  { href: "/tenant/director/users", label: "Users", icon: "UserCog", permission: "users.manage" },
+  { href: "/tenant/director/rbac", label: "RBAC", icon: "KeyRound", permission: "rbac.roles.manage" },
+  { href: "/tenant/director/audit", label: "Audit Logs", icon: "ScrollText", permission: "audit.read" },
   { href: "/tenant/director/subscriptions", label: "Subscription", icon: "BadgeDollarSign" },
 ];
 
@@ -491,8 +491,8 @@ export const secretaryNav: AppNavItem[] = [
   },
   { href: "/tenant/secretary/parents", label: "Parents", icon: "UsersRound" },
   { href: secretaryContactAdminHref(), label: "Contact Admin", icon: "Headset" },
-  { href: "/tenant/secretary/users", label: "Users", icon: "UserCog" },
-  { href: "/tenant/secretary/audit", label: "Audit Logs", icon: "ScrollText" },
+  { href: "/tenant/secretary/users", label: "Users", icon: "UserCog", permission: "users.manage" },
+  { href: "/tenant/secretary/audit", label: "Audit Logs", icon: "ScrollText", permission: "audit.read" },
 ];
 
 export const principalNav: AppNavItem[] = [

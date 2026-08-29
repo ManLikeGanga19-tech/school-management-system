@@ -230,22 +230,95 @@
       linear-gradient(180deg, #efe3c8 0%, #f7f2e8 22%, #fcfbf7 56%, #fcfbf7 100%);
   }
 
+  /* Warm Prestige — flat warm-white cards (tenant tokens), matching the admin
+     card discipline. Tokens resolve inside the .tenant-theme AppShell scope. */
   .dashboard-surface {
-    border: 1px solid rgba(226, 212, 191, 0.9);
-    background: rgba(255, 255, 255, 0.88);
-    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
-    backdrop-filter: blur(16px);
+    border: 1px solid var(--tenant-border, #e7e1d8);
+    background: var(--tenant-surface, #ffffff);
+    box-shadow: 0 1px 2px rgba(51, 36, 15, 0.05);
   }
 
   .dashboard-surface-muted {
-    border: 1px solid rgba(226, 212, 191, 0.8);
-    background: rgba(247, 243, 236, 0.9);
-    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.04);
+    border: 1px solid var(--tenant-border, #e7e1d8);
+    background: var(--tenant-surface-2, #f5f0e8);
   }
 
+  /* Tenant dashboard hero — solid, the exact same bronze as the AppShell
+     sidebar. No gradient (deliberate: keeps the frame reading as one surface). */
   .dashboard-hero {
-    border: 1px solid rgba(33, 50, 58, 0.08);
-    background: linear-gradient(135deg, #132129 0%, #173f49 58%, #b9512d 100%);
-    box-shadow: 0 24px 80px rgba(19, 33, 41, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--tenant-sidebar, #33240f);
+    box-shadow: 0 1px 2px rgba(51, 36, 15, 0.05);
   }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   ShuleHQ Admin console theme — "Prestige Professional" (v2 UI).
+   Scoped to .admin-theme so the tenant app and marketing site are untouched.
+   Backend/data wiring is unaffected — this is styling only.
+   ───────────────────────────────────────────────────────────────────────── */
+.admin-theme {
+  --admin-bg: #f8f9fa;
+  --admin-surface: #ffffff;
+  --admin-surface-2: #f3f4f5;
+  --admin-primary: #192830;   /* sidebar / deepest slate */
+  --admin-slate: #2f3e46;
+  --admin-gold: #d4af37;      /* polished gold accent */
+  --admin-gold-soft: #fbf3d7;
+  --admin-ink: #191c1d;
+  --admin-muted: #6b7280;
+  --admin-border: #e5e7eb;
+  --admin-success: #10b981;
+  --admin-warning: #f59e0b;
+  --admin-error: #dc2626;
+  background-color: var(--admin-bg);
+  color: var(--admin-ink);
+  font-family: var(--font-admin-sans), "Aptos", "Segoe UI", system-ui, sans-serif;
+}
+.admin-theme .font-serif {
+  font-family: var(--font-admin-serif), Georgia, "Times New Roman", serif;
+}
+.admin-theme ::selection {
+  background: var(--admin-gold);
+  color: #ffffff;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Tenant "Warm Prestige" theme — the school-facing counterpart to .admin-theme.
+   Where the operator console is cool slate + gold, the tenant is gold/orange
+   forward: a deep warm-bronze sidebar with a vivid amber accent, and an orange-
+   gold primary in the light content area. Same flat-card / token discipline.
+   Scoped to .tenant-theme so the admin console and marketing site are untouched.
+   ───────────────────────────────────────────────────────────────────────── */
+.tenant-theme {
+  --tenant-bg: #faf7f2;          /* warm app background */
+  --tenant-surface: #ffffff;     /* cards */
+  --tenant-surface-2: #f5f0e8;   /* subtle warm fill */
+  --tenant-sidebar: #33240f;     /* deep warm bronze — the dark frame */
+  --tenant-sidebar-2: #46340f;   /* raised bronze */
+  --tenant-primary: #c2680f;     /* orange-gold — THE main brand color */
+  --tenant-primary-soft: #fdeddb;/* soft orange tint (badges/wash) */
+  --tenant-accent: #f0a92e;      /* bright amber accent (on dark sidebar) */
+  --tenant-ink: #1c1710;         /* warm near-black text */
+  --tenant-muted: #78716c;       /* warm gray */
+  --tenant-border: #e7e1d8;      /* warm hairline */
+  --tenant-success: #10b981;
+  --tenant-warning: #f59e0b;
+  --tenant-error: #dc2626;
+  /* Remap the shadcn primary/ring tokens to the tenant gold so every default
+     Button, focus ring, and primary control across the tenant app matches the
+     Warm Prestige theme — no per-button classes needed. */
+  --primary: var(--tenant-primary);
+  --primary-foreground: #ffffff;
+  --ring: var(--tenant-primary);
+  background-color: var(--tenant-bg);
+  color: var(--tenant-ink);
+  font-family: var(--font-admin-sans), "Aptos", "Segoe UI", system-ui, sans-serif;
+}
+.tenant-theme .font-serif {
+  font-family: var(--font-admin-serif), Georgia, "Times New Roman", serif;
+}
+.tenant-theme ::selection {
+  background: var(--tenant-primary);
+  color: #ffffff;
 }

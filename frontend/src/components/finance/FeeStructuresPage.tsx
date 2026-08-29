@@ -51,6 +51,8 @@ import {
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
+import { storage } from "@/lib/storage";
+import { FeeStructureDocument, type FeeDocProfile } from "@/components/finance/FeeStructureDocument";
 import {
   type FeeStructure,
   type FeeStructureItem,
@@ -79,10 +81,10 @@ function StatusBadge({ active }: { active: boolean }) {
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
         active
           ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-          : "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
+          : "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]"
       }`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-emerald-500" : "bg-slate-400"}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-emerald-500" : "bg-[var(--tenant-muted)]"}`} />
       {active ? "Active" : "Inactive"}
     </span>
   );
@@ -93,7 +95,7 @@ function StudentTypeBadge({ type }: { type: StudentType }) {
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
         type === "NEW"
-          ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+          ? "bg-[var(--tenant-primary-soft)] text-[var(--tenant-primary)] ring-1 ring-[var(--tenant-primary)]/25"
           : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
       }`}
     >
@@ -105,14 +107,14 @@ function StudentTypeBadge({ type }: { type: StudentType }) {
 function FreqBadge({ freq }: { freq: string }) {
   if (freq === "ONCE_PER_YEAR") return <span className="text-xs text-amber-600">Once/yr</span>;
   if (freq === "ONCE_EVER") return <span className="text-xs text-purple-600">One-time</span>;
-  return <span className="text-xs text-slate-400">Per term</span>;
+  return <span className="text-xs text-[var(--tenant-muted)]">Per term</span>;
 }
 
 function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
   return (
     <TableRow>
       <TableCell colSpan={colSpan} className="py-10 text-center">
-        <span className="text-sm text-slate-400">{message}</span>
+        <span className="text-sm text-[var(--tenant-muted)]">{message}</span>
       </TableCell>
     </TableRow>
   );
@@ -165,6 +167,17 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
 
   // ── PDF download ──────────────────────────────────────────────────────────────
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  // ── School document format (print profile) — drives the live preview ──────────
+  const [printProfile, setPrintProfile] = useState<FeeDocProfile | null>(null);
+  const tenantSlug = typeof window !== "undefined" ? storage.get("sms_tenant_slug") : null;
+  useEffect(() => {
+    let alive = true;
+    api.get<FeeDocProfile>("/tenants/print-profile", { tenantRequired: true })
+      .then((p) => { if (alive) setPrintProfile(p ?? null); })
+      .catch(() => { /* preview falls back to placeholders */ });
+    return () => { alive = false; };
+  }, []);
 
   // ── Load ─────────────────────────────────────────────────────────────────────
   const load = useCallback(
@@ -498,8 +511,8 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
       >
         <div className="flex min-h-[380px] items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500">Loading fee structures…</p>
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--tenant-primary)] border-t-transparent" />
+            <p className="text-sm text-[var(--tenant-muted)]">Loading fee structures…</p>
           </div>
         </div>
       </AppShell>
@@ -535,31 +548,32 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
         />
 
         {/* ── Structures table ── */}
-        <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div className="rounded-2xl border border-[var(--tenant-border)] bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-[var(--tenant-border)] px-4 py-4 sm:px-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <FileSpreadsheet className="h-4 w-4 text-slate-400" />
+              <FileSpreadsheet className="h-4 w-4 shrink-0 text-[var(--tenant-muted)]" />
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">Fee Structures</h2>
-                <p className="text-xs text-slate-400">
+                <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">Fee Structures</h2>
+                <p className="text-xs text-[var(--tenant-muted)]">
                   {structures.length} structure{structures.length !== 1 ? "s" : ""} defined
-                  {selectedId && <span className="ml-1.5 text-blue-500">· 1 selected</span>}
+                  {selectedId && <span className="ml-1.5 text-[var(--tenant-primary)]">· 1 selected</span>}
                 </p>
               </div>
             </div>
             {canManage && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
                   variant="outline"
+                  className="flex-1 sm:flex-none"
                   onClick={() => void runReconcileSweep()}
                   disabled={saving || sweeping}
                   title="Verify every invoice of the year against its current fee structure and fix any drift"
                 >
                   <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${sweeping ? "animate-spin" : ""}`} />
-                  {sweeping ? "Reconciling…" : "Verify & Reconcile Invoices"}
+                  {sweeping ? "Reconciling…" : "Verify & Reconcile"}
                 </Button>
-                <Button size="sm" onClick={openCreateStructure} disabled={saving}>
+                <Button size="sm" className="flex-1 sm:flex-none" onClick={openCreateStructure} disabled={saving}>
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   New Structure
                 </Button>
@@ -568,7 +582,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
           </div>
 
           {structures.length > 5 && (
-            <div className="flex flex-col gap-2 border-b border-slate-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 border-b border-[var(--tenant-border)] px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
               <Input
                 placeholder="Search by name, class, structure no…"
                 value={structuresTable.filters.q}
@@ -577,7 +591,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                 }
                 className="max-w-md"
               />
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-[var(--tenant-muted)]">
                 <TableRangeCaption meta={structuresTable.meta} />
               </span>
             </div>
@@ -586,7 +600,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50">
+                <TableRow className="bg-[var(--tenant-surface-2)]">
                   <TableHead className="text-xs">Name</TableHead>
                   <TableHead className="text-xs">Class</TableHead>
                   <TableHead className="text-xs">Year</TableHead>
@@ -605,14 +619,14 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                     <TableRow
                       key={s.id}
                       className={`cursor-pointer transition-colors ${
-                        isSelected ? "bg-blue-50 hover:bg-blue-50" : "hover:bg-slate-50"
+                        isSelected ? "bg-[var(--tenant-primary-soft)] hover:bg-[var(--tenant-primary-soft)]" : "hover:bg-[var(--tenant-surface-2)]"
                       }`}
                       onClick={() => setSelectedId(isSelected ? null : s.id)}
                     >
-                      <TableCell className="text-sm font-medium text-slate-800">
+                      <TableCell className="text-sm font-medium text-[var(--tenant-ink)]">
                         <div className="flex items-center gap-1.5">
                           <ChevronRight
-                            className={`h-3.5 w-3.5 transition-transform text-blue-400 ${
+                            className={`h-3.5 w-3.5 transition-transform text-[var(--tenant-primary)] ${
                               isSelected ? "rotate-90" : ""
                             }`}
                           />
@@ -620,18 +634,18 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-mono font-medium text-slate-700">
+                        <span className="rounded-full bg-[var(--tenant-surface-2)] px-2 py-0.5 text-xs font-mono font-medium text-[var(--tenant-ink)]">
                           {s.class_code}
                         </span>
                       </TableCell>
-                      <TableCell className="text-sm text-slate-600">{s.academic_year}</TableCell>
+                      <TableCell className="text-sm text-[var(--tenant-muted)]">{s.academic_year}</TableCell>
                       <TableCell>
                         <StudentTypeBadge type={s.student_type} />
                       </TableCell>
-                      <TableCell className="text-sm text-slate-600">
+                      <TableCell className="text-sm text-[var(--tenant-muted)]">
                         {itemCount} item{itemCount !== 1 ? "s" : ""}
                       </TableCell>
-                      <TableCell className="text-sm font-semibold text-slate-700">
+                      <TableCell className="text-sm font-semibold text-[var(--tenant-ink)]">
                         {formatAmount(structureTotal1(s.id))}
                       </TableCell>
                       <TableCell>
@@ -692,7 +706,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
             </Table>
           </div>
           {structures.length > 30 && (
-            <div className="border-t border-slate-100 px-4 py-3">
+            <div className="border-t border-[var(--tenant-border)] px-4 py-3">
               <TablePaginationFooter
                 meta={structuresTable.meta}
                 page={structuresTable.page}
@@ -705,136 +719,103 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
         </div>
 
         {/* ── Items panel ── */}
-        {selectedId && selectedStructure && (
-          <div className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-blue-100 bg-blue-50/40 px-6 py-4">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900">
-                  Items — <span className="text-blue-700">{selectedStructure.name}</span>
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Class{" "}
-                  <span className="font-mono font-medium">{selectedStructure.class_code}</span>
-                  {" · "}
-                  {selectedStructure.academic_year}
-                  {" · "}
-                  <StudentTypeBadge type={selectedStructure.student_type} />
-                  {" · "}
-                  {selectedItems.length} item{selectedItems.length !== 1 ? "s" : ""}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {canManage && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={openBulkDialog}
-                      disabled={saving || availableItems.length === 0}
-                      title={availableItems.length === 0 ? "All fee items already added" : undefined}
-                    >
-                      <Plus className="mr-1.5 h-3.5 w-3.5" />
-                      Bulk Add
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" });
-                        setAddItemDialog(true);
-                      }}
-                      disabled={saving}
-                    >
-                      <Plus className="mr-1.5 h-3.5 w-3.5" />
-                      Add Item
-                    </Button>
-                  </>
-                )}
-                <button
-                  onClick={() => setSelectedId(null)}
-                  className="rounded-md p-1.5 text-slate-400 hover:bg-blue-100 hover:text-slate-700 transition"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
+        {/* Fee-structure editor + live document preview (modal, no dropdown) */}
+        <Dialog open={!!selectedId && !!selectedStructure} onOpenChange={(o) => { if (!o) setSelectedId(null); }}>
+          <DialogContent className="max-h-[92vh] overflow-hidden p-0 sm:max-w-6xl">
+            {selectedStructure && (
+              <div className="flex max-h-[92vh] flex-col">
+                <DialogHeader className="border-b border-[var(--tenant-border)] px-6 py-4">
+                  <DialogTitle className="text-base">{selectedStructure.name}</DialogTitle>
+                  <DialogDescription>
+                    Class <span className="font-mono font-medium">{selectedStructure.class_code}</span>
+                    {" · "}{selectedStructure.academic_year}{" · "}
+                    <StudentTypeBadge type={selectedStructure.student_type} />{" · "}
+                    {selectedItems.length} item{selectedItems.length !== 1 ? "s" : ""}
+                  </DialogDescription>
+                </DialogHeader>
 
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-slate-50">
-                    <TableHead className="text-xs">Fee Item</TableHead>
-                    <TableHead className="text-xs">Category</TableHead>
-                    <TableHead className="text-xs">Frequency</TableHead>
-                    <TableHead className="text-xs">Term 1</TableHead>
-                    <TableHead className="text-xs">Term 2</TableHead>
-                    <TableHead className="text-xs">Term 3</TableHead>
-                    {canManage && <TableHead className="text-right text-xs">Actions</TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {selectedItems.map((item) => (
-                    <TableRow key={item.fee_item_id} className="hover:bg-slate-50">
-                      <TableCell className="text-sm font-medium text-slate-800">
-                        {item.fee_item_name}
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-500">
-                        {item.category_name || categoryName(item.category_id)}
-                      </TableCell>
-                      <TableCell>
-                        <FreqBadge freq={item.charge_frequency} />
-                      </TableCell>
-                      <TableCell className="text-sm font-medium text-slate-700">
-                        {formatAmount(item.term_1_amount)}
-                      </TableCell>
-                      <TableCell className="text-sm text-slate-600">
-                        {item.charge_frequency === "PER_TERM"
-                          ? formatAmount(item.term_2_amount)
-                          : <span className="text-slate-300">—</span>}
-                      </TableCell>
-                      <TableCell className="text-sm text-slate-600">
-                        {item.charge_frequency === "PER_TERM"
-                          ? formatAmount(item.term_3_amount)
-                          : <span className="text-slate-300">—</span>}
-                      </TableCell>
+                <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-2">
+                  {/* Left — line-items editor */}
+                  <div className="flex min-h-0 flex-col overflow-hidden lg:border-r lg:border-[var(--tenant-border)]">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--tenant-border)] px-4 py-3 sm:px-5">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">Line items</span>
                       {canManage && (
-                        <TableCell className="text-right">
-                          <RowActionsMenu
-                            ariaLabel="Line item actions"
-                            actions={[
-                              {
-                                key: "edit",
-                                label: "Edit amounts",
-                                icon: <Pencil />,
-                                disabled: saving,
-                                onSelect: () => openEditItem(item),
-                              },
-                              {
-                                key: "remove",
-                                label: "Remove item",
-                                icon: <Trash2 />,
-                                destructive: true,
-                                disabled: saving,
-                                separatorBefore: true,
-                                onSelect: () => setRemovingItemId(item.fee_item_id),
-                              },
-                            ]}
-                          />
-                        </TableCell>
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" onClick={openBulkDialog} disabled={saving || availableItems.length === 0} title={availableItems.length === 0 ? "All fee items already added" : undefined}>
+                            <Plus className="mr-1.5 h-3.5 w-3.5" /> Bulk Add
+                          </Button>
+                          <Button size="sm" onClick={() => { setAddItemForm({ fee_item_id: "", term_1_amount: "", term_2_amount: "", term_3_amount: "" }); setAddItemDialog(true); }} disabled={saving}>
+                            <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Item
+                          </Button>
+                        </div>
                       )}
-                    </TableRow>
-                  ))}
-                  {selectedItems.length === 0 && (
-                    <EmptyRow
-                      colSpan={canManage ? 7 : 6}
-                      message="No items in this structure yet."
-                    />
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-[var(--tenant-surface-2)]">
+                            <TableHead className="text-xs">Fee Item</TableHead>
+                            <TableHead className="text-xs">Freq</TableHead>
+                            <TableHead className="text-xs">Term 1</TableHead>
+                            <TableHead className="text-xs">Term 2</TableHead>
+                            <TableHead className="text-xs">Term 3</TableHead>
+                            {canManage && <TableHead className="text-right text-xs" />}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedItems.map((item) => (
+                            <TableRow key={item.fee_item_id} className="hover:bg-[var(--tenant-surface-2)]">
+                              <TableCell className="text-sm font-medium text-[var(--tenant-ink)]">
+                                {item.fee_item_name}
+                                <span className="block text-[11px] font-normal text-[var(--tenant-muted)]">{item.category_name || categoryName(item.category_id)}</span>
+                              </TableCell>
+                              <TableCell><FreqBadge freq={item.charge_frequency} /></TableCell>
+                              <TableCell className="text-sm font-medium text-[var(--tenant-ink)]">{formatAmount(item.term_1_amount)}</TableCell>
+                              <TableCell className="text-sm text-[var(--tenant-muted)]">{item.charge_frequency === "PER_TERM" ? formatAmount(item.term_2_amount) : <span className="text-[var(--tenant-muted)]">—</span>}</TableCell>
+                              <TableCell className="text-sm text-[var(--tenant-muted)]">{item.charge_frequency === "PER_TERM" ? formatAmount(item.term_3_amount) : <span className="text-[var(--tenant-muted)]">—</span>}</TableCell>
+                              {canManage && (
+                                <TableCell className="text-right">
+                                  <RowActionsMenu
+                                    ariaLabel="Line item actions"
+                                    actions={[
+                                      { key: "edit", label: "Edit amounts", icon: <Pencil />, disabled: saving, onSelect: () => openEditItem(item) },
+                                      { key: "remove", label: "Remove item", icon: <Trash2 />, destructive: true, disabled: saving, separatorBefore: true, onSelect: () => setRemovingItemId(item.fee_item_id) },
+                                    ]}
+                                  />
+                                </TableCell>
+                              )}
+                            </TableRow>
+                          ))}
+                          {selectedItems.length === 0 && (
+                            <EmptyRow colSpan={canManage ? 6 : 5} message="No items in this structure yet." />
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
 
-          </div>
-        )}
+                  {/* Right — live document preview in the school's format */}
+                  <div className="flex min-h-0 flex-col overflow-hidden bg-[var(--tenant-surface-2)]">
+                    <div className="flex items-center justify-between border-b border-[var(--tenant-border)] px-5 py-3">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">Document preview</span>
+                      <Button size="sm" variant="outline" disabled={downloadingId === selectedId} onClick={() => selectedId && void downloadStructurePdf(selectedId)}>
+                        <Download className="mr-1.5 h-3.5 w-3.5" /> {downloadingId === selectedId ? "Preparing…" : "Download PDF"}
+                      </Button>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-auto p-5">
+                      <FeeStructureDocument
+                        structure={{ name: selectedStructure.name, class_code: selectedStructure.class_code, academic_year: selectedStructure.academic_year, student_type: selectedStructure.student_type }}
+                        items={selectedItems}
+                        profile={printProfile ?? {}}
+                        tenantSlug={tenantSlug}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* ── Create / Edit structure dialog ── */}
@@ -905,14 +886,14 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                 </SelectContent>
               </Select>
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 text-sm text-[var(--tenant-ink)]">
               <input
                 type="checkbox"
                 checked={structureForm.is_active}
                 onChange={(e) =>
                   setStructureForm((p) => ({ ...p, is_active: e.target.checked }))
                 }
-                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                className="h-4 w-4 rounded border-[var(--tenant-border)] text-[var(--tenant-primary)]"
               />
               Active
             </label>
@@ -1009,7 +990,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                     onChange={(e) => setEditItemForm((p) => ({ ...p, [col]: e.target.value }))}
                   />
                   {isDisabled && (
-                    <p className="text-xs text-slate-400">Not applicable for this charge frequency</p>
+                    <p className="text-xs text-[var(--tenant-muted)]">Not applicable for this charge frequency</p>
                   )}
                 </div>
               );
@@ -1037,10 +1018,10 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
           </DialogHeader>
           <div className="space-y-3 py-2">
             {availableItems.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-6">All fee items are already in this structure.</p>
+              <p className="text-sm text-[var(--tenant-muted)] text-center py-6">All fee items are already in this structure.</p>
             ) : (
               <>
-                <div className="grid grid-cols-[auto_1fr_80px_80px_80px] gap-2 px-1 text-xs font-medium text-slate-500 uppercase tracking-wide border-b pb-2">
+                <div className="grid grid-cols-[auto_1fr_80px_80px_80px] gap-2 px-1 text-xs font-medium text-[var(--tenant-muted)] uppercase tracking-wide border-b pb-2">
                   <span></span>
                   <span>Fee Item</span>
                   <span>Term 1</span>
@@ -1056,15 +1037,15 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                     <div key={fi.id} className="grid grid-cols-[auto_1fr_80px_80px_80px] gap-2 items-center">
                       <input
                         type="checkbox"
-                        className="h-4 w-4 rounded border-slate-300"
+                        className="h-4 w-4 rounded border-[var(--tenant-border)]"
                         checked={entry.selected}
                         onChange={(e) =>
                           setBulkAmounts((p) => ({ ...p, [fi.id]: { ...p[fi.id], selected: e.target.checked } }))
                         }
                       />
                       <div>
-                        <p className="text-sm font-medium text-slate-800">{fi.name}</p>
-                        <p className="text-xs text-slate-400">{cat?.name ?? ""} · {fi.charge_frequency === "PER_TERM" ? "Per term" : fi.charge_frequency === "ONCE_PER_YEAR" ? "Once/yr" : "One-time"}</p>
+                        <p className="text-sm font-medium text-[var(--tenant-ink)]">{fi.name}</p>
+                        <p className="text-xs text-[var(--tenant-muted)]">{cat?.name ?? ""} · {fi.charge_frequency === "PER_TERM" ? "Per term" : fi.charge_frequency === "ONCE_PER_YEAR" ? "Once/yr" : "One-time"}</p>
                       </div>
                       <Input
                         type="number" min={0} placeholder="0"
@@ -1171,7 +1152,7 @@ export function FeeStructuresPage({ role, nav, activeHref }: Props) {
                     onChange={(e) => setAddItemForm((p) => ({ ...p, [col]: e.target.value }))}
                   />
                   {isDisabled && (
-                    <p className="text-xs text-slate-400">Not applicable for this charge frequency</p>
+                    <p className="text-xs text-[var(--tenant-muted)]">Not applicable for this charge frequency</p>
                   )}
                 </div>
               );

@@ -1,9 +1,25 @@
 import type { Metadata, Viewport } from "next";
+import { Source_Serif_4, Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
+
+// Admin console ("Prestige Professional") fonts — self-hosted by next/font, so
+// no external font host at runtime. Applied only within the .admin-theme scope.
+const adminSerif = Source_Serif_4({
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
+  variable: "--font-admin-serif",
+  display: "swap",
+});
+const adminSans = Hanken_Grotesk({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-admin-sans",
+  display: "swap",
+});
 
 // Brand identity — favicon/apple-icon are served by the app-router file
 // conventions (src/app/icon.svg, favicon.ico, apple-icon.png). The PWA manifest
@@ -44,7 +60,7 @@ export default async function RootLayout({
 
   return (
     <html lang={locale} suppressHydrationWarning>
-      <body className="antialiased">
+      <body className={`antialiased ${adminSerif.variable} ${adminSans.variable}`}>
         <NextIntlClientProvider locale={locale} messages={messages}>
           {children}
           <Toaster />

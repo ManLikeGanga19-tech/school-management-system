@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -455,7 +454,7 @@ export default function SaasSmsPage() {
     : "";
 
   return (
-    <AppShell nav={saasNav} title="SMS Credits">
+    <AdminShell title="SMS Credits">
       <div className="space-y-6 p-4 sm:p-6">
         <SaasPageHeader
           title="SMS Credits"
@@ -613,6 +612,6 @@ export default function SaasSmsPage() {
         onClose={() => setAdjustTarget(null)}
         onDone={handleAdjustDone}
       />
-    </AppShell>
+    </AdminShell>
   );
 }

@@ -44,9 +44,9 @@ function FieldGroup({ children }: { children: React.ReactNode }) {
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="border-b border-slate-100 pb-3">
-      <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
-      {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+    <div className="border-b border-[var(--tenant-border)] pb-3">
+      <h3 className="text-sm font-semibold text-[var(--tenant-ink)]">{title}</h3>
+      {subtitle && <p className="text-xs text-[var(--tenant-muted)] mt-0.5">{subtitle}</p>}
     </div>
   );
 }
@@ -81,7 +81,7 @@ function Field({
         disabled={disabled}
         className="max-w-sm"
       />
-      {hint && <p className="text-xs text-slate-400">{hint}</p>}
+      {hint && <p className="text-xs text-[var(--tenant-muted)]">{hint}</p>}
     </div>
   );
 }
@@ -142,8 +142,8 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
       <AppShell title={role === "director" ? "Director" : "Secretary"} nav={nav} activeHref={activeHref}>
         <div className="flex min-h-[380px] items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500">Loading payment settings…</p>
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--tenant-primary)] border-t-transparent" />
+            <p className="text-sm text-[var(--tenant-muted)]">Loading payment settings…</p>
           </div>
         </div>
       </AppShell>
@@ -172,13 +172,13 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
           }
         />
 
-        <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div className="rounded-2xl border border-[var(--tenant-border)] bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-[var(--tenant-border)] px-4 py-4 sm:px-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-slate-400" />
+              <CreditCard className="h-4 w-4 text-[var(--tenant-muted)]" />
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">Payment & Billing Details</h2>
-                <p className="text-xs text-slate-400">
+                <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">Payment & Billing Details</h2>
+                <p className="text-xs text-[var(--tenant-muted)]">
                   {canManage ? "Edit and save your payment configuration." : "View-only mode."}
                 </p>
               </div>
@@ -191,7 +191,7 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
             )}
           </div>
 
-          <div className="divide-y divide-slate-50 px-6 py-5 space-y-6">
+          <div className="divide-y divide-[var(--tenant-border)] px-6 py-5 space-y-6">
             {/* M-PESA */}
             <FieldGroup>
               <SectionHeader
@@ -249,7 +249,7 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
               />
               <div className="space-y-1.5">
                 <Label className="text-sm">Uniform Details</Label>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-[var(--tenant-muted)]">
                   Applies to all classes except Junior Secondary (Grade 7, 8 &amp; 9).
                 </p>
                 <Textarea
@@ -263,7 +263,7 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-sm">Junior Secondary Uniform Details (Grade 7, 8 &amp; 9)</Label>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-[var(--tenant-muted)]">
                   Used on the fee structure sheet for Grade 7, 8 and 9 classes only.
                   If left blank, those sheets show no uniform details — the standard
                   text above is never used for Junior Secondary.
@@ -321,7 +321,7 @@ export function PaymentSettingsPage({ role, nav, activeHref }: Props) {
           </div>
 
           {canManage && dirty && (
-            <div className="border-t border-slate-100 bg-amber-50/50 px-6 py-3 flex items-center justify-between">
+            <div className="border-t border-[var(--tenant-border)] bg-amber-50/50 px-6 py-3 flex items-center justify-between">
               <p className="text-xs text-amber-700">You have unsaved changes.</p>
               <Button size="sm" onClick={() => void save()} disabled={saving}>
                 <Save className="mr-1.5 h-3.5 w-3.5" />

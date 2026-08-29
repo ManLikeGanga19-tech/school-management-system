@@ -35,9 +35,15 @@ from app.models.tenant_term import TenantTerm
 from app.models.user import User
 from app.utils.hashing import hash_password
 
-DEMO_SLUG = "demo"
-DEMO_NAME = "ShuleHQ Demo School"
-DEMO_PASSWORD = "Demo@2026"
+import os
+
+# Target tenant is env-driven so the same rich seed can populate a writable dev
+# tenant (e.g. SEED_SLUG=novel SEED_IS_DEMO=0) without the public read-only demo
+# invariants. Defaults reproduce the original public "demo" seed exactly.
+DEMO_SLUG = os.environ.get("SEED_SLUG", "demo")
+DEMO_NAME = os.environ.get("SEED_NAME", "ShuleHQ Demo School")
+DEMO_PASSWORD = os.environ.get("SEED_PASSWORD", "Demo@2026")
+SEED_IS_DEMO = os.environ.get("SEED_IS_DEMO", "1") not in ("0", "false", "False", "")
 
 # Kenya 2026 national term dates
 TERMS = [
@@ -271,6 +277,7 @@ def _upsert_invoice(db, *, tenant_id, enrollment_id, term_number,
     inv = Invoice(
         id=uuid4(), tenant_id=tenant_id, invoice_type="SCHOOL_FEES",
         status="APPROVED", enrollment_id=enrollment_id,
+        invoice_no=_seed_invoice_no(tenant_id),
         term_number=term_number, academic_year=academic_year,
         currency="KES", total_amount=total,
         paid_amount=Decimal("0"), balance_amount=total,
@@ -283,12 +290,38 @@ def _upsert_invoice(db, *, tenant_id, enrollment_id, term_number,
     return inv
 
 
+_RCT_SEQ: dict = {}
+
+
+def _seed_receipt_no(tenant_id) -> str:
+    """Generate a receipt number matching the app format (RCT-YYYY-NNNNNN),
+    so seeded payments show a Receipt No exactly like real recorded payments."""
+    year = datetime.now(timezone.utc).year
+    key = (str(tenant_id), year)
+    seq = _RCT_SEQ.get(key, 0) + 1
+    _RCT_SEQ[key] = seq
+    return f"RCT-{year:04d}-{seq:06d}"
+
+
+_INV_SEQ: dict = {}
+
+
+def _seed_invoice_no(tenant_id) -> str:
+    """Generate an invoice number matching the app format (INV-YYYY-NNNNNN)."""
+    year = datetime.now(timezone.utc).year
+    key = (str(tenant_id), year)
+    seq = _INV_SEQ.get(key, 0) + 1
+    _INV_SEQ[key] = seq
+    return f"INV-{year:04d}-{seq:06d}"
+
+
 def _add_payment(db, *, tenant_id, invoice, amount, provider, reference, created_by) -> None:
     if invoice.paid_amount >= invoice.total_amount or amount <= 0:
         return
     pay = Payment(
         id=uuid4(), tenant_id=tenant_id, provider=provider,
-        reference=reference, amount=amount, currency="KES",
+        reference=reference, receipt_no=_seed_receipt_no(tenant_id),
+        amount=amount, currency="KES",
         received_at=datetime.now(timezone.utc), created_by=created_by,
     )
     db.add(pay)
@@ -346,13 +379,15 @@ def main() -> None:
             db.add(tenant)
             db.flush()
             print(f"  [+] created tenant slug={DEMO_SLUG}")
-        # Always (re)assert the demo invariants — idempotent, and safe to run on
-        # an existing tenant: this is the public read-only demo, on CBC.
+        # Assert invariants. For the public demo this locks it read-only (is_demo);
+        # for a writable dev tenant (SEED_IS_DEMO=0) we leave is_demo alone so the
+        # tenant stays fully usable.
         tenant.is_active = True
-        tenant.is_demo = True
-        tenant.curriculum_type = "CBC"
+        if SEED_IS_DEMO:
+            tenant.is_demo = True
+            tenant.curriculum_type = "CBC"
         db.flush()
-        print(f"  [=] demo invariants: is_demo=True, curriculum_type=CBC")
+        print(f"  [=] invariants: is_demo={SEED_IS_DEMO}, curriculum_type={tenant.curriculum_type}")
         tid = tenant.id
 
         # ── 2. Print profile ────────────────────────────────────────────────────

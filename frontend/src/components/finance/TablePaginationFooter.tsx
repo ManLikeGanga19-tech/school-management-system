@@ -35,25 +35,25 @@ export function TablePaginationFooter({
 }: Props) {
   return (
     <div className="mt-3 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
-      <div className="flex items-center gap-2 text-xs text-slate-500">
+      <div className="flex items-center gap-2 text-xs text-[var(--tenant-muted)]">
         <span>Page size</span>
         <select
           value={pageSize}
           onChange={(e) => onPageSizeChange(Number(e.target.value))}
-          className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs"
+          className="h-7 rounded-md border border-[var(--tenant-border)] bg-white px-2 text-xs"
         >
           {pageSizeOptions.map((n) => (
             <option key={n} value={n}>{n}</option>
           ))}
         </select>
         {loading && (
-          <span className="inline-flex items-center gap-1 text-slate-400">
+          <span className="inline-flex items-center gap-1 text-[var(--tenant-muted)]">
             <Loader2 className="h-3 w-3 animate-spin" />
             Loading…
           </span>
         )}
       </div>
-      <div className="flex items-center gap-2 text-xs text-slate-600">
+      <div className="flex items-center gap-2 text-xs text-[var(--tenant-muted)]">
         <Button
           variant="outline"
           size="sm"

@@ -129,12 +129,23 @@ def _build_tenant_row(
 
     admin_user = _get_tenant_director_user(db, tenant.id)
 
+    # Browser-usable URL for the tenant's uploaded school badge (None if unset).
+    # Reuses the same builder the public login screen uses, so the SaaS admin
+    # tenant list shows the exact badge a school has added.
+    try:
+        from app.api.v1.public.routes import _tenant_badge_public_url
+        badge_url = _tenant_badge_public_url(tenant.id, tenant.slug)
+    except Exception:
+        badge_url = None
+
     return {
         "id": tenant.id,
         "slug": tenant.slug,
         "name": tenant.name,
         "primary_domain": tenant.primary_domain,
         "is_active": bool(tenant.is_active),
+        "curriculum": getattr(tenant, "curriculum_type", None),
+        "badge_url": badge_url,
         "plan": _subscription_billing_plan(active_sub)
         if active_sub
         else plan_hint,
@@ -1576,12 +1587,77 @@ def upsert_saas_academic_calendar_terms(
     return list_saas_academic_calendar_terms(db, academic_year=academic_year)
 
 
+def sync_group_director_access(db: Session, *, group_id: UUID) -> dict:
+    """Ensure every DIRECTOR in a tenant group has active membership AND the
+    DIRECTOR role in EVERY campus of that group.
+
+    This is what makes multi-campus switching work: a group director must be a
+    provisioned, auditable member of each campus they can enter. Idempotent —
+    safe to call whenever a campus is added to a group or a director is granted.
+    """
+    campuses = db.execute(
+        select(Tenant.id).where(
+            Tenant.group_id == group_id,
+            Tenant.is_active == True,
+            Tenant.deleted_at.is_(None),
+        )
+    ).scalars().all()
+    if not campuses:
+        return {"campuses": 0, "directors": 0, "memberships_added": 0, "roles_added": 0}
+
+    director_role = db.execute(
+        select(Role).where(Role.code == "DIRECTOR", Role.tenant_id.is_(None))
+    ).scalar_one_or_none()
+    if director_role is None:
+        return {"campuses": len(campuses), "directors": 0, "memberships_added": 0, "roles_added": 0}
+
+    # A "group director" = any user already holding DIRECTOR in any campus of the group.
+    director_user_ids = set(
+        db.execute(
+            select(UserRole.user_id).where(
+                UserRole.tenant_id.in_(campuses),
+                UserRole.role_id == director_role.id,
+            )
+        ).scalars().all()
+    )
+
+    m_added = r_added = 0
+    for uid in director_user_ids:
+        for cid in campuses:
+            mem = db.execute(
+                select(UserTenant).where(UserTenant.user_id == uid, UserTenant.tenant_id == cid)
+            ).scalar_one_or_none()
+            if mem is None:
+                db.add(UserTenant(id=uuid4(), user_id=uid, tenant_id=cid, is_active=True))
+                m_added += 1
+            elif not mem.is_active:
+                mem.is_active = True
+            ur = db.execute(
+                select(UserRole).where(
+                    UserRole.user_id == uid,
+                    UserRole.tenant_id == cid,
+                    UserRole.role_id == director_role.id,
+                )
+            ).scalar_one_or_none()
+            if ur is None:
+                db.add(UserRole(id=uuid4(), user_id=uid, tenant_id=cid, role_id=director_role.id))
+                r_added += 1
+
+    return {
+        "campuses": len(campuses),
+        "directors": len(director_user_ids),
+        "memberships_added": m_added,
+        "roles_added": r_added,
+    }
+
+
 def apply_saas_academic_calendar_to_tenants(
     db: Session,
     *,
     academic_year: int,
     tenant_ids: list[UUID] | None = None,
     only_missing: bool = True,
+    only_following: bool = False,
 ) -> dict:
     _ensure_saas_academic_calendar_table(db)
     tenant_term_table = _resolve_existing_table(db, _TENANT_TERM_TABLE_CANDIDATES)
@@ -1606,9 +1682,12 @@ def apply_saas_academic_calendar_to_tenants(
             select(Tenant.id).where(Tenant.id.in_(tenant_ids))
         ).scalars().all()
     else:
-        tenants = db.execute(
-            select(Tenant.id).where(Tenant.is_active == True)
-        ).scalars().all()
+        conditions = [Tenant.is_active == True]
+        # Auto-sync only targets schools that follow the platform calendar;
+        # schools that self-manage their terms are left untouched.
+        if only_following:
+            conditions.append(Tenant.follows_platform_calendar == True)
+        tenants = db.execute(select(Tenant.id).where(*conditions)).scalars().all()
 
     if not tenants:
         return {

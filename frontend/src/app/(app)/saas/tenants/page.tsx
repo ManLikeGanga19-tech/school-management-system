@@ -3,9 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePersistedState } from "@/lib/usePersistedState";
 import { apiFetch } from "@/lib/api";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
-import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { AdminShell } from "@/components/admin/AdminShell";
+import { DashboardStatCard } from "@/components/admin/admin-primitives";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -76,6 +75,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,6 +92,8 @@ type TenantRow = {
   name: string;
   primary_domain: string | null;
   is_active: boolean;
+  curriculum?: string | null;
+  badge_url?: string | null;
   plan?: string | null;
   user_count?: number | null;
   admin_user_id?: string | null;
@@ -128,7 +137,7 @@ function timeAgo(iso?: string | null) {
 
 function avatarColor(id: string) {
   const palette = [
-    "bg-blue-100 text-blue-700",
+    "bg-[var(--admin-gold-soft)] text-[#8a6d00]",
     "bg-emerald-100 text-emerald-700",
     "bg-amber-100 text-amber-700",
     "bg-purple-100 text-purple-700",
@@ -138,6 +147,33 @@ function avatarColor(id: string) {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
   return palette[Math.abs(hash) % palette.length];
+}
+
+/**
+ * Tenant avatar — shows the school's uploaded badge when it has one, and falls
+ * back to a colored initial when the badge is unset or fails to load. The badge
+ * URL comes straight from the tenant row (backend), so as soon as a school adds
+ * its badge it appears here in the Super-Admin tenant list.
+ */
+function TenantAvatar({ name, id, badgeUrl }: { name: string; id: string; badgeUrl?: string | null }) {
+  const [broken, setBroken] = useState(false);
+  const showBadge = !!badgeUrl && !broken;
+  return (
+    <div className={`relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full text-xs font-bold ring-1 ring-[var(--admin-border)] ${showBadge ? "bg-white" : avatarColor(id)}`}>
+      {showBadge ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={badgeUrl as string}
+          alt={`${name} badge`}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <span>{name[0]?.toUpperCase() ?? "T"}</span>
+      )}
+    </div>
+  );
 }
 
 function formatBillingPlan(plan?: string | null): string {
@@ -226,6 +262,8 @@ export default function SaaSTenantsPage() {
   // Filters
   const [q, setQ]           = useState("");
   const [status, setStatus] = usePersistedState<"all" | "active" | "inactive">("saas.tenants.status", "all");
+  const [planFilter, setPlanFilter] = usePersistedState<string>("saas.tenants.plan", "all");
+  const [curriculumFilter, setCurriculumFilter] = usePersistedState<string>("saas.tenants.curriculum", "all");
 
   // Confirm dialogs
   const [suspendTarget, setSuspendTarget] = useState<TenantRow | null>(null);
@@ -637,6 +675,11 @@ export default function SaaSTenantsPage() {
   const activeCount   = rows.filter((r) => r.is_active).length;
   const inactiveCount = rows.length - activeCount;
   const activeRate    = rows.length > 0 ? Math.round((activeCount / rows.length) * 100) : 0;
+  const newThisMonth  = rows.filter((r) => {
+    if (!r.created_at) return false;
+    const d = new Date(r.created_at); const now = new Date();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }).length;
 
   const filteredRows = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -645,19 +688,24 @@ export default function SaaSTenantsPage() {
         status === "all" ||
         (status === "active" && r.is_active) ||
         (status === "inactive" && !r.is_active);
+      const matchPlan =
+        planFilter === "all" ||
+        (planFilter === "none" ? !r.plan : r.plan === planFilter);
+      const matchCurriculum =
+        curriculumFilter === "all" || (r.curriculum ?? "") === curriculumFilter;
       const matchSearch =
         !term ||
         r.name.toLowerCase().includes(term) ||
         r.slug.toLowerCase().includes(term) ||
         (r.primary_domain ?? "").toLowerCase().includes(term);
-      return matchStatus && matchSearch;
+      return matchStatus && matchPlan && matchCurriculum && matchSearch;
     });
-  }, [rows, q, status]);
+  }, [rows, q, status, planFilter, curriculumFilter]);
 
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/tenants">
+    <AdminShell title="Super Admin" activeHref="/saas/tenants">
 
       {/* ── Create tenant dialog ── */}
       <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) resetCreateForm(); }}>
@@ -683,7 +731,7 @@ export default function SaaSTenantsPage() {
                   className="font-mono"
                 />
                 {cSlugManual && (
-                  <button type="button" onClick={() => { setCSlug(slugify(cName)); setCSlugManual(false); }} className="shrink-0 text-xs text-blue-500 hover:underline">
+                  <button type="button" onClick={() => { setCSlug(slugify(cName)); setCSlugManual(false); }} className="shrink-0 text-xs text-[var(--admin-slate)] hover:underline">
                     Reset
                   </button>
                 )}
@@ -704,7 +752,7 @@ export default function SaaSTenantsPage() {
                       setCDomain(suggestTenantDomain(cSlug));
                       setCDomainManual(false);
                     }}
-                    className="shrink-0 text-xs text-blue-500 hover:underline"
+                    className="shrink-0 text-xs text-[var(--admin-slate)] hover:underline"
                   >
                     Autofill
                   </button>
@@ -757,7 +805,7 @@ export default function SaaSTenantsPage() {
                   <button
                     type="button"
                     onClick={() => setCAdminPassword(generateTenantPassword())}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-[#8a6d00] hover:text-[#8a6d00]"
                   >
                     <WandSparkles className="h-3.5 w-3.5" />
                     Generate secure password
@@ -802,21 +850,21 @@ export default function SaaSTenantsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <Sheet
         open={editOpen}
         onOpenChange={(open) => {
           setEditOpen(open);
           if (!open) resetEditForm();
         }}
       >
-        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Edit Tenant Profile</DialogTitle>
-            <DialogDescription>
+        <SheetContent side="right" className="p-0 sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>Edit Tenant Profile</SheetTitle>
+            <SheetDescription>
               Update tenant identity, override the routed domain, and reset the director login pack when needed.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-1">
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 space-y-4 overflow-y-auto p-6">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-slate-600">Institution Name</Label>
@@ -835,7 +883,7 @@ export default function SaaSTenantsPage() {
                         setESlugManual(false);
                         if (!eDomainManual) setEDomain(suggestTenantDomain(nextSlug));
                       }}
-                      className="shrink-0 text-xs text-blue-500 hover:underline"
+                      className="shrink-0 text-xs text-[var(--admin-slate)] hover:underline"
                     >
                       Reset
                     </button>
@@ -854,7 +902,7 @@ export default function SaaSTenantsPage() {
                     setEDomain(suggestTenantDomain(eSlug));
                     setEDomainManual(false);
                   }}
-                  className="shrink-0 text-xs text-blue-500 hover:underline"
+                  className="shrink-0 text-xs text-[var(--admin-slate)] hover:underline"
                 >
                   Autofill
                 </button>
@@ -892,7 +940,7 @@ export default function SaaSTenantsPage() {
                   <button
                     type="button"
                     onClick={() => setEAdminPassword(generateTenantPassword())}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-[#8a6d00] hover:text-[#8a6d00]"
                   >
                     <WandSparkles className="h-3.5 w-3.5" />
                     Generate secure password
@@ -916,14 +964,14 @@ export default function SaaSTenantsPage() {
               )}
             </div>
           </div>
-          <DialogFooter>
+          <SheetFooter>
             <Button variant="outline" onClick={() => { setEditOpen(false); resetEditForm(); }} disabled={editing}>Cancel</Button>
-            <Button onClick={() => void saveTenantChanges()} disabled={editing || !editTarget} className="bg-blue-600 hover:bg-blue-700">
+            <Button onClick={() => void saveTenantChanges()} disabled={editing || !editTarget} className="bg-[var(--admin-primary)] hover:bg-[var(--admin-slate)]">
               {editing ? "Saving…" : "Save Tenant Changes"}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       {/* ── Print profile dialog ── */}
       <Dialog
@@ -1060,7 +1108,7 @@ export default function SaaSTenantsPage() {
             <Button
               onClick={() => void savePrintProfileSettings()}
               disabled={profileBusy || !profileTarget}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-[var(--admin-primary)] hover:bg-[var(--admin-slate)]"
             >
               {profileBusy ? "Saving…" : "Save Print Profile"}
             </Button>
@@ -1127,6 +1175,7 @@ export default function SaaSTenantsPage() {
             { label: "Total", value: rows.length },
             { label: "Active", value: activeCount },
             { label: "Inactive", value: inactiveCount, tone: inactiveCount > 0 ? "warning" : "default" },
+            { label: "New this month", value: newThisMonth },
           ]}
         />
 
@@ -1233,9 +1282,35 @@ export default function SaaSTenantsPage() {
                 </SelectContent>
               </Select>
 
+              {/* Plan filter */}
+              <Select value={planFilter} onValueChange={(v: any) => setPlanFilter(v)}>
+                <SelectTrigger className="h-8 w-full text-xs sm:w-36">
+                  <SelectValue placeholder="Plan" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All plans</SelectItem>
+                  <SelectItem value="per_term">{formatBillingPlan("per_term")}</SelectItem>
+                  <SelectItem value="per_year">{formatBillingPlan("per_year")}</SelectItem>
+                  <SelectItem value="none">No plan</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Curriculum filter */}
+              <Select value={curriculumFilter} onValueChange={(v: any) => setCurriculumFilter(v)}>
+                <SelectTrigger className="h-8 w-full text-xs sm:w-36">
+                  <SelectValue placeholder="Curriculum" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All curricula</SelectItem>
+                  <SelectItem value="CBC">CBC</SelectItem>
+                  <SelectItem value="8-4-4">8-4-4</SelectItem>
+                  <SelectItem value="IGCSE">IGCSE</SelectItem>
+                </SelectContent>
+              </Select>
+
               <Button
                 size="sm"
-                className="h-8 bg-blue-600 text-xs hover:bg-blue-700"
+                className="h-8 bg-[var(--admin-primary)] text-xs hover:bg-[var(--admin-slate)]"
                 onClick={() => void load()}
                 disabled={loading}
               >
@@ -1275,6 +1350,7 @@ export default function SaaSTenantsPage() {
                   <TableHead className="text-xs">Slug</TableHead>
                   <TableHead className="text-xs">Domain</TableHead>
                   <TableHead className="text-xs">Billing Plan</TableHead>
+                  <TableHead className="text-xs">Curriculum</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Created</TableHead>
                   <TableHead className="w-56 text-xs">Actions</TableHead>
@@ -1286,7 +1362,7 @@ export default function SaaSTenantsPage() {
                 {loading && (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      <TableCell colSpan={8} className="py-3 px-5">
+                      <TableCell colSpan={9} className="py-3 px-5">
                         <Skeleton className="h-10 w-full rounded-xl" />
                       </TableCell>
                     </TableRow>
@@ -1296,7 +1372,7 @@ export default function SaaSTenantsPage() {
                 {/* Empty state */}
                 {!loading && filteredRows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-12 text-center">
+                    <TableCell colSpan={9} className="py-12 text-center">
                       <div className="flex flex-col items-center gap-1">
                         <Building2 className="h-7 w-7 text-slate-200" />
                         <p className="text-sm text-slate-400">
@@ -1307,7 +1383,7 @@ export default function SaaSTenantsPage() {
                         {(q.trim() || status !== "all") && (
                           <button
                             onClick={() => { setQ(""); setStatus("all"); }}
-                            className="mt-1 text-xs text-blue-500 hover:underline"
+                            className="mt-1 text-xs text-[var(--admin-slate)] hover:underline"
                           >
                             Clear filters
                           </button>
@@ -1321,11 +1397,9 @@ export default function SaaSTenantsPage() {
                 {!loading && filteredRows.map((t) => (
                   <TableRow key={t.id} className="hover:bg-slate-50">
 
-                    {/* Avatar */}
+                    {/* Avatar — school badge when set, else colored initial */}
                     <TableCell className="py-3 pl-5">
-                      <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${avatarColor(t.id)}`}>
-                        {t.name[0]?.toUpperCase() ?? "T"}
-                      </div>
+                      <TenantAvatar name={t.name} id={t.id} badgeUrl={t.badge_url} />
                     </TableCell>
 
                     {/* Name + user count */}
@@ -1376,9 +1450,18 @@ export default function SaaSTenantsPage() {
                     {/* Billing plan */}
                     <TableCell className="py-3">
                       {t.plan ? (
-                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
+                        <span className="rounded-full bg-[var(--admin-gold-soft)] px-2 py-0.5 text-xs font-medium text-[#8a6d00] ring-1 ring-[var(--admin-border)]">
                           {formatBillingPlan(t.plan)}
                         </span>
+                      ) : (
+                        <span className="text-xs text-slate-300">—</span>
+                      )}
+                    </TableCell>
+
+                    {/* Curriculum */}
+                    <TableCell className="py-3">
+                      {t.curriculum ? (
+                        <span className="text-xs font-medium text-[var(--admin-ink)]">{t.curriculum}</span>
                       ) : (
                         <span className="text-xs text-slate-300">—</span>
                       )}
@@ -1468,6 +1551,6 @@ export default function SaaSTenantsPage() {
           )}
         </SaasSurface>
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }

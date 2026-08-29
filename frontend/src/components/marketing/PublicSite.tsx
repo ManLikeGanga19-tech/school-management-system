@@ -76,8 +76,8 @@ export function PublicSite({
             </div>
 
             <div className="flex flex-wrap justify-center lg:justify-start items-center gap-5">
-              <Image src="/brand/kicd-logo.png" alt="Aligned with KICD standards" width={92} height={24} className="h-6 w-auto object-contain" />
-              <Image src="/brand/kemis-logo.png" alt="KEMIS / ULI compliant" width={114} height={24} className="h-6 w-auto object-contain" />
+              <Image src="/brand/kicd-logo.png" alt="Aligned with KICD standards" width={123} height={32} className="h-8 w-auto object-contain" />
+              <Image src="/brand/kemis-logo.png" alt="KEMIS / ULI compliant" width={50} height={48} className="h-12 w-auto object-contain" />
               <div className="flex gap-1 text-amber-brown">
                 {[1,2,3,4,5].map(i => <Star key={i} className="w-4 h-4 fill-current" />)}
               </div>

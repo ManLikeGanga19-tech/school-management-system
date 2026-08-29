@@ -406,9 +406,9 @@ export function ScanReceiptPage({ appTitle, nav, activeHref }: Props) {
                   value={
                     <span className="inline-flex items-center gap-1">
                       {isReceipt ? (
-                        <ReceiptText className="h-3.5 w-3.5 text-teal-600" />
+                        <ReceiptText className="h-3.5 w-3.5 text-emerald-600" />
                       ) : (
-                        <FileText className="h-3.5 w-3.5 text-teal-600" />
+                        <FileText className="h-3.5 w-3.5 text-emerald-600" />
                       )}
                       {docLabel}
                     </span>

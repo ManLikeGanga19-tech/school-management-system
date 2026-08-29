@@ -66,10 +66,10 @@ function StatusBadge({ active }: { active: boolean }) {
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
         active
           ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-          : "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
+          : "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]"
       }`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-emerald-500" : "bg-slate-400"}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-emerald-500" : "bg-[var(--tenant-muted)]"}`} />
       {active ? "Active" : "Inactive"}
     </span>
   );
@@ -80,8 +80,8 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
     <TableRow>
       <TableCell colSpan={colSpan} className="py-12 text-center">
         <div className="flex flex-col items-center gap-1.5">
-          <ClipboardList className="h-7 w-7 text-slate-300" />
-          <span className="text-sm text-slate-400">{message}</span>
+          <ClipboardList className="h-7 w-7 text-[var(--tenant-border)]" />
+          <span className="text-sm text-[var(--tenant-muted)]">{message}</span>
         </div>
       </TableCell>
     </TableRow>
@@ -145,11 +145,11 @@ function AllocationRow({
 
   return (
     <>
-      <TableRow className="hover:bg-slate-50">
-        <TableCell className="text-sm font-medium text-slate-800">
+      <TableRow className="hover:bg-[var(--tenant-surface-2)]">
+        <TableCell className="text-sm font-medium text-[var(--tenant-ink)]">
           <div>{scholarship.name}</div>
           {scholarship.description && (
-            <div className="text-xs text-slate-400 mt-0.5">{scholarship.description}</div>
+            <div className="text-xs text-[var(--tenant-muted)] mt-0.5">{scholarship.description}</div>
           )}
         </TableCell>
         <TableCell>
@@ -157,16 +157,16 @@ function AllocationRow({
             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
               scholarship.type === "PERCENTAGE"
                 ? "bg-purple-50 text-purple-700"
-                : "bg-blue-50 text-blue-700"
+                : "bg-[var(--tenant-primary-soft)] text-[var(--tenant-primary)]"
             }`}
           >
             {scholarship.type === "PERCENTAGE" ? "%" : "KES"}
           </span>
         </TableCell>
         <TableCell>
-          <div className="text-sm font-semibold text-slate-700">{perStudentAmount(scholarship)}</div>
+          <div className="text-sm font-semibold text-[var(--tenant-ink)]">{perStudentAmount(scholarship)}</div>
           {scholarship.max_recipients && scholarship.max_recipients > 1 && (
-            <div className="text-xs text-slate-400">
+            <div className="text-xs text-[var(--tenant-muted)]">
               Pool: {formatAmount(scholarship.value)} ÷ {scholarship.max_recipients} students
             </div>
           )}
@@ -177,7 +177,7 @@ function AllocationRow({
         <TableCell>
           <button
             onClick={() => void loadAllocations()}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--tenant-muted)] hover:bg-[var(--tenant-surface-2)] hover:text-[var(--tenant-ink)] transition"
           >
             <Users className="h-3.5 w-3.5" />
             Recipients
@@ -219,45 +219,45 @@ function AllocationRow({
       </TableRow>
       {open && (
         <TableRow>
-          <TableCell colSpan={readonly ? 5 : 6} className="bg-slate-50 px-6 pb-4 pt-0">
+          <TableCell colSpan={readonly ? 5 : 6} className="bg-[var(--tenant-surface-2)] px-6 pb-4 pt-0">
             {loading ? (
-              <div className="py-4 text-center text-xs text-slate-400">Loading recipients…</div>
+              <div className="py-4 text-center text-xs text-[var(--tenant-muted)]">Loading recipients…</div>
             ) : allocations.length === 0 ? (
-              <div className="py-4 text-center text-xs text-slate-400">
+              <div className="py-4 text-center text-xs text-[var(--tenant-muted)]">
                 No students have received this scholarship yet.
               </div>
             ) : (
-              <div className="mt-2 rounded-lg border border-slate-200 bg-white overflow-hidden">
-                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
-                  <span className="text-xs font-semibold text-slate-600">
+              <div className="mt-2 rounded-lg border border-[var(--tenant-border)] bg-white overflow-x-auto">
+                <div className="flex items-center justify-between border-b border-[var(--tenant-border)] px-4 py-2">
+                  <span className="text-xs font-semibold text-[var(--tenant-muted)]">
                     {allocations.length} recipient{allocations.length !== 1 ? "s" : ""}
                   </span>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-[var(--tenant-muted)]">
                     Total distributed: <strong>{formatAmount(totalAllocated)}</strong>
                   </span>
                 </div>
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
-                      <th className="px-4 py-2 text-left font-medium text-slate-500">Student</th>
-                      <th className="px-4 py-2 text-left font-medium text-slate-500">Adm No.</th>
-                      <th className="px-4 py-2 text-right font-medium text-slate-500">Amount</th>
-                      <th className="px-4 py-2 text-left font-medium text-slate-500">Invoice</th>
-                      <th className="px-4 py-2 text-left font-medium text-slate-500">Reason</th>
-                      <th className="px-4 py-2 text-left font-medium text-slate-500">Date</th>
+                    <tr className="border-b border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]">
+                      <th className="px-4 py-2 text-left font-medium text-[var(--tenant-muted)]">Student</th>
+                      <th className="px-4 py-2 text-left font-medium text-[var(--tenant-muted)]">Adm No.</th>
+                      <th className="px-4 py-2 text-right font-medium text-[var(--tenant-muted)]">Amount</th>
+                      <th className="px-4 py-2 text-left font-medium text-[var(--tenant-muted)]">Invoice</th>
+                      <th className="px-4 py-2 text-left font-medium text-[var(--tenant-muted)]">Reason</th>
+                      <th className="px-4 py-2 text-left font-medium text-[var(--tenant-muted)]">Date</th>
                     </tr>
                   </thead>
                   <tbody>
                     {allocations.map((a) => (
-                      <tr key={a.allocation_id} className="border-b border-slate-50 last:border-0">
-                        <td className="px-4 py-2 font-medium text-slate-700">{a.student_name}</td>
-                        <td className="px-4 py-2 text-slate-500 font-mono">{a.admission_no || "—"}</td>
+                      <tr key={a.allocation_id} className="border-b border-[var(--tenant-border)] last:border-0">
+                        <td className="px-4 py-2 font-medium text-[var(--tenant-ink)]">{a.student_name}</td>
+                        <td className="px-4 py-2 text-[var(--tenant-muted)] font-mono">{a.admission_no || "—"}</td>
                         <td className="px-4 py-2 text-right font-semibold text-emerald-700">
                           {formatAmount(a.amount)}
                         </td>
-                        <td className="px-4 py-2 text-slate-500 font-mono">{a.invoice_no || "—"}</td>
-                        <td className="px-4 py-2 text-slate-500 max-w-[180px] truncate">{a.reason || "—"}</td>
-                        <td className="px-4 py-2 text-slate-400">
+                        <td className="px-4 py-2 text-[var(--tenant-muted)] font-mono">{a.invoice_no || "—"}</td>
+                        <td className="px-4 py-2 text-[var(--tenant-muted)] max-w-[180px] truncate">{a.reason || "—"}</td>
+                        <td className="px-4 py-2 text-[var(--tenant-muted)]">
                           {a.created_at ? new Date(a.created_at).toLocaleDateString() : "—"}
                         </td>
                       </tr>
@@ -456,8 +456,8 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
       >
         <div className="flex min-h-[380px] items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500">Loading scholarships…</p>
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--tenant-primary)] border-t-transparent" />
+            <p className="text-sm text-[var(--tenant-muted)]">Loading scholarships…</p>
           </div>
         </div>
       </AppShell>
@@ -502,13 +502,13 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
           />
         )}
 
-        <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div className="rounded-2xl border border-[var(--tenant-border)] bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-[var(--tenant-border)] px-4 py-4 sm:px-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <GraduationCap className="h-4 w-4 text-slate-400" />
+              <GraduationCap className="h-4 w-4 text-[var(--tenant-muted)]" />
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">Scholarships</h2>
-                <p className="text-xs text-slate-400">
+                <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">Scholarships</h2>
+                <p className="text-xs text-[var(--tenant-muted)]">
                   {scholarships.length} scholarship{scholarships.length !== 1 ? "s" : ""} defined
                 </p>
               </div>
@@ -522,7 +522,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
           </div>
 
           {scholarships.length > 5 && (
-            <div className="flex flex-col gap-2 border-b border-slate-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 border-b border-[var(--tenant-border)] px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
               <Input
                 placeholder="Search scholarships…"
                 value={scholarshipTable.filters.q}
@@ -531,7 +531,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
                 }
                 className="max-w-xs"
               />
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-[var(--tenant-muted)]">
                 <TableRangeCaption meta={scholarshipTable.meta} />
               </span>
             </div>
@@ -540,7 +540,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50">
+                <TableRow className="bg-[var(--tenant-surface-2)]">
                   <TableHead className="text-xs">Name</TableHead>
                   <TableHead className="text-xs">Type</TableHead>
                   <TableHead className="text-xs">Value / Per Student</TableHead>
@@ -579,7 +579,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
           </div>
 
           {scholarships.length > 30 && (
-            <div className="border-t border-slate-100 px-4 py-3">
+            <div className="border-t border-[var(--tenant-border)] px-4 py-3">
               <TablePaginationFooter
                 meta={scholarshipTable.meta}
                 page={scholarshipTable.page}
@@ -591,8 +591,8 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
           )}
 
           {!readonly && scholarships.length > 0 && (
-            <div className="border-t border-slate-100 px-6 py-3">
-              <p className="text-xs text-slate-400">
+            <div className="border-t border-[var(--tenant-border)] px-6 py-3">
+              <p className="text-xs text-[var(--tenant-muted)]">
                 Click Recipients to see all students who received each scholarship. Use the actions menu in each row to edit or delete.
               </p>
             </div>
@@ -686,7 +686,7 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
                   onChange={(e) => setForm((p) => ({ ...p, max_recipients: e.target.value }))}
                 />
                 {form.max_recipients && form.value && toNumber(form.max_recipients) > 0 && (
-                  <p className="text-xs text-blue-600">
+                  <p className="text-xs text-[var(--tenant-primary)]">
                     Per student: {" "}
                     <strong>
                       KES {(toNumber(form.value) / toNumber(form.max_recipients)).toFixed(2)}
@@ -711,18 +711,18 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
             )}
 
             {form.type === "FULL_WAIVER" && (
-              <label className="flex items-start gap-2 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-sm text-slate-700">
+              <label className="flex items-start gap-2 rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]/50 px-3 py-2 text-sm text-[var(--tenant-ink)]">
                 <input
                   type="checkbox"
                   checked={form.covers_carry_forward}
                   onChange={(e) =>
                     setForm((p) => ({ ...p, covers_carry_forward: e.target.checked }))
                   }
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600"
+                  className="mt-0.5 h-4 w-4 rounded border-[var(--tenant-border)] text-[var(--tenant-primary)]"
                 />
                 <span>
                   Also clear carry-forward arrears
-                  <span className="block text-xs text-slate-500">
+                  <span className="block text-xs text-[var(--tenant-muted)]">
                     When checked, the waiver also covers any unpaid balance from
                     prior terms bundled into the new invoice. Default: arrears
                     stay billed.
@@ -731,12 +731,12 @@ export function ScholarshipsPage({ role, nav, activeHref }: Props) {
               </label>
             )}
 
-            <label className="flex items-center gap-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 text-sm text-[var(--tenant-ink)]">
               <input
                 type="checkbox"
                 checked={form.is_active}
                 onChange={(e) => setForm((p) => ({ ...p, is_active: e.target.checked }))}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                className="h-4 w-4 rounded border-[var(--tenant-border)] text-[var(--tenant-primary)]"
               />
               Active
             </label>

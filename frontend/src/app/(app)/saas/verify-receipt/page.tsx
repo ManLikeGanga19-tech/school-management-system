@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { CheckCircle2, XCircle, ShieldCheck, Search } from "lucide-react";
 
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,7 +79,7 @@ export default function SaaSVerifyReceiptPage() {
   }
 
   return (
-    <AppShell title="SaaS Admin" nav={saasNav} activeHref="/saas/verify-receipt">
+    <AdminShell title="SaaS Admin" activeHref="/saas/verify-receipt">
       <div className="space-y-6 max-w-2xl">
         <SaasPageHeader
           title="Receipt Verification"
@@ -177,7 +176,7 @@ export default function SaaSVerifyReceiptPage() {
           </SaasSurface>
         )}
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }
 

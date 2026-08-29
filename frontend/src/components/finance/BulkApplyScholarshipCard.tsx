@@ -195,7 +195,7 @@ export function BulkApplyScholarshipCard({
               </SelectTrigger>
               <SelectContent>
                 {activeScholarships.length === 0 && (
-                  <div className="px-2 py-1 text-xs text-slate-400">
+                  <div className="px-2 py-1 text-xs text-[var(--tenant-muted)]">
                     No active scholarships
                   </div>
                 )}
@@ -215,7 +215,7 @@ export function BulkApplyScholarshipCard({
               </SelectTrigger>
               <SelectContent>
                 {classOptions.length === 0 && (
-                  <div className="px-2 py-1 text-xs text-slate-400">
+                  <div className="px-2 py-1 text-xs text-[var(--tenant-muted)]">
                     No classes loaded
                   </div>
                 )}
@@ -289,7 +289,7 @@ export function BulkApplyScholarshipCard({
         </div>
 
         {result && (
-          <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+          <div className="space-y-3 rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]/60 p-4">
             <div className="flex flex-wrap items-center gap-4 text-sm">
               {result.summary.dry_run && (
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
@@ -311,14 +311,14 @@ export function BulkApplyScholarshipCard({
                 <span className="font-semibold tabular-nums">{result.summary.failed}</span>
                 <span>failed</span>
               </div>
-              <div className="ml-auto text-xs text-slate-400">
+              <div className="ml-auto text-xs text-[var(--tenant-muted)]">
                 Total {result.summary.total}
               </div>
             </div>
 
             {(result.skipped.length > 0 || result.failed.length > 0) && (
-              <details className="rounded-lg border border-slate-200 bg-white p-3 text-xs">
-                <summary className="cursor-pointer font-medium text-slate-600">
+              <details className="rounded-lg border border-[var(--tenant-border)] bg-white p-3 text-xs">
+                <summary className="cursor-pointer font-medium text-[var(--tenant-muted)]">
                   Per-row outcomes
                 </summary>
                 <div className="mt-2 max-h-72 space-y-1 overflow-y-auto">

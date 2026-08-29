@@ -13,8 +13,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { SaasPageHeader } from "@/components/saas/page-chrome";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,8 +47,8 @@ type Quality = {
 const EMPTY: Draft = { title: "", body: "", category: "new", is_published: false };
 
 const CATEGORY: Record<string, string> = {
-  new: "bg-teal-100 text-teal-700",
-  improved: "bg-blue-100 text-blue-700",
+  new: "bg-[var(--admin-gold-soft)] text-[#8a6d00]",
+  improved: "bg-[var(--admin-gold-soft)] text-[#8a6d00]",
   fixed: "bg-slate-200 text-slate-600",
 };
 
@@ -199,7 +198,7 @@ export default function ChangelogAdminPage() {
   }
 
   return (
-    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/changelog">
+    <AdminShell title="Super Admin" activeHref="/saas/changelog">
       <SaasPageHeader
         title="Changelog"
         description="Publish a 'What's New' note after each update — every tenant user sees it as a banner until they dismiss it."
@@ -284,7 +283,7 @@ export default function ChangelogAdminPage() {
           <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                <Sparkles className="h-4 w-4 text-teal-600" />
+                <Sparkles className="h-4 w-4 text-[#8a6d00]" />
                 {editing ? "Edit update" : "New update"}
               </h2>
               <button onClick={() => setDraft(null)} className="text-slate-400 hover:text-slate-600">
@@ -415,6 +414,6 @@ export default function ChangelogAdminPage() {
           </div>
         </div>
       )}
-    </AppShell>
+    </AdminShell>
   );
 }

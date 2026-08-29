@@ -127,7 +127,14 @@ export function studentName(payload: Record<string, unknown>): string {
     const value = payload[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
-  return "Unknown student";
+  // Fall back to composing from name parts — production intake records often
+  // store first/middle/last separately without a combined student_name.
+  const parts = ["first_name", "firstName", "middle_name", "middleName", "last_name", "lastName"]
+    .map((k) => (typeof payload[k] === "string" ? (payload[k] as string).trim() : ""))
+    // avoid double-counting first/middle/last vs their camelCase twins
+    .filter((v, i, a) => v && a.indexOf(v) === i);
+  const composed = parts.join(" ").trim();
+  return composed || "Unknown student";
 }
 
 export function studentClass(payload: Record<string, unknown>): string {

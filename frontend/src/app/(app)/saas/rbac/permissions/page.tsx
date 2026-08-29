@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
-import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { AdminShell } from "@/components/admin/AdminShell";
+import { DashboardStatCard } from "@/components/admin/admin-primitives";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -73,12 +72,12 @@ function categoryFromCode(code: string): string {
 function categoryColor(cat: string): string {
   const map: Record<string, string> = {
     Finance:    "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-    Enrollment: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+    Enrollment: "bg-[var(--admin-gold-soft)] text-[#8a6d00] ring-1 ring-[var(--admin-border)]",
     Rbac:       "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
     Tenant:     "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
     Audit:      "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
     Users:      "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200",
-    Saas:       "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200",
+    Saas:       "bg-[var(--admin-gold-soft)] text-[#8a6d00] ring-1 ring-[var(--admin-border)]",
   };
   return map[cat] ?? "bg-slate-100 text-slate-500 ring-1 ring-slate-200";
 }
@@ -219,7 +218,7 @@ export default function SaaSPermissionsPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/rbac/permissions">
+    <AdminShell title="Super Admin" activeHref="/saas/rbac/permissions">
 
       {/* ── Create dialog — top level ── */}
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
@@ -278,7 +277,7 @@ export default function SaaSPermissionsPage() {
             <Button
               onClick={() => void onCreate()}
               disabled={creating || !cCode.trim() || !cName.trim()}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-[var(--admin-primary)] hover:bg-[var(--admin-slate)]"
             >
               {creating ? (
                 <span className="flex items-center gap-2">
@@ -328,7 +327,7 @@ export default function SaaSPermissionsPage() {
             <Button
               onClick={() => void onSaveEdit()}
               disabled={saving || !eName.trim()}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-[var(--admin-primary)] hover:bg-[var(--admin-slate)]"
             >
               {saving ? "Saving…" : "Save Changes"}
             </Button>
@@ -456,7 +455,7 @@ export default function SaaSPermissionsPage() {
               </Button>
               <Button
                 size="sm"
-                className="h-8 gap-1.5 bg-blue-600 text-xs hover:bg-blue-700"
+                className="h-8 gap-1.5 bg-[var(--admin-primary)] text-xs hover:bg-[var(--admin-slate)]"
                 onClick={() => setOpenCreate(true)}
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -480,7 +479,7 @@ export default function SaaSPermissionsPage() {
                   {q.trim() ? `No permissions match "${q}"` : "No permissions found."}
                 </p>
                 {q.trim() && (
-                  <button onClick={() => setQ("")} className="mt-1 text-xs text-blue-500 hover:underline">
+                  <button onClick={() => setQ("")} className="mt-1 text-xs text-[var(--admin-slate)] hover:underline">
                     Clear search
                   </button>
                 )}
@@ -593,6 +592,6 @@ export default function SaaSPermissionsPage() {
           )}
         </SaasSurface>
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }

@@ -351,7 +351,7 @@ export function BulkGenerateInvoicesCard({ classOptions, onChanged }: Props) {
             )}
             {generating ? "Generating…" : "Generate Drafts"}
           </Button>
-          <p className="ml-auto text-[11px] text-slate-400">
+          <p className="ml-auto text-[11px] text-[var(--tenant-muted)]">
             Preview runs the same logic but persists nothing.
           </p>
         </div>
@@ -367,7 +367,7 @@ export function BulkGenerateInvoicesCard({ classOptions, onChanged }: Props) {
         )}
 
         {sum?.dry_run && (
-          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-blue-800">
+          <div className="rounded-xl border border-[var(--tenant-primary)]/30 bg-[var(--tenant-primary-soft)] px-4 py-2 text-xs text-[var(--tenant-primary)]">
             This was a preview — nothing was persisted. Click <strong>Generate
             Drafts</strong> to commit the same result.
           </div>
@@ -448,8 +448,8 @@ export function BulkGenerateInvoicesCard({ classOptions, onChanged }: Props) {
         )}
 
         {publishResult && (
-          <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-4 text-xs">
-            <p className="font-semibold text-slate-800">
+          <div className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]/40 p-4 text-xs">
+            <p className="font-semibold text-[var(--tenant-ink)]">
               Publish result:{" "}
               <span className="text-emerald-700">{publishResult.summary.published} published</span>
               {publishResult.summary.skipped > 0 && (
@@ -495,7 +495,7 @@ function SummaryStat({
         ? "border-amber-200 bg-amber-50 text-amber-800"
         : tone === "danger"
           ? "border-red-200 bg-red-50 text-red-800"
-          : "border-slate-200 bg-slate-50 text-slate-800";
+          : "border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] text-[var(--tenant-ink)]";
   return (
     <div className={`rounded-xl border px-3 py-2 ${toneCls}`}>
       <div className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
@@ -529,14 +529,14 @@ function OutcomeTable({
   const Icon =
     tone === "success" ? CheckCircle2 : tone === "warn" ? AlertTriangle : AlertCircle;
   return (
-    <div className="rounded-xl border border-slate-100 overflow-hidden">
+    <div className="rounded-xl border border-[var(--tenant-border)] overflow-hidden">
       <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold ${headerCls}`}>
         <Icon className="h-3.5 w-3.5" />
         {title}
       </div>
       <Table>
         <TableHeader>
-          <TableRow className="bg-slate-50">
+          <TableRow className="bg-[var(--tenant-surface-2)]">
             <TableHead className="text-xs">Student</TableHead>
             <TableHead className="text-xs">Class</TableHead>
             <TableHead className="text-xs">Result</TableHead>
@@ -546,15 +546,15 @@ function OutcomeTable({
         <TableBody>
           {rows.map((r) => (
             <TableRow key={r.key}>
-              <TableCell className="text-sm font-medium text-slate-800">
+              <TableCell className="text-sm font-medium text-[var(--tenant-ink)]">
                 {r.left}
               </TableCell>
-              <TableCell className="text-xs text-slate-600">{r.middle}</TableCell>
+              <TableCell className="text-xs text-[var(--tenant-muted)]">{r.middle}</TableCell>
               <TableCell className="text-xs">
-                <div className="font-semibold text-slate-800">{r.right}</div>
-                {r.meta && <div className="text-[11px] text-slate-500">{r.meta}</div>}
+                <div className="font-semibold text-[var(--tenant-ink)]">{r.right}</div>
+                {r.meta && <div className="text-[11px] text-[var(--tenant-muted)]">{r.meta}</div>}
               </TableCell>
-              <TableCell className="font-mono text-xs text-blue-700">
+              <TableCell className="font-mono text-xs text-[var(--tenant-primary)]">
                 {r.invoice || "—"}
               </TableCell>
             </TableRow>

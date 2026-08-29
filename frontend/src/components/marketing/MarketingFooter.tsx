@@ -31,9 +31,9 @@ export function MarketingFooter() {
             <div className="mt-8">
               <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-warm-cream/40 mb-3">Aligned with</p>
               <div className="inline-flex items-center gap-4 rounded-xl bg-white/95 px-4 py-2.5">
-                <Image src="/brand/kicd-logo.png" alt="KICD" width={84} height={22} className="h-[22px] w-auto object-contain" />
-                <span className="h-6 w-px bg-brand-border/60" />
-                <Image src="/brand/kemis-logo.png" alt="KEMIS" width={100} height={22} className="h-[22px] w-auto object-contain" />
+                <Image src="/brand/kicd-logo.png" alt="KICD" width={108} height={28} className="h-7 w-auto object-contain" />
+                <span className="h-9 w-px bg-brand-border/60" />
+                <Image src="/brand/kemis-logo.png" alt="KEMIS" width={46} height={44} className="h-11 w-auto object-contain" />
               </div>
             </div>
           </div>

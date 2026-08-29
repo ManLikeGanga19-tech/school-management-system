@@ -36,32 +36,36 @@ import { formatKes } from "@/lib/format";
 
 // ── Shared palette (matches dashboard-primitives tones) ─────────────────────
 
+// Warm-anchored, CVD-safe palette (validated with the dataviz validator). The
+// warm cards/shell carry the gold/orange identity; charts still need distinct
+// hues, so semantic series map to a validated categorical set. Neutral "gray"
+// is reserved for unspecified/other.
 export const CHART_PALETTE = {
-  male: "#1f4d6b",
-  maleSoft: "#cfe0ec",
-  female: "#b9512d",
-  femaleSoft: "#f3d8c6",
-  unspecified: "#94a3b8",
-  unspecifiedSoft: "#e2e8f0",
-  billed: "#173f49",
-  collected: "#20644f",
-  outstanding: "#a24d35",
-  ink: "#21323a",
-  muted: "#64748b",
-  grid: "#eef2f6",
+  male: "#2a78d6",
+  maleSoft: "#cde2fb",
+  female: "#eb6834",
+  femaleSoft: "#fbd9c8",
+  unspecified: "#a8a29e",
+  unspecifiedSoft: "#e7e1d8",
+  billed: "#eb6834",
+  collected: "#1baf7a",
+  outstanding: "#e34948",
+  ink: "#1c1710",
+  muted: "#78716c",
+  grid: "#efe9df",
 } as const;
 
 const CLASS_COLORS = [
-  "#173f49", "#20644f", "#b9512d", "#8b5a17",
-  "#445661", "#1f4d6b", "#7a4d12", "#a24d35",
+  "#2a78d6", "#eb6834", "#1baf7a", "#eda100",
+  "#e87ba4", "#008300", "#4a3aa7", "#e34948",
 ];
 
 const PROVIDER_COLORS: Record<string, string> = {
-  MPESA: "#20644f",
-  CASH: "#8b5a17",
-  BANK: "#173f49",
-  CHEQUE: "#445661",
-  OTHER: "#94a3b8",
+  MPESA: "#1baf7a",
+  CASH: "#eb6834",
+  BANK: "#2a78d6",
+  CHEQUE: "#4a3aa7",
+  OTHER: "#a8a29e",
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -203,10 +207,10 @@ export function DemographicsDonut({
         </PieChart>
       </ResponsiveContainer>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-        <div className="text-3xl font-bold text-slate-900">
+        <div className="text-3xl font-bold text-[var(--tenant-ink)]">
           {data.total_students.toLocaleString()}
         </div>
-        <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">
+        <div className="text-[11px] uppercase tracking-[0.22em] text-[var(--tenant-muted)]">
           Total students
         </div>
       </div>
@@ -226,11 +230,11 @@ export function DemographicsLegend({ data }: { data: DemographicsData }) {
         <div key={it.name} className="flex items-center justify-between gap-3 text-sm">
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: it.color }} />
-            <span className="text-slate-600">{it.name}</span>
+            <span className="text-[var(--tenant-muted)]">{it.name}</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="font-semibold text-slate-800">{it.count.toLocaleString()}</span>
-            <span className="text-xs text-slate-400">{it.pct}%</span>
+            <span className="font-semibold text-[var(--tenant-ink)]">{it.count.toLocaleString()}</span>
+            <span className="text-xs text-[var(--tenant-muted)]">{it.pct}%</span>
           </div>
         </div>
       ))}
@@ -253,36 +257,40 @@ export function CollectionRateGauge({
 }) {
   const clamped = Math.max(0, Math.min(100, ratePct));
   const fill =
-    clamped >= 80 ? "#20644f" : clamped >= 50 ? "#8b5a17" : "#a24d35";
+    clamped >= 80 ? "#1baf7a" : clamped >= 50 ? "#eda100" : "#e34948";
   return (
-    <div className="relative" style={{ height }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <RadialBarChart
-          innerRadius="72%"
-          outerRadius="100%"
-          data={[{ name: "Collection rate", value: clamped, fill }]}
-          startAngle={210}
-          endAngle={-30}
-        >
-          <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-          <RadialBar
-            background={{ fill: "#eef2f6" }}
-            dataKey="value"
-            cornerRadius={12}
-          />
-        </RadialBarChart>
-      </ResponsiveContainer>
-      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-        <div className="text-3xl font-bold" style={{ color: fill }}>
-          {clamped}%
-        </div>
-        <div className="mt-1 text-[10px] uppercase tracking-[0.22em] text-slate-400">
-          Collected
-        </div>
-        <div className="mt-2 text-[11px] text-slate-500">
-          {compactCurrency(collected)} of {compactCurrency(billed)}
+    <div>
+      {/* Arc holds only the headline % — the amount caption sits below it, so
+          nothing renders behind the curve. */}
+      <div className="relative mx-auto" style={{ height, maxWidth: Math.round(height * 1.7) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <RadialBarChart
+            innerRadius="70%"
+            outerRadius="100%"
+            data={[{ name: "Collection rate", value: clamped, fill }]}
+            startAngle={210}
+            endAngle={-30}
+          >
+            <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+            <RadialBar
+              background={{ fill: CHART_PALETTE.grid }}
+              dataKey="value"
+              cornerRadius={12}
+            />
+          </RadialBarChart>
+        </ResponsiveContainer>
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <div className="text-3xl font-bold leading-none" style={{ color: fill }}>
+            {clamped}%
+          </div>
+          <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--tenant-muted)]">
+            Collected
+          </div>
         </div>
       </div>
+      <p className="mt-2 text-center text-xs text-[var(--tenant-muted)]">
+        <span className="font-semibold text-[var(--tenant-ink)]">{compactCurrency(collected)}</span> of {compactCurrency(billed)} collected
+      </p>
     </div>
   );
 }

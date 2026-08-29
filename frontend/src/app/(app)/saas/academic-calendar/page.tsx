@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePersistedState } from "@/lib/usePersistedState";
 import { apiFetch } from "@/lib/api";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -296,12 +295,12 @@ export default function SaaSAcademicCalendarPage() {
   }, [academicYear, applyScope, onlyMissing, selectedTenantIds]);
 
   return (
-    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/academic-calendar">
+    <AdminShell title="Super Admin" activeHref="/saas/academic-calendar">
       <div className="space-y-5">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-indigo-200">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-[var(--admin-gold-soft)] px-2.5 py-0.5 text-xs font-medium text-[#8a6d00] ring-1 ring-[var(--admin-border)]">
                 <CalendarDays className="h-3 w-3" />
                 National Calendar Control
               </div>
@@ -544,7 +543,7 @@ export default function SaaSAcademicCalendarPage() {
                           <label
                             key={t.id}
                             className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition ${
-                              checked ? "bg-blue-50 text-blue-700" : "hover:bg-slate-50"
+                              checked ? "bg-[var(--admin-gold-soft)] text-[#8a6d00]" : "hover:bg-slate-50"
                             }`}
                           >
                             <input
@@ -585,6 +584,6 @@ export default function SaaSAcademicCalendarPage() {
           </div>
         </div>
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }

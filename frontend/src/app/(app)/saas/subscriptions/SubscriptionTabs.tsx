@@ -15,7 +15,7 @@ export function SubscriptionTabs() {
   const pathname = usePathname() || "";
 
   return (
-    <div className="mb-5 border-b border-slate-200">
+    <div className="mb-5 border-b border-[var(--admin-border)]">
       <nav className="-mb-px flex gap-1 overflow-x-auto">
         {TABS.map((t) => {
           const active = pathname.startsWith(t.href);
@@ -26,8 +26,8 @@ export function SubscriptionTabs() {
               href={t.href}
               className={`flex shrink-0 items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-sm font-medium transition ${
                 active
-                  ? "border-teal-600 text-teal-700"
-                  : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"
+                  ? "border-[var(--admin-gold)] text-[var(--admin-ink)]"
+                  : "border-transparent text-[var(--admin-muted)] hover:border-[var(--admin-border)] hover:text-[var(--admin-ink)]"
               }`}
             >
               <Icon className="h-4 w-4" />

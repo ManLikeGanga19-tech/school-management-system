@@ -24,7 +24,7 @@ import {
   DashboardModuleCard,
   DashboardSectionLabel,
   DashboardStatCard,
-} from "@/components/dashboard/dashboard-primitives";
+} from "@/components/dashboard/tenant-dashboard-primitives";
 import { TodayAtSchool } from "@/components/dashboard/TodayAtSchool";
 import {
   CollectionRateGauge,
@@ -350,19 +350,64 @@ export default async function DirectorDashboardPage() {
           </div>
         </div>
 
-        {/* ── Today at School ── */}
+        {/* ── Today at School + notifications together at the top ── */}
         <TodayAtSchool data={todayAtSchool} />
+
+        {notifications.length > 0 && (
+          <TenantNotificationsOverview
+            notifications={notifications}
+            unreadCount={unreadNotifications}
+            totalCount={totalNotifications}
+            viewAllHref="/tenant/director/notifications"
+            subtitle="Latest tenant notifications requiring attention"
+          />
+        )}
 
         {/* ── KPI error ── */}
         {hasKpiError && (
-          <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
             <div>
               <div className="font-semibold">Dashboard data unavailable</div>
-              <div className="mt-0.5 text-xs text-amber-600">{data.kpis.error}</div>
+              <div className="mt-0.5 text-xs text-red-600">{data.kpis.error}</div>
             </div>
           </div>
         )}
+
+        {/* ── School overview — students & enrollment lead the page ── */}
+        <div>
+          <DashboardSectionLabel>School Overview</DashboardSectionLabel>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <DashboardStatCard
+              label="Enrolled Students"
+              value={totalEnrolled}
+              sub={`${(enrollments?.by_status?.WITHDRAWN ?? 0) + (enrollments?.by_status?.REJECTED ?? 0)} inactive`}
+              icon={GraduationCap}
+              tone="accent"
+            />
+            <DashboardStatCard
+              label="Pending Intake"
+              value={pendingIntake}
+              sub={pendingIntake > 0 ? "Awaiting review" : "Queue clear"}
+              icon={ClipboardList}
+              tone={pendingIntake > 0 ? "warning" : "sage"}
+            />
+            <DashboardStatCard
+              label="Users"
+              value={school?.total_users ?? 0}
+              sub={`${school?.total_roles ?? 0} role assignment${(school?.total_roles ?? 0) !== 1 ? "s" : ""}`}
+              icon={Users}
+              tone="secondary"
+            />
+            <DashboardStatCard
+              label="Fee Categories"
+              value={school?.fee_categories ?? 0}
+              sub={`${school?.fee_items ?? 0} fee item${(school?.fee_items ?? 0) !== 1 ? "s" : ""}`}
+              icon={CreditCard}
+              tone="neutral"
+            />
+          </div>
+        </div>
 
         {/* ── All-time finance KPIs + gauge + exports ── */}
         <div>
@@ -453,21 +498,62 @@ export default async function DirectorDashboardPage() {
           </div>
         )}
 
-        {/* ── Student demographics (donut + breakdown) ── */}
-        <div>
-          <DashboardSectionLabel>Student Demographics</DashboardSectionLabel>
-          <div className="grid gap-5 lg:grid-cols-3">
-            <div className="dashboard-surface rounded-[1.6rem] p-5 lg:col-span-1">
-              <h3 className="mb-2 text-sm font-semibold text-slate-700">Gender Distribution</h3>
-              <DemographicsDonut data={demographics} height={220} />
-            </div>
-            <div className="dashboard-surface rounded-[1.6rem] p-5 lg:col-span-2">
-              <h3 className="mb-3 text-sm font-semibold text-slate-700">Breakdown</h3>
-              {demographics ? <DemographicsLegend data={demographics} /> : (
-                <p className="text-sm text-slate-400">No student records yet</p>
+        {/* ── Students snapshot + latest payments, side by side ── */}
+        <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+          {/* Student demographics — donut + legend as one unit */}
+          <div>
+            <DashboardSectionLabel>Student Demographics</DashboardSectionLabel>
+            <div className="dashboard-surface rounded-[1.6rem] p-5">
+              {demographics ? (
+                <div className="grid items-center gap-5 sm:grid-cols-[minmax(0,180px)_1fr]">
+                  <DemographicsDonut data={demographics} height={180} />
+                  <DemographicsLegend data={demographics} />
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--tenant-muted)]">No student records yet</p>
               )}
             </div>
           </div>
+
+          {/* Recent payments — slim table to fit the half-width column */}
+          {recentPayments.length > 0 && (
+            <div>
+              <DashboardSectionLabel>Recent Payments</DashboardSectionLabel>
+              <div className="dashboard-surface rounded-[1.6rem] p-5">
+                <div className="mb-3 flex justify-end">
+                  <a
+                    href="/tenant/director/finance?section=payments"
+                    className="text-xs font-medium text-[var(--tenant-primary)] hover:opacity-80"
+                  >
+                    View all →
+                  </a>
+                </div>
+                <div className="overflow-hidden rounded-xl border border-[var(--tenant-border)]">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">
+                        <th className="px-4 py-2.5">Student</th>
+                        <th className="px-4 py-2.5">Method</th>
+                        <th className="px-4 py-2.5 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentPayments.map((pay) => (
+                        <tr key={pay.payment_id} className="border-b border-[var(--tenant-border)] last:border-0 hover:bg-[var(--tenant-surface-2)]">
+                          <td className="px-4 py-2.5 font-medium text-[var(--tenant-ink)]">
+                            {pay.student_name ?? "—"}
+                            <span className="block text-[11px] font-normal text-[var(--tenant-muted)]">{fmtDate(pay.received_at)}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-[var(--tenant-muted)]">{providerLabel(pay.provider)}</td>
+                          <td className="px-4 py-2.5 text-right font-bold tabular-nums text-[var(--tenant-ink)]">{formatKes(pay.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Finance analytics: per-class billed vs collected ── */}
@@ -516,106 +602,6 @@ export default async function DirectorDashboardPage() {
           <ScholarshipsSection scholarships={breakdowns.scholarships} />
         )}
 
-        {/* ── Enrollment + school meta KPIs ── */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <DashboardStatCard
-            label="Enrolled Students"
-            value={totalEnrolled}
-            sub={`${(enrollments?.by_status?.WITHDRAWN ?? 0) + (enrollments?.by_status?.REJECTED ?? 0)} inactive`}
-            icon={GraduationCap}
-            tone="sage"
-          />
-          <DashboardStatCard
-            label="Pending Intake"
-            value={pendingIntake}
-            sub={pendingIntake > 0 ? "Awaiting review" : "Queue clear"}
-            icon={ClipboardList}
-            tone={pendingIntake > 0 ? "warning" : "sage"}
-          />
-          <DashboardStatCard
-            label="Users"
-            value={school?.total_users ?? 0}
-            sub={`${school?.total_roles ?? 0} role assignment${(school?.total_roles ?? 0) !== 1 ? "s" : ""}`}
-            icon={Users}
-            tone="neutral"
-          />
-          <DashboardStatCard
-            label="Fee Categories"
-            value={school?.fee_categories ?? 0}
-            sub={`${school?.fee_items ?? 0} fee item${(school?.fee_items ?? 0) !== 1 ? "s" : ""}`}
-            icon={CreditCard}
-            tone="accent"
-          />
-        </div>
-
-        {/* ── Recent payments ── */}
-        {recentPayments.length > 0 && (
-          <div className="dashboard-surface rounded-[1.6rem] p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-700">Recent Payments</p>
-              <a
-                href="/tenant/director/finance?section=payments"
-                className="text-xs font-medium text-blue-600 hover:text-blue-800"
-              >
-                View all →
-              </a>
-            </div>
-
-            {/* Mobile: card list */}
-            <div className="space-y-2 sm:hidden">
-              {recentPayments.map((pay) => (
-                <div key={pay.payment_id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-3">
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">{pay.student_name ?? "—"}</p>
-                    <p className="text-xs text-slate-500">
-                      {fmtDate(pay.received_at)} · {providerLabel(pay.provider)}
-                    </p>
-                  </div>
-                  <p className="font-bold tabular-nums text-slate-800">{formatKes(pay.amount)}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Desktop: table */}
-            <div className="hidden sm:block overflow-hidden rounded-xl border border-slate-100">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-2.5">Student</th>
-                    <th className="px-4 py-2.5">Method</th>
-                    <th className="px-4 py-2.5">Ref</th>
-                    <th className="px-4 py-2.5">Date</th>
-                    <th className="px-4 py-2.5 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentPayments.map((pay) => (
-                    <tr key={pay.payment_id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                      <td className="px-4 py-2.5 font-medium text-slate-800">{pay.student_name ?? "—"}</td>
-                      <td className="px-4 py-2.5 text-slate-600">{providerLabel(pay.provider)}</td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-slate-500">
-                        {pay.receipt_no || pay.reference || "—"}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{fmtDate(pay.received_at)}</td>
-                      <td className="px-4 py-2.5 text-right font-bold tabular-nums text-slate-800">
-                        {formatKes(pay.amount)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ── Notifications overview ── */}
-        <TenantNotificationsOverview
-          notifications={notifications}
-          unreadCount={unreadNotifications}
-          totalCount={totalNotifications}
-          viewAllHref="/tenant/director/notifications"
-          subtitle="Latest tenant notifications requiring attention"
-        />
 
         {/* ── Module quick links ── */}
         <div>

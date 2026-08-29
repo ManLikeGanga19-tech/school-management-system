@@ -160,7 +160,7 @@ export function ApplyScholarshipDialog({
           </DialogTitle>
           <DialogDescription>
             Apply a scholarship to invoice{" "}
-            <span className="font-mono text-slate-700">
+            <span className="font-mono text-[var(--tenant-ink)]">
               {invoice?.invoice_no ?? invoice?.id?.slice(0, 8)}
             </span>
             . Audit recorded.
@@ -170,17 +170,17 @@ export function ApplyScholarshipDialog({
         {/* Current invoice financial snapshot — shown up front so the
             operator anchors the discount against real numbers. */}
         {invoice && (
-          <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-100 bg-slate-50/60 p-2 text-center text-xs">
+          <div className="grid grid-cols-3 gap-2 rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]/60 p-2 text-center text-xs">
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">
                 Total
               </div>
-              <div className="font-semibold text-slate-700">
+              <div className="font-semibold text-[var(--tenant-ink)]">
                 {formatKes(invoiceTotal)}
               </div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">
                 Paid
               </div>
               <div className="font-semibold text-emerald-700">
@@ -188,7 +188,7 @@ export function ApplyScholarshipDialog({
               </div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--tenant-muted)]">
                 Balance
               </div>
               <div className="font-semibold text-red-600">
@@ -213,7 +213,7 @@ export function ApplyScholarshipDialog({
                 </SelectTrigger>
                 <SelectContent>
                   {activeScholarships.length === 0 && (
-                    <div className="px-2 py-1 text-xs text-slate-400">
+                    <div className="px-2 py-1 text-xs text-[var(--tenant-muted)]">
                       No active scholarships defined.
                     </div>
                   )}
@@ -250,29 +250,29 @@ export function ApplyScholarshipDialog({
               </div>
             )}
             {picked?.type === "PERCENTAGE" && (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-[var(--tenant-muted)]">
                 Auto-computed as {Number(picked.value)}% of the invoice total.
               </p>
             )}
 
             {/* Financial preview — outcome BEFORE clicking Apply. */}
             {picked && (
-              <div className="space-y-1 rounded-lg border border-slate-100 bg-white px-3 py-2 text-xs">
-                <div className="flex justify-between text-slate-500">
+              <div className="space-y-1 rounded-lg border border-[var(--tenant-border)] bg-white px-3 py-2 text-xs">
+                <div className="flex justify-between text-[var(--tenant-muted)]">
                   <span>Discount applied</span>
-                  <span className="font-semibold text-slate-700">
+                  <span className="font-semibold text-[var(--tenant-ink)]">
                     −{formatKes(previewDiscount)}
                   </span>
                 </div>
-                <div className="flex justify-between text-slate-500">
+                <div className="flex justify-between text-[var(--tenant-muted)]">
                   <span>New invoice total</span>
-                  <span className="font-semibold text-slate-800">
+                  <span className="font-semibold text-[var(--tenant-ink)]">
                     {formatKes(previewNewTotal)}
                   </span>
                 </div>
-                <div className="flex justify-between text-slate-500">
+                <div className="flex justify-between text-[var(--tenant-muted)]">
                   <span>New balance</span>
-                  <span className="font-semibold text-slate-800">
+                  <span className="font-semibold text-[var(--tenant-ink)]">
                     {formatKes(previewNewBalance)}
                   </span>
                 </div>

@@ -17,7 +17,7 @@ import {
   DashboardModuleCard,
   DashboardSectionLabel,
   DashboardStatCard,
-} from "@/components/dashboard/dashboard-primitives";
+} from "@/components/dashboard/tenant-dashboard-primitives";
 import {
   principalEventsHref,
   principalExamsHref,
@@ -230,11 +230,11 @@ export default async function PrincipalDashboardPage() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="dashboard-surface rounded-[1.6rem] p-5">
-            <h2 className="text-sm font-semibold text-slate-900">Upcoming Exams</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Next exam windows by date and class scope.</p>
+            <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">Upcoming Exams</h2>
+            <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">Next exam windows by date and class scope.</p>
             <div className="mt-4 space-y-2">
               {upcomingExams.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                <div className="rounded-xl border border-dashed border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-4 py-6 text-sm text-[var(--tenant-muted)]">
                   No upcoming exams scheduled.
                 </div>
               ) : (
@@ -242,16 +242,16 @@ export default async function PrincipalDashboardPage() {
                   <a
                     key={row.id}
                     href={principalExamsHref("timetable")}
-                    className="block rounded-xl border border-[#eadfce] bg-[#f8f3eb] px-3 py-2 transition hover:border-[#d7b699] hover:bg-[#f5ede3]"
+                    className="block rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-3 py-2 transition hover:border-[var(--tenant-primary)]/40"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-slate-900">{row.name}</div>
-                        <div className="text-xs text-slate-500">
+                        <div className="truncate text-sm font-semibold text-[var(--tenant-ink)]">{row.name}</div>
+                        <div className="text-xs text-[var(--tenant-muted)]">
                           {row.class_code || "Class not set"} • {row.status}
                         </div>
                       </div>
-                      <div className="shrink-0 text-xs text-slate-500">{formatDate(row.start_date)}</div>
+                      <div className="shrink-0 text-xs text-[var(--tenant-muted)]">{formatDate(row.start_date)}</div>
                     </div>
                   </a>
                 ))
@@ -260,11 +260,11 @@ export default async function PrincipalDashboardPage() {
           </div>
 
           <div className="dashboard-surface rounded-[1.6rem] p-5">
-            <h2 className="text-sm font-semibold text-slate-900">Notifications Overview</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Latest tenant notifications and unresolved academic alerts.</p>
+            <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">Notifications Overview</h2>
+            <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">Latest tenant notifications and unresolved academic alerts.</p>
             <div className="mt-4 space-y-2">
               {notifications.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                <div className="rounded-xl border border-dashed border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-4 py-6 text-sm text-[var(--tenant-muted)]">
                   No notifications available.
                 </div>
               ) : (
@@ -274,19 +274,19 @@ export default async function PrincipalDashboardPage() {
                     href={principalNotificationsHref()}
                     className={`block rounded-xl border px-3 py-2 transition ${
                       item.unread
-                        ? "border-[#d8e5e7] bg-[#eef5f5] hover:bg-[#e7f0f1]"
-                        : "border-[#eadfce] bg-[#f8f3eb] hover:bg-[#f2ece4]"
+                        ? "border-[var(--tenant-primary)]/30 bg-[var(--tenant-primary-soft)] hover:opacity-90"
+                        : "border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] hover:opacity-90"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-slate-900">{item.title}</div>
-                        <div className="mt-0.5 text-xs text-slate-500">{item.message}</div>
+                        <div className="truncate text-sm font-semibold text-[var(--tenant-ink)]">{item.title}</div>
+                        <div className="mt-0.5 text-xs text-[var(--tenant-muted)]">{item.message}</div>
                       </div>
                       <div className="shrink-0 text-right">
-                        <div className="text-xs text-slate-400">{timeAgo(item.created_at)}</div>
+                        <div className="text-xs text-[var(--tenant-muted)]">{timeAgo(item.created_at)}</div>
                         {item.unread && (
-                          <span className="mt-1 inline-flex rounded-full bg-[#dce9eb] px-2 py-0.5 text-[10px] font-semibold text-[#173f49]">
+                          <span className="mt-1 inline-flex rounded-full bg-[var(--tenant-primary-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--tenant-primary)]">
                             Unread
                           </span>
                         )}

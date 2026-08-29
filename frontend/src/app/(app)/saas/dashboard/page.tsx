@@ -1,14 +1,14 @@
 "use client";
 
 import RequireAuth from "@/components/RequireAuth";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
+import { AdminShell } from "@/components/admin/AdminShell";
 import {
   DashboardModuleCard,
   DashboardSectionLabel,
   DashboardStatCard,
   dashboardBadgeClasses,
-} from "@/components/dashboard/dashboard-primitives";
+} from "@/components/admin/admin-primitives";
+import { DashboardCharts } from "@/components/admin/dashboard-charts";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { formatKes, timeAgo } from "@/lib/format";
@@ -154,7 +154,7 @@ function avatarColor(id: string) {
 function darajaSurfaceClasses(ready: boolean) {
   return ready
     ? "border-[#d8e8df] bg-[#edf6f0]"
-    : "border-[#ead9bb] bg-[#f8efdf]";
+    : "border-[var(--admin-border)] bg-[#f8efdf]";
 }
 
 function darajaStatusIcon(status: DarajaConnectivityCheck["status"]) {
@@ -316,56 +316,56 @@ export default function SaaSDashboardPage() {
 
   return (
     <RequireAuth mode="saas">
-      <AppShell title="Super Admin" nav={saasNav}>
-        <div className="space-y-5">
+      <AdminShell title="Super Admin">
+        <div className="space-y-6">
           {/* ── Header ── */}
-          <div className="dashboard-hero rounded-[2rem] p-6 text-white">
+          <div className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] p-6 shadow-[0_1px_2px_rgba(19,33,41,0.05)]">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="mb-2 flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium backdrop-blur">
-                    <ShieldCheck className="h-3 w-3" />
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--admin-primary)] px-2.5 py-0.5 text-xs font-semibold text-white">
+                    <ShieldCheck className="h-3 w-3 text-[var(--admin-gold)]" />
                     Super Admin
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-white/80">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--admin-surface-2)] px-2.5 py-0.5 text-xs font-medium text-[var(--admin-muted)]">
                     <Globe className="h-3 w-3" />
                     Platform Level
                   </span>
                 </div>
-                <h1 className="text-2xl font-bold">SaaS Control Centre</h1>
-                <p className="mt-0.5 text-sm text-white/80">
+                <h1 className="font-serif text-2xl font-bold tracking-tight text-[var(--admin-ink)]">SaaS Control Centre</h1>
+                <p className="mt-1 text-sm text-[var(--admin-muted)]">
                   Platform-wide overview — tenants, subscriptions, revenue &amp; system health
                 </p>
               </div>
 
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
-                <div className="grid w-full grid-cols-2 gap-2 text-center sm:w-auto sm:grid-cols-3 sm:gap-3">
+                <div className="grid w-full grid-cols-3 gap-3 text-center sm:w-auto">
                   {[
-                    { label: "Total Tenants", value: summary?.total_tenants ?? "—" },
-                    { label: "Active", value: summary?.active_tenants ?? "—" },
-                    { label: "Inactive", value: summary?.inactive_tenants ?? "—" },
+                    { label: "Total", value: summary?.total_tenants ?? "—", tone: "text-[var(--admin-ink)]" },
+                    { label: "Active", value: summary?.active_tenants ?? "—", tone: "text-[var(--admin-success)]" },
+                    { label: "Inactive", value: summary?.inactive_tenants ?? "—", tone: "text-[var(--admin-error)]" },
                   ].map((item) => (
-                    <div key={item.label} className="rounded-xl bg-white/10 px-3 py-2 backdrop-blur sm:px-4">
+                    <div key={item.label} className="rounded-lg border border-[var(--admin-border)] bg-[var(--admin-surface-2)] px-4 py-2">
                       {headerLoading ? (
-                        <Skeleton className="mx-auto h-6 w-10 bg-white/20" />
+                        <Skeleton className="mx-auto h-6 w-10" />
                       ) : (
-                        <div className="text-lg font-bold text-white sm:text-xl">{item.value}</div>
+                        <div className={`text-xl font-bold ${item.tone}`}>{item.value}</div>
                       )}
-                      <div className="text-xs text-white/65">{item.label}</div>
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--admin-muted)]">{item.label}</div>
                     </div>
                   ))}
                 </div>
 
-                <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-3">
+                <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
                   {lastUpdated && (
-                    <span className="text-xs text-white/65">
+                    <span className="text-xs text-[var(--admin-muted)]">
                       Updated {timeAgo(lastUpdated.toISOString())}
                     </span>
                   )}
 
                   <button
                     onClick={() => void load({ silent: true })}
-                    className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs text-white backdrop-blur transition hover:bg-white/20 disabled:opacity-60"
+                    className="flex items-center gap-1.5 rounded-lg bg-[var(--admin-primary)] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[var(--admin-slate)] disabled:opacity-60"
                     disabled={refreshing}
                     aria-busy={refreshing}
                   >
@@ -377,8 +377,11 @@ export default function SaaSDashboardPage() {
             </div>
           </div>
 
-          {/* ── Alerts ── */}
-          {error && (
+          {/* ── Alerts + platform health (2-col, matches Stitch) ── */}
+          <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+            {/* Left: active alerts */}
+            <div className="space-y-4">
+            {error && (
             <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
               <div className="flex items-center gap-2">
                 <XCircle className="h-4 w-4 shrink-0 text-red-500" />
@@ -391,7 +394,7 @@ export default function SaaSDashboardPage() {
           )}
 
           {pastDueCount > 0 && (
-            <div className="flex items-center gap-3 rounded-xl border border-[#ead9bb] bg-[#f8efdf] px-4 py-3 text-sm text-[#7a4d12]">
+            <div className="flex items-center gap-3 rounded-xl border border-[var(--admin-border)] bg-[#f8efdf] px-4 py-3 text-sm text-[#7a4d12]">
               <AlertTriangle className="h-4 w-4 shrink-0 text-[#8b5a17]" />
               <span>
                 <strong>{pastDueCount}</strong> subscription{pastDueCount !== 1 ? "s are" : " is"} past due.{" "}
@@ -402,6 +405,15 @@ export default function SaaSDashboardPage() {
             </div>
           )}
 
+            {!error && pastDueCount === 0 && (
+              <div className="flex items-center gap-3 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-4 py-3 text-sm text-[var(--admin-muted)] shadow-[0_1px_2px_rgba(19,33,41,0.05)]">
+                <CheckCircle className="h-4 w-4 shrink-0 text-[var(--admin-success)]" />
+                No active alerts — platform operating normally.
+              </div>
+            )}
+            </div>
+
+            {/* Right: platform (M-Pesa) health */}
           {darajaHealth && (
             <div
               className={`rounded-xl border px-4 py-3 ${darajaSurfaceClasses(darajaHealth.ready)}`}
@@ -452,7 +464,7 @@ export default function SaaSDashboardPage() {
                   {darajaHealth.missing_required.map((v) => (
                     <span
                       key={v}
-                      className="rounded-full border border-[#e5d1ac] bg-[#fbf6eb] px-2 py-0.5 text-[11px] font-medium text-[#8b5a17]"
+                      className="rounded-full border border-[var(--admin-border)] bg-[#fbf6eb] px-2 py-0.5 text-[11px] font-medium text-[#8b5a17]"
                     >
                       {v}
                     </span>
@@ -500,6 +512,7 @@ export default function SaaSDashboardPage() {
               )}
             </div>
           )}
+          </div>
 
           {/* ── Revenue KPIs ── */}
           <div>
@@ -542,6 +555,12 @@ export default function SaaSDashboardPage() {
                 loading={kpiLoading}
               />
             </div>
+          </div>
+
+          {/* ── Analytics (snapshot charts of the KPIs) ── */}
+          <div>
+            <DashboardSectionLabel>Analytics</DashboardSectionLabel>
+            <DashboardCharts metrics={metrics} summary={summary} />
           </div>
 
           {/* ── Tenant KPIs ── */}
@@ -588,52 +607,32 @@ export default function SaaSDashboardPage() {
             <DashboardSectionLabel>Platform Data</DashboardSectionLabel>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
               {[
-                {
-                  label: "Enrollments",
-                  value: metrics?.system.total_enrollments ?? "—",
-                  color: "border-[#cedfe1] bg-[#e9f1f2] text-[#173f49] text-[#41636d]",
-                },
-                {
-                  label: "Invoices",
-                  value: metrics?.system.total_invoices ?? "—",
-                  color: "border-[#d8e8df] bg-[#edf6f0] text-[#1f604d] text-[#4f7a68]",
-                },
-                {
-                  label: "Audit Events",
-                  value: metrics?.system.total_audit_events ?? "—",
-                  color: "border-[#e1d5c2] bg-[#f7f3ec] text-[#21323a] text-[#6b7580]",
-                },
-                {
-                  label: "Permissions",
-                  value: metrics?.system.total_permissions ?? "—",
-                  color: "border-[#ebd3c3] bg-[#f7e7dc] text-[#743116] text-[#9c5a37]",
-                },
-                {
-                  label: "Roles",
-                  value: metrics?.system.total_roles ?? "—",
-                  color: "border-[#ead9bb] bg-[#f8efdf] text-[#7a4d12] text-[#9c6a28]",
-                },
-              ].map((item) => {
-                const [border, bg, textVal, textSub] = item.color.split(" ");
-                return (
-                  <div key={item.label} className={`rounded-xl border px-4 py-3 ${border} ${bg}`}>
-                    {kpiLoading ? (
-                      <Skeleton className="h-6 w-16" />
-                    ) : (
-                      <div className={`text-xl font-bold ${textVal}`}>{item.value}</div>
-                    )}
-                    <div className={`text-xs font-medium ${textSub}`}>{item.label}</div>
-                  </div>
-                );
-              })}
+                { label: "Enrollments", value: metrics?.system.total_enrollments ?? "—" },
+                { label: "Invoices", value: metrics?.system.total_invoices ?? "—" },
+                { label: "Audit Events", value: metrics?.system.total_audit_events ?? "—" },
+                { label: "Permissions", value: metrics?.system.total_permissions ?? "—" },
+                { label: "Roles", value: metrics?.system.total_roles ?? "—" },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-4 py-3 shadow-[0_1px_2px_rgba(19,33,41,0.05)]"
+                >
+                  {kpiLoading ? (
+                    <Skeleton className="h-6 w-16" />
+                  ) : (
+                    <div className="text-xl font-bold text-[var(--admin-ink)]">{item.value}</div>
+                  )}
+                  <div className="text-xs font-medium text-[var(--admin-muted)]">{item.label}</div>
+                </div>
+              ))}
             </div>
           </div>
 
           {/* ── Subscription plan breakdown + Recent tenants ── */}
           <div className="grid gap-5 lg:grid-cols-2">
             {/* Subscription plans */}
-            <div className="dashboard-surface rounded-[1.75rem]">
-              <div className="border-b border-[#eadfce] px-6 py-4">
+            <div className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] shadow-[0_1px_2px_rgba(19,33,41,0.05)]">
+              <div className="border-b border-[var(--admin-border)] px-6 py-4">
                 <div className="flex items-center gap-2">
                   <Layers className="h-4 w-4 text-slate-400" />
                   <div>
@@ -674,9 +673,9 @@ export default function SaaSDashboardPage() {
                               </span>
                             </div>
                           </div>
-                          <div className="h-2 w-full overflow-hidden rounded-full bg-[#eee4d7]">
+                          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--admin-surface-2)]">
                             <div
-                              className="h-full rounded-full bg-[#173f49] transition-all"
+                              className="h-full rounded-full bg-[var(--admin-gold)] transition-all"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
@@ -689,8 +688,8 @@ export default function SaaSDashboardPage() {
             </div>
 
             {/* Recent tenants */}
-            <div className="dashboard-surface rounded-[1.75rem]">
-              <div className="flex items-center justify-between border-b border-[#eadfce] px-6 py-4">
+            <div className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] shadow-[0_1px_2px_rgba(19,33,41,0.05)]">
+              <div className="flex items-center justify-between border-b border-[var(--admin-border)] px-6 py-4">
                 <div className="flex items-center gap-2">
                   <Building2 className="h-4 w-4 text-slate-400" />
                   <div>
@@ -703,7 +702,7 @@ export default function SaaSDashboardPage() {
                 </a>
               </div>
 
-              <div className="divide-y divide-[#efe4d2]">
+              <div className="divide-y divide-[var(--admin-border)]">
                 {tenants.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 py-8 text-center">
                     <Building2 className="h-8 w-8 text-slate-200" />
@@ -712,7 +711,7 @@ export default function SaaSDashboardPage() {
                   </div>
                 ) : (
                   tenants.slice(0, 6).map((t) => (
-                    <div key={t.id} className="flex items-center gap-3 px-6 py-3 hover:bg-[#faf5ee]">
+                    <div key={t.id} className="flex items-center gap-3 px-6 py-3 hover:bg-[var(--admin-surface-2)]">
                       <div
                         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${avatarColor(
                           t.id
@@ -761,8 +760,8 @@ export default function SaaSDashboardPage() {
           </div>
 
           {/* ── Recent payments ── */}
-            <div className="dashboard-surface rounded-[1.75rem]">
-              <div className="flex items-center justify-between border-b border-[#eadfce] px-6 py-4">
+            <div className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] shadow-[0_1px_2px_rgba(19,33,41,0.05)]">
+              <div className="flex items-center justify-between border-b border-[var(--admin-border)] px-6 py-4">
               <div className="flex items-center gap-2">
                 <HandCoins className="h-4 w-4 text-slate-400" />
                 <div>
@@ -777,7 +776,7 @@ export default function SaaSDashboardPage() {
               </a>
             </div>
 
-            <div className="divide-y divide-[#efe4d2]">
+            <div className="divide-y divide-[var(--admin-border)]">
               {recentPayments.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-8 text-center">
                   <HandCoins className="h-8 w-8 text-slate-200" />
@@ -905,7 +904,7 @@ export default function SaaSDashboardPage() {
             </div>
           </div>
         </div>
-      </AppShell>
+      </AdminShell>
     </RequireAuth>
   );
 }

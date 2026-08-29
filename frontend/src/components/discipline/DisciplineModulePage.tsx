@@ -341,7 +341,10 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
         method: "POST",
         tenantRequired: true,
         body: JSON.stringify({
-          student_id: asStr(enrollment.payload?.student_id) || selectedEnrollmentId,
+          // student_id is a TOP-LEVEL enrollment field, not inside payload —
+          // sending the enrollment id here linked a non-existent student, so
+          // the incident showed "Unknown".
+          student_id: enrollment.student_id || asStr(enrollment.payload?.student_id) || selectedEnrollmentId,
           enrollment_id: selectedEnrollmentId,
           role: studentRole,
           action_taken: studentAction || undefined,
@@ -446,19 +449,19 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
     <AppShell title={title} nav={nav} activeHref={activeHref}>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-red-600" />
-            <h1 className="text-lg font-semibold text-slate-900">Discipline</h1>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{total} incidents</span>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <Shield className="h-5 w-5 shrink-0 text-[var(--tenant-primary)]" />
+            <h1 className="text-lg font-semibold text-[var(--tenant-ink)]">Discipline</h1>
+            <span className="rounded-full bg-[var(--tenant-surface-2)] px-2 py-0.5 text-xs text-[var(--tenant-muted)]">{total} incidents</span>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => void loadIncidents()}>
+            <Button variant="outline" size="sm" onClick={() => void loadIncidents()} className="flex-1 sm:flex-none">
               <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
               Refresh
             </Button>
             {canManage && (
-              <Button size="sm" asChild>
+              <Button size="sm" asChild className="flex-1 sm:flex-none">
                 <a href="?section=new">
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   New Incident
@@ -469,12 +472,12 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
         </div>
 
         {/* Section tabs */}
-        <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 w-fit">
+        <div className="flex gap-1 rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] p-1 w-fit">
           {(["incidents", ...(canManage ? ["new"] : [])] as const).map((s) => (
             <a
               key={s}
               href={`?section=${s}`}
-              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${section === s ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${section === s ? "bg-[var(--tenant-surface)] text-[var(--tenant-ink)] shadow-sm" : "text-[var(--tenant-muted)] hover:text-[var(--tenant-ink)]"}`}
             >
               {s === "incidents" ? "Incidents" : "New Incident"}
             </a>
@@ -489,7 +492,7 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
               {/* Filters */}
               <div className="flex flex-wrap gap-2">
                 <select
-                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm"
+                  className="min-w-0 flex-1 rounded-md border border-[var(--tenant-border)] bg-[var(--tenant-surface)] px-3 py-1.5 text-sm sm:flex-none"
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
                 >
@@ -497,7 +500,7 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
                   {STATUSES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
                 </select>
                 <select
-                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm"
+                  className="min-w-0 flex-1 rounded-md border border-[var(--tenant-border)] bg-[var(--tenant-surface)] px-3 py-1.5 text-sm sm:flex-none"
                   value={filterType}
                   onChange={(e) => setFilterType(e.target.value)}
                 >
@@ -505,7 +508,7 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
                   {INCIDENT_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
                 </select>
                 <select
-                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm"
+                  className="min-w-0 flex-1 rounded-md border border-[var(--tenant-border)] bg-[var(--tenant-surface)] px-3 py-1.5 text-sm sm:flex-none"
                   value={filterSeverity}
                   onChange={(e) => setFilterSeverity(e.target.value)}
                 >
@@ -515,9 +518,9 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
               </div>
 
               {incidents.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-12 text-center">
-                  <Shield className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-                  <p className="text-sm text-slate-500">No incidents found.</p>
+                <div className="rounded-2xl border border-dashed border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] p-12 text-center">
+                  <Shield className="mx-auto mb-3 h-8 w-8 text-[var(--tenant-muted)] opacity-50" />
+                  <p className="text-sm text-[var(--tenant-muted)]">No incidents found.</p>
                   {canManage && (
                     <Button size="sm" className="mt-4" asChild>
                       <a href="?section=new"><Plus className="mr-1.5 h-3.5 w-3.5" />Log First Incident</a>
@@ -530,12 +533,12 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
                     <button
                       key={inc.id}
                       onClick={() => void openIncident(inc.id)}
-                      className={`w-full rounded-xl border p-4 text-left transition-all hover:shadow-sm ${selectedIncident?.id === inc.id ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white hover:border-slate-300"}`}
+                      className={`w-full rounded-xl border p-4 text-left transition-all hover:shadow-sm ${selectedIncident?.id === inc.id ? "border-[var(--tenant-primary)] bg-[var(--tenant-surface-2)]" : "border-[var(--tenant-border)] bg-[var(--tenant-surface)] hover:border-[var(--tenant-primary)]/40"}`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-800">{inc.title}</p>
-                          <p className="mt-0.5 text-xs text-slate-500">
+                          <p className="truncate text-sm font-semibold text-[var(--tenant-ink)]">{inc.title}</p>
+                          <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">
                             {inc.incident_date} · {inc.incident_type.replace("_", " ")}
                             {inc.location ? ` · ${inc.location}` : ""}
                           </p>
@@ -545,7 +548,7 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
                           <StatusBadge status={inc.status} />
                         </div>
                       </div>
-                      <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
+                      <div className="mt-2 flex items-center gap-3 text-xs text-[var(--tenant-muted)]">
                         <span className="flex items-center gap-1">
                           <UserX className="h-3 w-3" />
                           {inc.student_count} student{inc.student_count !== 1 ? "s" : ""}
@@ -558,13 +561,13 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
             </div>
 
             {/* Right: detail */}
-            <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
+            <div className="rounded-2xl border border-[var(--tenant-border)] bg-[var(--tenant-surface)] shadow-sm">
               {loadingDetail ? (
                 <div className="flex h-64 items-center justify-center">
-                  <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                  <Loader2 className="h-5 w-5 animate-spin text-[var(--tenant-muted)]" />
                 </div>
               ) : !selectedIncident ? (
-                <div className="flex h-64 items-center justify-center text-sm text-slate-400">
+                <div className="flex h-64 items-center justify-center text-sm text-[var(--tenant-muted)]">
                   Select an incident to view details
                 </div>
               ) : (
@@ -572,8 +575,8 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
                   {/* Title bar */}
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h2 className="font-semibold text-slate-900">{selectedIncident.title}</h2>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <h2 className="font-semibold text-[var(--tenant-ink)]">{selectedIncident.title}</h2>
+                      <p className="text-xs text-[var(--tenant-muted)] mt-0.5">
                         {selectedIncident.incident_date} · {selectedIncident.incident_type.replace("_", " ")}
                         {selectedIncident.location ? ` · ${selectedIncident.location}` : ""}
                       </p>
@@ -585,7 +588,7 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
                   </div>
 
                   {selectedIncident.description && (
-                    <p className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3">{selectedIncident.description}</p>
+                    <p className="text-sm text-[var(--tenant-ink)] bg-[var(--tenant-surface-2)] rounded-lg p-3">{selectedIncident.description}</p>
                   )}
 
                   {selectedIncident.resolution_notes && (
@@ -621,36 +624,36 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
 
                   {/* Students */}
                   <div>
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Students Involved</h3>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">Students Involved</h3>
                     {selectedIncident.students.length === 0 ? (
-                      <p className="text-xs text-slate-400">No students linked yet.</p>
+                      <p className="text-xs text-[var(--tenant-muted)]">No students linked yet.</p>
                     ) : (
                       <div className="space-y-2">
                         {selectedIncident.students.map((s) => (
-                          <div key={s.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="text-sm font-medium text-slate-800">{s.student_name || "Unknown"}</p>
-                                <p className="text-xs text-slate-500">
+                          <div key={s.id} className="rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-[var(--tenant-ink)] truncate">{s.student_name || "Unknown"}</p>
+                                <p className="text-xs text-[var(--tenant-muted)]">
                                   {s.admission_no && `${s.admission_no} · `}
                                   {s.class_name && `${s.class_name} · `}
                                   <span className="font-medium">{s.role}</span>
                                   {s.action_taken && ` → ${s.action_taken.replace("_", " ")}`}
                                 </p>
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex shrink-0 items-center gap-2">
                                 {s.parent_notified && (
                                   <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-700">Parent notified</span>
                                 )}
                                 {canManage && selectedIncident.status !== "CLOSED" && (
-                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-slate-400 hover:text-red-500"
+                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-[var(--tenant-muted)] hover:text-red-500"
                                     onClick={() => void removeStudent(s.id)}>
                                     <X className="h-3 w-3" />
                                   </Button>
                                 )}
                               </div>
                             </div>
-                            {s.action_notes && <p className="mt-1 text-xs text-slate-500 italic">{s.action_notes}</p>}
+                            {s.action_notes && <p className="mt-1 text-xs text-[var(--tenant-muted)] italic">{s.action_notes}</p>}
                           </div>
                         ))}
                       </div>
@@ -660,10 +663,10 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
                   {/* Follow-ups */}
                   {selectedIncident.followups.length > 0 && (
                     <div>
-                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Follow-ups</h3>
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">Follow-ups</h3>
                       <div className="space-y-2">
                         {selectedIncident.followups.map((f) => (
-                          <div key={f.id} className="rounded-lg border border-slate-100 bg-amber-50 p-3">
+                          <div key={f.id} className="rounded-lg border border-amber-100 bg-amber-50 p-3">
                             <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
                               <span className="font-medium">{f.followup_date}</span>
                               <span>{f.created_by_name}</span>
@@ -675,7 +678,7 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
                     </div>
                   )}
 
-                  <p className="text-[10px] text-slate-400">
+                  <p className="text-[10px] text-[var(--tenant-muted)]">
                     Reported by {selectedIncident.reported_by_name || "system"} · {selectedIncident.created_at.slice(0, 10)}
                   </p>
                 </div>
@@ -687,13 +690,13 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
         {/* ── New Incident form ────────────────────────────────────────────── */}
         {section === "new" && canManage && (
           <div className="max-w-2xl space-y-4">
-            <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+            <div className="rounded-2xl border border-[var(--tenant-border)] bg-[var(--tenant-surface)] p-5 shadow-sm sm:p-6">
               <div className="flex items-center gap-2 mb-6">
                 <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h2 className="text-sm font-semibold text-slate-900">Log New Incident</h2>
+                <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">Log New Incident</h2>
               </div>
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <Label className="text-xs">Incident Date *</Label>
                     <Input type="date" className="mt-1" value={newForm.incident_date}
@@ -701,14 +704,14 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
                   </div>
                   <div>
                     <Label className="text-xs">Type *</Label>
-                    <select className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                    <select className="mt-1 w-full rounded-md border border-[var(--tenant-border)] bg-[var(--tenant-surface)] px-3 py-2 text-sm"
                       value={newForm.incident_type} onChange={(e) => setNewForm((f) => ({ ...f, incident_type: e.target.value }))}>
                       {INCIDENT_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
                     </select>
                   </div>
                   <div>
                     <Label className="text-xs">Severity</Label>
-                    <select className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                    <select className="mt-1 w-full rounded-md border border-[var(--tenant-border)] bg-[var(--tenant-surface)] px-3 py-2 text-sm"
                       value={newForm.severity} onChange={(e) => setNewForm((f) => ({ ...f, severity: e.target.value }))}>
                       {SEVERITIES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
@@ -765,14 +768,14 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Role</Label>
-                <select className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                <select className="mt-1 w-full rounded-md border border-[var(--tenant-border)] bg-[var(--tenant-surface)] px-3 py-2 text-sm"
                   value={studentRole} onChange={(e) => setStudentRole(e.target.value)}>
                   {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
               <div>
                 <Label className="text-xs">Action Taken</Label>
-                <select className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                <select className="mt-1 w-full rounded-md border border-[var(--tenant-border)] bg-[var(--tenant-surface)] px-3 py-2 text-sm"
                   value={studentAction} onChange={(e) => setStudentAction(e.target.value)}>
                   <option value="">— None —</option>
                   {ACTIONS.map((a) => <option key={a} value={a}>{a.replace("_", " ")}</option>)}
@@ -802,7 +805,7 @@ export function DisciplineModulePage({ title, nav, canManage = false, canResolve
           <div className="space-y-4">
             <div>
               <Label className="text-xs">New Status</Label>
-              <select className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+              <select className="mt-1 w-full rounded-md border border-[var(--tenant-border)] bg-[var(--tenant-surface)] px-3 py-2 text-sm"
                 value={newStatus} onChange={(e) => setNewStatus(e.target.value)}>
                 {STATUSES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
               </select>

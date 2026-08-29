@@ -21,6 +21,7 @@ from app.models.tenant_group import TenantGroup
 from app.models.subscription import Subscription, SubscriptionPlan
 from app.models.user import User
 from app.models.membership import UserTenant
+from app.models.rbac import Role, UserRole
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -57,6 +58,16 @@ def _user(db, email: str) -> User:
     db.add(u)
     db.flush()
     return u
+
+
+def _make_director(db, user, tenant) -> None:
+    """Grant DIRECTOR on a campus. Cross-campus listing/switching is a
+    director-only capability, so multi-campus tests must set this up."""
+    role = Role(tenant_id=tenant.id, code="DIRECTOR", name="Director", is_system=True)
+    db.add(role)
+    db.flush()
+    db.add(UserRole(tenant_id=tenant.id, user_id=user.id, role_id=role.id))
+    db.flush()
 
 
 # ── module catalog ────────────────────────────────────────────────────────────
@@ -174,6 +185,7 @@ def test_list_user_campuses_returns_siblings(db_session):
     db_session.add(UserTenant(tenant_id=a.id, user_id=u.id, is_active=True))
     db_session.add(UserTenant(tenant_id=b.id, user_id=u.id, is_active=True))
     db_session.flush()
+    _make_director(db_session, u, a)  # cross-campus listing is director-only
 
     campuses = list_user_campuses(db_session, user_id=u.id, tenant_id=a.id)
     slugs = {c["slug"] for c in campuses}
@@ -199,11 +211,44 @@ def test_switch_campus_happy_path(db_session):
     db_session.add(UserTenant(tenant_id=a.id, user_id=u.id, is_active=True))
     db_session.add(UserTenant(tenant_id=b.id, user_id=u.id, is_active=True))
     db_session.flush()
+    _make_director(db_session, u, a)  # only a director may switch campuses
 
     access, refresh = switch_campus(
         db_session, user_id=u.id, current_tenant_id=a.id, target_tenant_id=b.id
     )
     assert access and refresh
+
+
+def test_switch_campus_rejects_non_director(db_session):
+    """A non-director member of both campuses still cannot switch — cross-campus
+    movement is exclusively a director capability."""
+    grp = TenantGroup(name="SecGroup", slug="sec-grp")
+    db_session.add(grp)
+    db_session.flush()
+    a = _tenant(db_session, "sec-a", group_id=grp.id)
+    b = _tenant(db_session, "sec-b", group_id=grp.id)
+    u = _user(db_session, "secretary@test.com")
+    db_session.add(UserTenant(tenant_id=a.id, user_id=u.id, is_active=True))
+    db_session.add(UserTenant(tenant_id=b.id, user_id=u.id, is_active=True))
+    db_session.flush()  # member of both, but NOT a director
+
+    with pytest.raises(ValueError):
+        switch_campus(db_session, user_id=u.id, current_tenant_id=a.id, target_tenant_id=b.id)
+
+
+def test_list_user_campuses_empty_for_non_director(db_session):
+    """A non-director sees no sibling campuses — the switcher never appears."""
+    grp = TenantGroup(name="SecListGroup", slug="sec-list-grp")
+    db_session.add(grp)
+    db_session.flush()
+    a = _tenant(db_session, "seclist-a", group_id=grp.id)
+    b = _tenant(db_session, "seclist-b", group_id=grp.id)
+    u = _user(db_session, "seclist@test.com")
+    db_session.add(UserTenant(tenant_id=a.id, user_id=u.id, is_active=True))
+    db_session.add(UserTenant(tenant_id=b.id, user_id=u.id, is_active=True))
+    db_session.flush()  # member of both, but NOT a director
+
+    assert list_user_campuses(db_session, user_id=u.id, tenant_id=a.id) == []
 
 
 def test_switch_campus_rejects_non_member(db_session):
@@ -215,6 +260,7 @@ def test_switch_campus_rejects_non_member(db_session):
     u = _user(db_session, "nonmember@test.com")
     db_session.add(UserTenant(tenant_id=a.id, user_id=u.id, is_active=True))
     db_session.flush()  # NOT a member of b
+    _make_director(db_session, u, a)  # director, so the member guard is what rejects
 
     with pytest.raises(ValueError):
         switch_campus(db_session, user_id=u.id, current_tenant_id=a.id, target_tenant_id=b.id)
@@ -231,6 +277,7 @@ def test_switch_campus_rejects_cross_group(db_session):
     db_session.add(UserTenant(tenant_id=a.id, user_id=u.id, is_active=True))
     db_session.add(UserTenant(tenant_id=b.id, user_id=u.id, is_active=True))
     db_session.flush()
+    _make_director(db_session, u, a)  # director, so the cross-group guard is what rejects
 
     with pytest.raises(ValueError):
         switch_campus(db_session, user_id=u.id, current_tenant_id=a.id, target_tenant_id=b.id)

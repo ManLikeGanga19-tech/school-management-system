@@ -20,6 +20,10 @@ class Tenant(Base):
     # every mutating request (POST/PUT/PATCH/DELETE) except login, so the
     # demo's published credentials cannot be used to alter or damage data.
     is_demo = Column(Boolean, nullable=False, server_default=text("false"))
+    # When true, saving the SaaS platform academic calendar auto-applies its
+    # term dates to this tenant. Flips to false once the tenant edits its own
+    # terms, so self-managing schools keep their calendar. See academic-calendar.
+    follows_platform_calendar = Column(Boolean, nullable=False, server_default=text("true"))
 
     # Multi-campus — set when this tenant is a campus within a tenant group.
     group_id = Column(

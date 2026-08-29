@@ -5246,6 +5246,8 @@ def list_payments(
             "student_label": student_label,
             "allocations": [{"invoice_id": r.invoice_id, "amount": r.amount} for r in allocations],
             "cf_allocations": cf_allocs_by_payment.get(str(payment.id), []),
+            "reversed_at": payment.reversed_at.isoformat() if getattr(payment, "reversed_at", None) else None,
+            "reversal_reason": getattr(payment, "reversal_reason", None),
         })
 
     return {"items": items, "meta": {"total": total, "page": page, "page_size": page_size, "pages": pages}}
@@ -5737,6 +5739,14 @@ def build_payment_receipt_document(
         "checksum": checksum,
         "qr_payload": qr_payload,
         "verify_code": str(getattr(payment, "verify_code", "") or ""),
+        # Reversal state — receipts + the public verify page mark a reversed
+        # payment VOID so a stale printout can't be mistaken for a live receipt.
+        "reversed_at": (
+            getattr(payment, "reversed_at").isoformat()
+            if getattr(payment, "reversed_at", None) is not None
+            else None
+        ),
+        "reversal_reason": getattr(payment, "reversal_reason", None),
         # slug needed by enterprise PDF generator for QR verify URL
         "tenant_slug": str(getattr(db.get(Tenant, tenant_id), "slug", "") or ""),
     }
@@ -9033,3 +9043,124 @@ def delete_carry_forward(
         payload=snapshot,
         meta=None,
     )
+
+
+# ── Payment reversal (director-only) ──────────────────────────────────────────
+def reverse_payment(
+    db: Session,
+    *,
+    tenant_id,
+    payment_id,
+    actor_user_id,
+    reason: str,
+):
+    """Reverse a whole payment: remove its invoice allocations, restore each
+    affected invoice to its pre-payment amounts, undo any carry-forward debt it
+    settled, mark the payment reversed, and audit it — all in one transaction.
+
+    Director-only (enforced at the route via finance.payments.reverse). Blocks —
+    rather than corrupt the ledger — any payment that created an overpayment
+    credit or was funded by an existing credit (those can't be cleanly unwound
+    here); the message tells the director exactly why.
+    """
+    from app.models.student_carry_forward import StudentCarryForward
+
+    pay = db.get(Payment, payment_id)
+    if pay is None or pay.tenant_id != tenant_id:
+        # LookupError → 404 at the route (tenant-scoped: a payment in another
+        # tenant is simply "not found" here, never confirmed to exist).
+        raise LookupError("Payment not found.")
+    if getattr(pay, "reversed_at", None) is not None:
+        raise ValueError("This payment has already been reversed.")
+
+    clean_reason = (reason or "").strip()
+    if not clean_reason:
+        raise ValueError("A reversal reason is required.")
+
+    allocs = db.execute(
+        select(PaymentAllocation).where(PaymentAllocation.payment_id == payment_id)
+    ).scalars().all()
+    cf_allocs = db.execute(
+        select(PaymentCFAllocation).where(PaymentCFAllocation.payment_id == payment_id)
+    ).scalars().all()
+
+    alloc_total = sum((Decimal(str(a.amount)) for a in allocs), Decimal("0"))
+    cf_settle_total = sum(
+        (Decimal(str(c.amount)) for c in cf_allocs if c.kind == "SETTLEMENT"), Decimal("0")
+    )
+    credit_consumed = sum(
+        (Decimal(str(c.amount)) for c in cf_allocs if c.kind == "CREDIT_CONSUMED"), Decimal("0")
+    )
+    surplus = Decimal(str(pay.amount)) - alloc_total - cf_settle_total
+
+    # Ledger-integrity guards (block with a clear reason).
+    if credit_consumed > Decimal("0.005"):
+        raise ValueError(
+            "This payment used an existing credit balance as part of its funding. "
+            "Credit-funded payments can't be reversed automatically — adjust the credit manually."
+        )
+    if surplus > Decimal("0.005"):
+        raise ValueError(
+            "This payment created a credit balance from an overpayment "
+            f"({pay.currency} {surplus:,.2f}). "
+            "Overpayment credits can't be reversed automatically — clear the credit first."
+        )
+
+    # 1) Remove invoice allocations, then recompute each affected invoice so its
+    #    paid_amount / balance_amount / status return to the pre-payment state.
+    invoice_ids = {a.invoice_id for a in allocs}
+    for a in allocs:
+        db.delete(a)
+    db.flush()
+
+    restored = []
+    for iid in invoice_ids:
+        inv = db.get(Invoice, iid)
+        if inv is not None:
+            _recalc_invoice_amounts(db, inv)
+            restored.append({"invoice_id": str(iid), "invoice_no": inv.invoice_no, "balance": str(inv.balance_amount), "status": inv.status})
+
+    # 2) Undo carry-forward debts this payment settled, then drop the CF rows.
+    for c in cf_allocs:
+        if c.kind == "SETTLEMENT":
+            cf = db.get(StudentCarryForward, c.carry_forward_id)
+            if cf is not None:
+                cf.settled_amount = max(
+                    Decimal("0"),
+                    Decimal(str(cf.settled_amount or 0)) - Decimal(str(c.amount)),
+                )
+                if cf.status == "SETTLED" and cf.settled_amount < abs(Decimal(str(cf.amount))):
+                    cf.status = "OPEN"
+        db.delete(c)
+    db.flush()
+
+    # 3) Mark the payment reversed (kept for the audit/receipt trail).
+    pay.reversed_at = datetime.now(timezone.utc)
+    pay.reversed_by = actor_user_id
+    pay.reversal_reason = clean_reason[:500]
+    db.flush()
+
+    # 4) Audit — visible to director (tenant) and super admin (global).
+    log_event(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="payment.reverse",
+        resource="payment",
+        resource_id=payment_id,
+        payload={
+            "amount": str(pay.amount),
+            "provider": pay.provider,
+            "receipt_no": pay.receipt_no,
+            "reason": clean_reason,
+            "invoices_restored": restored,
+        },
+    )
+
+    return {
+        "payment_id": str(payment_id),
+        "reversed": True,
+        "reversed_at": pay.reversed_at.isoformat(),
+        "amount": str(pay.amount),
+        "invoices_restored": restored,
+    }

@@ -40,14 +40,14 @@ export function CollapsibleActionCard({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition hover:bg-slate-50/60 sm:px-6"
+        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition hover:bg-[var(--tenant-surface-2)]/60 sm:px-6"
       >
         <div className="flex min-w-0 items-center gap-2">
-          {Icon && <Icon className="h-4 w-4 shrink-0 text-slate-400" />}
+          {Icon && <Icon className="h-4 w-4 shrink-0 text-[var(--tenant-muted)]" />}
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+            <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">{title}</h2>
             {subtitle && (
-              <p className="mt-0.5 truncate text-xs text-slate-400">{subtitle}</p>
+              <p className="mt-0.5 truncate text-xs text-[var(--tenant-muted)]">{subtitle}</p>
             )}
           </div>
         </div>
@@ -55,7 +55,7 @@ export function CollapsibleActionCard({
           {badge && <div className="hidden sm:flex">{badge}</div>}
           <ChevronDown
             className={cn(
-              "h-4 w-4 text-slate-400 transition-transform",
+              "h-4 w-4 text-[var(--tenant-muted)] transition-transform",
               open && "rotate-180"
             )}
           />

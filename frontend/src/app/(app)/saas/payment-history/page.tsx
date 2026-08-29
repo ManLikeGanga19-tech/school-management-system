@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { usePersistedState } from "@/lib/usePersistedState";
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
-import { DashboardStatCard } from "@/components/dashboard/dashboard-primitives";
+import { AdminShell } from "@/components/admin/AdminShell";
+import { DashboardStatCard } from "@/components/admin/admin-primitives";
 import { SaasPageHeader, SaasSurface } from "@/components/saas/page-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -161,7 +160,7 @@ export default function SaaSPaymentHistoryPage() {
   }, [page, totalPages]);
 
   return (
-    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/payment-history">
+    <AdminShell title="Super Admin" activeHref="/saas/payment-history">
       <div className="space-y-5">
         <SaasPageHeader
           title="Payment History"
@@ -394,6 +393,6 @@ export default function SaaSPaymentHistoryPage() {
           </div>
         </SaasSurface>
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }

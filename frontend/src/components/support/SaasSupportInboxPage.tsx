@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, Reply, Send, X } from "lucide-react";
 import { usePersistedState } from "@/lib/usePersistedState";
 
-import { AppShell } from "@/components/layout/AppShell";
-import { saasNav } from "@/components/layout/nav-config";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { SaasPageHeader } from "@/components/saas/page-chrome";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,10 +41,10 @@ function formatDateTime(value: string | null): string {
 }
 
 function statusBadgeClass(status: string): string {
-  if (status === "WAITING_ADMIN") return "border-[#ead9bb] bg-[#f8efdf] text-[#8b5a17]";
+  if (status === "WAITING_ADMIN") return "border-[var(--admin-border)] bg-[#f8efdf] text-[#8b5a17]";
   if (status === "WAITING_TENANT") return "border-[#cedfe1] bg-[#e9f1f2] text-[#173f49]";
   if (status === "RESOLVED") return "border-[#d8e8df] bg-[#edf6f0] text-[#20644f]";
-  if (status === "CLOSED") return "border-[#ddd0ba] bg-[#f7f3ec] text-[#55626b]";
+  if (status === "CLOSED") return "border-[var(--admin-border)] bg-[var(--admin-surface-2)] text-[#55626b]";
   return "border-[#ebd3c3] bg-[#f7e7dc] text-[#93411f]";
 }
 
@@ -247,7 +246,7 @@ export function SaasSupportInboxPage() {
   }
 
   return (
-    <AppShell title="Super Admin" nav={saasNav} activeHref="/saas/support">
+    <AdminShell title="Super Admin" activeHref="/saas/support">
       <div className="space-y-5">
         <SaasPageHeader
           title="Support Inbox"
@@ -276,7 +275,7 @@ export function SaasSupportInboxPage() {
           }
         />
 
-        <Card className="dashboard-surface rounded-[1.6rem] border-0 shadow-none">
+        <Card className="border border-[var(--admin-border)] bg-[var(--admin-surface)] rounded-xl border-0 shadow-none">
           <CardHeader>
             <CardTitle className="text-base">Tenant Chats</CardTitle>
             <CardDescription>Pick a tenant ticket and respond in real time.</CardDescription>
@@ -309,7 +308,7 @@ export function SaasSupportInboxPage() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
-              <div className="flex h-[620px] flex-col rounded-2xl border border-[#e2d4bf] bg-[#fdfbf8]">
+              <div className="flex h-[620px] flex-col rounded-2xl border border-[var(--admin-border)] bg-[#fdfbf8]">
                 <div className="min-h-0 flex-1 overflow-y-auto p-2">
                   {loadingThreads && <div className="px-2 py-6 text-xs text-slate-500">Loading tickets...</div>}
                   {!loadingThreads && threads.length === 0 && (
@@ -325,8 +324,8 @@ export function SaasSupportInboxPage() {
                           onClick={() => setActiveThreadId(thread.id)}
                           className={`mb-2 w-full rounded-lg border px-3 py-2 text-left transition ${
                             active
-                              ? "border-blue-300 bg-blue-50"
-                              : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40"
+                              ? "border-[var(--admin-border)] bg-[var(--admin-gold-soft)]"
+                              : "border-slate-200 bg-white hover:border-[var(--admin-border)] hover:bg-[var(--admin-surface-2)]/40"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -394,7 +393,7 @@ export function SaasSupportInboxPage() {
                 </div>
               </div>
 
-              <div className="flex h-[620px] flex-col rounded-2xl border border-[#e2d4bf] bg-[#fdfbf8]">
+              <div className="flex h-[620px] flex-col rounded-2xl border border-[var(--admin-border)] bg-[#fdfbf8]">
                 <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
                   <div>
                     <div className="text-sm font-semibold text-slate-900">
@@ -460,7 +459,7 @@ export function SaasSupportInboxPage() {
                             className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
                               isAdmin
                                 ? "bg-[#173f49] text-white"
-                                : "border border-[#e2d4bf] bg-white text-slate-800"
+                                : "border border-[var(--admin-border)] bg-white text-slate-800"
                             }`}
                           >
                             {msg.reply_to_body && (
@@ -468,7 +467,7 @@ export function SaasSupportInboxPage() {
                                 className={`mb-1 rounded border-l-2 px-2 py-1 text-[11px] ${
                                   isAdmin
                                     ? "border-[#d8e8df] bg-white/10 text-[#eef7f2]"
-                                    : "border-[#ddd0ba] bg-[#f7f3ec] text-slate-600"
+                                    : "border-[var(--admin-border)] bg-[var(--admin-surface-2)] text-slate-600"
                                 }`}
                               >
                                 <div className="font-semibold">{replySenderLabel}</div>
@@ -477,7 +476,7 @@ export function SaasSupportInboxPage() {
                             )}
                             <div className="whitespace-pre-wrap break-words">{msg.body}</div>
                             <div className="mt-1 flex items-center justify-between gap-2">
-                              <div className={`text-[10px] ${isAdmin ? "text-blue-100" : "text-slate-400"}`}>
+                              <div className={`text-[10px] ${isAdmin ? "text-white/70" : "text-slate-400"}`}>
                                 {isAdmin ? "You" : msg.sender_name || "Tenant user"} · {formatDateTime(msg.created_at)}
                               </div>
                               {activeThread && (
@@ -485,7 +484,7 @@ export function SaasSupportInboxPage() {
                                   type="button"
                                   onClick={() => setReplyTarget(msg)}
                                   className={`inline-flex items-center gap-1 text-[10px] ${
-                                    isAdmin ? "text-blue-100 hover:text-white" : "text-slate-500 hover:text-slate-800"
+                                    isAdmin ? "text-white/70 hover:text-white" : "text-slate-500 hover:text-slate-800"
                                   }`}
                                 >
                                   <Reply className="h-3 w-3" />
@@ -503,19 +502,19 @@ export function SaasSupportInboxPage() {
 
                 <div className="space-y-2 p-3">
                   {replyTarget && (
-                    <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+                    <div className="rounded-md border border-[var(--admin-border)] bg-[var(--admin-gold-soft)] px-3 py-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="text-[11px] font-semibold text-blue-700">
+                          <div className="text-[11px] font-semibold text-[#8a6d00]">
                             Replying to {replyTarget.sender_mode === "SAAS_ADMIN" ? "your message" : (replyTarget.sender_name || "Tenant user")}
                           </div>
-                          <div className="line-clamp-2 text-xs text-blue-800">{replyTarget.body}</div>
+                          <div className="line-clamp-2 text-xs text-[#8a6d00]">{replyTarget.body}</div>
                         </div>
                         <Button
                           type="button"
                           size="icon"
                           variant="ghost"
-                          className="h-6 w-6 text-blue-700 hover:bg-blue-100"
+                          className="h-6 w-6 text-[#8a6d00] hover:bg-[var(--admin-surface-2)]"
                           onClick={() => setReplyTarget(null)}
                         >
                           <X className="h-3.5 w-3.5" />
@@ -542,6 +541,6 @@ export function SaasSupportInboxPage() {
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }

@@ -53,10 +53,10 @@ export function BillingEligibilityPreview({
   if (!eligibility) return null;
 
   return (
-    <div className="rounded-2xl border border-blue-200 bg-blue-50/90 px-4 py-3 text-sm text-slate-800">
+    <div className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-gold-soft)] px-4 py-3 text-sm text-slate-800">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#8a6d00]">
             <Sparkles className="h-3.5 w-3.5" />
             {title}
           </div>
@@ -68,7 +68,7 @@ export function BillingEligibilityPreview({
             {eligibility.term_code ? ` • ${eligibility.term_code}` : ""}
           </div>
         </div>
-        <div className="inline-flex items-center gap-1 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-200">
+        <div className="inline-flex items-center gap-1 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-[#8a6d00] ring-1 ring-[var(--admin-border)]">
           <CalendarDays className="h-3.5 w-3.5" />
           {eligibility.source === "saas_academic_calendar" ? "SaaS calendar" : "Fallback window"}
         </div>

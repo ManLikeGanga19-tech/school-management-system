@@ -680,12 +680,12 @@ function FormField({
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-sm font-medium text-slate-700">
+      <Label className="text-sm font-medium text-[var(--tenant-ink)]">
         {label}
         {required && <span className="ml-0.5 text-red-500">*</span>}
       </Label>
       {children}
-      {hint && <p className="text-xs text-slate-400">{hint}</p>}
+      {hint && <p className="text-xs text-[var(--tenant-muted)]">{hint}</p>}
     </div>
   );
 }
@@ -695,10 +695,10 @@ function EnrollmentStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     ENROLLED:
       "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-    ENROLLED_PARTIAL: "bg-teal-50 text-teal-700 ring-1 ring-teal-200",
-    APPROVED: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+    ENROLLED_PARTIAL: "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100",
+    APPROVED: "bg-[var(--tenant-primary-soft)] text-[var(--tenant-primary)] ring-1 ring-[var(--tenant-primary)]/25",
     SUBMITTED: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
-    DRAFT: "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
+    DRAFT: "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]",
     REJECTED: "bg-red-50 text-red-700 ring-1 ring-red-200",
     TRANSFER_REQUESTED:
       "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
@@ -706,7 +706,7 @@ function EnrollmentStatusBadge({ status }: { status: string }) {
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${map[s] ??
-        "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
+        "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]"
         }`}
     >
       {s.replace(/_/g, " ")}
@@ -719,8 +719,8 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
     <TableRow>
       <TableCell colSpan={colSpan} className="py-10 text-center">
         <div className="flex flex-col items-center gap-1">
-          <ClipboardList className="h-7 w-7 text-slate-300" />
-          <span className="text-sm text-slate-400">{message}</span>
+          <ClipboardList className="h-7 w-7 text-[var(--tenant-muted)]" />
+          <span className="text-sm text-[var(--tenant-muted)]">{message}</span>
         </div>
       </TableCell>
     </TableRow>
@@ -742,8 +742,8 @@ function PaginationControls({
 }) {
   if (totalPages <= 1) return null;
   return (
-    <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3">
-      <span className="text-xs text-slate-400">
+    <div className="flex items-center justify-between border-t border-[var(--tenant-border)] px-5 py-3">
+      <span className="text-xs text-[var(--tenant-muted)]">
         {totalItems} {label} · Page {page} of {totalPages}
       </span>
       <div className="flex items-center gap-1">
@@ -768,7 +768,7 @@ function PaginationControls({
               variant={n === page ? "default" : "ghost"}
               size="icon"
               className={`h-7 w-7 text-xs ${n === page
-                ? "bg-blue-600 text-white hover:bg-blue-700"
+                ? "bg-[var(--tenant-primary)] text-white hover:opacity-90"
                 : ""
                 }`}
               onClick={() => setPage(n)}
@@ -802,7 +802,7 @@ function SearchInput({
 }) {
   return (
     <div className="relative">
-      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--tenant-muted)]" />
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -930,7 +930,7 @@ function EditLimitBadge({ count, locked }: { count: number; locked: boolean }) {
   }
 
   return (
-    <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200">
+    <span className="inline-flex items-center rounded-full bg-[var(--tenant-surface-2)] px-2 py-0.5 text-[10px] font-medium text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]">
       {used}/{MAX_SECRETARY_EDITS} edits used
     </span>
   );
@@ -967,8 +967,8 @@ function DirectorOverrideDialog({
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[540px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-slate-900">
-            <ShieldCheck className="h-5 w-5 text-blue-600" />
+          <DialogTitle className="flex items-center gap-2 text-[var(--tenant-ink)]">
+            <ShieldCheck className="h-5 w-5 text-[var(--tenant-primary)]" />
             Director Override — Unlock Student Record
           </DialogTitle>
           <DialogDescription>
@@ -978,20 +978,20 @@ function DirectorOverrideDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 space-y-1.5">
+          <div className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-4 py-3 space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-800">
+              <span className="text-sm font-semibold text-[var(--tenant-ink)]">
                 {name}
               </span>
               <EnrollmentStatusBadge status={row.status} />
             </div>
-            <div className="flex items-center gap-3 text-xs text-slate-500">
+            <div className="flex items-center gap-3 text-xs text-[var(--tenant-muted)]">
               {admissionNumber && (
                 <span className="font-mono font-semibold text-emerald-700">
                   {admissionNumber}
                 </span>
               )}
-              <span className="font-mono text-slate-400">
+              <span className="font-mono text-[var(--tenant-muted)]">
                 {row.id.slice(0, 16)}…
               </span>
             </div>
@@ -1012,9 +1012,9 @@ function DirectorOverrideDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium text-slate-700">
+            <Label className="text-sm font-medium text-[var(--tenant-ink)]">
               Override Reason{" "}
-              <span className="text-slate-400 font-normal">
+              <span className="text-[var(--tenant-muted)] font-normal">
                 (optional but recommended)
               </span>
             </Label>
@@ -1035,7 +1035,7 @@ function DirectorOverrideDialog({
           <Button
             onClick={() => onConfirm(note)}
             disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-[var(--tenant-primary)] hover:opacity-90"
           >
             {loading ? (
               <span className="flex items-center gap-1.5">
@@ -1111,7 +1111,7 @@ function InterviewFeeCell({
 
   if (isExisting) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
+      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--tenant-surface-2)] px-2.5 py-1 text-xs font-medium text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]">
         N/A — existing student
       </span>
     );
@@ -1119,7 +1119,7 @@ function InterviewFeeCell({
 
   if (status === "loading") {
     return (
-      <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+      <span className="inline-flex items-center gap-1 text-xs text-[var(--tenant-muted)]">
         <Loader2 className="h-3 w-3 animate-spin" /> Checking…
       </span>
     );
@@ -1215,14 +1215,14 @@ function StudentDetailDialog({
       <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Eye className="h-4 w-4 text-slate-500" />
+            <Eye className="h-4 w-4 text-[var(--tenant-muted)]" />
             Student Record
           </DialogTitle>
           <DialogDescription>Full details for {studentName(p)}</DialogDescription>
         </DialogHeader>
 
         <div className="max-h-[65vh] overflow-y-auto space-y-4">
-          <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+          <div className="flex items-center gap-3 rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-4 py-3">
             <EnrollmentStatusBadge status={row.status} />
             {admNum && admNum !== "—" && (
               <span className="font-mono text-xs font-semibold text-emerald-700">
@@ -1233,7 +1233,7 @@ function StudentDetailDialog({
               count={row.secretary_edit_count ?? 0}
               locked={row.secretary_edit_locked ?? false}
             />
-            <span className="ml-auto font-mono text-[11px] text-slate-400 select-all">
+            <span className="ml-auto font-mono text-[11px] text-[var(--tenant-muted)] select-all">
               {row.id}
             </span>
           </div>
@@ -1241,10 +1241,10 @@ function StudentDetailDialog({
           <div className="grid grid-cols-2 gap-x-6 gap-y-4">
             {fields.map(({ label, value }) => (
               <div key={label} className="space-y-0.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--tenant-muted)]">
                   {label}
                 </div>
-                <div className="text-sm font-medium text-slate-900 break-all">
+                <div className="text-sm font-medium text-[var(--tenant-ink)] break-all">
                   {value || "—"}
                 </div>
               </div>
@@ -1252,8 +1252,8 @@ function StudentDetailDialog({
           </div>
 
           {(p as any)?.documents && (
-            <div className="rounded-xl border border-slate-100 overflow-hidden">
-              <div className="bg-slate-50 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            <div className="rounded-xl border border-[var(--tenant-border)] overflow-hidden">
+              <div className="bg-[var(--tenant-surface-2)] px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--tenant-muted)]">
                 Documents
               </div>
               <div className="grid grid-cols-2 gap-2 p-4">
@@ -1267,7 +1267,7 @@ function StudentDetailDialog({
                       <span className={`h-2 w-2 rounded-full shrink-0 ${checked ? "bg-emerald-500" : "bg-red-400"}`} />
                       <span
                         className={
-                          checked ? "text-slate-700" : "text-slate-400"
+                          checked ? "text-[var(--tenant-ink)]" : "text-[var(--tenant-muted)]"
                         }
                       >
                         {item.label}
@@ -1382,7 +1382,7 @@ function UpdateEnrollmentDialog({
       <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[680px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Pencil className="h-4 w-4 text-slate-500" />
+            <Pencil className="h-4 w-4 text-[var(--tenant-muted)]" />
             Update Student — {studentName(row.payload || {})}
           </DialogTitle>
           <DialogDescription asChild>
@@ -1643,7 +1643,7 @@ function UpdateEnrollmentDialog({
           <Button
             onClick={() => onSave(row.id, draft)}
             disabled={!canSave}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-[var(--tenant-primary)] hover:opacity-90"
           >
             {saving ? (
               <span className="flex items-center gap-1.5">
@@ -1692,7 +1692,7 @@ function StudentActionCell({
         <Button
           variant="outline"
           size="sm"
-          className="h-7 gap-1 px-2 text-xs text-blue-700 border-blue-200 hover:bg-blue-50"
+          className="h-7 gap-1 px-2 text-xs text-[var(--tenant-primary)] border-[var(--tenant-primary)]/30 hover:bg-[var(--tenant-primary-soft)]"
           asChild
         >
           <Link href={`/tenant/secretary/students/${row.id}`}>
@@ -1741,7 +1741,7 @@ function StudentActionCell({
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 gap-1 px-2 text-[10px] text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+          className="h-6 gap-1 px-2 text-[10px] text-[var(--tenant-primary)] hover:bg-[var(--tenant-primary-soft)] hover:opacity-80"
           onClick={onDirectorOverride}
         >
           <ShieldCheck className="h-3 w-3" />
@@ -2495,10 +2495,10 @@ function SecretaryEnrollmentsPageContent() {
               <DialogDescription>Provide a clear reason. This will be recorded in the workflow.</DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rejection Reason *</Label>
+              <Label className="text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">Rejection Reason *</Label>
               <Textarea value={rejectText} onChange={(e) => setRejectText(e.target.value)}
                 placeholder="State the reason for rejection…" rows={4} className="resize-none" />
-              <p className="text-xs text-slate-400">Enrollment ID: <span className="font-mono">{rejectTargetId || "—"}</span></p>
+              <p className="text-xs text-[var(--tenant-muted)]">Enrollment ID: <span className="font-mono">{rejectTargetId || "—"}</span></p>
             </div>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
@@ -2519,15 +2519,15 @@ function SecretaryEnrollmentsPageContent() {
               <DialogDescription>Interview fee payment is required before submitting intake for review.</DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Enrollment Reference</Label>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-700">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">Enrollment Reference</Label>
+              <div className="rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-3 py-2 font-mono text-xs text-[var(--tenant-ink)]">
                 {payInterviewTargetId ? `enrollment:${payInterviewTargetId}` : "—"}
               </div>
-              <p className="text-xs text-slate-400">After payment is confirmed, return here and the intake can be submitted.</p>
+              <p className="text-xs text-[var(--tenant-muted)]">After payment is confirmed, return here and the intake can be submitted.</p>
             </div>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setPayInterviewOpen(false)}>Cancel</Button>
-              <Button disabled={!payInterviewTargetId} className="bg-blue-600 hover:bg-blue-700"
+              <Button disabled={!payInterviewTargetId} className="bg-[var(--tenant-primary)] hover:opacity-90"
                 onClick={() => { window.location.href = buildInterviewFeePayHref(payInterviewTargetId); }}>
                 Proceed to Payment
               </Button>
@@ -2582,11 +2582,11 @@ function SecretaryEnrollmentsPageContent() {
 
             {/* 1) STATUS OVERVIEW */}
             <div className="grid gap-5 xl:grid-cols-3">
-              <TenantSurface className="p-5">
-                <h3 className="mb-3 text-sm font-semibold text-slate-800">Enrollment Status Overview</h3>
-                <ChartContainer config={chartConfig} className="h-[200px] w-full">
+              <TenantSurface className="min-w-0 p-5">
+                <h3 className="mb-3 text-sm font-semibold text-[var(--tenant-ink)]">Enrollment Status Overview</h3>
+                <ChartContainer config={chartConfig} className="aspect-auto h-[200px] w-full">
                   <BarChart accessibilityLayer data={chartData}>
-                    <CartesianGrid vertical={false} stroke="#f1f5f9" />
+                    <CartesianGrid vertical={false} stroke="#efe9df" />
                     <XAxis dataKey="status" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 10 }} />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Bar dataKey="count" fill="var(--color-count)" radius={6} />
@@ -2594,11 +2594,11 @@ function SecretaryEnrollmentsPageContent() {
                 </ChartContainer>
               </TenantSurface>
 
-              <TenantSurface className="xl:col-span-2 p-5">
-                <div className="flex items-start justify-between gap-3">
+              <TenantSurface className="xl:col-span-2 min-w-0 p-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-800">Overview</h3>
-                    <p className="mt-0.5 text-xs text-slate-500">Quick snapshot of pipeline + enrolled totals.</p>
+                    <h3 className="text-sm font-semibold text-[var(--tenant-ink)]">Overview</h3>
+                    <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">Quick snapshot of pipeline + enrolled totals.</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className="text-xs">Total: {rows.length}</Badge>
@@ -2609,9 +2609,9 @@ function SecretaryEnrollmentsPageContent() {
                   {["DRAFT", "SUBMITTED", "APPROVED"].map((s) => {
                     const count = rows.filter((r) => String(r.status || "").toUpperCase() === s).length;
                     return (
-                      <div key={s} className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{s}</div>
-                        <div className="mt-1 text-2xl font-bold text-slate-900">{count}</div>
+                      <div key={s} className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] px-4 py-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">{s}</div>
+                        <div className="mt-1 text-2xl font-bold text-[var(--tenant-ink)]">{count}</div>
                       </div>
                     );
                   })}
@@ -2621,13 +2621,13 @@ function SecretaryEnrollmentsPageContent() {
 
             {/* 2) NEW STUDENT INTAKE WIZARD */}
             <TenantSurface className="overflow-hidden">
-              <div className="border-b border-slate-100 px-6 py-4 flex items-start justify-between gap-3">
+              <div className="border-b border-[var(--tenant-border)] px-6 py-4 flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">New Student Intake</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">Track intake progress and complete the current step in one view.</p>
+                  <h2 className="text-base font-semibold text-[var(--tenant-ink)]">New Student Intake</h2>
+                  <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">Track intake progress and complete the current step in one view.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                  <span className="rounded-full bg-[var(--tenant-surface-2)] px-3 py-1 text-xs font-semibold text-[var(--tenant-ink)] ring-1 ring-[var(--tenant-border)]">
                     Step {step} of 4
                   </span>
                   <span className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ${canPost ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-amber-200"}`}>
@@ -2638,15 +2638,15 @@ function SecretaryEnrollmentsPageContent() {
 
               <div className="grid gap-0 lg:grid-cols-12">
                 {/* Steps sidebar */}
-                <div className="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-slate-100">
+                <div className="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-[var(--tenant-border)]">
                   <div className="px-6 py-4">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Intake Steps</div>
-                    <p className="mt-1 text-xs text-slate-400">Click a completed step to review.</p>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">Intake Steps</div>
+                    <p className="mt-1 text-xs text-[var(--tenant-muted)]">Click a completed step to review.</p>
                   </div>
                   <div className="px-2 pb-2">
                     <Table>
                       <TableHeader>
-                        <TableRow className="bg-slate-50">
+                        <TableRow className="bg-[var(--tenant-surface-2)]">
                           <TableHead className="text-xs w-[60px]">Step</TableHead>
                           <TableHead className="text-xs">Stage</TableHead>
                           <TableHead className="text-xs w-[120px]">Status</TableHead>
@@ -2656,15 +2656,15 @@ function SecretaryEnrollmentsPageContent() {
                         {intakeSteps.map((s) => {
                           const state = step === s.id ? "Current" : step > s.id ? "Completed" : "Pending";
                           const pill =
-                            state === "Current" ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+                            state === "Current" ? "bg-[var(--tenant-primary-soft)] text-[var(--tenant-primary)] ring-1 ring-[var(--tenant-primary)]/25"
                               : state === "Completed" ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                                : "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
+                                : "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]";
                           return (
                             <TableRow key={s.id}
-                              className={`cursor-default ${step === s.id ? "bg-blue-50/40" : "hover:bg-slate-50"} ${step > s.id ? "cursor-pointer" : ""}`}
+                              className={`cursor-default ${step === s.id ? "bg-[var(--tenant-primary-soft)]" : "hover:bg-[var(--tenant-surface-2)]"} ${step > s.id ? "cursor-pointer" : ""}`}
                               onClick={() => { if (step > s.id) setStep(s.id); }}>
-                              <TableCell className="font-mono text-xs text-slate-500">{s.id}</TableCell>
-                              <TableCell className="text-sm font-medium text-slate-900">{s.label}</TableCell>
+                              <TableCell className="font-mono text-xs text-[var(--tenant-muted)]">{s.id}</TableCell>
+                              <TableCell className="text-sm font-medium text-[var(--tenant-ink)]">{s.label}</TableCell>
                               <TableCell>
                                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${pill}`}>{state}</span>
                               </TableCell>
@@ -2678,13 +2678,13 @@ function SecretaryEnrollmentsPageContent() {
 
                 {/* Form area */}
                 <div className="lg:col-span-8">
-                  <div className="px-6 py-4 border-b border-slate-100">
+                  <div className="px-6 py-4 border-b border-[var(--tenant-border)]">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="text-sm font-semibold text-slate-900">
+                        <div className="text-sm font-semibold text-[var(--tenant-ink)]">
                           {intakeSteps.find((s) => s.id === step)?.label}
                         </div>
-                        <div className="mt-0.5 text-xs text-slate-500">
+                        <div className="mt-0.5 text-xs text-[var(--tenant-muted)]">
                           {step === 1 ? "Enter student personal details exactly as they appear on official documents."
                             : step === 2 ? "Provide accurate guardian contact details for school communications."
                               : step === 3 ? "Confirm required documents and add optional identifiers if available."
@@ -2692,7 +2692,7 @@ function SecretaryEnrollmentsPageContent() {
                         </div>
                       </div>
                       {step === 4 && (
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                        <span className="rounded-full bg-[var(--tenant-surface-2)] px-3 py-1 text-xs font-semibold text-[var(--tenant-ink)] ring-1 ring-[var(--tenant-border)]">
                           Review Mode
                         </span>
                       )}
@@ -2867,7 +2867,7 @@ function SecretaryEnrollmentsPageContent() {
                         </div>
                         {/* ── Phase W — KEMIS Learner Details ── */}
                         <div>
-                          <Label className="mb-2 block text-sm font-medium text-slate-700">KEMIS Learner Details</Label>
+                          <Label className="mb-2 block text-sm font-medium text-[var(--tenant-ink)]">KEMIS Learner Details</Label>
                           <div className="grid gap-3 md:grid-cols-3">
                             {([
                               ["kcpe_kjsea_year", "KCPE/KJSEA Year"],
@@ -2895,8 +2895,8 @@ function SecretaryEnrollmentsPageContent() {
                           ["father", "(C) Father's Details"],
                           ["kemis_guardian", "(D) Guardian's Details (if no parents)"],
                         ] as const).map(([pk, title]) => (
-                          <div key={pk} className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                            <Label className="mb-2 block text-sm font-semibold text-slate-700">{title}</Label>
+                          <div key={pk} className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface-2)]/60 p-4">
+                            <Label className="mb-2 block text-sm font-semibold text-[var(--tenant-ink)]">{title}</Label>
                             <div className="grid gap-3 md:grid-cols-4">
                               {([
                                 ["first_name", "First Name"],
@@ -2928,27 +2928,27 @@ function SecretaryEnrollmentsPageContent() {
                             className="resize-none" rows={3} />
                         </FormField>
                         <div>
-                          <Label className="mb-2 block text-sm font-medium text-slate-700">Document Checklist</Label>
+                          <Label className="mb-2 block text-sm font-medium text-[var(--tenant-ink)]">Document Checklist</Label>
                           <div className="space-y-2">
                             {requirementChecklist.map((item) => (
                               <label key={item.key} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${draft.documents[item.key]
                                 ? "border-emerald-200 bg-emerald-50"
                                 : item.required
-                                  ? "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/30"
-                                  : "border-slate-100 bg-slate-50 hover:bg-slate-100"
+                                  ? "border-[var(--tenant-border)] bg-white hover:border-[var(--tenant-primary)]/30 hover:bg-[var(--tenant-primary-soft)]/30"
+                                  : "border-[var(--tenant-border)] bg-[var(--tenant-surface-2)] hover:bg-[var(--tenant-surface-2)]"
                                 }`}>
                                 <input type="checkbox" checked={draft.documents[item.key]}
                                   onChange={(e) => setDraft((p) => ({
                                     ...p, documents: { ...p.documents, [item.key]: e.target.checked }
-                                  }))} className="mt-0.5 h-4 w-4 accent-blue-600" />
+                                  }))} className="mt-0.5 h-4 w-4 accent-[var(--tenant-primary)]" />
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-slate-800">{item.label}</span>
+                                    <span className="text-sm font-medium text-[var(--tenant-ink)]">{item.label}</span>
                                     {item.required
                                       ? <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-600">Required</span>
-                                      : <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">Optional</span>}
+                                      : <span className="rounded-full bg-[var(--tenant-surface-2)] px-1.5 py-0.5 text-xs text-[var(--tenant-muted)]">Optional</span>}
                                   </div>
-                                  <p className="mt-0.5 text-xs text-slate-400">{item.description}</p>
+                                  <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">{item.description}</p>
                                 </div>
                                 {draft.documents[item.key] && <Check className="h-4 w-4 text-emerald-500 shrink-0" />}
                               </label>
@@ -2960,50 +2960,50 @@ function SecretaryEnrollmentsPageContent() {
 
                     {step === 4 && (
                       <div className="space-y-5">
-                        <div className="rounded-xl border border-slate-100 overflow-hidden">
-                          <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Student Details</div>
+                        <div className="rounded-xl border border-[var(--tenant-border)] overflow-hidden">
+                          <div className="bg-[var(--tenant-surface-2)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">Student Details</div>
                           <div className="grid grid-cols-2 gap-x-6 gap-y-3 p-4 text-sm">
-                            <div><span className="text-slate-400">Full Name:</span> <span className="font-medium">{draft.student_name || "—"}</span></div>
-                            <div><span className="text-slate-400">Class:</span> <span className="font-medium">{draft.admission_class || "—"}</span></div>
-                            <div><span className="text-slate-400">Term:</span> <span className="font-medium">{draft.admission_term || "—"}</span></div>
-                            <div><span className="text-slate-400">Intake Date:</span> <span className="font-medium">{draft.intake_date || "—"}</span></div>
-                            <div><span className="text-slate-400">Date of Birth:</span> <span className="font-medium">{draft.date_of_birth || "—"}</span></div>
-                            <div><span className="text-slate-400">Gender:</span> <span className="font-medium">{draft.gender || "Not specified"}</span></div>
-                            <div><span className="text-slate-400">Guardian:</span> <span className="font-medium">{draft.guardian_name || "—"}</span></div>
-                            <div><span className="text-slate-400">Phone:</span> <span className="font-medium">{draft.guardian_phone || "—"}</span></div>
-                            <div><span className="text-slate-400">Medical Condition:</span> <span className="font-medium">{draft.has_medical_conditions ? "Yes" : "No"}</span></div>
-                            <div><span className="text-slate-400">Medicine In School:</span> <span className="font-medium">{draft.has_medication_in_school ? "Yes" : "No"}</span></div>
+                            <div><span className="text-[var(--tenant-muted)]">Full Name:</span> <span className="font-medium">{draft.student_name || "—"}</span></div>
+                            <div><span className="text-[var(--tenant-muted)]">Class:</span> <span className="font-medium">{draft.admission_class || "—"}</span></div>
+                            <div><span className="text-[var(--tenant-muted)]">Term:</span> <span className="font-medium">{draft.admission_term || "—"}</span></div>
+                            <div><span className="text-[var(--tenant-muted)]">Intake Date:</span> <span className="font-medium">{draft.intake_date || "—"}</span></div>
+                            <div><span className="text-[var(--tenant-muted)]">Date of Birth:</span> <span className="font-medium">{draft.date_of_birth || "—"}</span></div>
+                            <div><span className="text-[var(--tenant-muted)]">Gender:</span> <span className="font-medium">{draft.gender || "Not specified"}</span></div>
+                            <div><span className="text-[var(--tenant-muted)]">Guardian:</span> <span className="font-medium">{draft.guardian_name || "—"}</span></div>
+                            <div><span className="text-[var(--tenant-muted)]">Phone:</span> <span className="font-medium">{draft.guardian_phone || "—"}</span></div>
+                            <div><span className="text-[var(--tenant-muted)]">Medical Condition:</span> <span className="font-medium">{draft.has_medical_conditions ? "Yes" : "No"}</span></div>
+                            <div><span className="text-[var(--tenant-muted)]">Medicine In School:</span> <span className="font-medium">{draft.has_medication_in_school ? "Yes" : "No"}</span></div>
                             {draft.has_medical_conditions && (
                               <div className="col-span-2">
-                                <span className="text-slate-400">Medical Details:</span>{" "}
+                                <span className="text-[var(--tenant-muted)]">Medical Details:</span>{" "}
                                 <span className="font-medium">{draft.medical_conditions_details || "—"}</span>
                               </div>
                             )}
                             {draft.has_medication_in_school && (
                               <div className="col-span-2">
-                                <span className="text-slate-400">Medication Details:</span>{" "}
+                                <span className="text-[var(--tenant-muted)]">Medication Details:</span>{" "}
                                 <span className="font-medium">{draft.medication_in_school_details || "—"}</span>
                               </div>
                             )}
-                            {draft.guardian_email && <div><span className="text-slate-400">Email:</span> <span className="font-medium">{draft.guardian_email}</span></div>}
-                            {draft.previous_school && <div><span className="text-slate-400">Prev. School:</span> <span className="font-medium">{draft.previous_school}</span></div>}
-                            {draft.assessment_no && <div><span className="text-slate-400">Assessment No.:</span> <span className="font-mono font-medium">{draft.assessment_no}</span></div>}
-                            {draft.uli && <div><span className="text-slate-400">KEMIS ULI:</span> <span className="font-mono font-medium">{draft.uli}</span></div>}
+                            {draft.guardian_email && <div><span className="text-[var(--tenant-muted)]">Email:</span> <span className="font-medium">{draft.guardian_email}</span></div>}
+                            {draft.previous_school && <div><span className="text-[var(--tenant-muted)]">Prev. School:</span> <span className="font-medium">{draft.previous_school}</span></div>}
+                            {draft.assessment_no && <div><span className="text-[var(--tenant-muted)]">Assessment No.:</span> <span className="font-mono font-medium">{draft.assessment_no}</span></div>}
+                            {draft.uli && <div><span className="text-[var(--tenant-muted)]">KEMIS ULI:</span> <span className="font-mono font-medium">{draft.uli}</span></div>}
                           </div>
                         </div>
-                        <div className="rounded-xl border border-slate-100 overflow-hidden">
-                          <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Document Checklist</div>
+                        <div className="rounded-xl border border-[var(--tenant-border)] overflow-hidden">
+                          <div className="bg-[var(--tenant-surface-2)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--tenant-muted)]">Document Checklist</div>
                           <div className="p-4 grid grid-cols-2 gap-2">
                             {requirementChecklist.map((item) => (
                               <div key={item.key} className="flex items-center gap-2 text-sm">
                                 <span className={`h-2 w-2 rounded-full shrink-0 ${draft.documents[item.key] ? "bg-emerald-500" : "bg-red-400"}`} />
-                                <span className={draft.documents[item.key] ? "text-slate-700" : "text-slate-400"}>{item.label}</span>
+                                <span className={draft.documents[item.key] ? "text-[var(--tenant-ink)]" : "text-[var(--tenant-muted)]"}>{item.label}</span>
                               </div>
                             ))}
                           </div>
                         </div>
-                        <div className="rounded-xl border border-slate-100 p-4">
-                          <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                        <div className="rounded-xl border border-[var(--tenant-border)] p-4">
+                          <div className="mb-3 rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-primary-soft)] px-3 py-2 text-xs text-[var(--tenant-primary)]">
                             When this student is marked as <strong>Enrolled</strong>, an Admission Number will be
                             auto-generated using the next available number in your existing sequence.
                           </div>
@@ -3038,15 +3038,15 @@ function SecretaryEnrollmentsPageContent() {
                     )}
                   </div>
 
-                  <div className="border-t border-slate-100 px-6 py-4 flex items-center justify-between">
+                  <div className="border-t border-[var(--tenant-border)] px-6 py-4 flex items-center justify-between">
                     <Button type="button" variant="outline" onClick={prevStep} disabled={step === 1}>← Previous</Button>
                     <div className="flex gap-2">
                       {step < 4 && (
-                        <Button type="button" onClick={nextStep} className="bg-blue-600 hover:bg-blue-700">Next →</Button>
+                        <Button type="button" onClick={nextStep} className="bg-[var(--tenant-primary)] hover:opacity-90">Next →</Button>
                       )}
                       {step === 4 && (
                         <Button type="button" onClick={createEnrollment} disabled={!canPost || creating}
-                          className="bg-blue-600 hover:bg-blue-700">
+                          className="bg-[var(--tenant-primary)] hover:opacity-90">
                           {creating
                             ? <span className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Submitting…</span>
                             : "Submit Intake"}
@@ -3060,16 +3060,18 @@ function SecretaryEnrollmentsPageContent() {
 
             {/* 3) WORKFLOW ACTIONS TABLE */}
             <TenantSurface>
-              <div className="border-b border-slate-100 px-6 py-4 flex items-start justify-between gap-3">
+              <div className="border-b border-[var(--tenant-border)] px-4 py-4 sm:px-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">Workflow Actions</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <h2 className="text-base font-semibold text-[var(--tenant-ink)]">Workflow Actions</h2>
+                  <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">
                     Click any row to view full student details. Use the Update button to edit, or ⋯ menu for workflow actions.
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <SearchInput value={workflowSearch} onChange={setWorkflowSearch} placeholder="Search student, class, ID…" />
-                  <div className="text-xs text-slate-400 whitespace-nowrap">
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
+                  <div className="min-w-[140px] flex-1 sm:w-56 sm:flex-none">
+                    <SearchInput value={workflowSearch} onChange={setWorkflowSearch} placeholder="Search student, class, ID…" />
+                  </div>
+                  <div className="shrink-0 text-xs text-[var(--tenant-muted)] whitespace-nowrap">
                     {submitting
                       ? <span className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Running…</span>
                       : `${workflowPageData.total} records`}
@@ -3077,10 +3079,10 @@ function SecretaryEnrollmentsPageContent() {
                 </div>
               </div>
 
-              <div className="overflow-hidden">
+              <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
                       <TableHead className="text-xs">Term</TableHead>
@@ -3099,20 +3101,20 @@ function SecretaryEnrollmentsPageContent() {
                       return (
                         <TableRow
                           key={row.id}
-                          className={`cursor-pointer hover:bg-slate-50 ${targetId === row.id ? "bg-blue-50/40" : ""}`}
+                          className={`cursor-pointer hover:bg-[var(--tenant-surface-2)] ${targetId === row.id ? "bg-[var(--tenant-primary-soft)]" : ""}`}
                           onClick={() => { setTargetId(row.id); setViewTargetRow(row); setViewOpen(true); }}
                         >
                           <TableCell className="text-sm font-medium">{studentName(row.payload || {})}</TableCell>
                           <TableCell>
-                            <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
+                            <span className="font-mono text-xs text-[var(--tenant-muted)]">{studentClass(row.payload || {}) || "—"}</span>
                           </TableCell>
                           <TableCell>
-                            <span className="font-mono text-xs text-slate-500">
+                            <span className="font-mono text-xs text-[var(--tenant-muted)]">
                               {termFromPayload(row.payload || {}) || "—"}
                             </span>
                           </TableCell>
                           <TableCell><EnrollmentStatusBadge status={row.status} /></TableCell>
-                          <TableCell className="font-mono text-xs text-slate-400">{row.id}</TableCell>
+                          <TableCell className="font-mono text-xs text-[var(--tenant-muted)]">{row.id}</TableCell>
 
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <InterviewFeeCell
@@ -3162,7 +3164,7 @@ function SecretaryEnrollmentsPageContent() {
                                             Unlocks Enroll
                                           </span>
                                         </div>
-                                        <div className="mt-0.5 text-xs text-slate-500">
+                                        <div className="mt-0.5 text-xs text-[var(--tenant-muted)]">
                                           Pay school fees so the enrollment can move to ENROLLED / ENROLLED_PARTIAL.
                                         </div>
                                       </div>
@@ -3182,12 +3184,12 @@ function SecretaryEnrollmentsPageContent() {
                                         <div className="text-sm font-medium">
                                           {actionConfig[act].label}
                                           {isSuggested && (
-                                            <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 ring-1 ring-blue-200">
+                                            <span className="ml-2 rounded-full bg-[var(--tenant-primary-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--tenant-primary)] ring-1 ring-[var(--tenant-primary)]/25">
                                               Suggested
                                             </span>
                                           )}
                                         </div>
-                                        <div className="mt-0.5 text-xs text-slate-500">{actionConfig[act].description}</div>
+                                        <div className="mt-0.5 text-xs text-[var(--tenant-muted)]">{actionConfig[act].description}</div>
                                       </div>
                                     </DropdownMenuItem>
                                   );
@@ -3218,22 +3220,24 @@ function SecretaryEnrollmentsPageContent() {
 
             {/* 4) ENROLLMENT QUEUE */}
             <TenantSurface>
-              <div className="border-b border-slate-100 px-5 py-4 flex items-center justify-between">
+              <div className="border-b border-[var(--tenant-border)] px-4 py-4 sm:px-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-800">Enrollment Queue</h3>
-                  <p className="mt-0.5 text-xs text-slate-500">All intake records across all statuses. Click a row to view details.</p>
+                  <h3 className="text-sm font-semibold text-[var(--tenant-ink)]">Enrollment Queue</h3>
+                  <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">All intake records across all statuses. Click a row to view details.</p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <SearchInput value={queueSearch} onChange={setQueueSearch} placeholder="Search student, class, ID…" />
-                  <span className="text-xs text-slate-400 whitespace-nowrap">
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
+                  <div className="min-w-[140px] flex-1 sm:w-56 sm:flex-none">
+                    <SearchInput value={queueSearch} onChange={setQueueSearch} placeholder="Search student, class, ID…" />
+                  </div>
+                  <span className="shrink-0 text-xs text-[var(--tenant-muted)] whitespace-nowrap">
                     {queuePageData.total} records
                   </span>
                 </div>
               </div>
-              <div className="overflow-hidden">
+              <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
                       <TableHead className="text-xs">Term</TableHead>
@@ -3250,29 +3254,29 @@ function SecretaryEnrollmentsPageContent() {
                       const intakeDate = (row.payload as any)?.intake_date;
                       return (
                         <TableRow key={row.id}
-                          className={`cursor-pointer hover:bg-slate-50 ${targetId === row.id ? "bg-blue-50" : ""}`}
+                          className={`cursor-pointer hover:bg-[var(--tenant-surface-2)] ${targetId === row.id ? "bg-[var(--tenant-primary-soft)]" : ""}`}
                           onClick={() => { setTargetId(row.id); setViewTargetRow(row); setViewOpen(true); }}>
                           <TableCell className="text-sm font-medium">{studentName(row.payload || {})}</TableCell>
                           <TableCell>
-                            <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
+                            <span className="font-mono text-xs text-[var(--tenant-muted)]">{studentClass(row.payload || {}) || "—"}</span>
                           </TableCell>
                           <TableCell>
-                            <span className="font-mono text-xs text-slate-500">
+                            <span className="font-mono text-xs text-[var(--tenant-muted)]">
                               {termFromPayload(row.payload || {}) || "—"}
                             </span>
                           </TableCell>
                           <TableCell><EnrollmentStatusBadge status={row.status} /></TableCell>
-                          <TableCell className="text-xs text-slate-500">{intakeDate || "—"}</TableCell>
+                          <TableCell className="text-xs text-[var(--tenant-muted)]">{intakeDate || "—"}</TableCell>
                           <TableCell>
                             {admNum
                               ? <span className="font-mono text-xs font-semibold text-emerald-700">{admNum}</span>
-                              : <span className="text-xs text-slate-300">Not assigned</span>}
+                              : <span className="text-xs text-[var(--tenant-muted)]">Not assigned</span>}
                           </TableCell>
-                          <TableCell className="font-mono text-xs text-slate-400">{row.id.slice(0, 8)}…</TableCell>
+                          <TableCell className="font-mono text-xs text-[var(--tenant-muted)]">{row.id.slice(0, 8)}…</TableCell>
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <button
                               onClick={() => { setTargetId(row.id); setViewTargetRow(row); setViewOpen(true); }}
-                              className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 transition">
+                              className="rounded-md bg-[var(--tenant-primary-soft)] px-2 py-1 text-xs font-medium text-[var(--tenant-primary)] hover:opacity-80 transition">
                               View
                             </button>
                           </TableCell>
@@ -3305,9 +3309,9 @@ function SecretaryEnrollmentsPageContent() {
 
             {/* Add Existing Student */}
             <TenantSurface>
-              <div className="border-b border-slate-100 px-6 py-4">
-                <h2 className="text-base font-semibold text-slate-900">Add Existing Student</h2>
-                <p className="mt-0.5 text-sm text-slate-500">Register a returning or already-enrolled student into the system.</p>
+              <div className="border-b border-[var(--tenant-border)] px-6 py-4">
+                <h2 className="text-base font-semibold text-[var(--tenant-ink)]">Add Existing Student</h2>
+                <p className="mt-0.5 text-sm text-[var(--tenant-muted)]">Register a returning or already-enrolled student into the system.</p>
               </div>
               <div className="p-6">
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -3466,7 +3470,7 @@ function SecretaryEnrollmentsPageContent() {
                 </div>
                 <div className="mt-5 flex gap-2">
                   <Button onClick={createExistingStudentEnrollment} disabled={creatingExistingStudent}
-                    className="bg-blue-600 hover:bg-blue-700">
+                    className="bg-[var(--tenant-primary)] hover:opacity-90">
                     {creatingExistingStudent
                       ? <span className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Adding…</span>
                       : "+ Add Student"}
@@ -3482,11 +3486,11 @@ function SecretaryEnrollmentsPageContent() {
 
             {/* ── Enrolled Students Table ── */}
             <TenantSurface>
-              <div className="border-b border-slate-100 px-6 py-4">
+              <div className="border-b border-[var(--tenant-border)] px-6 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h2 className="text-base font-semibold text-slate-900">Enrolled Students</h2>
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    <h2 className="text-base font-semibold text-[var(--tenant-ink)]">Enrolled Students</h2>
+                    <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">
                       Students with ENROLLED status. Secretaries may update each record up to {MAX_SECRETARY_EDITS}×;
                       beyond that a director override is required.
                     </p>
@@ -3527,7 +3531,7 @@ function SecretaryEnrollmentsPageContent() {
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead className="text-xs">Student Name</TableHead>
                       <TableHead className="text-xs">Adm. No.</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
@@ -3543,24 +3547,24 @@ function SecretaryEnrollmentsPageContent() {
                       const admNum = row.admission_number ?? (row.payload as any)?.admission_number;
                       const intakeDate = (row.payload as any)?.intake_date;
                       return (
-                        <TableRow key={row.id} className="hover:bg-slate-50 align-top">
+                        <TableRow key={row.id} className="hover:bg-[var(--tenant-surface-2)] align-top">
                           <TableCell className="text-sm font-medium pt-3">{studentName(row.payload || {})}</TableCell>
                           <TableCell className="pt-3">
                             {admNum
                               ? <span className="font-mono text-xs font-semibold text-emerald-700">{admNum}</span>
-                              : <span className="text-xs text-slate-300">—</span>}
+                              : <span className="text-xs text-[var(--tenant-muted)]">—</span>}
                           </TableCell>
                           <TableCell className="pt-3">
-                            <span className="font-mono text-xs text-slate-500">{studentClass(row.payload || {}) || "—"}</span>
+                            <span className="font-mono text-xs text-[var(--tenant-muted)]">{studentClass(row.payload || {}) || "—"}</span>
                           </TableCell>
                           <TableCell className="pt-3">
-                            <span className="font-mono text-xs text-slate-500">
+                            <span className="font-mono text-xs text-[var(--tenant-muted)]">
                               {termFromPayload(row.payload || {}) || "—"}
                             </span>
                           </TableCell>
-                          <TableCell className="text-xs text-slate-500 pt-3">{intakeDate || "—"}</TableCell>
+                          <TableCell className="text-xs text-[var(--tenant-muted)] pt-3">{intakeDate || "—"}</TableCell>
                           <TableCell className="pt-3"><EnrollmentStatusBadge status={row.status} /></TableCell>
-                          <TableCell className="font-mono text-xs text-slate-400 pt-3">{row.id}</TableCell>
+                          <TableCell className="font-mono text-xs text-[var(--tenant-muted)] pt-3">{row.id}</TableCell>
 
                           <TableCell className="text-center py-2">
                             <StudentActionCell
@@ -3610,8 +3614,8 @@ export default function SecretaryEnrollmentsPage() {
       fallback={
         <div className="flex min-h-screen items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500">Loading enrollments…</p>
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--tenant-primary)] border-t-transparent" />
+            <p className="text-sm text-[var(--tenant-muted)]">Loading enrollments…</p>
           </div>
         </div>
       }

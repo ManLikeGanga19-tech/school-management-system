@@ -40,3 +40,8 @@ deploy/.env.production
 # swallowing it, so the documentation existed on one laptop and nowhere else.
 !deploy/.env.production.example
 deploy/*.env
+
+# Design source exports (Stitch/Figma) — large binaries, kept locally only
+/stitch_*.zip
+# Runtime-uploaded tenant assets (badges etc.) — not source
+backend/storage/

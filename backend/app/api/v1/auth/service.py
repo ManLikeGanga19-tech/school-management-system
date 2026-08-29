@@ -424,6 +424,13 @@ def list_user_campuses(db: Session, *, user_id, tenant_id) -> list[dict]:
     if current is None or getattr(current, "group_id", None) is None:
         return []
 
+    # Cross-campus switching is a DIRECTOR-only capability. A school may run
+    # different secretaries (and other staff) per campus, and they must stay
+    # scoped to their own campus — only a group director moves between them.
+    roles, _ = _load_roles_permissions(db, tenant_id, user_id)
+    if "DIRECTOR" not in {str(r).strip().upper() for r in roles}:
+        return []
+
     rows = db.execute(
         select(Tenant)
         .join(UserTenant, UserTenant.tenant_id == Tenant.id)
@@ -465,6 +472,16 @@ def switch_campus(
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise ValueError("Invalid session")
+
+    if target_tenant_id == current_tenant_id:
+        raise ValueError("You are already on this campus")
+
+    # Security boundary: cross-campus switching is exclusively a director
+    # capability. A secretary (or any non-director) is refused even on a direct
+    # API call, regardless of campus membership.
+    roles, _ = _load_roles_permissions(db, current_tenant_id, user_id)
+    if "DIRECTOR" not in {str(r).strip().upper() for r in roles}:
+        raise ValueError("Only a director can switch between campuses")
 
     current = db.get(Tenant, current_tenant_id)
     target = db.get(Tenant, target_tenant_id)
@@ -512,6 +529,23 @@ def switch_campus(
             revoked_at=None,
             last_used_at=None,
         )
+    )
+
+    # Audit the cross-campus switch on BOTH campuses — a security-relevant event
+    # that must be traceable from either campus (director) and globally (super
+    # admin): who moved between which campuses, and when.
+    from app.core.audit import log_event
+    _from = {"tenant_id": str(current_tenant_id), "slug": getattr(current, "slug", None), "name": getattr(current, "name", None)}
+    _to = {"tenant_id": str(target_tenant_id), "slug": getattr(target, "slug", None), "name": getattr(target, "name", None)}
+    log_event(
+        db, tenant_id=current_tenant_id, actor_user_id=user_id,
+        action="campus.switch_out", resource="campus", resource_id=target_tenant_id,
+        payload={"to": _to, "from": _from},
+    )
+    log_event(
+        db, tenant_id=target_tenant_id, actor_user_id=user_id,
+        action="campus.switch_in", resource="campus", resource_id=current_tenant_id,
+        payload={"from": _from, "to": _to},
     )
     db.commit()
 

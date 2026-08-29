@@ -9,7 +9,7 @@ import {
   DashboardSectionLabel,
   DashboardStatCard,
   dashboardBadgeClasses,
-} from "@/components/dashboard/dashboard-primitives";
+} from "@/components/dashboard/tenant-dashboard-primitives";
 import {
   TodayAtSchool,
   type TodayAtSchoolData,
@@ -36,7 +36,6 @@ import {
   Users,
   GraduationCap,
   ClipboardList,
-  AlertTriangle,
   Activity,
   ShieldCheck,
   RefreshCw,
@@ -46,11 +45,10 @@ import {
   FileText,
   UserCheck,
   AlertCircle,
-  PieChart as PieChartIcon,
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
-import { formatKes, timeAgo, toNumber } from "@/lib/format";
+import { timeAgo } from "@/lib/format";
 import { TenantNotificationsOverview } from "@/components/notifications/TenantNotificationsOverview";
 import {
   normalizeTenantNotificationPreviews,
@@ -88,7 +86,7 @@ type DashboardResponse = {
 // ─── Chart config ─────────────────────────────────────────────────────────────
 
 const enrollmentChartConfig = {
-  count: { label: "Enrollments", color: "#b9512d" },
+  count: { label: "Enrollments", color: "#c2680f" },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -134,12 +132,12 @@ function SectionCard({
 }) {
   return (
     <div className="dashboard-surface overflow-hidden rounded-[1.6rem]">
-      <div className="flex flex-col gap-3 border-b border-[#eadfce] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <div className="flex flex-col gap-3 border-b border-[var(--tenant-border)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex items-center gap-2">
-          {Icon && <Icon className="h-4 w-4 text-slate-400" />}
+          {Icon && <Icon className="h-4 w-4 text-[var(--tenant-muted)]" />}
           <div>
-            <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-            {subtitle && <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>}
+            <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">{title}</h2>
+            {subtitle && <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">{subtitle}</p>}
           </div>
         </div>
         {action && <div className="self-start sm:self-auto">{action}</div>}
@@ -153,14 +151,14 @@ function EnrollmentStatusBadge({ status }: { status: string }) {
   const s = status.toUpperCase();
   const styles: Record<string, string> = {
     ENROLLED:           "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-    APPROVED:           "bg-[#e9f1f2] text-[#173f49] ring-1 ring-[#cedfe1]",
+    APPROVED:           "bg-[var(--tenant-primary-soft)] text-[var(--tenant-primary)] ring-1 ring-[var(--tenant-primary)]/20",
     SUBMITTED:          "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
-    DRAFT:              "bg-slate-100 text-slate-500 ring-1 ring-slate-200",
+    DRAFT:              "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]",
     REJECTED:           "bg-red-50 text-red-600 ring-1 ring-red-200",
-    TRANSFER_REQUESTED: "bg-[#f7e7dc] text-[#93411f] ring-1 ring-[#ebd3c3]",
+    TRANSFER_REQUESTED: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
   };
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[s] ?? "bg-slate-100 text-slate-600 ring-1 ring-slate-200"}`}>
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[s] ?? "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]"}`}>
       {s.replace(/_/g, " ")}
     </span>
   );
@@ -169,7 +167,7 @@ function EnrollmentStatusBadge({ status }: { status: string }) {
 function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
   return (
     <TableRow>
-      <TableCell colSpan={colSpan} className="py-10 text-center text-sm text-slate-400">
+      <TableCell colSpan={colSpan} className="py-10 text-center text-sm text-[var(--tenant-muted)]">
         {message}
       </TableCell>
     </TableRow>
@@ -247,18 +245,14 @@ export default function SecretaryDashboardPage() {
   // ── Derived ──────────────────────────────────────────────────────────────
 
   const enrollments = Array.isArray(data?.enrollments) ? data.enrollments : [];
-  const invoices    = Array.isArray(data?.invoices)    ? data.invoices    : [];
   const users       = Array.isArray(data?.users)       ? data.users       : [];
   const audit       = Array.isArray(data?.audit)       ? data.audit       : [];
   const health      = data?.health ?? {};
 
-  // Secretary only sees outstanding balance — never total billed or collected.
-  // Backend's `finance_outstanding` is the authoritative tenant-wide total;
-  // fall back to summing the visible invoice rows when it isn't supplied.
-  const outstandingBalance = data?.finance_outstanding
-    ? toNumber(data.finance_outstanding.total_outstanding)
-    : invoices.reduce((acc, inv) => acc + toNumber(inv.balance_amount), 0);
+  // Secretary dashboard is operations-only — NO finance KPIs (that is the
+  // director's domain). Finance data intentionally not surfaced here.
   const demographics = data?.demographics ?? null;
+  const enrolledCount = enrollments.filter((e) => e.status.toUpperCase() === "ENROLLED").length;
 
   const enrollmentStatusData = Object.entries(
     enrollments.reduce((acc, row) => {
@@ -360,113 +354,80 @@ export default function SecretaryDashboardPage() {
           </div>
         )}
 
-        {/* ── Student demographics (enterprise donut + breakdown) ── */}
-        <SectionLabel>Student Demographics</SectionLabel>
-        <div className="grid gap-5 lg:grid-cols-3">
-          <div className="dashboard-surface rounded-[1.6rem] p-5 lg:col-span-1">
-            <div className="mb-3 flex items-center gap-2">
-              <PieChartIcon className="h-4 w-4 text-slate-400" />
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">Gender Distribution</h3>
-                <p className="text-xs text-slate-400">Active enrolled students</p>
-              </div>
-            </div>
-            <DemographicsDonut data={demographics} height={220} />
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:col-span-2">
-            <DashboardStatCard
-              label="Total Students"
-              value={loading ? "—" : (demographics?.total_students ?? 0).toLocaleString()}
-              sub={demographics
-                ? `${demographics.male_count.toLocaleString()} boys · ${demographics.female_count.toLocaleString()} girls`
-                : "—"}
-              icon={Users}
-              tone="secondary"
-            />
-            <DashboardStatCard
-              label="Boys"
-              value={loading ? "—" : (demographics?.male_count ?? 0).toLocaleString()}
-              sub={demographics ? `${demographics.male_pct}% of student body` : "—"}
-              icon={GraduationCap}
-              tone="secondary"
-            />
-            <DashboardStatCard
-              label="Girls"
-              value={loading ? "—" : (demographics?.female_count ?? 0).toLocaleString()}
-              sub={demographics ? `${demographics.female_pct}% of student body` : "—"}
-              icon={GraduationCap}
-              tone="accent"
-            />
-            <DashboardStatCard
-              label="Outstanding Balance"
-              value={loading ? "—" : formatKes(outstandingBalance)}
-              sub={outstandingBalance > 0
-                ? `${data?.finance_outstanding?.invoice_count ?? invoices.length} invoices unsettled`
-                : "All invoices settled"}
-              icon={AlertTriangle}
-              tone={outstandingBalance > 0 ? "warning" : "sage"}
-            />
-          </div>
+        {/* ── Primary KPIs — school operations only (no finance) ── */}
+        <SectionLabel>Operations Overview</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+          <DashboardStatCard
+            label="Total Students"
+            value={loading ? "—" : (demographics?.total_students ?? 0).toLocaleString()}
+            sub={`${enrolledCount} active enrolled`}
+            icon={Users}
+            tone="accent"
+          />
+          <DashboardStatCard
+            label="Pending Intake"
+            value={loading ? "—" : pendingEnrollments}
+            sub={pendingEnrollments > 0 ? "Awaiting review" : "Queue clear"}
+            icon={ClipboardList}
+            tone={pendingEnrollments > 0 ? "warning" : "sage"}
+          />
+          <DashboardStatCard
+            label="Intake Records"
+            value={loading ? "—" : enrollments.length}
+            sub="Total submissions"
+            icon={FileText}
+            tone="secondary"
+          />
+          <DashboardStatCard
+            label="Active Users"
+            value={loading ? "—" : `${activeUsers} / ${users.length}`}
+            sub={users.length > 0 ? `${Math.round((activeUsers / users.length) * 100)}% active` : "No users yet"}
+            icon={UserCheck}
+            tone="secondary"
+          />
+          <DashboardStatCard
+            label="Audit Events"
+            value={loading ? "—" : (data?.summary?.total_audit_logs ?? audit.length)}
+            sub={audit.length > 0 ? `Last ${timeAgo(audit[0]?.created_at)}` : "No events yet"}
+            icon={Activity}
+            tone="neutral"
+          />
         </div>
 
-        {/* ── Operations strip + notifications ── */}
-        <SectionLabel>School Operations Overview</SectionLabel>
-        <div className="grid gap-5 xl:grid-cols-3">
-          <div className="xl:col-span-2">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <DashboardStatCard
-                label="Active Users"
-                value={loading ? "—" : `${activeUsers} / ${users.length}`}
-                sub={users.length > 0
-                  ? `${Math.round((activeUsers / users.length) * 100)}% active`
-                  : "No users yet"}
-                icon={Users}
-                tone="secondary"
-              />
-              <DashboardStatCard
-                label="Pending Intake"
-                value={loading ? "—" : pendingEnrollments}
-                sub={pendingEnrollments > 0
-                  ? `Of ${enrollments.length} recent submissions`
-                  : "All up to date"}
-                icon={GraduationCap}
-                tone="sage"
-              />
-              <DashboardStatCard
-                label="Audit Events"
-                value={loading ? "—" : (data?.summary?.total_audit_logs ?? audit.length)}
-                sub={audit.length > 0
-                  ? `Last: ${timeAgo(audit[0]?.created_at)}`
-                  : "No events yet"}
-                icon={Activity}
-                tone="neutral"
-              />
-            </div>
-            {demographics && demographics.total_students > 0 && (
-              <div className="dashboard-surface mt-4 rounded-[1.6rem] p-5">
-                <h3 className="mb-3 text-sm font-semibold text-slate-900">Demographics Breakdown</h3>
-                <DemographicsLegend data={demographics} />
-              </div>
-            )}
-          </div>
-          <div className="xl:col-span-1">
-            <TenantNotificationsOverview
-              notifications={notifications}
-              unreadCount={unreadNotifications}
-              totalCount={totalNotifications}
-              viewAllHref="/tenant/secretary/notifications"
-              subtitle="Latest alerts and action items"
-            />
-          </div>
-        </div>
+        {/* ── Notifications — only when there is something to show ── */}
+        {notifications.length > 0 && (
+          <TenantNotificationsOverview
+            notifications={notifications}
+            unreadCount={unreadNotifications}
+            totalCount={totalNotifications}
+            viewAllHref="/tenant/secretary/notifications"
+            subtitle="Latest alerts and action items"
+          />
+        )}
 
-        {/* ── Enrollment pipeline + Chart ── */}
+        {/* ── Demographics + Enrollment status, side by side ── */}
         <div className="grid gap-5 lg:grid-cols-2">
 
-          {/* Enrollment breakdown chart */}
-          <div>
-            <SectionLabel>Enrollment Status Breakdown</SectionLabel>
+          {/* Student demographics */}
+          <div className="min-w-0">
+            <SectionLabel>Student Demographics</SectionLabel>
+            <SectionCard title="Gender Distribution" subtitle="Active enrolled students" icon={Users}>
+              {demographics && demographics.total_students > 0 ? (
+                <div className="grid items-center gap-4 sm:grid-cols-[minmax(0,150px)_1fr]">
+                  <DemographicsDonut data={demographics} height={180} />
+                  <DemographicsLegend data={demographics} />
+                </div>
+              ) : (
+                <div className="flex h-[180px] items-center justify-center text-sm text-[var(--tenant-muted)]">
+                  No student records yet
+                </div>
+              )}
+            </SectionCard>
+          </div>
+
+          {/* Enrollment status */}
+          <div className="min-w-0">
+            <SectionLabel>Enrollment Status</SectionLabel>
             <SectionCard
               title="Intake by Status"
               subtitle={`${enrollments.length} total records`}
@@ -475,13 +436,13 @@ export default function SecretaryDashboardPage() {
               {enrollmentStatusData.length > 0 ? (
                 <ChartContainer config={enrollmentChartConfig} className="h-[220px] w-full">
                   <BarChart data={enrollmentStatusData} accessibilityLayer>
-                    <CartesianGrid vertical={false} stroke="#f1f5f9" />
+                    <CartesianGrid vertical={false} stroke="#efe9df" />
                     <XAxis
                       dataKey="status"
                       tickLine={false}
                       axisLine={false}
                       tickMargin={8}
-                      tick={{ fontSize: 11, fill: "#94a3b8" }}
+                      tick={{ fontSize: 11, fill: "#78716c" }}
                     />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Bar dataKey="count" fill="var(--color-count)" radius={6} />
@@ -489,16 +450,17 @@ export default function SecretaryDashboardPage() {
                 </ChartContainer>
               ) : (
                 <div className="flex h-[220px] flex-col items-center justify-center gap-2 text-center">
-                  <GraduationCap className="h-8 w-8 text-slate-200" />
-                  <p className="text-sm text-slate-400">No enrollment data yet</p>
+                  <GraduationCap className="h-8 w-8 text-[var(--tenant-border)]" />
+                  <p className="text-sm text-[var(--tenant-muted)]">No enrollment data yet</p>
                 </div>
               )}
             </SectionCard>
           </div>
+        </div>
 
-          {/* User activity summary */}
-          <div>
-            <SectionLabel>User Activity</SectionLabel>
+        {/* ── Staff & user accounts (full width) ── */}
+        <div>
+          <SectionLabel>User Activity</SectionLabel>
             <SectionCard
               title="Staff & User Accounts"
               subtitle={`${users.length} registered accounts`}
@@ -511,28 +473,28 @@ export default function SecretaryDashboardPage() {
                 ) : undefined
               }
             >
-              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[600px]">
+              <div className="overflow-x-auto rounded-xl border border-[var(--tenant-border)] [&_table]:min-w-[600px]">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead className="text-xs">Name / Email</TableHead>
                       <TableHead className="text-xs">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {users.slice(0, 6).map((u) => (
-                      <TableRow key={u.id} className="hover:bg-slate-50">
+                      <TableRow key={u.id} className="hover:bg-[var(--tenant-surface-2)]">
                         <TableCell className="text-sm">
-                          <div className="font-medium text-slate-800">
+                          <div className="font-medium text-[var(--tenant-ink)]">
                             {u.full_name || "—"}
                           </div>
-                          <div className="text-xs text-slate-400">{u.email}</div>
+                          <div className="text-xs text-[var(--tenant-muted)]">{u.email}</div>
                         </TableCell>
                         <TableCell>
                           <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
                             u.is_active
                               ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                              : "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
+                              : "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]"
                           }`}>
                             {u.is_active
                               ? <CheckCircle className="h-3 w-3" />
@@ -550,13 +512,12 @@ export default function SecretaryDashboardPage() {
               </div>
             </SectionCard>
           </div>
-        </div>
 
         {/* ── Enrollment queue + Audit log ── */}
         <div className="grid gap-5 lg:grid-cols-2">
 
           {/* Recent enrollment queue */}
-          <div>
+          <div className="min-w-0">
             <SectionLabel>Enrollment Queue</SectionLabel>
             <SectionCard
               title="Recent Intake Records"
@@ -574,10 +535,10 @@ export default function SecretaryDashboardPage() {
                 ) : undefined
               }
             >
-              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[600px]">
+              <div className="overflow-x-auto rounded-xl border border-[var(--tenant-border)] [&_table]:min-w-[600px]">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead className="text-xs">Student</TableHead>
                       <TableHead className="text-xs">Class</TableHead>
                       <TableHead className="text-xs">Status</TableHead>
@@ -585,17 +546,17 @@ export default function SecretaryDashboardPage() {
                   </TableHeader>
                   <TableBody>
                     {enrollments.slice(0, 8).map((row) => (
-                      <TableRow key={row.id} className="cursor-pointer hover:bg-slate-50">
-                        <TableCell className="text-sm font-medium text-slate-800">
+                      <TableRow key={row.id} className="cursor-pointer hover:bg-[var(--tenant-surface-2)]">
+                        <TableCell className="text-sm font-medium text-[var(--tenant-ink)]">
                           <Link
                             href={`/tenant/secretary/enrollments?section=intake`}
-                            className="block hover:text-[#173f49]"
+                            className="block hover:text-[var(--tenant-primary)]"
                           >
                             {enrollmentName(row.payload)}
                           </Link>
                         </TableCell>
                         <TableCell>
-                          <span className="font-mono text-xs text-slate-400">
+                          <span className="font-mono text-xs text-[var(--tenant-muted)]">
                             {enrollmentClass(row.payload) || "—"}
                           </span>
                         </TableCell>
@@ -614,7 +575,7 @@ export default function SecretaryDashboardPage() {
           </div>
 
           {/* Audit log */}
-          <div>
+          <div className="min-w-0">
             <SectionLabel>Recent Audit Activity</SectionLabel>
             <SectionCard
               title="System Events"
@@ -622,16 +583,16 @@ export default function SecretaryDashboardPage() {
               icon={ShieldCheck}
               action={
                 audit.length > 0 ? (
-                  <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">
+                  <span className="rounded-full bg-[var(--tenant-surface-2)] px-2.5 py-0.5 text-xs font-medium text-[var(--tenant-muted)]">
                     {data?.summary?.total_audit_logs ?? audit.length} total
                   </span>
                 ) : undefined
               }
             >
-              <div className="overflow-x-auto rounded-xl border border-slate-100 [&_table]:min-w-[600px]">
+              <div className="overflow-x-auto rounded-xl border border-[var(--tenant-border)] [&_table]:min-w-[600px]">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-slate-50">
+                    <TableRow className="bg-[var(--tenant-surface-2)]">
                       <TableHead className="text-xs">Action</TableHead>
                       <TableHead className="text-xs">Resource</TableHead>
                       <TableHead className="text-xs">When</TableHead>
@@ -639,15 +600,15 @@ export default function SecretaryDashboardPage() {
                   </TableHeader>
                   <TableBody>
                     {audit.slice(0, 8).map((entry) => (
-                      <TableRow key={entry.id} className="hover:bg-slate-50">
+                      <TableRow key={entry.id} className="hover:bg-[var(--tenant-surface-2)]">
                         <TableCell>
-                          <span className="rounded-md bg-[#dce9eb] px-1.5 py-0.5 font-mono text-xs text-[#173f49]">
+                          <span className="rounded-md bg-[var(--tenant-surface-2)] px-1.5 py-0.5 font-mono text-xs text-[var(--tenant-ink)]">
                             {entry.action}
                           </span>
                         </TableCell>
-                        <TableCell className="text-xs text-slate-500">{entry.resource}</TableCell>
+                        <TableCell className="text-xs text-[var(--tenant-muted)]">{entry.resource}</TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-1 text-xs text-slate-400">
+                          <div className="flex items-center gap-1 text-xs text-[var(--tenant-muted)]">
                             <Clock className="h-3 w-3" />
                             {timeAgo(entry.created_at)}
                           </div>
@@ -669,11 +630,11 @@ export default function SecretaryDashboardPage() {
           <>
             <SectionLabel>System Health</SectionLabel>
             <div className="dashboard-surface overflow-hidden rounded-[1.6rem]">
-              <div className="flex items-center gap-2 border-b border-[#eadfce] px-4 py-4 sm:px-6">
-                <Activity className="h-4 w-4 text-slate-400" />
+              <div className="flex items-center gap-2 border-b border-[var(--tenant-border)] px-4 py-4 sm:px-6">
+                <Activity className="h-4 w-4 text-[var(--tenant-muted)]" />
                 <div>
-                  <h2 className="text-sm font-semibold text-slate-900">Live Service Status</h2>
-                  <p className="mt-0.5 text-xs text-slate-400">
+                  <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">Live Service Status</h2>
+                  <p className="mt-0.5 text-xs text-[var(--tenant-muted)]">
                     {healthKeys.filter((k) => health[k]).length} of {healthKeys.length} services operational
                   </p>
                 </div>

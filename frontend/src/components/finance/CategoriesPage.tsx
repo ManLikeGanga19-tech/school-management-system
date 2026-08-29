@@ -67,10 +67,10 @@ function StatusBadge({ active }: { active: boolean }) {
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
         active
           ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-          : "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
+          : "bg-[var(--tenant-surface-2)] text-[var(--tenant-muted)] ring-1 ring-[var(--tenant-border)]"
       }`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-emerald-500" : "bg-slate-400"}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-emerald-500" : "bg-[var(--tenant-muted)]"}`} />
       {active ? "Active" : "Inactive"}
     </span>
   );
@@ -81,8 +81,8 @@ function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
     <TableRow>
       <TableCell colSpan={colSpan} className="py-12 text-center">
         <div className="flex flex-col items-center gap-1.5">
-          <ClipboardList className="h-7 w-7 text-slate-300" />
-          <span className="text-sm text-slate-400">{message}</span>
+          <ClipboardList className="h-7 w-7 text-[var(--tenant-border)]" />
+          <span className="text-sm text-[var(--tenant-muted)]">{message}</span>
         </div>
       </TableCell>
     </TableRow>
@@ -305,8 +305,8 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
       <AppShell title={role === "director" ? "Director" : "Secretary"} nav={nav} activeHref={activeHref}>
         <div className="flex min-h-[380px] items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            <p className="text-sm text-slate-500">Loading categories…</p>
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--tenant-primary)] border-t-transparent" />
+            <p className="text-sm text-[var(--tenant-muted)]">Loading categories…</p>
           </div>
         </div>
       </AppShell>
@@ -339,22 +339,22 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
 
         {/* ── Starter template banner (shown when no categories exist) ── */}
         {categories.length === 0 && !templateDismissed && (
-          <div className="overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm">
+          <div className="overflow-hidden rounded-2xl border border-[var(--tenant-primary)]/30 bg-gradient-to-br from-[var(--tenant-primary-soft)] to-[var(--tenant-surface-2)] shadow-sm">
             <div className="px-6 py-5 sm:px-8 sm:py-6">
               <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
                 {/* Icon */}
                 <div className="shrink-0">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-md">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--tenant-primary)] text-white shadow-md">
                     <Rocket className="h-6 w-6" />
                   </div>
                 </div>
 
                 {/* Content */}
                 <div className="flex-1">
-                  <h2 className="text-lg font-bold text-blue-900">
+                  <h2 className="text-lg font-bold text-[var(--tenant-ink)]">
                     Get started in seconds — load a starter template
                   </h2>
-                  <p className="mt-1 text-sm text-blue-700">
+                  <p className="mt-1 text-sm text-[var(--tenant-primary)]">
                     New to this? We&apos;ve prepared a set of standard fee categories and items used by
                     most Kenyan schools. Load them now and customise later — it takes less than a second.
                   </p>
@@ -362,7 +362,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                   {/* What's included */}
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div>
-                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-blue-800">
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--tenant-primary)]">
                         Categories included
                       </p>
                       <ul className="space-y-1">
@@ -370,16 +370,16 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                           ["SCHOOL_FEES", "School Fees"],
                           ["OTHER", "Other Charges"],
                         ].map(([code, name]) => (
-                          <li key={code} className="flex items-center gap-2 text-sm text-blue-700">
-                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                          <li key={code} className="flex items-center gap-2 text-sm text-[var(--tenant-primary)]">
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--tenant-primary)]" />
                             <span className="font-mono text-xs font-semibold">{code}</span>
-                            <span className="text-slate-500">— {name}</span>
+                            <span className="text-[var(--tenant-muted)]">— {name}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
                     <div>
-                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-blue-800">
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--tenant-primary)]">
                         Fee items included
                       </p>
                       <ul className="space-y-1">
@@ -389,8 +389,8 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                           "Exam Fee",
                           "Admission Fee",
                         ].map((item) => (
-                          <li key={item} className="flex items-center gap-2 text-sm text-blue-700">
-                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                          <li key={item} className="flex items-center gap-2 text-sm text-[var(--tenant-primary)]">
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--tenant-primary)]" />
                             {item}
                           </li>
                         ))}
@@ -398,7 +398,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                     </div>
                   </div>
 
-                  <p className="mt-3 text-xs text-blue-500">
+                  <p className="mt-3 text-xs text-[var(--tenant-primary)]">
                     You can rename, add, or delete any of these after loading. Nothing is permanent.
                   </p>
 
@@ -407,7 +407,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                     <button
                       onClick={() => void handleApplyTemplate()}
                       disabled={applyingTemplate}
-                      className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700 active:scale-95 disabled:opacity-60 transition"
+                      className="flex items-center gap-2 rounded-xl bg-[var(--tenant-primary)] px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-[var(--tenant-primary)] active:scale-95 disabled:opacity-60 transition"
                     >
                       {applyingTemplate ? (
                         <>
@@ -423,7 +423,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                     </button>
                     <button
                       onClick={() => setTemplateDismissed(true)}
-                      className="rounded-xl border border-blue-200 bg-white px-5 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-50 transition"
+                      className="rounded-xl border border-[var(--tenant-primary)]/30 bg-white px-5 py-2.5 text-sm font-medium text-[var(--tenant-primary)] hover:bg-[var(--tenant-primary-soft)] transition"
                     >
                       I&apos;ll set up manually
                     </button>
@@ -435,13 +435,13 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
         )}
 
         {/* ── Fee Categories ── */}
-        <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div className="rounded-2xl border border-[var(--tenant-border)] bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-[var(--tenant-border)] px-4 py-4 sm:px-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <Layers className="h-4 w-4 text-slate-400" />
+              <Layers className="h-4 w-4 text-[var(--tenant-muted)]" />
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">Fee Categories</h2>
-                <p className="text-xs text-slate-400">
+                <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">Fee Categories</h2>
+                <p className="text-xs text-[var(--tenant-muted)]">
                   {categories.length} categor{categories.length === 1 ? "y" : "ies"} ·
                   Click a row to filter items below
                 </p>
@@ -455,7 +455,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
             )}
           </div>
           {categories.length > 5 && (
-            <div className="flex flex-col gap-2 border-b border-slate-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 border-b border-[var(--tenant-border)] px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
               <Input
                 placeholder="Search categories…"
                 value={categoriesTable.filters.q}
@@ -464,7 +464,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                 }
                 className="max-w-xs"
               />
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-[var(--tenant-muted)]">
                 <TableRangeCaption meta={categoriesTable.meta} />
               </span>
             </div>
@@ -472,7 +472,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50">
+                <TableRow className="bg-[var(--tenant-surface-2)]">
                   <TableHead className="text-xs">Code</TableHead>
                   <TableHead className="text-xs">Name</TableHead>
                   <TableHead className="text-xs">Items</TableHead>
@@ -492,22 +492,22 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                       }
                       className={`cursor-pointer transition ${
                         isSelected
-                          ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
-                          : "hover:bg-slate-50"
+                          ? "bg-[var(--tenant-primary-soft)] ring-1 ring-inset ring-[var(--tenant-primary)]/25"
+                          : "hover:bg-[var(--tenant-surface-2)]"
                       }`}
                     >
-                      <TableCell className="font-mono text-xs font-semibold text-blue-700">
+                      <TableCell className="font-mono text-xs font-semibold text-[var(--tenant-primary)]">
                         {cat.code}
                       </TableCell>
-                      <TableCell className="text-sm font-medium text-slate-800">
+                      <TableCell className="text-sm font-medium text-[var(--tenant-ink)]">
                         {cat.name}
                         {isSelected && (
-                          <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
+                          <span className="ml-2 rounded-full bg-[var(--tenant-primary-soft)] px-1.5 py-0.5 text-xs text-[var(--tenant-primary)]">
                             selected
                           </span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm text-slate-500">{itemCount}</TableCell>
+                      <TableCell className="text-sm text-[var(--tenant-muted)]">{itemCount}</TableCell>
                       <TableCell>
                         <StatusBadge active={cat.is_active} />
                       </TableCell>
@@ -553,7 +553,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
             </Table>
           </div>
           {categories.length > 30 && (
-            <div className="border-t border-slate-100 px-4 py-3">
+            <div className="border-t border-[var(--tenant-border)] px-4 py-3">
               <TablePaginationFooter
                 meta={categoriesTable.meta}
                 page={categoriesTable.page}
@@ -566,26 +566,26 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
         </div>
 
         {/* ── Fee Items ── */}
-        <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div className="rounded-2xl border border-[var(--tenant-border)] bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-[var(--tenant-border)] px-4 py-4 sm:px-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <Tag className="h-4 w-4 text-slate-400" />
+              <Tag className="h-4 w-4 text-[var(--tenant-muted)]" />
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">
+                <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">
                   Fee Items
                   {selectedCategory && (
-                    <span className="ml-2 font-normal text-slate-400">
+                    <span className="ml-2 font-normal text-[var(--tenant-muted)]">
                       — {selectedCategory.name}
                     </span>
                   )}
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-[var(--tenant-muted)]">
                   {filteredItems.length} item{filteredItems.length !== 1 ? "s" : ""}
                   {selectedCategory ? ` in ${selectedCategory.code}` : " total"}
                   {selectedCategory && (
                     <button
                       onClick={() => setSelectedCategoryId(null)}
-                      className="ml-2 text-blue-600 hover:underline"
+                      className="ml-2 text-[var(--tenant-primary)] hover:underline"
                     >
                       clear filter
                     </button>
@@ -613,7 +613,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
           )}
 
           {filteredItems.length > 5 && (
-            <div className="flex flex-col gap-2 border-b border-slate-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 border-b border-[var(--tenant-border)] px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
               <Input
                 placeholder="Search items…"
                 value={itemsTable.filters.q}
@@ -622,7 +622,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                 }
                 className="max-w-xs"
               />
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-[var(--tenant-muted)]">
                 <TableRangeCaption meta={itemsTable.meta} />
               </span>
             </div>
@@ -630,7 +630,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50">
+                <TableRow className="bg-[var(--tenant-surface-2)]">
                   <TableHead className="text-xs">Code</TableHead>
                   <TableHead className="text-xs">Name</TableHead>
                   <TableHead className="text-xs">Category</TableHead>
@@ -642,13 +642,13 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                 {itemsTable.items.map((item) => {
                   const cat = categories.find((c) => c.id === item.category_id);
                   return (
-                    <TableRow key={item.id} className="hover:bg-slate-50">
-                      <TableCell className="font-mono text-xs font-semibold text-blue-700">
+                    <TableRow key={item.id} className="hover:bg-[var(--tenant-surface-2)]">
+                      <TableCell className="font-mono text-xs font-semibold text-[var(--tenant-primary)]">
                         {item.code}
                       </TableCell>
-                      <TableCell className="text-sm text-slate-800">{item.name}</TableCell>
+                      <TableCell className="text-sm text-[var(--tenant-ink)]">{item.name}</TableCell>
                       <TableCell>
-                        <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
+                        <span className="rounded-md bg-[var(--tenant-surface-2)] px-1.5 py-0.5 text-xs text-[var(--tenant-muted)]">
                           {cat?.code ?? "—"}
                         </span>
                       </TableCell>
@@ -699,7 +699,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
             </Table>
           </div>
           {filteredItems.length > 30 && (
-            <div className="border-t border-slate-100 px-4 py-3">
+            <div className="border-t border-[var(--tenant-border)] px-4 py-3">
               <TablePaginationFooter
                 meta={itemsTable.meta}
                 page={itemsTable.page}
@@ -733,7 +733,7 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                 value={catForm.code}
                 onChange={(e) => setCatForm((p) => ({ ...p, code: e.target.value }))}
               />
-              <p className="text-xs text-slate-400">Auto-uppercased. E.g. TUITION</p>
+              <p className="text-xs text-[var(--tenant-muted)]">Auto-uppercased. E.g. TUITION</p>
             </div>
             <div className="space-y-1.5">
               <Label>
@@ -745,12 +745,12 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                 onChange={(e) => setCatForm((p) => ({ ...p, name: e.target.value }))}
               />
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 text-sm text-[var(--tenant-ink)]">
               <input
                 type="checkbox"
                 checked={catForm.is_active}
                 onChange={(e) => setCatForm((p) => ({ ...p, is_active: e.target.checked }))}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                className="h-4 w-4 rounded border-[var(--tenant-border)] text-[var(--tenant-primary)]"
               />
               Active
             </label>
@@ -823,12 +823,12 @@ export function CategoriesPage({ role, nav, activeHref }: Props) {
                 />
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 text-sm text-[var(--tenant-ink)]">
               <input
                 type="checkbox"
                 checked={itemForm.is_active}
                 onChange={(e) => setItemForm((p) => ({ ...p, is_active: e.target.checked }))}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                className="h-4 w-4 rounded border-[var(--tenant-border)] text-[var(--tenant-primary)]"
               />
               Active
             </label>

@@ -183,7 +183,7 @@ function statusBadge(status: string) {
     return "bg-green-100 text-green-800";
   if (s === "FAILED" || s === "CANCELLED") return "bg-red-100 text-red-800";
   if (s === "PENDING" || s === "QUEUED") return "bg-yellow-100 text-yellow-800";
-  return "bg-gray-100 text-gray-700";
+  return "bg-gray-100 text-[var(--tenant-ink)]";
 }
 
 function fmtDate(iso: string | null) {
@@ -543,18 +543,18 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
   const renderCreditsPanel = () => (
     <div className="space-y-6">
       {/* Balance card */}
-      <div className="rounded-lg border bg-white p-6 shadow-sm">
+      <div className="rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface)] p-5 shadow-sm sm:p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-500">SMS Credit Balance</p>
-            <p className="text-4xl font-bold text-gray-900">
+            <p className="text-sm text-[var(--tenant-muted)]">SMS Credit Balance</p>
+            <p className="text-4xl font-bold text-[var(--tenant-ink)]">
               {accountLoading ? "…" : (account?.balance_units ?? 0).toLocaleString()}
             </p>
-            <p className="text-sm text-gray-500">units remaining</p>
+            <p className="text-sm text-[var(--tenant-muted)]">units remaining</p>
           </div>
           <div className="text-right">
-            <p className="text-sm text-gray-500">Price per SMS</p>
-            <p className="text-2xl font-semibold text-blue-700">
+            <p className="text-sm text-[var(--tenant-muted)]">Price per SMS</p>
+            <p className="text-2xl font-semibold text-[var(--tenant-primary)]">
               KES {price.toFixed(2)}
             </p>
           </div>
@@ -575,7 +575,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
       </div>
 
       {/* Top-up history */}
-      <div className="rounded-lg border bg-white shadow-sm">
+      <div className="rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface)] shadow-sm">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="font-medium">Top-up History</h3>
           <Button variant="ghost" size="sm" onClick={fetchTopupHistory} className="gap-1">
@@ -583,15 +583,15 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
           </Button>
         </div>
         {topupLoading ? (
-          <div className="flex items-center justify-center py-8 text-gray-400">
+          <div className="flex items-center justify-center py-8 text-[var(--tenant-muted)]">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : topupHistory.length === 0 ? (
-          <p className="py-8 text-center text-sm text-gray-400">No top-up history yet</p>
+          <p className="py-8 text-center text-sm text-[var(--tenant-muted)]">No top-up history yet</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="border-b bg-gray-50 text-xs text-gray-500">
+              <thead className="border-b bg-[var(--tenant-surface-2)] text-xs text-[var(--tenant-muted)]">
                 <tr>
                   <th className="px-4 py-2 text-left">Date</th>
                   <th className="px-4 py-2 text-right">Units</th>
@@ -602,8 +602,8 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
               </thead>
               <tbody className="divide-y">
                 {topupHistory.map((t) => (
-                  <tr key={t.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-gray-600">{fmtDate(t.created_at)}</td>
+                  <tr key={t.id} className="hover:bg-[var(--tenant-surface-2)]">
+                    <td className="px-4 py-2 text-[var(--tenant-muted)]">{fmtDate(t.created_at)}</td>
                     <td className="px-4 py-2 text-right font-medium">{t.units_requested.toLocaleString()}</td>
                     <td className="px-4 py-2 text-right">{t.amount_kes.toFixed(2)}</td>
                     <td className="px-4 py-2">
@@ -611,7 +611,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
                         {t.status}
                       </span>
                     </td>
-                    <td className="px-4 py-2 font-mono text-xs text-gray-500">
+                    <td className="px-4 py-2 font-mono text-xs text-[var(--tenant-muted)]">
                       {t.mpesa_receipt ?? "—"}
                     </td>
                   </tr>
@@ -626,8 +626,8 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
 
   const renderSendPanel = () => (
     <div className="max-w-xl">
-      <div className="rounded-lg border bg-white p-6 shadow-sm">
-        <h3 className="mb-4 font-semibold text-gray-800">Send Single SMS</h3>
+      <div className="rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface)] p-5 shadow-sm sm:p-6">
+        <h3 className="mb-4 font-semibold text-[var(--tenant-ink)]">Send Single SMS</h3>
         <form onSubmit={handleSend} className="space-y-4">
           <div>
             <Label htmlFor="sendPhone">Phone Number</Label>
@@ -658,13 +658,13 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
               onChange={(e) => setSendBody(e.target.value)}
               required
             />
-            <p className="mt-1 text-xs text-gray-400">
+            <p className="mt-1 text-xs text-[var(--tenant-muted)]">
               {sendBody.length} / 160 chars
               {sendBody.length > 160 ? ` (${Math.ceil(sendBody.length / 160)} SMS segments)` : ""}
             </p>
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-[var(--tenant-muted)]">
               Balance: <span className="font-semibold">{account?.balance_units ?? 0} units</span>
             </p>
             <Button type="submit" disabled={sending} className="gap-2">
@@ -680,11 +680,11 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
   const renderBroadcastPanel = () => (
     <div className="max-w-2xl space-y-4">
       {/* Parent phone autofill */}
-      <div className="rounded-lg border bg-white p-4 shadow-sm">
-        <p className="mb-3 text-sm font-medium text-gray-700">Load parents automatically</p>
-        <div className="flex items-center gap-2">
+      <div className="rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface)] p-4 shadow-sm">
+        <p className="mb-3 text-sm font-medium text-[var(--tenant-ink)]">Load parents automatically</p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-            <SelectTrigger className="w-44">
+            <SelectTrigger className="w-full sm:w-44">
               <SelectValue placeholder="All classes" />
             </SelectTrigger>
             <SelectContent>
@@ -710,15 +710,15 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
             )}
             Load Parents
           </Button>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-[var(--tenant-muted)]">
             Loads parent phone numbers{selectedClassId && selectedClassId !== "__all__" ? " for selected class" : " for all classes"}
           </p>
         </div>
       </div>
 
-      <div className="rounded-lg border bg-white p-6 shadow-sm">
-        <h3 className="mb-1 font-semibold text-gray-800">Broadcast SMS</h3>
-        <p className="mb-4 text-sm text-gray-500">
+      <div className="rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface)] p-5 shadow-sm sm:p-6">
+        <h3 className="mb-1 font-semibold text-[var(--tenant-ink)]">Broadcast SMS</h3>
+        <p className="mb-4 text-sm text-[var(--tenant-muted)]">
           Send the same message to multiple parents. Enter one number per line (optionally followed by the name).
         </p>
         <form onSubmit={handleBroadcast} className="space-y-4">
@@ -732,7 +732,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
               className="font-mono text-sm"
               required
             />
-            <p className="mt-1 text-xs text-gray-400">
+            <p className="mt-1 text-xs text-[var(--tenant-muted)]">
               {bcastRecipients.split("\n").filter(l => l.trim()).length} recipient(s)
             </p>
           </div>
@@ -767,10 +767,10 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
               onChange={(e) => setBcastBody(e.target.value)}
               required
             />
-            <p className="mt-1 text-xs text-gray-400">{bcastBody.length} chars</p>
+            <p className="mt-1 text-xs text-[var(--tenant-muted)]">{bcastBody.length} chars</p>
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-[var(--tenant-muted)]">
               Balance: <span className="font-semibold">{account?.balance_units ?? 0} units</span>
             </p>
             <Button type="submit" disabled={broadcasting} className="gap-2">
@@ -784,7 +784,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
   );
 
   const renderHistoryPanel = () => (
-    <div className="rounded-lg border bg-white shadow-sm">
+    <div className="rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface)] shadow-sm">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h3 className="font-medium">Message History</h3>
         <Button variant="ghost" size="sm" onClick={fetchMessages} className="gap-1">
@@ -792,15 +792,15 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
         </Button>
       </div>
       {messagesLoading ? (
-        <div className="flex items-center justify-center py-8 text-gray-400">
+        <div className="flex items-center justify-center py-8 text-[var(--tenant-muted)]">
           <Loader2 className="h-5 w-5 animate-spin" />
         </div>
       ) : messages.length === 0 ? (
-        <p className="py-8 text-center text-sm text-gray-400">No messages sent yet</p>
+        <p className="py-8 text-center text-sm text-[var(--tenant-muted)]">No messages sent yet</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="border-b bg-gray-50 text-xs text-gray-500">
+            <thead className="border-b bg-[var(--tenant-surface-2)] text-xs text-[var(--tenant-muted)]">
               <tr>
                 <th className="px-4 py-2 text-left">Date</th>
                 <th className="px-4 py-2 text-left">To</th>
@@ -811,13 +811,13 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
             </thead>
             <tbody className="divide-y">
               {messages.map((m) => (
-                <tr key={m.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2 text-xs text-gray-500 whitespace-nowrap">{fmtDate(m.created_at)}</td>
+                <tr key={m.id} className="hover:bg-[var(--tenant-surface-2)]">
+                  <td className="px-4 py-2 text-xs text-[var(--tenant-muted)] whitespace-nowrap">{fmtDate(m.created_at)}</td>
                   <td className="px-4 py-2 whitespace-nowrap">
                     <p className="font-medium">{m.recipient_name ?? m.to_phone}</p>
-                    {m.recipient_name && <p className="text-xs text-gray-400">{m.to_phone}</p>}
+                    {m.recipient_name && <p className="text-xs text-[var(--tenant-muted)]">{m.to_phone}</p>}
                   </td>
-                  <td className="max-w-xs px-4 py-2 text-gray-700 truncate">{m.message_body}</td>
+                  <td className="max-w-xs px-4 py-2 text-[var(--tenant-ink)] truncate">{m.message_body}</td>
                   <td className="px-4 py-2 text-center">{m.units_deducted}</td>
                   <td className="px-4 py-2">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusBadge(m.status)}`}>
@@ -839,33 +839,33 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
   const renderTemplatesPanel = () => (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-[var(--tenant-muted)]">
           Create reusable message templates for common notifications.
         </p>
         <Button onClick={openCreateTemplate} className="gap-2">
           <Plus className="h-4 w-4" /> New Template
         </Button>
       </div>
-      <div className="rounded-lg border bg-white shadow-sm">
+      <div className="rounded-lg border border-[var(--tenant-border)] bg-[var(--tenant-surface)] shadow-sm">
         {templatesLoading ? (
-          <div className="flex items-center justify-center py-8 text-gray-400">
+          <div className="flex items-center justify-center py-8 text-[var(--tenant-muted)]">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : templates.length === 0 ? (
-          <p className="py-8 text-center text-sm text-gray-400">
+          <p className="py-8 text-center text-sm text-[var(--tenant-muted)]">
             No templates yet. Create one to reuse common messages.
           </p>
         ) : (
           <div className="divide-y">
             {templates.map((t) => (
-              <div key={t.id} className="flex items-start justify-between gap-4 px-4 py-4 hover:bg-gray-50">
+              <div key={t.id} className="flex items-start justify-between gap-4 px-4 py-4 hover:bg-[var(--tenant-surface-2)]">
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-gray-800">{t.name}</p>
-                  <p className="mt-0.5 text-sm text-gray-500 truncate">{t.body}</p>
+                  <p className="font-medium text-[var(--tenant-ink)]">{t.name}</p>
+                  <p className="mt-0.5 text-sm text-[var(--tenant-muted)] truncate">{t.body}</p>
                   {t.variables.length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1">
                       {t.variables.map((v) => (
-                        <span key={v} className="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700">
+                        <span key={v} className="rounded bg-[var(--tenant-surface-2)] px-1.5 py-0.5 text-xs text-[var(--tenant-primary)]">
                           {"{" + v + "}"}
                         </span>
                       ))}
@@ -903,22 +903,22 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
     <AppShell nav={nav} title={`${title} — Messages`}>
       <div className="space-y-6 p-4 md:p-6">
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <MessageSquare className="h-6 w-6 text-blue-600" />
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">SMS Messaging</h1>
-            <p className="text-sm text-gray-500">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <MessageSquare className="hidden h-6 w-6 shrink-0 text-[var(--tenant-primary)] sm:block" />
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold text-[var(--tenant-ink)]">SMS Messaging</h1>
+            <p className="text-sm text-[var(--tenant-muted)]">
               Send SMS notifications to parents and guardians
             </p>
           </div>
-          <div className="ml-auto flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+          <div className="flex items-center gap-2 self-start rounded-full bg-[var(--tenant-surface-2)] px-3 py-1 text-sm font-medium text-[var(--tenant-primary)] sm:ml-auto sm:self-auto">
             <Coins className="h-4 w-4" />
             {accountLoading ? "…" : (account?.balance_units ?? 0).toLocaleString()} credits
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 rounded-lg bg-gray-100 p-1 w-fit">
+        <div className="-mx-4 flex gap-1 overflow-x-auto rounded-lg bg-[var(--tenant-surface-2)] p-1 px-4 sm:mx-0 sm:w-fit sm:px-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const active = section === tab.id;
@@ -926,10 +926,10 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
               <a
                 key={tab.id}
                 href={`?section=${tab.id}`}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                   active
-                    ? "bg-white shadow-sm text-gray-900"
-                    : "text-gray-600 hover:text-gray-900"
+                    ? "bg-[var(--tenant-surface)] shadow-sm text-[var(--tenant-ink)]"
+                    : "text-[var(--tenant-muted)] hover:text-[var(--tenant-ink)]"
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" />
@@ -976,10 +976,10 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
               />
             </div>
             {topupCost && (
-              <div className="rounded-md bg-blue-50 px-4 py-3 text-sm">
-                <p className="text-gray-600">Total cost:</p>
-                <p className="text-xl font-bold text-blue-700">KES {topupCost}</p>
-                <p className="text-xs text-gray-400">
+              <div className="rounded-md bg-[var(--tenant-surface-2)] px-4 py-3 text-sm">
+                <p className="text-[var(--tenant-muted)]">Total cost:</p>
+                <p className="text-xl font-bold text-[var(--tenant-primary)]">KES {topupCost}</p>
+                <p className="text-xs text-[var(--tenant-muted)]">
                   {units.toLocaleString()} credits × KES {price.toFixed(2)} each
                 </p>
               </div>
@@ -1022,7 +1022,7 @@ export default function SmsModulePage({ title, nav, canTopup = false }: Props) {
                 onChange={(e) => setTmplBody(e.target.value)}
                 required
               />
-              <p className="mt-1 text-xs text-gray-400">
+              <p className="mt-1 text-xs text-[var(--tenant-muted)]">
                 Use {"{variable_name}"} for placeholders
               </p>
             </div>

@@ -70,7 +70,7 @@ const LEVEL_STYLE: Record<string, { badge: string; bar: string; label: string }>
 };
 
 function levelBadge(level: string) {
-  const s = LEVEL_STYLE[level] ?? { badge: "bg-slate-100 text-slate-600", label: level };
+  const s = LEVEL_STYLE[level] ?? { badge: "bg-slate-100 text-[var(--tenant-muted)]", label: level };
   return (
     <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ${s.badge}`}>
       {level} — {s.label}
@@ -108,15 +108,15 @@ function LearningAreaCard({ la }: { la: ReportLearningArea }) {
   const total = allSubs.length;
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden">
+    <div className="rounded-2xl border border-[var(--tenant-border)] bg-[var(--tenant-surface)] shadow-sm overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition text-left"
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--tenant-surface-2)] transition text-left"
       >
         <div>
-          <p className="font-semibold text-slate-800">{la.learning_area_name}</p>
-          <p className="text-xs text-slate-400 mt-0.5">{la.grade_band.replace(/_/g, " ")} · {total} sub-strand{total !== 1 ? "s" : ""}</p>
+          <p className="font-semibold text-[var(--tenant-ink)]">{la.learning_area_name}</p>
+          <p className="text-xs text-[var(--tenant-muted)] mt-0.5">{la.grade_band.replace(/_/g, " ")} · {total} sub-strand{total !== 1 ? "s" : ""}</p>
         </div>
         <div className="flex items-center gap-3">
           {/* Mini distribution */}
@@ -127,7 +127,7 @@ function LearningAreaCard({ la }: { la: ReportLearningArea }) {
               </span>
             ))}
           </div>
-          {open ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+          {open ? <ChevronDown className="h-4 w-4 text-[var(--tenant-muted)]" /> : <ChevronRight className="h-4 w-4 text-[var(--tenant-muted)]" />}
         </div>
       </button>
 
@@ -149,17 +149,17 @@ function LearningAreaCard({ la }: { la: ReportLearningArea }) {
 
       {/* Strand breakdown */}
       {open && (
-        <div className="divide-y divide-slate-50">
+        <div className="divide-y divide-[var(--tenant-border)]">
           {la.strands.map((strand) => (
             <div key={strand.strand_id} className="px-5 py-3">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{strand.strand_name}</p>
+              <p className="text-xs font-semibold text-[var(--tenant-muted)] uppercase tracking-wide mb-2">{strand.strand_name}</p>
               <div className="space-y-1.5">
                 {strand.sub_strands.map((ss) => (
                   <div key={ss.sub_strand_id} className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-700 truncate">{ss.sub_strand_name}</p>
+                      <p className="text-sm text-[var(--tenant-ink)] truncate">{ss.sub_strand_name}</p>
                       {ss.teacher_observations && (
-                        <p className="text-xs text-slate-400 mt-0.5 italic">"{ss.teacher_observations}"</p>
+                        <p className="text-xs text-[var(--tenant-muted)] mt-0.5 italic">"{ss.teacher_observations}"</p>
                       )}
                     </div>
                     {levelBadge(ss.performance_level)}
@@ -226,7 +226,7 @@ export default function ParentProgressPage() {
     return (
       <AppShell nav={parentNav} title="Progress">
         <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--tenant-primary)]" />
         </div>
       </AppShell>
     );
@@ -236,9 +236,9 @@ export default function ParentProgressPage() {
     return (
       <AppShell nav={parentNav} title="Progress">
         <div className="mx-auto max-w-2xl px-4 py-16 text-center space-y-3">
-          <BookOpenCheck className="h-12 w-12 text-slate-200 mx-auto" />
-          <p className="text-slate-500 font-medium">No CBC progress reports available yet</p>
-          <p className="text-slate-400 text-sm">Your child's teacher will enter assessments at the end of each term. Check back then.</p>
+          <BookOpenCheck className="h-12 w-12 text-[var(--tenant-muted)] opacity-40 mx-auto" />
+          <p className="text-[var(--tenant-muted)] font-medium">No CBC progress reports available yet</p>
+          <p className="text-[var(--tenant-muted)] text-sm">Your child's teacher will enter assessments at the end of each term. Check back then.</p>
         </div>
       </AppShell>
     );
@@ -248,14 +248,14 @@ export default function ParentProgressPage() {
     <AppShell nav={parentNav} title="My Child's Progress">
       <div className="mx-auto max-w-3xl px-4 py-6 space-y-6">
         {/* Hero */}
-        <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 px-6 py-5 text-white">
+        <div className="dashboard-hero rounded-2xl px-5 py-5 text-white shadow-sm sm:px-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <p className="text-blue-200 text-xs font-medium uppercase tracking-wide">CBC Learner Progress</p>
+            <div className="min-w-0">
+              <p className="text-white/70 text-xs font-medium uppercase tracking-wide">CBC Learner Progress</p>
               <h1 className="text-2xl font-bold mt-1">{report?.student_name ?? "—"}</h1>
-              <p className="text-blue-200 text-sm mt-0.5">{report?.class_name} · {report?.academic_year}</p>
+              <p className="text-white/70 text-sm mt-0.5">{report?.class_name} · {report?.academic_year}</p>
             </div>
-            <div className="flex items-center gap-1.5 text-blue-100 text-sm">
+            <div className="flex items-center gap-1.5 text-white/90 text-sm">
               <TrendingUp className="h-4 w-4" />
               {report && overallLevel(report.learning_areas)}
             </div>
@@ -265,7 +265,7 @@ export default function ParentProgressPage() {
         {/* Term selector */}
         {terms.length > 1 && (
           <div className="flex items-center gap-3">
-            <p className="text-sm text-slate-500 shrink-0">Showing results for:</p>
+            <p className="text-sm text-[var(--tenant-muted)] shrink-0">Showing results for:</p>
             <Select value={termId} onValueChange={(v) => void loadTerm(v)} disabled={termLoading}>
               <SelectTrigger className="h-9 w-48">
                 <SelectValue />
@@ -278,7 +278,7 @@ export default function ParentProgressPage() {
                 ))}
               </SelectContent>
             </Select>
-            {termLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-400" />}
+            {termLoading && <Loader2 className="h-4 w-4 animate-spin text-[var(--tenant-primary)]" />}
           </div>
         )}
 
@@ -287,11 +287,11 @@ export default function ParentProgressPage() {
           <>
             {/* Learning areas */}
             <div className="space-y-4">
-              <h2 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">
+              <h2 className="text-sm font-semibold text-[var(--tenant-muted)] uppercase tracking-wide">
                 Learning Areas — {report.term_name}
               </h2>
               {report.learning_areas.length === 0 ? (
-                <div className="rounded-xl border border-slate-100 bg-white p-8 text-center text-slate-400 text-sm">
+                <div className="rounded-xl border border-[var(--tenant-border)] bg-[var(--tenant-surface)] p-8 text-center text-[var(--tenant-muted)] text-sm">
                   No assessments recorded for this term yet.
                 </div>
               ) : (
@@ -303,28 +303,28 @@ export default function ParentProgressPage() {
 
             {/* Teacher comments */}
             {(report.class_teacher_comment || report.principal_comment || report.conduct) && (
-              <div className="rounded-2xl border border-slate-100 bg-white shadow-sm p-5 space-y-4">
-                <h2 className="text-sm font-semibold text-slate-700">Teacher Remarks</h2>
+              <div className="rounded-2xl border border-[var(--tenant-border)] bg-[var(--tenant-surface)] shadow-sm p-5 space-y-4">
+                <h2 className="text-sm font-semibold text-[var(--tenant-ink)]">Teacher Remarks</h2>
                 {report.class_teacher_comment && (
                   <div>
-                    <p className="text-xs text-slate-400 mb-1">Class Teacher</p>
-                    <p className="text-sm text-slate-700 italic">"{report.class_teacher_comment}"</p>
+                    <p className="text-xs text-[var(--tenant-muted)] mb-1">Class Teacher</p>
+                    <p className="text-sm text-[var(--tenant-ink)] italic">"{report.class_teacher_comment}"</p>
                   </div>
                 )}
                 {report.principal_comment && (
                   <div>
-                    <p className="text-xs text-slate-400 mb-1">Principal</p>
-                    <p className="text-sm text-slate-700 italic">"{report.principal_comment}"</p>
+                    <p className="text-xs text-[var(--tenant-muted)] mb-1">Principal</p>
+                    <p className="text-sm text-[var(--tenant-ink)] italic">"{report.principal_comment}"</p>
                   </div>
                 )}
                 {report.conduct && (
                   <div>
-                    <p className="text-xs text-slate-400 mb-1">Conduct</p>
-                    <p className="text-sm font-semibold text-slate-800">{report.conduct}</p>
+                    <p className="text-xs text-[var(--tenant-muted)] mb-1">Conduct</p>
+                    <p className="text-sm font-semibold text-[var(--tenant-ink)]">{report.conduct}</p>
                   </div>
                 )}
                 {report.next_term_begins && (
-                  <p className="text-xs text-slate-500 pt-2 border-t border-slate-100">
+                  <p className="text-xs text-[var(--tenant-muted)] pt-2 border-t border-[var(--tenant-border)]">
                     Next term begins: <span className="font-medium">{report.next_term_begins}</span>
                   </p>
                 )}
