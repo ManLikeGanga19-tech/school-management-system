@@ -1067,7 +1067,15 @@ export function AppShell({
 
                 {hasChildren && itemIsExpanded && !sidebarCollapsed && (
                   <div className="space-y-1 pl-4">
-                    {(item.children || []).map((child) => {
+                    {(item.children || [])
+                      .filter((child) => {
+                        // RBAC gate for sub-items — fail-OPEN while permissions
+                        // load, then hide once we know the role lacks the
+                        // child's required permission (pages still enforce it).
+                        const childPerm = child.permission;
+                        return !(childPerm && !permLoading && !hasPermission(childPerm));
+                      })
+                      .map((child) => {
                       const childIsExactActive = isExactActive(child.href);
                       const ChildIcon = child.icon ? NAV_ICON_REGISTRY[child.icon] : undefined;
                       const childBadgeCount = badgeCountFor(child);
