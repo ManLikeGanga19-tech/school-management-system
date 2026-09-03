@@ -1544,6 +1544,24 @@ def reverse_payment_route(
 
 
 @router.get(
+    "/daily-collections",
+    dependencies=[Depends(require_permission("finance.payments.view"))],
+)
+def daily_collections_route(
+    date_from: str | None = Query(default=None, description="YYYY-MM-DD inclusive (school-local)"),
+    date_to: str | None = Query(default=None, description="YYYY-MM-DD inclusive (school-local)"),
+    db: Session = Depends(get_db),
+    tenant=Depends(get_tenant),
+    _user=Depends(get_current_user),
+):
+    """Per-day cash collections split by provider, over a date range. Reversed
+    payments are excluded; days are bucketed by the school's local calendar."""
+    return service.get_daily_collections(
+        db, tenant_id=tenant.id, date_from=date_from, date_to=date_to
+    )
+
+
+@router.get(
     "/students/{student_id}/payment-summary",
     response_model=StudentPaymentSummaryOut,
     dependencies=[Depends(require_permission("finance.payments.view"))],

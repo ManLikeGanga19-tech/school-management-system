@@ -60,6 +60,7 @@ import {
 import { InvoicePreviewModal, type InvoicePreviewData } from "@/components/finance/InvoicePreviewModal";
 import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStudent";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
+import { DailyCollectionsPage } from "@/components/finance/DailyCollectionsPage";
 import { EnrollmentCombobox, type EnrollmentOption } from "@/components/ui/enrollment-combobox";
 import { api, apiFetchRaw } from "@/lib/api";
 import { currentTermIdentity, normalizeTerms, type TenantTerm } from "@/lib/school-setup/terms";
@@ -734,7 +735,8 @@ function SecretaryFinancePageContent() {
       sectionParam === "invoices" ||
       sectionParam === "payments" ||
       sectionParam === "receipts" ||
-      sectionParam === "record-payment"
+      sectionParam === "record-payment" ||
+      sectionParam === "collections"
         ? (sectionParam as FinanceSection)
         : null;
 
@@ -1286,6 +1288,7 @@ function SecretaryFinancePageContent() {
   const showPayments = section === "payments";
   const showReceipts = section === "receipts";
   const showRecordPayment = section === "record-payment";
+  const showCollections = section === "collections";
   // Secretary RBAC: replace money aggregates with action-oriented counts.
   // DRAFTs are the secretary's workflow signal — they're the queue waiting
   // to be reviewed and published.
@@ -1853,6 +1856,8 @@ function SecretaryFinancePageContent() {
 
         {/* ── RECORD PAYMENT (by student) ── */}
         {showRecordPayment && <RecordPaymentByStudent />}
+
+        {showCollections && <DailyCollectionsPage />}
 
         {/* ── INVOICES SECTION ── */}
         {showInvoices && (

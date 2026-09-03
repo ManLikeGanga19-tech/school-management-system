@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { EnrollmentCombobox, type EnrollmentOption } from "@/components/ui/enrollment-combobox";
 import {
   Table,
   TableBody,
@@ -403,6 +404,11 @@ function LinkEnrollmentModal({
   const [selectedId, setSelectedId] = useState("");
   const [relationship, setRelationship] = useState("GUARDIAN");
   const available = enrollments.filter((e) => !alreadyLinked.includes(e.id));
+  const options: EnrollmentOption[] = available.map((e) => ({
+    id: e.id,
+    label: enrollmentName(e.payload),
+    sublabel: (e.payload?.class_code as string) || undefined,
+  }));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -414,17 +420,12 @@ function LinkEnrollmentModal({
         <div className="space-y-4 p-5">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-600">Student (Enrollment)</label>
-            <Select value={selectedId || "__none__"} onValueChange={(v) => setSelectedId(v === "__none__" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Select student…" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Select student…</SelectItem>
-                {available.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {enrollmentName(e.payload)}{e.payload?.class_code ? ` · ${e.payload.class_code}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <EnrollmentCombobox
+              options={options}
+              value={selectedId}
+              onChange={setSelectedId}
+              placeholder="Search student by name…"
+            />
             {available.length === 0 && (
               <p className="mt-2 text-xs text-slate-400">All enrolled students are already linked.</p>
             )}

@@ -9164,3 +9164,109 @@ def reverse_payment(
         "amount": str(pay.amount),
         "invoices_restored": restored,
     }
+
+
+# ── Daily collections report ────────────────────────────────────────────────
+# All ShuleHQ tenants are Kenyan schools; payments are bucketed by the school's
+# local calendar day (UTC+3) so "today" on the report matches the front office.
+SCHOOL_TZ = "Africa/Nairobi"
+
+
+def get_daily_collections(
+    db: Session,
+    *,
+    tenant_id: UUID,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> dict:
+    """Per-day cash collection totals, split by provider, over a date range.
+
+    Sums live payments only (reversed payments are void and excluded), bucketed
+    by the school-local calendar day. Returns dense day rows (zero-days
+    included) newest-first, the provider columns present in the range, and the
+    range grand totals — everything the Daily Collections view + its export need.
+    """
+    from datetime import date as _date, timedelta as _timedelta
+
+    def _parse(value: Optional[str], default: _date) -> _date:
+        if not value:
+            return default
+        try:
+            return _date.fromisoformat(str(value)[:10])
+        except Exception:
+            return default
+
+    today = datetime.now(timezone.utc).date()
+    end = _parse(date_to, today)
+    start = _parse(date_from, end - _timedelta(days=29))
+    if start > end:
+        start, end = end, start
+    # Guard against an unbounded scan.
+    if (end - start).days > 366:
+        start = end - _timedelta(days=366)
+
+    rows = db.execute(
+        sa_text(
+            """
+            SELECT
+                (received_at AT TIME ZONE :tz)::date AS day,
+                UPPER(provider)                      AS provider,
+                COUNT(*)                             AS cnt,
+                COALESCE(SUM(amount), 0)             AS total
+            FROM core.payments
+            WHERE tenant_id = :tid
+              AND reversed_at IS NULL
+              AND (received_at AT TIME ZONE :tz)::date BETWEEN :start AND :end
+            GROUP BY day, UPPER(provider)
+            """
+        ),
+        {"tid": str(tenant_id), "tz": SCHOOL_TZ, "start": start, "end": end},
+    ).mappings().all()
+
+    # Pivot into {day -> {provider -> total}} plus per-day counts.
+    by_day: dict[str, dict[str, Decimal]] = {}
+    count_by_day: dict[str, int] = {}
+    providers: set[str] = set()
+    grand_by_provider: dict[str, Decimal] = {}
+    grand_total = Decimal("0")
+    grand_count = 0
+    for r in rows:
+        day = str(r["day"])
+        prov = str(r["provider"] or "OTHER")
+        amt = Decimal(str(r["total"] or 0))
+        cnt = int(r["cnt"] or 0)
+        providers.add(prov)
+        by_day.setdefault(day, {})[prov] = amt
+        count_by_day[day] = count_by_day.get(day, 0) + cnt
+        grand_by_provider[prov] = grand_by_provider.get(prov, Decimal("0")) + amt
+        grand_total += amt
+        grand_count += cnt
+
+    # Dense, newest-first day rows across the whole range (zero days included).
+    days_out: list[dict] = []
+    cursor = end
+    while cursor >= start:
+        key = cursor.isoformat()
+        prov_map = by_day.get(key, {})
+        day_total = sum(prov_map.values(), Decimal("0"))
+        days_out.append({
+            "date": key,
+            "by_provider": {p: str(prov_map.get(p, Decimal("0"))) for p in sorted(providers)},
+            "total": str(day_total),
+            "count": count_by_day.get(key, 0),
+        })
+        cursor -= _timedelta(days=1)
+
+    return {
+        "date_from": start.isoformat(),
+        "date_to": end.isoformat(),
+        "timezone": SCHOOL_TZ,
+        "currency": "KES",
+        "providers": sorted(providers),
+        "days": days_out,
+        "totals": {
+            "by_provider": {p: str(grand_by_provider.get(p, Decimal("0"))) for p in sorted(providers)},
+            "total": str(grand_total),
+            "count": grand_count,
+        },
+    }
