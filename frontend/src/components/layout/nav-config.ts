@@ -7,6 +7,7 @@ export type FinanceSection =
   | "payments"
   | "record-payment"
   | "receipts"
+  | "collections"
   | "scan-receipt";
 export type EnrollmentSection = "intake" | "students";
 export type SchoolSetupSection = "terms" | "classes" | "subjects" | "timetable" | "calendar" | "print-settings" | "curriculum" | "admission-number";
@@ -239,6 +240,7 @@ export const directorNav: AppNavItem[] = [
       { href: directorFinanceHref("record-payment"), label: "Record Payment", icon: "HandCoins" },
       { href: directorFinanceHref("payments"), label: "Payments", icon: "HandCoins" },
       { href: directorFinanceHref("receipts"), label: "Receipts", icon: "Receipt" },
+      { href: directorFinanceHref("collections"), label: "Daily Collections", icon: "CalendarDays" },
       { href: directorFinanceHref("scan-receipt"), label: "Scan Receipt", icon: "ScanLine" },
     ],
   },
@@ -393,6 +395,7 @@ export const secretaryNav: AppNavItem[] = [
       { href: secretaryFinanceHref("record-payment"), label: "Record Payment", icon: "HandCoins" },
       { href: secretaryFinanceHref("payments"), label: "Payments", icon: "HandCoins" },
       { href: secretaryFinanceHref("receipts"), label: "Receipts", icon: "Receipt" },
+      { href: secretaryFinanceHref("collections"), label: "Daily Collections", icon: "CalendarDays" },
       { href: secretaryFinanceHref("scan-receipt"), label: "Scan Receipt", icon: "ScanLine" },
     ],
   },

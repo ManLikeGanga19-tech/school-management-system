@@ -33,6 +33,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { RecordPaymentByStudent } from "@/components/finance/RecordPaymentByStudent";
 import { EnrollmentCombobox, type EnrollmentOption } from "@/components/ui/enrollment-combobox";
 import { RowActionsMenu } from "@/components/finance/RowActionsMenu";
+import { DailyCollectionsPage } from "@/components/finance/DailyCollectionsPage";
 import { Textarea } from "@/components/ui/textarea";
 import { usePermissions } from "@/lib/auth/usePermissions";
 import { ApplyScholarshipDialog } from "@/components/finance/ApplyScholarshipDialog";
@@ -237,6 +238,7 @@ const SECTION_TITLES: Partial<Record<FinanceSection, string>> = {
   invoices: "Invoices",
   payments: "Payments",
   receipts: "Receipts",
+  collections: "Daily Collections",
 };
 
 const DEFAULT_PRINT_PROFILE: PrintProfile = {
@@ -328,7 +330,8 @@ function normalizeSection(value: string | null): FinanceSection {
     value === "invoices" ||
     value === "payments" ||
     value === "receipts" ||
-    value === "record-payment"
+    value === "record-payment" ||
+    value === "collections"
   ) {
     return value;
   }
@@ -1887,6 +1890,8 @@ function TenantFinancePageContent() {
         )}
 
         {section === "record-payment" && <RecordPaymentByStudent />}
+
+        {section === "collections" && <DailyCollectionsPage />}
 
         {section === "invoices" && (
           <SectionCard

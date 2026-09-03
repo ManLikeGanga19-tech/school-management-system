@@ -1924,6 +1924,10 @@ def _serialize_student_clearance_row(
 
     nemis_no = _payload_text(payload, ("nemis_no", "nemisNo"))
     assessment_no = _payload_text(payload, ("assessment_no", "assessmentNo"))
+    # NEMIS/assessment numbers are surfaced for reference but are NOT a clearance
+    # gate: the ULI is issued by KEMIS after registration, so a director must be
+    # able to clear / approve a transfer without them (they're often filled in
+    # later). Kept in the response so the UI can still show and prompt for them.
     has_identifiers = bool(nemis_no and assessment_no)
 
     fees_status = _text_or_none((fee_invoice or {}).get("status"), upper=True) or "MISSING"
@@ -1942,20 +1946,16 @@ def _serialize_student_clearance_row(
         blockers.append("Outstanding school fees.")
     if not assets_cleared:
         blockers.append("Assigned school assets are not returned.")
-    if not has_identifiers:
-        blockers.append("NEMIS and Assessment numbers are required.")
 
     ready_for_transfer_request = (
         status in {"ENROLLED", "ENROLLED_PARTIAL"}
         and fees_cleared
         and assets_cleared
-        and has_identifiers
     )
     ready_for_director_approval = (
         transfer_requested
         and fees_cleared
         and assets_cleared
-        and has_identifiers
     )
 
     return StudentClearanceOut(

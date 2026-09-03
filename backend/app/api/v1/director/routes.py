@@ -83,7 +83,11 @@ def get_director_kpis(
     """), {"tid": tid}).mappings().all()
 
     by_status: dict[str, int] = {r["status"]: int(r["cnt"]) for r in enr_rows}
-    total_enrolled  = by_status.get("ENROLLED", 0)
+    # A partially-enrolled student (admitted under a partial-payment policy) is
+    # enrolled — the domain model treats ENROLLED and ENROLLED_PARTIAL alike
+    # (_ENROLLED_STATUSES). Counting only "ENROLLED" made the KPI stall behind
+    # the real student count whenever a partial admission happened.
+    total_enrolled  = by_status.get("ENROLLED", 0) + by_status.get("ENROLLED_PARTIAL", 0)
     pending_intake  = by_status.get("SUBMITTED", 0) + by_status.get("APPROVED", 0)
 
     # ── School meta (single subquery pass) ───────────────────────────────
