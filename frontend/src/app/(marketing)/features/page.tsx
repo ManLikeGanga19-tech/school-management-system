@@ -101,7 +101,7 @@ export default function FeaturesPage() {
                     Record payments, scan receipts, and track every student's balance — however your school collects fees. Whether it's cash, M-Pesa, bank transfer, or cheque, ShuleHQ keeps a tamper-proof ledger.
                   </p>
                   <ul className="space-y-5 mb-10">
-                    {["Record cash, M-Pesa, bank & cheque payments", "M-Pesa STK push — payment comes to parent's phone", "QR-verified digital receipts (PDF + 80mm thermal)", "Parent portal — search payment by phone or M-Pesa code"].map((item, i) => (
+                    {["Record cash, M-Pesa, bank & cheque payments", "Record M-Pesa payments by transaction code", "QR-verified digital receipts (PDF + 80mm thermal)", "Parent portal — search payment by phone or M-Pesa code"].map((item, i) => (
                       <li key={i} className="flex items-center gap-4 text-dark-navy font-bold tracking-tight">
                         <div className="bg-teal-accent p-1 rounded-lg text-deep-teal"><Check className="w-4 h-4" /></div>
                         <span>{item}</span>
@@ -121,7 +121,7 @@ export default function FeaturesPage() {
                     Give parents real-time visibility into their child's education and financial status without physical meetings or phone calls.
                   </p>
                   <ul className="space-y-4 mb-8">
-                    {["Mobile-friendly CBC progress reports", "Instant access to fee balance & payment history", "M-Pesa STK push — pay directly from the portal", "Download PDF receipts for any payment"].map((item, i) => (
+                    {["Mobile-friendly CBC progress reports", "Instant access to fee balance & payment history", "SMS receipt the moment a payment is recorded", "Download PDF receipts for any payment"].map((item, i) => (
                       <li key={i} className="flex items-center gap-3 text-dark-navy font-bold tracking-tight">
                         <Check className="w-5 h-5 text-brand-primary" /> <span>{item}</span>
                       </li>

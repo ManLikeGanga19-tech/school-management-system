@@ -31,7 +31,7 @@ const comparisonData = [
     category: "Finance & Fees",
     features: [
       { name: "QR-verified digital receipts (PDF + thermal)", starter: true, growth: true, enterprise: true },
-      { name: "M-Pesa STK push & code matching", starter: true, growth: true, enterprise: true },
+      { name: "M-Pesa transaction code recording", starter: true, growth: true, enterprise: true },
       { name: "Cash & bank payment recording", starter: true, growth: true, enterprise: true },
       { name: "Parent payment verification portal", starter: true, growth: true, enterprise: true },
       { name: "SMS credits per term", starter: "500", growth: "2,000", enterprise: "Custom" },

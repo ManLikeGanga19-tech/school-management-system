@@ -116,7 +116,7 @@ export function ParentMockup() {
         </div>
       </div>
       <div className="bg-brand-primary rounded-lg px-4 py-2.5 flex items-center justify-between">
-        <p className="text-[9px] font-bold text-white">Pay via M-Pesa</p>
+        <p className="text-[9px] font-bold text-white">View receipts</p>
         <div className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center">
           <Check size={10} className="text-white" />
         </div>
