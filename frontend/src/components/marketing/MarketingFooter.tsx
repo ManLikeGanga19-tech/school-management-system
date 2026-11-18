@@ -70,7 +70,7 @@ export function MarketingFooter() {
 
         <div className="flex flex-col md:flex-row justify-between items-center pt-12 border-t border-white/5 gap-8">
           <p className="text-warm-cream/30 text-[11px] font-semibold uppercase tracking-[0.2em]">
-            © 2026 ShuleHQ Technology Ltd. Made in Kenya 🇰🇪
+            © 2026 Danamo Tech Ltd. ShuleHQ is a Danamo Tech product. Made in Kenya 🇰🇪
           </p>
           <div className="flex space-x-8 text-[11px] font-semibold uppercase tracking-[0.2em] text-warm-cream/30">
             <Link href="/privacy" className="hover:text-brand-primary transition-colors">Privacy Policy</Link>
